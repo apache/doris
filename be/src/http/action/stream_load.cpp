@@ -77,6 +77,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MIL
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 bvar::LatencyRecorder g_stream_load_receive_data_latency_ms("stream_load_receive_data_latency_ms");
+bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
+                                                                  "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
 static const string CHUNK = "chunked";
@@ -134,6 +136,20 @@ void StreamLoadAction::handle(HttpRequest* req) {
         _save_stream_load_record(ctx, str);
     }
 #endif
+
+    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+              << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
+              << ", load_cost_ms=" << ctx->load_cost_millis << ", receive_data_cost_ms="
+              << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
+              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000
+              << ", commit_and_publish_txn_cost_ms="
+              << ctx->commit_and_publish_txn_cost_nanos / 1000000
+              << ", number_total_rows=" << ctx->number_total_rows
+              << ", number_loaded_rows=" << ctx->number_loaded_rows
+              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes
+              << ", error_url=" << ctx->error_url;
+
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
@@ -171,6 +187,8 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
         int64_t commit_and_publish_start_time = MonotonicNanos();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
         ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+        g_stream_load_commit_and_publish_latency_ms
+                << ctx->commit_and_publish_txn_cost_nanos / 1000000;
     }
     return Status::OK();
 }
@@ -266,7 +284,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         }
     }
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
@@ -618,13 +641,75 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_enable_profile(false);
         }
     }
-    if (!http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
-        if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
-            request.__set_partial_update(true);
+
+    if (!http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty()) {
+        static const StringCaseMap<TUniqueKeyUpdateMode::type> unique_key_update_mode_map = {
+                {"UPSERT", TUniqueKeyUpdateMode::UPSERT},
+                {"UPDATE_FIXED_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS},
+                {"UPDATE_FLEXIBLE_COLUMNS", TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS}};
+        std::string unique_key_update_mode_str = http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE);
+        auto iter = unique_key_update_mode_map.find(unique_key_update_mode_str);
+        if (iter != unique_key_update_mode_map.end()) {
+            TUniqueKeyUpdateMode::type unique_key_update_mode = iter->second;
+            if (unique_key_update_mode == TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS) {
+                // check constraints when flexible partial update is enabled
+                if (ctx->format != TFileFormatType::FORMAT_JSON) {
+                    return Status::InvalidArgument(
+                            "flexible partial update only support json format as input file "
+                            "currently");
+                }
+                if (!http_req->header(HTTP_FUZZY_PARSE).empty() &&
+                    iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'fuzzy_parse' is enabled");
+                }
+                if (!http_req->header(HTTP_COLUMNS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'columns' is specified");
+                }
+                if (!http_req->header(HTTP_JSONPATHS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'jsonpaths' is specified");
+                }
+                if (!http_req->header(HTTP_HIDDEN_COLUMNS).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when 'hidden_columns' is "
+                            "specified");
+                }
+                if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'function_column.sequence_col' is specified");
+                }
+                if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'merge_type' is specified");
+                }
+                if (!http_req->header(HTTP_WHERE).empty()) {
+                    return Status::InvalidArgument(
+                            "Don't support flexible partial update when "
+                            "'where' is specified");
+                }
+            }
+            request.__set_unique_key_update_mode(unique_key_update_mode);
         } else {
-            request.__set_partial_update(false);
+            return Status::InvalidArgument(
+                    "Invalid unique_key_partial_mode {}, must be one of 'UPSERT', "
+                    "'UPDATE_FIXED_COLUMNS' or 'UPDATE_FLEXIBLE_COLUMNS'",
+                    unique_key_update_mode_str);
         }
     }
+    if (http_req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
+        !http_req->header(HTTP_PARTIAL_COLUMNS).empty()) {
+        // only consider `partial_columns` parameter when `unique_key_update_mode` is not set
+        if (iequal(http_req->header(HTTP_PARTIAL_COLUMNS), "true")) {
+            request.__set_unique_key_update_mode(TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS);
+            // for backward compatibility
+            request.__set_partial_update(true);
+        }
+    }
+
     if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
@@ -648,7 +733,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
 #ifndef BE_TEST
     // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -671,7 +756,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            try {
+                content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            } catch (const std::exception& e) {
+                return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
+            }
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||

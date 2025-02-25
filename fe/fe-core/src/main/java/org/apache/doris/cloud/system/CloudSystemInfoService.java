@@ -17,19 +17,24 @@
 
 package org.apache.doris.cloud.system;
 
+import org.apache.doris.analysis.ModifyBackendClause;
+import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
@@ -43,16 +48,20 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -73,6 +82,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     // for show cluster and cache user owned cluster
     // clusterId -> List<Backend>
+    // pls make sure each cluster's backend list is sorted by backendId
     protected Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
     // clusterName -> clusterId
     protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
@@ -236,9 +246,12 @@ public class CloudSystemInfoService extends SystemInfoService {
                         clusterName, clusterId, be.size(), b);
                 continue;
             }
-            be.add(b);
+            List<Backend> sortBackends = Lists.newArrayList(be);
+            sortBackends.add(b);
+            Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
+            clusterIdToBackend.put(clusterId, sortBackends);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
-                    clusterName, clusterId, be.size(), b);
+                    clusterName, clusterId, sortBackends.size(), sortBackends);
         }
 
         for (Backend b : toDel) {
@@ -287,7 +300,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 continue;
             }
             try {
-                Env.getCurrentEnv().dropFrontend(fe.getRole(), fe.getHost(), fe.getEditLogPort());
+                Env.getCurrentEnv().dropFrontendFromBDBJE(fe.getRole(), fe.getHost(), fe.getEditLogPort());
                 LOG.info("dropped cloud frontend={} ", fe);
             } catch (DdlException e) {
                 LOG.warn("failed to drop cloud frontend={} ", fe);
@@ -300,12 +313,129 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
             try {
                 Env.getCurrentEnv().addFrontend(fe.getRole(),
-                        fe.getHost(), fe.getEditLogPort(), fe.getNodeName());
+                        fe.getHost(), fe.getEditLogPort(), fe.getNodeName(), fe.getCloudUniqueId());
                 LOG.info("added cloud frontend={} ", fe);
             } catch (DdlException e) {
                 LOG.warn("failed to add cloud frontend={} ", fe);
             }
         }
+    }
+
+    private void alterBackendCluster(List<HostInfo> hostInfos, String computeGroupId, String cloudUniqueId,
+                                     Cloud.AlterClusterRequest.Operation operation) throws DdlException {
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to alter backends due to empty cloud_instance_id");
+        }
+        // Issue rpc to meta to alter node, then fe master would add this node to its frontends
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setType(ClusterPB.Type.COMPUTE)
+                .build();
+
+        for (HostInfo hostInfo : hostInfos) {
+            Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                    .setCloudUniqueId(cloudUniqueId)
+                    .setIp(hostInfo.getHost())
+                    .setHost(hostInfo.getHost())
+                    .setHeartbeatPort(hostInfo.getPort())
+                    .setCtime(System.currentTimeMillis() / 1000)
+                    .build();
+            clusterPB = clusterPB.toBuilder().addNodes(nodeInfoPB).build();
+        }
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(operation)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter backends not ok, response: {}", response);
+                throw new DdlException("failed to alter backends errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new DdlException("failed to alter backends", e);
+        }
+    }
+
+    /**
+     * @param hostInfos : backend's ip, hostName and port
+     * @throws DdlException
+     */
+    @Override
+    public void addBackends(List<HostInfo> hostInfos, Map<String, String> tagMap) throws UserException {
+        // issue rpc to meta to add this node, then fe master would add this node to its backends
+
+        String clusterName = tagMap.getOrDefault(Tag.COMPUTE_GROUP_NAME, Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME);
+        if (clusterName.isEmpty()) {
+            throw new UserException("ComputeGroup'name can not be empty");
+        }
+
+        String computeGroupId = tryCreateComputeGroup(clusterName,
+                RandomIdentifierGenerator.generateRandomIdentifier(8));
+        String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
+                : String.valueOf(Config.cluster_id);
+
+        String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
+        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+    }
+
+    // final entry of dropping backend
+    // We can not do it in batch, because be may belong to different clusters.
+    // Maybe we can opt it in the future.
+    @Override
+    public void dropBackend(String host, int heartbeatPort) throws DdlException {
+        Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
+        if (droppedBackend == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
+        }
+        String computeGroupId = droppedBackend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (computeGroupId == null || computeGroupId.isEmpty()) {
+            throw new DdlException("Failed to get cluster ID for backend: " + droppedBackend.getId());
+        }
+
+        List<HostInfo> hostInfos = new ArrayList<>();
+        hostInfos.add(new HostInfo(host, heartbeatPort));
+
+        String cloudUniqueId = droppedBackend.getCloudUniqueId();
+        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId,
+                Cloud.AlterClusterRequest.Operation.DROP_NODE);
+    }
+
+    @Override
+    public void decommissionBackend(Backend backend) throws UserException {
+        String computeGroupId = backend.getTagMap().get(Tag.CLOUD_CLUSTER_ID);
+        if (computeGroupId == null || computeGroupId.isEmpty()) {
+            throw new UserException("Failed to get cluster ID for backend: " + backend.getId());
+        }
+
+        List<HostInfo> hostInfos = new ArrayList<>();
+        hostInfos.add(new HostInfo(backend.getHost(), backend.getHeartbeatPort()));
+        try {
+            String cloudUniqueId = backend.getCloudUniqueId();
+            alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId,
+                                Cloud.AlterClusterRequest.Operation.DECOMMISSION_NODE);
+        } catch (DdlException e) {
+            String errorMessage = e.getMessage();
+            LOG.warn("Failed to decommission backend: {}", errorMessage);
+            throw new UserException(errorMessage);
+        }
+    }
+
+    @Override
+    public void modifyBackends(ModifyBackendClause alterClause) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
     @Override
@@ -327,6 +457,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
+        if (memBe == null) {
+            return;
+        }
         // for rename cluster
         String originalClusterName = memBe.getCloudClusterName();
         String originalClusterId = memBe.getCloudClusterId();
@@ -359,22 +492,31 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean containClusterName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.containsKey(clusterName);
-        } finally {
-            rlock.unlock();
-        }
+        return clusterNameToId.containsKey(clusterName);
     }
 
     @Override
     public int getMinPipelineExecutorSize() {
+        String clusterName = "";
+        try {
+            clusterName = ConnectContext.get().getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to get cluster name", e);
+            return 1;
+        }
         if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster(false))) {
+                && Strings.isNullOrEmpty(clusterName)) {
             return 1;
         }
 
         return super.getMinPipelineExecutorSize();
+    }
+
+    @Override
+    public int getTabletNumByBackendId(long beId) {
+        return ((CloudEnv) Env.getCurrentEnv())
+                .getCloudTabletRebalancer()
+                .getTabletNumByBackendId(beId);
     }
 
     @Override
@@ -384,44 +526,39 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new AnalysisException("connect context is null");
         }
 
-        String cluster = ctx.getCurrentCloudCluster();
-        if (Strings.isNullOrEmpty(cluster)) {
-            throw new AnalysisException("cluster name is empty");
+        Map<Long, Backend> idToBackend = Maps.newHashMap();
+        try {
+            String cluster = ctx.getCurrentCloudCluster();
+            if (Strings.isNullOrEmpty(cluster)) {
+                throw new AnalysisException("cluster name is empty");
+            }
+
+            List<Backend> backends =  getBackendsByClusterName(cluster);
+            for (Backend be : backends) {
+                idToBackend.put(be.getId(), be);
+            }
+        } catch (ComputeGroupException e) {
+            throw new AnalysisException(e.getMessage());
         }
 
-        List<Backend> backends =  getBackendsByClusterName(cluster);
-        Map<Long, Backend> idToBackend = Maps.newHashMap();
-        for (Backend be : backends) {
-            idToBackend.put(be.getId(), be);
-        }
         return ImmutableMap.copyOf(idToBackend);
     }
 
     public List<Backend> getBackendsByClusterName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (clusterId.isEmpty()) {
-                return new ArrayList<>();
-            }
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (clusterId.isEmpty()) {
+            return new ArrayList<>();
         }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
-        rlock.lock();
-        try {
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
-        }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
-    public String getClusterIdByBeAddr(String beEndpoint) {
+    public String getClusterNameByBeAddr(String beEndpoint) {
         rlock.lock();
         try {
             for (Map.Entry<String, List<Backend>> idBe : clusterIdToBackend.entrySet()) {
@@ -436,27 +573,18 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<String> getCloudClusterIds() {
-        rlock.lock();
-        try {
-            return new ArrayList<>(clusterIdToBackend.keySet());
-        } finally {
-            rlock.unlock();
-        }
+        return new ArrayList<>(clusterIdToBackend.keySet());
     }
 
     public String getCloudStatusByName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (Strings.isNullOrEmpty(clusterId)) {
-                // for rename cluster or dropped cluster
-                LOG.warn("cant find clusterId by clusteName {}", clusterName);
-                return "";
-            }
-            return getCloudStatusByIdNoLock(clusterId);
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (Strings.isNullOrEmpty(clusterId)) {
+            // for rename cluster or dropped cluster
+            LOG.warn("cant find clusterId by clusteName {}", clusterName);
+            return "";
         }
+        // It is safe to return a null/empty status string, the caller handles it properly
+        return getCloudStatusByIdNoLock(clusterId);
     }
 
     public String getCloudStatusById(final String clusterId) {
@@ -468,10 +596,18 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public Set<String> getClusterStatus(List<Backend> backends) {
+        // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
+        // Using a set to collect the cluster statuses from the BE nodes.
+        return backends.stream().map(Backend::getCloudClusterStatus).collect(Collectors.toSet());
+    }
+
     public String getCloudStatusByIdNoLock(final String clusterId) {
-        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
-            .stream().map(Backend::getCloudClusterStatus).findFirst()
-            .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+        List<Backend> bes = clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>());
+        Optional<String> hasNormal = bes.stream().map(Backend::getCloudClusterStatus)
+                .filter(status -> status.equals(String.valueOf(Cloud.ClusterStatus.NORMAL))).findAny();
+        return hasNormal.orElseGet(() -> bes.stream().map(Backend::getCloudClusterStatus).findFirst()
+            .orElse(String.valueOf(Cloud.ClusterStatus.NORMAL)));
     }
 
     public void updateClusterNameToId(final String newName,
@@ -483,6 +619,10 @@ public class CloudSystemInfoService extends SystemInfoService {
         } finally {
             wlock.unlock();
         }
+    }
+
+    public String getCloudClusterIdByName(String clusterName) {
+        return clusterNameToId.get(clusterName);
     }
 
     public String getClusterNameByClusterId(final String clusterId) {
@@ -594,6 +734,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<Backend> backends = new ArrayList<>();
         for (Cloud.NodeInfoPB node : cpb.getNodesList()) {
             Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+
             newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
             newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
             newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
@@ -616,15 +757,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         rlock.lock();
         try {
             return new ConcurrentHashMap<>(clusterIdToBackend);
-        } finally {
-            rlock.unlock();
-        }
-    }
-
-    public String getCloudClusterIdByName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.get(clusterName);
         } finally {
             rlock.unlock();
         }
@@ -661,6 +793,127 @@ public class CloudSystemInfoService extends SystemInfoService {
         } finally {
             rlock.unlock();
         }
+    }
+
+    // FrontendCluster = SqlServerCluster
+    private void alterFrontendCluster(FrontendNodeType role, String host, int editLogPort,
+            String cloudUnqiueID, Cloud.AlterClusterRequest.Operation op) throws DdlException {
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to alter frontend due to empty cloud_instance_id");
+        }
+
+        Cloud.NodeInfoPB.NodeType nodeType;
+        if (role == FrontendNodeType.MASTER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_MASTER;
+        } else if (role == FrontendNodeType.FOLLOWER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_FOLLOWER;
+        } else if (role == FrontendNodeType.OBSERVER) {
+            nodeType = Cloud.NodeInfoPB.NodeType.FE_OBSERVER;
+        } else {
+            throw new DdlException("unable to alter frontend due to invalid role");
+        }
+
+        // Issue rpc to meta to add this node, then fe master would add this node to its frontends
+        Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                .setCloudUniqueId(cloudUnqiueID)
+                .setIp(host)
+                .setHost(host)
+                .setEditLogPort(editLogPort)
+                .setNodeType(nodeType)
+                .setCtime(System.currentTimeMillis() / 1000)
+                .build();
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(Config.cloud_sql_server_cluster_id)
+                .setClusterName(Config.cloud_sql_server_cluster_name)
+                .setType(ClusterPB.Type.SQL)
+                .addNodes(nodeInfoPB)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(op)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter frontend not ok, response: {}", response);
+                throw new DdlException("failed to alter frontend errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new DdlException("failed to alter frontend", e);
+        }
+    }
+
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        Cloud.AlterClusterRequest.Operation op;
+        op = role == FrontendNodeType.MASTER ? Cloud.AlterClusterRequest.Operation.ADD_CLUSTER
+                            : Cloud.AlterClusterRequest.Operation.ADD_NODE;
+        alterFrontendCluster(role, host, editLogPort, Config.cloud_unique_id, op);
+    }
+
+    public void dropFrontend(Frontend frontend) throws DdlException {
+        alterFrontendCluster(frontend.getRole(), frontend.getHost(), frontend.getEditLogPort(),
+                frontend.getCloudUniqueId(), Cloud.AlterClusterRequest.Operation.DROP_NODE);
+    }
+
+    private String tryCreateComputeGroup(String clusterName, String computeGroupId) throws UserException {
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to create compute group due to empty cloud_instance_id");
+        }
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setClusterName(clusterName)
+                .setType(ClusterPB.Type.COMPUTE)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setOp(Cloud.AlterClusterRequest.Operation.ADD_CLUSTER)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("alter cluster, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
+                    && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
+                LOG.warn("create cluster not ok, response: {}", response);
+                throw new UserException("failed to create cluster errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                return computeGroupId;
+            } else if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED) {
+                Cloud.GetClusterResponse clusterResponse = getCloudCluster(clusterName, "", "");
+                if (clusterResponse.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                    if (clusterResponse.getClusterCount() > 0) {
+                        ClusterPB cluster = clusterResponse.getCluster(0);
+                        return cluster.getClusterId();
+                    } else {
+                        throw new UserException("Cluster information not found in the response");
+                    }
+                } else {
+                    throw new UserException("Failed to get cluster. Error code: "
+                            + clusterResponse.getStatus().getCode() + ", message: "
+                            + clusterResponse.getStatus().getMsg());
+                }
+            } else {
+                throw new UserException("Failed to create or get cluster. Error code: "
+                        + response.getStatus().getCode() + ", message: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new UserException("failed to create cluster", e);
+        }
+
     }
 
     public List<Pair<String, Integer>> getCurrentObFrontends() {
@@ -703,7 +956,13 @@ public class CloudSystemInfoService extends SystemInfoService {
     public void waitForAutoStartCurrentCluster() throws DdlException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String cloudCluster = context.getCloudCluster();
+            String cloudCluster = "";
+            try {
+                cloudCluster = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+                return;
+            }
             if (!Strings.isNullOrEmpty(cloudCluster)) {
                 waitForAutoStart(cloudCluster);
             }
@@ -737,20 +996,23 @@ public class CloudSystemInfoService extends SystemInfoService {
         return cloudClusterTypeAndName.clusterName;
     }
 
-    public void waitForAutoStart(String clusterName) throws DdlException {
+    public String waitForAutoStart(String clusterName) throws DdlException {
         if (Config.isNotCloudMode()) {
-            return;
+            return null;
+        }
+        if (!Config.enable_auto_start_for_cloud_cluster) {
+            return null;
         }
         clusterName = getClusterNameAutoStart(clusterName);
         if (Strings.isNullOrEmpty(clusterName)) {
             LOG.warn("auto start in cloud mode, but clusterName empty {}", clusterName);
-            return;
+            return null;
         }
         String clusterStatus = getCloudStatusByName(clusterName);
         if (Strings.isNullOrEmpty(clusterStatus)) {
             // for cluster rename or cluster dropped
             LOG.warn("cant find clusterStatus in fe, clusterName {}", clusterName);
-            return;
+            return null;
         }
 
         if (Cloud.ClusterStatus.valueOf(clusterStatus) == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
@@ -765,20 +1027,22 @@ public class CloudSystemInfoService extends SystemInfoService {
             // root ? see StatisticsUtil.buildConnectContext
             if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
                 LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
-                return;
+                return null;
             }
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
             builder.setCloudUniqueId(Config.cloud_unique_id);
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
 
-            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
             clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
             clusterBuilder.setClusterStatus(Cloud.ClusterStatus.TO_RESUME);
             builder.setCluster(clusterBuilder);
 
             Cloud.AlterClusterResponse response;
             try {
-                response = MetaServiceProxy.getInstance().alterCluster(builder.build());
+                Cloud.AlterClusterRequest request = builder.build();
+                response = MetaServiceProxy.getInstance().alterCluster(request);
+                LOG.info("alter cluster, request: {}, response: {}", request, response);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                     LOG.warn("notify to resume cluster not ok, cluster {}, response: {}", clusterName, response);
                 }
@@ -789,12 +1053,13 @@ public class CloudSystemInfoService extends SystemInfoService {
             }
         }
         // wait 5 mins
-        int retryTimes = 5 * 60;
+        int retryTimes = Config.auto_start_wait_to_resume_times < 0 ? 300 : Config.auto_start_wait_to_resume_times;
         int retryTime = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         boolean hasAutoStart = false;
-        while (!String.valueOf(Cloud.ClusterStatus.NORMAL).equals(clusterStatus)
+        boolean existAliveBe = true;
+        while ((!String.valueOf(Cloud.ClusterStatus.NORMAL).equals(clusterStatus) || !existAliveBe)
             && retryTime < retryTimes) {
             hasAutoStart = true;
             ++retryTime;
@@ -812,6 +1077,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                 LOG.info("change cluster sleep wait InterruptedException: ", e);
             }
             clusterStatus = getCloudStatusByName(clusterName);
+            // Check that the bes node in the cluster have at least one alive
+            existAliveBe = getBackendsByClusterName(clusterName).stream().anyMatch(Backend::isAlive);
         }
         if (retryTime >= retryTimes) {
             // auto start timeout
@@ -823,6 +1090,98 @@ public class CloudSystemInfoService extends SystemInfoService {
         stopWatch.stop();
         if (hasAutoStart) {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
+        }
+        return clusterName;
+    }
+
+    public void tryCreateInstance(String instanceId, String name, boolean sseEnabled) throws DdlException {
+        Cloud.CreateInstanceRequest.Builder builder = Cloud.CreateInstanceRequest.newBuilder();
+        builder.setInstanceId(instanceId);
+        builder.setName(name);
+        builder.setSseEnabled(sseEnabled);
+
+        Cloud.CreateInstanceResponse response;
+        try {
+
+            Cloud.CreateInstanceRequest request = builder.build();
+            response = MetaServiceProxy.getInstance().createInstance(request);
+            LOG.info("create instance, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
+                    && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
+                LOG.warn("Failed to create instance {}, response: {}", instanceId, response);
+                throw new DdlException("Failed to create instance");
+            }
+            LOG.info("Successfully created instance {}, response: {}", instanceId, response);
+        } catch (RpcException e) {
+            LOG.warn("Failed to create instance {}", instanceId, e);
+            throw new DdlException("Failed to create instance");
+        }
+    }
+
+    public String getInstanceId(String cloudUniqueId) throws IOException {
+        Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
+        builder.setCloudUniqueId(cloudUniqueId);
+
+        Cloud.GetInstanceResponse response;
+        try {
+            Cloud.GetInstanceRequest request = builder.build();
+            response = MetaServiceProxy.getInstance().getInstance(request);
+            LOG.info("get instance info, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("Failed to get instance info, response: {}", response);
+                throw new IOException("Failed to get instance info");
+            }
+            return response.getInstance().getInstanceId();
+        } catch (RpcException e) {
+            LOG.warn("Failed to get instance info {}", cloudUniqueId, e);
+            throw new IOException("Failed to get instance info");
+        }
+    }
+
+    public void renameComputeGroup(String originalName, String newGroupName) throws UserException {
+        String cloudInstanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
+        if (Strings.isNullOrEmpty(cloudInstanceId)) {
+            throw new DdlException("unable to rename compute group due to empty cloud_instance_id");
+        }
+        String originalComputeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(originalName);
+        if (Strings.isNullOrEmpty(originalComputeGroupId)) {
+            LOG.info("rename original compute group {} not found, unable to rename", originalName);
+            throw new DdlException("compute group '" + originalName + "' not found, unable to rename");
+        }
+        // check newGroupName has existed
+        if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(newGroupName)) {
+            LOG.info("rename new compute group {} has existed in instance, unable to rename", newGroupName);
+            throw new DdlException("compute group '" + newGroupName + "' has existed in warehouse, unable to rename");
+        }
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(originalComputeGroupId)
+                .setClusterName(newGroupName)
+                .setType(ClusterPB.Type.COMPUTE)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.RENAME_CLUSTER)
+                .setReplaceIfExistingEmptyTargetCluster(true)
+                .setCluster(clusterPB)
+                .build();
+
+
+        Cloud.AlterClusterResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter rename compute group not ok, response: {}", response);
+                throw new UserException("failed to rename compute group errorCode: " + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg() + " may be you can try later");
+            }
+        } catch (RpcException e) {
+            LOG.warn("alter rename compute group rpc exception");
+            throw new UserException("failed to alter rename compute group", e);
+        } finally {
+            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
         }
     }
 }

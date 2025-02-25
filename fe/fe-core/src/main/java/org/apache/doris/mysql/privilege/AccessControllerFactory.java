@@ -20,6 +20,14 @@ package org.apache.doris.mysql.privilege;
 import java.util.Map;
 
 public interface AccessControllerFactory {
+    /**
+     * Returns the identifier for the factory, such as "range-doris".
+     *
+     * @return the factory identifier
+     */
+    default String factoryIdentifier() {
+        return this.getClass().getSimpleName();
+    }
 
     CatalogAccessController createAccessController(Map<String, String> prop);
 }

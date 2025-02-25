@@ -20,7 +20,7 @@
 #include <fmt/format.h>
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                            int operator_id, const DescriptorTbl& descs,
                                            int parallel_tasks)
@@ -31,6 +31,7 @@ GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tn
 
 Status GroupCommitOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     bool find_node = false;
     while (!find_node && !*eos) {
         RETURN_IF_ERROR(local_state.load_block_queue->get_block(state, block, &find_node, eos,

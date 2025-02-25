@@ -28,24 +28,24 @@
         defined(__i386) || defined(_M_IX86)
 #include <libdeflate.h>
 #endif
+#include <brotli/decode.h>
 #include <glog/log_severity.h>
 #include <glog/logging.h>
-#include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
-#include <stdint.h>
 #include <zconf.h>
 #include <zlib.h>
 #include <zstd.h>
 #include <zstd_errors.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <mutex>
-#include <new>
+#include <orc/Exceptions.hh>
 #include <ostream>
 
 #include "common/config.h"
@@ -53,9 +53,7 @@
 #include "exec/decompressor.h"
 #include "gutil/endian.h"
 #include "gutil/strings/substitute.h"
-#include "orc/OrcFile.hh"
 #include "runtime/thread_context.h"
-#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
 
@@ -73,8 +71,6 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
-
-using strings::Substitute;
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -127,11 +123,13 @@ public:
     }
 
     Status compress(const Slice& input, faststring* output) override {
-        if (input.size > INT_MAX) {
+        if (input.size > LZ4_MAX_INPUT_SIZE) {
             return Status::InvalidArgument(
-                    "LZ4 not support those case(input.size>INT_MAX), maybe you should change "
-                    "fragment_transmission_compression_codec to snappy, size={}",
-                    input.size);
+                    "LZ4 not support those case(input.size>LZ4_MAX_INPUT_SIZE), maybe you should "
+                    "change "
+                    "fragment_transmission_compression_codec to snappy, input.size={}, "
+                    "LZ4_MAX_INPUT_SIZE={}",
+                    input.size, LZ4_MAX_INPUT_SIZE);
         }
 
         std::unique_ptr<Context> context;
@@ -189,7 +187,7 @@ public:
         auto decompressed_len =
                 LZ4_decompress_safe(input.data, output->data, input.size, output->size);
         if (decompressed_len < 0) {
-            return Status::InvalidArgument("fail to do LZ4 decompress, error={}", decompressed_len);
+            return Status::InternalError("fail to do LZ4 decompress, error={}", decompressed_len);
         }
         output->size = decompressed_len;
         return Status::OK();
@@ -235,7 +233,8 @@ public:
     HadoopLz4BlockCompression() {
         Status st = Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor);
         if (!st.ok()) {
-            LOG(FATAL) << "HadoopLz4BlockCompression construction failed. status = " << st << "\n";
+            throw Exception(Status::FatalError(
+                    "HadoopLz4BlockCompression construction failed. status = {}", st));
         }
     }
 
@@ -459,8 +458,8 @@ private:
                                     &input_size, nullptr);
         if (LZ4F_isError(lres)) {
             decompress_failed = true;
-            return Status::InvalidArgument("Fail to do LZ4F decompress, res={}",
-                                           LZ4F_getErrorName(lres));
+            return Status::InternalError("Fail to do LZ4F decompress, res={}",
+                                         LZ4F_getErrorName(lres));
         } else if (input_size != input.size) {
             decompress_failed = true;
             return Status::InvalidArgument(
@@ -636,7 +635,10 @@ public:
         auto decompressed_len =
                 LZ4_decompress_safe(input.data, output->data, input.size, output->size);
         if (decompressed_len < 0) {
-            return Status::InvalidArgument("fail to do LZ4 decompress, error={}", decompressed_len);
+            return Status::InvalidArgument(
+                    "destination buffer is not large enough or the source stream is detected "
+                    "malformed, fail to do LZ4 decompress, error={}",
+                    decompressed_len);
         }
         output->size = decompressed_len;
         return Status::OK();
@@ -855,8 +857,12 @@ public:
         Slice s(*output);
 
         auto zres = ::compress((Bytef*)s.data, &s.size, (Bytef*)input.data, input.size);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do ZLib compress, error={}", zError(zres));
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(fmt::format(
+                    "ZLib compression failed due to memory allocationerror.error = {}, res = {} ",
+                    zError(zres), zres)));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do Zlib compress, error={}", zError(zres));
         }
         output->resize(s.size);
         return Status::OK();
@@ -872,9 +878,12 @@ public:
         zstrm.zfree = Z_NULL;
         zstrm.opaque = Z_NULL;
         auto zres = deflateInit(&zstrm, Z_DEFAULT_COMPRESSION);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                           zError(zres), zres);
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to do ZLib stream compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
         }
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data();
@@ -889,16 +898,19 @@ public:
 
             zres = deflate(&zstrm, flush);
             if (zres != Z_OK && zres != Z_STREAM_END) {
-                return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                               zError(zres), zres);
+                return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                             zError(zres), zres);
             }
         }
 
         output->resize(zstrm.total_out);
         zres = deflateEnd(&zstrm);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
-                                           zError(zres), zres);
+        if (zres == Z_DATA_ERROR) {
+            return Status::InvalidArgument("Fail to do deflateEnd, error={}, res={}", zError(zres),
+                                           zres);
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                         zError(zres), zres);
         }
         return Status::OK();
     }
@@ -907,8 +919,13 @@ public:
         size_t input_size = input.size;
         auto zres =
                 ::uncompress2((Bytef*)output->data, &output->size, (Bytef*)input.data, &input_size);
-        if (zres != Z_OK) {
+        if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to do ZLib decompress, error={}", zError(zres));
+        } else if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded("Fail to do ZLib decompress, error={}",
+                                                        zError(zres)));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do ZLib decompress, error={}", zError(zres));
         }
         return Status::OK();
     }
@@ -933,8 +950,14 @@ public:
         uint32_t size = output->size();
         auto bzres = BZ2_bzBuffToBuffCompress((char*)output->data(), &size, (char*)input.data,
                                               input.size, 9, 0, 0);
-        if (bzres != BZ_OK) {
-            return Status::InternalError("Fail to do Bzip2 compress, ret={}", bzres);
+        if (bzres == BZ_MEM_ERROR) {
+            throw Exception(
+                    Status::MemoryLimitExceeded("Fail to do Bzip2 compress, ret={}", bzres));
+        } else if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Fail to do Bzip2 compress, ret={}", bzres);
+        } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                   bzres != BZ_STREAM_END && bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
         }
         output->resize(size);
         return Status::OK();
@@ -948,7 +971,12 @@ public:
         bz_stream bzstrm;
         bzero(&bzstrm, sizeof(bzstrm));
         int bzres = BZ2_bzCompressInit(&bzstrm, 9, 0, 0);
-        if (bzres != BZ_OK) {
+        if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
+        } else if (bzres == BZ_MEM_ERROR) {
+            throw Exception(
+                    Status::MemoryLimitExceeded("Failed to init bz2. status code: {}", bzres));
+        } else if (bzres != BZ_OK) {
             return Status::InternalError("Failed to init bz2. status code: {}", bzres);
         }
         // we assume that output is e
@@ -963,15 +991,20 @@ public:
             int flush = (i == (inputs.size() - 1)) ? BZ_FINISH : BZ_RUN;
 
             bzres = BZ2_bzCompress(&bzstrm, flush);
-            if (bzres != BZ_OK && bzres != BZ_STREAM_END) {
-                return Status::InternalError("Fail to do bzip2 stream compress, res={}", bzres);
+            if (bzres == BZ_PARAM_ERROR) {
+                return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
+            } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                       bzres != BZ_STREAM_END && bzres != BZ_OK) {
+                return Status::InternalError("Failed to init bz2. status code: {}", bzres);
             }
         }
 
         size_t total_out = (size_t)bzstrm.total_out_hi32 << 32 | (size_t)bzstrm.total_out_lo32;
         output->resize(total_out);
         bzres = BZ2_bzCompressEnd(&bzstrm);
-        if (bzres != BZ_OK) {
+        if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
+        } else if (bzres != BZ_OK) {
             return Status::InternalError("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
         }
         return Status::OK();
@@ -1103,14 +1136,14 @@ public:
 
                     if (ZSTD_isError(ret)) {
                         compress_failed = true;
-                        return Status::InvalidArgument("ZSTD_compressStream2 error: {}",
-                                                       ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                        return Status::InternalError("ZSTD_compressStream2 error: {}",
+                                                     ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
                     }
 
                     // ret is ZSTD hint for needed output buffer size
                     if (ret > 0 && out_buf.pos == out_buf.size) {
                         compress_failed = true;
-                        return Status::InvalidArgument("ZSTD_compressStream2 output buffer full");
+                        return Status::InternalError("ZSTD_compressStream2 output buffer full");
                     }
 
                     finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
@@ -1147,8 +1180,8 @@ public:
                                          input.size);
         if (ZSTD_isError(ret)) {
             decompress_failed = true;
-            return Status::InvalidArgument("ZSTD_decompressDCtx error: {}",
-                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+            return Status::InternalError("ZSTD_decompressDCtx error: {}",
+                                         ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
 
         // set decompressed size for caller
@@ -1240,8 +1273,12 @@ public:
         int zres = deflateInit2(&z_strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
                                 8, Z_DEFAULT_STRATEGY);
 
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to init zlib compress");
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to init ZLib compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to init ZLib compress, error={}, res={}",
+                                         zError(zres), zres);
         }
 
         z_strm.next_in = (Bytef*)input.get_data();
@@ -1251,14 +1288,16 @@ public:
 
         zres = deflate(&z_strm, Z_FINISH);
         if (zres != Z_OK && zres != Z_STREAM_END) {
-            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                           zError(zres), zres);
+            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
         }
 
         output->resize(z_strm.total_out);
         zres = deflateEnd(&z_strm);
-        if (zres != Z_OK) {
+        if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to end zlib compress");
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to end zlib compress");
         }
         return Status::OK();
     }
@@ -1274,10 +1313,14 @@ public:
         zstrm.opaque = Z_NULL;
         auto zres = deflateInit2(&zstrm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
                                  8, Z_DEFAULT_STRATEGY);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                           zError(zres), zres);
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to init ZLib stream compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to init ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
         }
+
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data();
         zstrm.avail_out = output->size();
@@ -1291,16 +1334,19 @@ public:
 
             zres = deflate(&zstrm, flush);
             if (zres != Z_OK && zres != Z_STREAM_END) {
-                return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                               zError(zres), zres);
+                return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                             zError(zres), zres);
             }
         }
 
         output->resize(zstrm.total_out);
         zres = deflateEnd(&zstrm);
-        if (zres != Z_OK) {
+        if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
                                            zError(zres), zres);
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                         zError(zres), zres);
         }
         return Status::OK();
     }
@@ -1313,7 +1359,7 @@ public:
 
         int ret = inflateInit2(&z_strm, MAX_WBITS + GZIP_CODEC);
         if (ret != Z_OK) {
-            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+            return Status::InternalError("Fail to init ZLib decompress, error={}, res={}",
                                          zError(ret), ret);
         }
 
@@ -1328,6 +1374,13 @@ public:
             ret = inflate(&z_strm, Z_FINISH);
             if (ret != Z_OK && ret != Z_STREAM_END) {
                 (void)inflateEnd(&z_strm);
+                if (ret == Z_MEM_ERROR) {
+                    throw Exception(Status::MemoryLimitExceeded(
+                            "Fail to do ZLib stream compress, error={}, res={}", zError(ret), ret));
+                } else if (ret == Z_DATA_ERROR) {
+                    return Status::InvalidArgument(
+                            "Fail to do ZLib stream compress, error={}, res={}", zError(ret), ret);
+                }
                 return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
                                              zError(ret), ret);
             }
@@ -1490,6 +1543,31 @@ public:
     }
 };
 
+class BrotliBlockCompression final : public BlockCompressionCodec {
+public:
+    static BrotliBlockCompression* instance() {
+        static BrotliBlockCompression s_instance;
+        return &s_instance;
+    }
+
+    Status compress(const Slice& input, faststring* output) override {
+        return Status::InvalidArgument("not impl brotli compress.");
+    }
+
+    size_t max_compressed_len(size_t len) override { return 0; };
+
+    Status decompress(const Slice& input, Slice* output) override {
+        // The size of output buffer is always equal to the umcompressed length.
+        BrotliDecoderResult result = BrotliDecoderDecompress(
+                input.get_size(), reinterpret_cast<const uint8_t*>(input.get_data()), &output->size,
+                reinterpret_cast<uint8_t*>(output->data));
+        if (result != BROTLI_DECODER_RESULT_SUCCESS) {
+            return Status::InternalError("Brotli decompression failed, result={}", result);
+        }
+        return Status::OK();
+    }
+};
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec) {
     switch (type) {
@@ -1579,6 +1657,9 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         break;
     case tparquet::CompressionCodec::LZO:
         *codec = LzoBlockCompression::instance();
+        break;
+    case tparquet::CompressionCodec::BROTLI:
+        *codec = BrotliBlockCompression::instance();
         break;
     default:
         return Status::InternalError("unknown compression type({})", parquet_codec);

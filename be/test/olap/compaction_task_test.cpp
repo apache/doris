@@ -88,12 +88,12 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
                       .set_min_threads(2)
                       .set_max_threads(2)
                       .build(&_storage_engine->_base_compaction_thread_pool);
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
     st = ThreadPoolBuilder("CumuCompactionTaskThreadPool")
                  .set_min_threads(2)
                  .set_max_threads(2)
                  .build(&_storage_engine->_cumu_compaction_thread_pool);
-    EXPECT_TRUE(st.OK());
+    EXPECT_TRUE(st.ok());
 
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -111,7 +111,7 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
         TabletSharedPtr tablet(new Tablet(*(_storage_engine.get()), tablet_meta, _data_dir.get(),
                                           CUMULATIVE_SIZE_BASED_POLICY));
         st = tablet->init();
-        EXPECT_TRUE(st.OK());
+        EXPECT_TRUE(st.ok());
 
         for (int i = 2; i < 30; ++i) {
             RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
@@ -121,7 +121,7 @@ TEST_F(CompactionTaskTest, TestSubmitCompactionTask) {
 
         st = _storage_engine->_submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION,
                                                       false);
-        EXPECT_TRUE(st.OK());
+        EXPECT_TRUE(st.ok());
     }
 
     int executing_task_num =

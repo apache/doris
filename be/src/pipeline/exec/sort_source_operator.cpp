@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortSharedState>(state, parent) {}
@@ -42,9 +43,9 @@ Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status SortSourceOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-    // spill sort _child_x may be nullptr.
-    if (_child_x) {
-        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
+    // spill sort _child may be nullptr.
+    if (_child) {
+        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
     return Status::OK();
@@ -53,6 +54,8 @@ Status SortSourceOperatorX::open(RuntimeState* state) {
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     RETURN_IF_ERROR(local_state._shared_state->sorter->get_next(state, block, eos));
     local_state.reached_limit(block, eos);
     return Status::OK();
@@ -64,17 +67,5 @@ const vectorized::SortDescription& SortSourceOperatorX::get_sort_description(
     return local_state._shared_state->sorter->get_sort_description();
 }
 
-Status SortSourceOperatorX::build_merger(RuntimeState* state,
-                                         std::unique_ptr<vectorized::VSortedRunMerger>& merger,
-                                         RuntimeProfile* profile) {
-    // now only use in LocalMergeSortExchanger::get_block
-    vectorized::VSortExecExprs vsort_exec_exprs;
-    // clone vsort_exec_exprs in LocalMergeSortExchanger
-    RETURN_IF_ERROR(_vsort_exec_exprs.clone(state, vsort_exec_exprs));
-    merger = std::make_unique<vectorized::VSortedRunMerger>(
-            vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
-            state->batch_size(), _limit, _offset, profile);
-    return Status::OK();
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

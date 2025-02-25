@@ -56,5 +56,10 @@ suite("window_column_pruning") {
         sql "select id from (select id, rank() over() px from window_column_pruning union all select id, rank() over() px from window_column_pruning) a"
         notContains "rank"
     }
+
+    explain {
+        sql "select count() from (select row_number() over(partition by id) from window_column_pruning) tmp"
+        notContains "row_number"
+    }
 }
 

@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapTableSinkV2OperatorX;
 
@@ -40,7 +41,7 @@ public:
     using Base = DataSinkOperatorX<OlapTableSinkV2LocalState>;
     OlapTableSinkV2OperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0),
+            : Base(operator_id, 0, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -65,6 +66,11 @@ public:
         return local_state.sink(state, in_block, eos);
     }
 
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state._writer->set_low_memory_mode();
+    }
+
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
@@ -76,4 +82,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

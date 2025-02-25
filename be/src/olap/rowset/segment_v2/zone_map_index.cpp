@@ -39,8 +39,6 @@
 namespace doris {
 struct uint24_t;
 
-static bvar::Adder<size_t> g_zone_map_memory_bytes("doris_zone_map_memory_bytes");
-
 namespace segment_v2 {
 
 template <PrimitiveType Type>
@@ -142,23 +140,23 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     return writer.finish(meta->mutable_page_zone_maps());
 }
 
-Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory,
+                                OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
-    return _load_once.call([this, use_page_cache, kept_in_memory] {
-        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta));
+    return _load_once.call([this, use_page_cache, kept_in_memory, index_load_stats] {
+        return _load(use_page_cache, kept_in_memory, std::move(_page_zone_maps_meta),
+                     index_load_stats);
     });
 }
 
 Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
-                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta) {
+                                 std::unique_ptr<IndexedColumnMetaPB> page_zone_maps_meta,
+                                 OlapReaderStatistics* index_load_stats) {
     IndexedColumnReader reader(_file_reader, *page_zone_maps_meta);
-    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
-    IndexedColumnIterator iter(&reader);
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory, index_load_stats));
+    IndexedColumnIterator iter(&reader, index_load_stats);
 
     _page_zone_maps.resize(reader.num_values());
-
-    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
-                                       sizeof(IndexedColumnMetaPB);
 
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
@@ -177,18 +175,18 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                                column->get_data_at(0).size)) {
             return Status::Corruption("Failed to parse zone map");
         }
+        _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
     }
 
+    update_metadata_size();
     return Status::OK();
 }
 
-ZoneMapIndexReader::~ZoneMapIndexReader() {
-    // Maybe wrong due to load failures.
-    if (_page_zone_maps.size() > 0) {
-        g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
-                                           sizeof(IndexedColumnMetaPB);
-    }
+int64_t ZoneMapIndexReader::get_metadata_size() const {
+    return sizeof(ZoneMapIndexReader) + _pb_meta_size;
 }
+
+ZoneMapIndexReader::~ZoneMapIndexReader() = default;
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \
     M(TYPE_SMALLINT)             \

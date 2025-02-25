@@ -292,24 +292,35 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         }
         // Limit the size of dict value
         if (dict_val.size() > config::schema_dict_kv_size_limit) {
-            code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+            code = MetaServiceCode::INVALID_ARGUMENT;
             ss << "Failed to write dictionary for saving, txn_id=" << rowset_meta->txn_id()
                << ", reached the limited size threshold of SchemaDictKeyList "
                << config::schema_dict_kv_size_limit;
             msg = ss.str();
+            return;
+        }
+        // Limit the count of dict keys
+        if (dict.column_dict_size() > config::schema_dict_key_count_limit) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "Reached max column size limit " << config::schema_dict_key_count_limit
+               << ", txn_id=" << rowset_meta->txn_id();
+            msg = ss.str();
+            return;
         }
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn, dict_key, dict_val, 0);
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
                   << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
                   << ", Current column ID=" << dict.current_column_dict_id()
-                  << ", Current index ID=" << dict.current_index_dict_id();
+                  << ", Current index ID=" << dict.current_index_dict_id()
+                  << ", Dict bytes=" << dict_val.size();
     }
 }
 
-void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                           int64_t index_id, Transaction* txn,
-                           google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>* rowset_metas) {
+void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
+                      int64_t index_id, Transaction* txn,
+                      google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB>* rsp_metas,
+                      SchemaCloudDictionary* rsp_dict, GetRowsetRequest::SchemaOp schema_op) {
     std::stringstream ss;
 
     // read dict if any rowset has dict key list
@@ -330,6 +341,12 @@ void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::s
     }
     LOG(INFO) << "Get schema_dict, column size=" << dict.column_dict_size()
               << ", index size=" << dict.index_dict_size();
+
+    // Return dict, let backend to fill schema with dict info
+    if (schema_op == GetRowsetRequest::RETURN_DICT && rsp_dict != nullptr) {
+        rsp_dict->Swap(&dict);
+        return;
+    }
 
     auto fill_schema_with_dict = [&](RowsetMetaCloudPB* out) {
         std::unordered_map<int32_t, ColumnPB*> unique_id_map;
@@ -366,7 +383,7 @@ void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::s
     };
 
     // fill rowsets's schema with dict info
-    for (auto& rowset_meta : *rowset_metas) {
+    for (auto& rowset_meta : *rsp_metas) {
         if (rowset_meta.has_schema_dict_key_list()) {
             fill_schema_with_dict(&rowset_meta);
         }

@@ -153,6 +153,11 @@ public:
   // And/or call registered callback function, with argument `cb_args`
   void process(const std::string& point, std::vector<std::any>&& cb_args = {});
 
+  // Check if this point is registered
+  bool has_point(const std::string& point);
+
+  // Get this point if enabled
+  bool get_enable();
   // TODO: it might be useful to provide a function that blocks until all
   //       sync points are cleared.
   // We want this to be public so we can subclass the implementation
@@ -187,11 +192,14 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 #define SYNC_POINT_CALLBACK(x, ...) doris::SyncPoint::get_instance()->process(x, {__VA_ARGS__})
 #define SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) \
 { \
-  std::pair ret {default_ret_val, false}; \
-  std::vector<std::any> args {__VA_ARGS__}; \
-  args.emplace_back(&ret); \
-  doris::SyncPoint::get_instance()->process(x, std::move(args)); \
-  if (ret.second) return std::move(ret.first); \
+  auto sync_point = doris::SyncPoint::get_instance(); \
+  if (sync_point->get_enable() && sync_point->has_point(x)) { \
+    std::pair ret {default_ret_val, false}; \
+    std::vector<std::any> args {__VA_ARGS__}; \
+    args.emplace_back(&ret); \
+    sync_point->process(x, std::move(args)); \
+    if (ret.second) return std::move(ret.first); \
+  } \
 }
 #define SYNC_POINT_RETURN_WITH_VOID(x, ...) \
 { \
@@ -205,7 +213,7 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 
 // TEST_SYNC_POINT is no op in release build.
 // Turn on this feature by defining the macro
-#ifndef BE_TEST
+#if !defined(BE_TEST) && !defined(ENABLE_INJECTION_POINT)
 # define TEST_SYNC_POINT(x)
 # define TEST_IDX_SYNC_POINT(x, index)
 # define TEST_SYNC_POINT_CALLBACK(x, ...)

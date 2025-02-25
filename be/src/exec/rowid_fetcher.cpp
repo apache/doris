@@ -80,7 +80,8 @@ Status RowIDFetcher::init() {
         if (!client) {
             LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
                          << ", port=" << node_info.brpc_port;
-            return Status::InternalError("RowIDFetcher failed to init rpc client");
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.brpc_port);
         }
         _stubs.push_back(client);
     }
@@ -240,6 +241,10 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<PRowLocation> rows_locs;
     rows_locs.reserve(rows_locs.size());
     RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
+    if (rows_locs.size() < column_row_ids->size()) {
+        return Status::InternalError("Miss matched return row loc count {}, expected {}, input {}",
+                                     rows_locs.size(), res_block->rows(), column_row_ids->size());
+    }
     // Final sort by row_ids sequence, since row_ids is already sorted if need
     std::map<GlobalRowLoacation, size_t> positions;
     for (size_t i = 0; i < rows_locs.size(); ++i) {
@@ -332,12 +337,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
     int64_t lookup_row_data_ms = 0;
 
     // init desc
-    TupleDescriptor desc(request.desc());
     std::vector<SlotDescriptor> slots;
     slots.reserve(request.slots().size());
     for (const auto& pslot : request.slots()) {
         slots.push_back(SlotDescriptor(pslot));
-        desc.add_slot(&slots.back());
     }
 
     // init read schema
@@ -406,9 +409,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(
-                    [&]() {
-                        return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value);
-                    },
+                    [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
                     &lookup_row_data_ms));
             row_size = value->size();
             continue;
@@ -416,30 +417,29 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
         // fetch by column store
         if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(desc.slots(), request.row_locs().size());
+            result_block = vectorized::Block(slots, request.row_locs().size());
         }
         VLOG_DEBUG << "Read row location "
                    << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
                                   row_location.row_location.rowset_id.to_string(),
                                   row_location.row_location.segment_id,
                                   row_location.row_location.row_id);
-        for (int x = 0; x < desc.slots().size(); ++x) {
+        for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
-                                      .slot_id = desc.slots()[x]->id()};
+                                      .slot_id = slots[x].id()};
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 // hold the reference
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                            row_id, column, stats,
-                                                            iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
+                                                            column, stats, iterator_item.iterator));
         }
     }
     // serialize block if not empty

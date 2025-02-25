@@ -228,6 +228,7 @@ cd test
 # FILTER: binary_name:gtest_filter
 # FILTER: meta_service_test:DetachSchemaKVTest.*
 # ./run_all_tests.sh --test "\"$(echo "${FILTER}" | awk -F: '{print $1}')\"" --filter "\"$(echo "${FILTER}" | awk -F: '{print $2}')\"" --fdb "\"${FDB}\""
+set -euo pipefail
 if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     bash -x ./run_all_tests.sh --coverage --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}"
 else

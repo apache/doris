@@ -56,6 +56,7 @@ thirdparty/doris-thirdparty*.tar.xz
 docker/thirdparties/docker-compose/mysql/data
 docker/thirdparties/docker-compose/hive/scripts/tpch1.db/
 docker/thirdparties/docker-compose/hive/scripts/paimon1
+docker/thirdparties/docker-compose/hive/scripts/tvf_data
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -109,8 +110,9 @@ cloud/cmake-build*/
 cloud/ut_build*/
 
 ## tools
-tools/ssb-tools/ssb-data/
-tools/ssb-tools/ssb-dbgen/
+tools/ssb-tools/bin/ssb-data/
+tools/ssb-tools/bin/ssb-dbgen/
+tools/ssb-tools/bin/*.tar.gz
 tools/**/TPC-H_Tools_v*.zip
 tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx

@@ -23,6 +23,7 @@ namespace doris {
 namespace segment_v2 {
 
 static constexpr size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
+static constexpr size_t STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536;
 
 constexpr long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384; // default row store page size: 16KB
 

@@ -19,10 +19,10 @@
 
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Descriptors_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,8 +82,6 @@ struct SchemaScannerParam {
 
 // virtual scanner for all schema table
 class SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaScanner);
-
 public:
     struct ColumnDesc {
         const char* name = nullptr;
@@ -94,8 +92,8 @@ public:
         int precision = -1;
         int scale = -1;
     };
-    SchemaScanner(const std::vector<ColumnDesc>& columns);
-    SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type);
+    SchemaScanner(const std::vector<ColumnDesc>& columns,
+                  TSchemaTableType::type type = TSchemaTableType::SCH_INVALID);
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
@@ -103,16 +101,12 @@ public:
     Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_block_internal(vectorized::Block* block, bool* eos);
+    virtual Status get_next_block_internal(vectorized::Block* block, bool* eos) = 0;
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dep,
-                        std::shared_ptr<pipeline::Dependency> fin_dep) {
-        _dependency = dep;
-        _finish_dependency = fin_dep;
-    }
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dep) { _dependency = dep; }
     Status get_next_block_async(RuntimeState* state);
 
 protected:
@@ -141,7 +135,6 @@ protected:
     RuntimeProfile::Counter* _fill_block_timer = nullptr;
 
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 
     std::unique_ptr<vectorized::Block> _data_block;
     AtomicStatus _scanner_status;

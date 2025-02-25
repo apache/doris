@@ -27,6 +27,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -40,6 +41,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                  VExprContext* context) {
@@ -56,16 +58,14 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     // Using typeindex to indicate the datatype, not using type name because
     // type name is not stable, but type index is stable and immutable
     _cast_param_data_type = _target_data_type;
-    // Has to cast to int16_t or there will be compile error because there is no
-    // TypeIndexField
-    _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
     argument_template.emplace_back(nullptr, child->data_type(), child_name);
-    argument_template.emplace_back(_cast_param, _cast_param_data_type, _target_data_type_name);
-    _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
-                                                               _data_type);
+    argument_template.emplace_back(nullptr, _cast_param_data_type, _target_data_type_name);
+    _function = SimpleFunctionFactory::instance().get_function(
+            function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
 
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
@@ -87,7 +87,7 @@ doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
@@ -109,14 +109,14 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
 
     // call function
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
 
     auto state = Status::OK();
     try {
         state = _function->execute(context->fn_context(_fn_context_index), *block,
-                                   {static_cast<size_t>(column_id)}, num_columns_without_result,
+                                   {static_cast<uint32_t>(column_id)}, num_columns_without_result,
                                    block->rows(), false);
         *result_column_id = num_columns_without_result;
     } catch (const Exception& e) {
@@ -131,10 +131,10 @@ const std::string& VCastExpr::expr_name() const {
 
 std::string VCastExpr::debug_string() const {
     std::stringstream out;
-    out << "CastExpr(CAST " << _cast_param_data_type->get_name() << " to "
+    out << "CastExpr(CAST " << get_child(0)->data_type()->get_name() << " to "
         << _target_data_type->get_name() << "){";
     bool first = true;
-    for (auto& input_expr : children()) {
+    for (const auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {
@@ -145,4 +145,6 @@ std::string VCastExpr::debug_string() const {
     out << "}";
     return out.str();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

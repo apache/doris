@@ -28,13 +28,16 @@ import java.util.List;
  * like expression: a like 'xxx%'.
  */
 public class Like extends StringRegexPredicate {
-
     public Like(Expression left, Expression right) {
-        super("like", ImmutableList.of(left, right));
+        this(ImmutableList.of(left, right));
     }
 
     private Like(List<Expression> children) {
-        super("like", children);
+        this(children, false);
+    }
+
+    private Like(List<Expression> children, boolean inferred) {
+        super("like", children, inferred);
     }
 
     @Override
@@ -45,5 +48,10 @@ public class Like extends StringRegexPredicate {
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitLike(this, context);
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new Like(this.children, inferred);
     }
 }

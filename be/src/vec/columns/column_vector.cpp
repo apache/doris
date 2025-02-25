@@ -35,7 +35,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/nan_utils.h"
-#include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
@@ -43,6 +42,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
@@ -64,7 +64,7 @@ size_t ColumnVector<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows,
                                     size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
@@ -73,7 +73,7 @@ void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_row
 }
 
 template <typename T>
-void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnVector<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                   const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
 
@@ -103,7 +103,7 @@ void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, 
 }
 
 template <typename T>
-void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
         keys[i].size -= sizeof(T);
@@ -111,8 +111,7 @@ void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t
 }
 
 template <typename T>
-void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                    const size_t num_rows,
+void ColumnVector<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                     const uint8_t* null_map) {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
@@ -152,7 +151,7 @@ template <typename T>
 void ColumnVector<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {
-    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <typename T>
@@ -234,20 +233,6 @@ struct ColumnVector<T>::greater {
     }
 };
 
-namespace {
-template <typename T>
-struct ValueWithIndex {
-    T value;
-    UInt32 index;
-};
-
-template <typename T>
-struct RadixSortTraits : RadixSortNumTraits<T> {
-    using Element = ValueWithIndex<T>;
-    static T& extract_key(Element& elem) { return elem.value; }
-};
-} // namespace
-
 template <typename T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const {
@@ -257,7 +242,7 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
     if (s == 0) return;
 
     // std::partial_sort need limit << s can get performance benefit
-    if (limit > (s / 8.0)) limit = 0;
+    if (static_cast<double>(limit) > (static_cast<double>(s) / 8.0)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;
@@ -269,51 +254,6 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
             std::partial_sort(res.begin(), res.begin() + limit, res.end(),
                               less(*this, nan_direction_hint));
     } else {
-        /// A case for radix sort
-        if constexpr (std::is_arithmetic_v<T> && !std::is_same_v<T, UInt128>) {
-            /// Thresholds on size. Lower threshold is arbitrary. Upper threshold is chosen by the type for histogram counters.
-            if (s >= 256 && s <= std::numeric_limits<UInt32>::max()) {
-                PaddedPODArray<ValueWithIndex<T>> pairs(s);
-                for (UInt32 i = 0; i < s; ++i) pairs[i] = {data[i], i};
-
-                RadixSort<RadixSortTraits<T>>::execute_lsd(pairs.data(), s);
-
-                /// Radix sort treats all NaNs to be greater than all numbers.
-                /// If the user needs the opposite, we must move them accordingly.
-                size_t nans_to_move = 0;
-                if (std::is_floating_point_v<T> && nan_direction_hint < 0) {
-                    for (ssize_t i = s - 1; i >= 0; --i) {
-                        if (is_nan(pairs[i].value))
-                            ++nans_to_move;
-                        else
-                            break;
-                    }
-                }
-
-                if (reverse) {
-                    if (nans_to_move) {
-                        for (size_t i = 0; i < s - nans_to_move; ++i)
-                            res[i] = pairs[s - nans_to_move - 1 - i].index;
-                        for (size_t i = s - nans_to_move; i < s; ++i)
-                            res[i] = pairs[s - 1 - (i - (s - nans_to_move))].index;
-                    } else {
-                        for (size_t i = 0; i < s; ++i) res[s - 1 - i] = pairs[i].index;
-                    }
-                } else {
-                    if (nans_to_move) {
-                        for (size_t i = 0; i < nans_to_move; ++i)
-                            res[i] = pairs[i + s - nans_to_move].index;
-                        for (size_t i = nans_to_move; i < s; ++i)
-                            res[i] = pairs[i - nans_to_move].index;
-                    } else {
-                        for (size_t i = 0; i < s; ++i) res[i] = pairs[i].index;
-                    }
-                }
-
-                return;
-            }
-        }
-
         /// Default sorting algorithm.
         for (size_t i = 0; i < s; ++i) res[i] = i;
 
@@ -322,11 +262,6 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
         else
             pdqsort(res.begin(), res.end(), less(*this, nan_direction_hint));
     }
-}
-
-template <typename T>
-const char* ColumnVector<T>::get_family_name() const {
-    return TypeName<T>::get();
 }
 
 template <typename T>
@@ -354,6 +289,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
+    //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
     if (start + length > src_vec.data.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameters start = {}, length = {}, are out of bound in "
@@ -489,6 +425,14 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
     resize(new_size);
 
     return new_size;
+}
+
+template <typename T>
+void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
 template <typename T>

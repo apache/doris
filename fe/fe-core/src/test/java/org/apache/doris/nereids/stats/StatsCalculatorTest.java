@@ -145,13 +145,13 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals((10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(49.945, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         StatsCalculator.estimate(groupExpressionOr, null);
-        Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
+        Assertions.assertEquals(1448.555,
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 

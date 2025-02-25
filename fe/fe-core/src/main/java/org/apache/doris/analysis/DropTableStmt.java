@@ -100,6 +100,9 @@ public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP TABLE ").append(tableName.toSql());
+        if (forceDrop) {
+            stringBuilder.append(" FORCE");
+        }
         return stringBuilder.toString();
     }
 

@@ -59,7 +59,7 @@ public enum AccessPrivilege {
             case 3:
                 return Lists.newArrayList(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV,
                         Privilege.ALTER_PRIV, Privilege.CREATE_PRIV,
-                        Privilege.DROP_PRIV);
+                        Privilege.DROP_PRIV, Privilege.SHOW_VIEW_PRIV);
             case 4:
                 return Lists.newArrayList(Privilege.NODE_PRIV);
             case 5:

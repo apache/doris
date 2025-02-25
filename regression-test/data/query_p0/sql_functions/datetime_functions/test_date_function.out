@@ -68,7 +68,7 @@
 1	2019-08-01T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-01T13:21:03
 2	2019-08-01T13:21:03	Asia/Singapore	Asia/Shanghai	2019-08-01T13:21:03
 3	2019-08-01T13:21:03	Asia/Taipei	Asia/Shanghai	2019-08-01T13:21:03
-4	2019-08-02T13:21:03	Australia/Queensland	Asia/Shanghai	2019-08-02T11:21:03
+4	2019-08-02T13:21:03	Australia/Melbourne	Asia/Shanghai	2019-08-02T11:21:03
 5	2019-08-02T13:21:03	Australia/Lindeman	Asia/Shanghai	2019-08-02T11:21:03
 6	2019-08-03T13:21:03	America/Aruba	Asia/Shanghai	2019-08-04T01:21:03
 7	2019-08-03T13:21:03	America/Blanc-Sablon	Asia/Shanghai	2019-08-04T01:21:03
@@ -77,7 +77,7 @@
 10	2019-08-05T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-05T13:21:03
 11	2019-08-05T13:21:03	Asia/Shanghai	Asia/Singapore	2019-08-05T13:21:03
 12	2019-08-05T13:21:03	Asia/Shanghai	Asia/Taipei	2019-08-05T13:21:03
-13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Queensland	2019-08-06T15:21:03
+13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Melbourne	2019-08-06T15:21:03
 14	2019-08-06T13:21:03	Asia/Shanghai	Australia/Lindeman	2019-08-06T15:21:03
 15	2019-08-07T13:21:03	Asia/Shanghai	America/Aruba	2019-08-07T01:21:03
 16	2019-08-07T13:21:03	Asia/Shanghai	America/Blanc-Sablon	2019-08-07T01:21:03
@@ -97,7 +97,7 @@
 1	2019-08-01T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-01T13:21:03
 2	2019-08-01T13:21:03	Asia/Singapore	Asia/Shanghai	2019-08-01T13:21:03
 3	2019-08-01T13:21:03	Asia/Taipei	Asia/Shanghai	2019-08-01T13:21:03
-4	2019-08-02T13:21:03	Australia/Queensland	Asia/Shanghai	2019-08-02T11:21:03
+4	2019-08-02T13:21:03	Australia/Melbourne	Asia/Shanghai	2019-08-02T11:21:03
 5	2019-08-02T13:21:03	Australia/Lindeman	Asia/Shanghai	2019-08-02T11:21:03
 6	2019-08-03T13:21:03	America/Aruba	Asia/Shanghai	2019-08-04T01:21:03
 7	2019-08-03T13:21:03	America/Blanc-Sablon	Asia/Shanghai	2019-08-04T01:21:03
@@ -106,7 +106,7 @@
 10	2019-08-05T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-05T13:21:03
 11	2019-08-05T13:21:03	Asia/Shanghai	Asia/Singapore	2019-08-05T13:21:03
 12	2019-08-05T13:21:03	Asia/Shanghai	Asia/Taipei	2019-08-05T13:21:03
-13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Queensland	2019-08-06T15:21:03
+13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Melbourne	2019-08-06T15:21:03
 14	2019-08-06T13:21:03	Asia/Shanghai	Australia/Lindeman	2019-08-06T15:21:03
 15	2019-08-07T13:21:03	Asia/Shanghai	America/Aruba	2019-08-07T01:21:03
 16	2019-08-07T13:21:03	Asia/Shanghai	America/Blanc-Sablon	2019-08-07T01:21:03
@@ -279,7 +279,7 @@ February
 2014-12-21T12:34:56
 
 -- !sql --
-2011-11-09 11:09:30
+2011-11-09T11:09:30
 
 -- !sql --
 2014-12-21T12:34:56.789
@@ -369,10 +369,10 @@ February
 1196389819
 
 -- !sql_ustamp2 --
-1196389819
+1196389819.000000
 
 -- !sql_ustamp3 --
-1196389819
+1196389819.000000
 
 -- !sql_ustamp4 --
 0

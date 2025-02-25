@@ -233,7 +233,7 @@ public abstract class AbstractPhysicalJoin<
         properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
         properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
         properties.put("MarkJoinConjuncts", markJoinConjuncts.toString());
-        properties.put("JoinHint", hint.toString());
+        properties.put("JoinHint", hint.getExplainString());
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         physicalJoin.put("Properties", properties);
         return physicalJoin;

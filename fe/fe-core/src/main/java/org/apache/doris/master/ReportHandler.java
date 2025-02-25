@@ -95,7 +95,9 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -161,6 +163,7 @@ public class ReportHandler extends Daemon {
         Map<Long, TTablet> tablets = null;
         Map<Long, Long> partitionsVersion = null;
         long reportVersion = -1;
+        long numTablets = 0;
 
         ReportType reportType = null;
 
@@ -178,11 +181,19 @@ public class ReportHandler extends Daemon {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         } else if (request.isSetTabletList()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTabletList());
             reportVersion = request.getReportVersion();
             reportType = ReportType.TABLET;
+            Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
+        }
+
+        if (tablets == null) {
+            numTablets = request.isSetNumTablets() ? request.getNumTablets() : 0;
+        } else {
+            numTablets = request.isSetNumTablets() ? request.getNumTablets() : tablets.size();
         }
 
         if (request.isSetPartitionsVersion()) {
@@ -203,7 +214,7 @@ public class ReportHandler extends Daemon {
 
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
-                request.getPipelineExecutorSize());
+                request.getPipelineExecutorSize(), numTablets);
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -221,11 +232,13 @@ public class ReportHandler extends Daemon {
 
     private void putToQueue(ReportTask reportTask) throws Exception {
         int currentSize = reportQueue.size();
-        if (currentSize > Config.report_queue_size) {
-            LOG.warn("the report queue size exceeds the limit: {}. current: {}", Config.report_queue_size, currentSize);
+        int maxReportQueueSize = Math.max(Config.report_queue_size,
+                10 * Env.getCurrentSystemInfo().getAllBackendIds().size());
+        if (currentSize > maxReportQueueSize) {
+            LOG.warn("the report queue size exceeds the limit: {}. current: {}", maxReportQueueSize, currentSize);
             throw new Exception(
                     "the report queue size exceeds the limit: "
-                            + Config.report_queue_size + ". current: " + currentSize);
+                            + maxReportQueueSize + ". current: " + currentSize);
         }
 
         BackendReportType backendReportType = new BackendReportType(reportTask.beId, reportTask.reportType);
@@ -291,12 +304,13 @@ public class ReportHandler extends Daemon {
         private List<TStorageResource> storageResources;
         private int cpuCores;
         private int pipelineExecutorSize;
+        private long numTablets;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize) {
+                int pipelineExecutorSize, long numTablets) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -308,6 +322,7 @@ public class ReportHandler extends Daemon {
             this.storageResources = storageResources;
             this.cpuCores = cpuCores;
             this.pipelineExecutorSize = pipelineExecutorSize;
+            this.numTablets = numTablets;
         }
 
         @Override
@@ -333,7 +348,7 @@ public class ReportHandler extends Daemon {
                     if (partitions == null) {
                         partitions = Maps.newHashMap();
                     }
-                    ReportHandler.tabletReport(beId, tablets, partitions, reportVersion);
+                    tabletReport(beId, tablets, partitions, reportVersion, numTablets);
                 }
             }
         }
@@ -468,8 +483,8 @@ public class ReportHandler extends Daemon {
     }
 
     // public for fe ut
-    public static void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
-            Map<Long, Long> backendPartitionsVersion, long backendReportVersion) {
+    public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
+            Map<Long, Long> backendPartitionsVersion, long backendReportVersion, long numTablets) {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                 backendId, backendTablets.size(), backendReportVersion);
@@ -491,7 +506,7 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
         ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
 
         // db id -> tablet id
@@ -607,7 +622,7 @@ public class ReportHandler extends Daemon {
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
@@ -896,7 +911,8 @@ public class ReportHandler extends Daemon {
                                 && !backendHealthPathHashs.contains(0L);
 
                         boolean existsOtherHealthReplica = tablet.getReplicas().stream()
-                                .anyMatch(r -> r.getBackendId() != replica.getBackendId()
+                                .anyMatch(r -> r.getBackendIdWithoutException()
+                                    != replica.getBackendIdWithoutException()
                                         && r.getVersion() >= replica.getVersion()
                                         && r.getLastFailedVersion() == -1L
                                         && !r.isBad());
@@ -961,11 +977,21 @@ public class ReportHandler extends Daemon {
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             objectPool,
                                             olapTable.rowStorePageSize(),
-                                            olapTable.variantEnableFlattenNested());
-
+                                            olapTable.variantEnableFlattenNested(),
+                                            olapTable.storagePageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
+                                    if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
+                                        List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
+                                                indexMeta.getSchema());
+                                        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                                            createReplicaTask.setClusterKeyUids(clusterKeyUids);
+                                            LOG.info("table: {}, partition: {}, index: {}, tablet: {}, "
+                                                            + "cluster key uids: {}", tableId, partitionId, indexId,
+                                                    tabletId, clusterKeyUids);
+                                        }
+                                    }
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad
@@ -1125,14 +1151,14 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
-            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        map.get(txnId), createPublishVersionTaskTime);
+                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);
@@ -1371,7 +1397,7 @@ public class ReportHandler extends Daemon {
             boolean canAddForceRedundant = status == TabletStatus.FORCE_REDUNDANT
                     && infoService.checkBackendScheduleAvailable(backendId)
                     && tablet.getReplicas().stream().anyMatch(
-                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendIdWithoutException()));
 
             if (isColocateBackend
                     || canAddForceRedundant
@@ -1460,7 +1486,7 @@ public class ReportHandler extends Daemon {
                 // replica is enough. check if this tablet is already in meta
                 // (status changed between 'tabletReport()' and 'addReplica()')
                 for (Replica replica : tablet.getReplicas()) {
-                    if (replica.getBackendId() == backendId) {
+                    if (replica.getBackendIdWithoutException() == backendId) {
                         // tablet is already in meta. return true
                         return true;
                     }

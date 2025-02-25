@@ -50,9 +50,11 @@ void offer_failed(T* response, google::protobuf::Closure* done, const FifoThread
 template <CanCancel T>
 void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
+    // Should use status to generate protobuf message, because it will encoding Backend Info
+    // into the error message and then we could know which backend's pool is full.
+    Status st = Status::Error<TStatusCode::CANCELLED>(
+            "fail to offer request to the work pool, pool={}", pool.get_info());
+    st.to_protobuf(response->mutable_status());
     LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
                  << pool.get_info();
 }
@@ -61,16 +63,6 @@ class PInternalService : public PBackendService {
 public:
     PInternalService(ExecEnv* exec_env);
     ~PInternalService() override;
-
-    void transmit_data(::google::protobuf::RpcController* controller,
-                       const ::doris::PTransmitDataParams* request,
-                       ::doris::PTransmitDataResult* response,
-                       ::google::protobuf::Closure* done) override;
-
-    void transmit_data_by_http(::google::protobuf::RpcController* controller,
-                               const ::doris::PEmptyRequest* request,
-                               ::doris::PTransmitDataResult* response,
-                               ::google::protobuf::Closure* done) override;
 
     void exec_plan_fragment(google::protobuf::RpcController* controller,
                             const PExecPlanFragmentRequest* request,
@@ -94,6 +86,10 @@ public:
 
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
+
+    void fetch_arrow_data(google::protobuf::RpcController* controller,
+                          const PFetchArrowDataRequest* request, PFetchArrowDataResult* result,
+                          google::protobuf::Closure* done) override;
 
     void outfile_write_success(google::protobuf::RpcController* controller,
                                const POutfileWriteSuccessRequest* request,
@@ -247,11 +243,6 @@ private:
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
-    void _transmit_data(::google::protobuf::RpcController* controller,
-                        const ::doris::PTransmitDataParams* request,
-                        ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
-                        const Status& extract_st);
-
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
@@ -269,6 +260,7 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
+    FifoThreadPool _arrow_flight_work_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`

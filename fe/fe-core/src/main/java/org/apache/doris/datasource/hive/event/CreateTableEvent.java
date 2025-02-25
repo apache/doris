@@ -48,7 +48,7 @@ public class CreateTableEvent extends MetastoreTableEvent {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.CREATE_TABLE.equals(getEventType()));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
         try {
             CreateTableMessage createTableMessage =
                     MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
@@ -57,7 +57,7 @@ public class CreateTableEvent extends MetastoreTableEvent {
             hmsTbl.setTableName(hmsTbl.getTableName().toLowerCase(Locale.ROOT));
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Unable to deserialize the event message"), e);
+                    getMsgWithEventInfo("Unable to deserialize the event message"), e);
         }
     }
 
@@ -78,12 +78,12 @@ public class CreateTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
             Env.getCurrentEnv().getCatalogMgr()
                     .registerExternalTableFromEvent(dbName, hmsTbl.getTableName(), catalogName, eventTime, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

@@ -44,6 +44,15 @@ public class BuildIndexClause extends AlterTableClause {
         this.alter = alter;
     }
 
+    // for nereids
+    public BuildIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.tableName = tableName;
+        this.indexDef = indexDef;
+        this.index = index;
+        this.alter = alter;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();
@@ -70,10 +79,14 @@ public class BuildIndexClause extends AlterTableClause {
         if (indexDef == null) {
             throw new AnalysisException("index definition expected.");
         }
+        if (indexDef.getIndexType() == IndexDef.IndexType.NGRAM_BF
+                || indexDef.getIndexType() == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException("ngram bloomfilter or bloomfilter index is not needed to build.");
+        }
         indexDef.analyze();
         this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
                 indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getProperties(), indexDef.getComment());
+                indexDef.getProperties(), indexDef.getComment(), indexDef.getColumnUniqueIds());
     }
 
     @Override

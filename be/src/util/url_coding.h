@@ -17,27 +17,19 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <string>
-#include <vector>
 
 namespace doris {
 
 // Utility method to URL-encode a string (that is, replace special
 // characters with %<hex value in ascii>).
-// The optional parameter hive_compat controls whether we mimic Hive's
-// behaviour when encoding a string, which is only to encode certain
-// characters (excluding, e.g., ' ')
-void url_encode(const std::string& in, std::string* out);
+void url_encode(const std::string_view& in, std::string* out);
 
 // Utility method to decode a string that was URL-encoded. Returns
 // true unless the string could not be correctly decoded.
-// The optional parameter hive_compat controls whether or not we treat
-// the strings as encoded by Hive, which means selectively ignoring
-// certain characters like ' '.
 bool url_decode(const std::string& in, std::string* out);
 
 void base64_encode(const std::string& in, std::string* out);

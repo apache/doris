@@ -229,4 +229,6 @@ private:
     Statistics _statistics;
 };
 
+bool has_dict_page(const tparquet::ColumnMetaData& column);
+
 } // namespace doris::vectorized

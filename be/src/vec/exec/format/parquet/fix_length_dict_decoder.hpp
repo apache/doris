@@ -107,6 +107,9 @@ protected:
             return Status::Corruption("Wrong dictionary data for fixed length type");
         }
         _dict = std::move(dict);
+        if (_dict == nullptr) {
+            return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
+        }
         char* dict_item_address = reinterpret_cast<char*>(_dict.get());
         _dict_items.resize(num_values);
         for (size_t i = 0; i < num_values; ++i) {

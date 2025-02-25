@@ -77,6 +77,7 @@ suite("test_backup_restore_clean_restore", "backup_restore") {
         )
     """
 
+
     sql "INSERT INTO ${dbName}.${tableName2} VALUES ${values.join(",")}"
     result = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(result.size(), numRows);
@@ -106,6 +107,25 @@ suite("test_backup_restore_clean_restore", "backup_restore") {
     result = sql "SELECT * FROM ${dbName}.${tableName3}"
     assertEquals(result.size(), numRows);
 
+    // view 1 must exists
+    String viewName1 = "${tableNamePrefix}_4"
+    sql "DROP VIEW IF EXISTS ${dbName}.${viewName1}"
+    sql """
+        CREATE VIEW ${dbName}.${viewName1} (k1, k2)
+        AS
+        SELECT id as k1, count as k2 FROM ${dbName}.${tableName1}
+        WHERE id in (1,3,5,7,9)
+    """
+
+    // view 2 will be deleted
+    String viewName2 = "${tableNamePrefix}_5"
+    sql "DROP VIEW IF EXISTS ${dbName}.${viewName2}"
+    sql """
+        CREATE VIEW ${dbName}.${viewName2} (k1, k2)
+        AS
+        SELECT id as k1, count as k2 FROM ${dbName}.${tableName3}
+        WHERE id in (1,3,5,7,9)
+    """
 
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
@@ -117,13 +137,14 @@ suite("test_backup_restore_clean_restore", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    // restore table1, partition 3 of table2
+    // restore table1, partition 3 of table2, view1
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
         ON (
             `${tableName1}`,
-            `${tableName2}` PARTITION (`p3`)
+            `${tableName2}` PARTITION (`p3`),
+            `${viewName1}`
         )
         PROPERTIES
         (
@@ -144,12 +165,23 @@ suite("test_backup_restore_clean_restore", "backup_restore") {
     result = sql "SELECT * FROM ${dbName}.${tableName2}"
     assertEquals(result.size(), numRows-10)
 
+    // view1 are exists
+    result = sql """ SHOW VIEW FROM ${tableName1} FROM ${dbName} """
+    assertEquals(result.size(), 1)
+
+    // view2 are dropped
+    result = sql """
+        SHOW TABLE STATUS FROM ${dbName} LIKE "${viewName2}"
+    """
+    assertEquals(result.size(), 0)
+
     // table3 are dropped
     result = sql """
         SHOW TABLE STATUS FROM ${dbName} LIKE "${tableName3}"
     """
     assertEquals(result.size(), 0)
 
+    sql "DROP VIEW ${dbName}.${viewName1}"
     sql "DROP TABLE ${dbName}.${tableName1} FORCE"
     sql "DROP TABLE ${dbName}.${tableName2} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"

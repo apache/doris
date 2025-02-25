@@ -24,6 +24,7 @@
 #include "olap/compaction.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class CloudCumulativeCompaction : public CloudCompactionMixin {
 public:
@@ -43,13 +44,14 @@ private:
 
     Status modify_rowsets() override;
 
-    void garbage_collection() override;
+    Status garbage_collection() override;
 
     void update_cumulative_point();
 
+    Status process_old_version_delete_bitmap();
+
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    std::string _uuid;
     int64_t _input_segments = 0;
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets
@@ -58,4 +60,5 @@ private:
     Version _last_delete_version {-1, -1};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

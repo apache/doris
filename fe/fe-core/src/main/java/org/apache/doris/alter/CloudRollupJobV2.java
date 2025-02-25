@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -90,7 +91,12 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+            }
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
             if (!Strings.isNullOrEmpty(clusterName)) {
                 setCloudClusterName(clusterName);
@@ -226,7 +232,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     tbl.getEnableMowLightDelete(), null,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested());
+                                    tbl.variantEnableFlattenNested(), null,
+                                    tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);

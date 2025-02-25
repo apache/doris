@@ -17,66 +17,45 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
 
 // Same as defined in PrivPredicate.java
 public enum DorisAccessType {
-    SHOW,
-    SHOW_VIEW,
-    SHOW_RESOURCES,
-    SHOW_WORKLOAD_GROUP,
-    GRANT,
+    NODE,
     ADMIN,
+    GRANT,
+    SELECT,
     LOAD,
     ALTER,
     CREATE,
-    ALTER_CREATE,
-    ALTER_CREATE_DROP,
     DROP,
-    SELECT,
-    OPERATOR,
     USAGE,
-    ALL,
-    NODE,
+    SHOW_VIEW,
     NONE;
-
-    public static DorisAccessType toAccessType(PrivPredicate priv) {
-        if (priv == PrivPredicate.SHOW) {
-            return SHOW;
-        } else if (priv == PrivPredicate.SHOW_VIEW) {
-            return SHOW_VIEW;
-        } else if (priv == PrivPredicate.SHOW_RESOURCES) {
-            // For Ranger, there is only USAGE priv for RESOURCE and WORKLOAD_GROUP.
-            // So when checking SHOW_XXX priv, convert it to USAGE priv and pass to Ranger.
-            return USAGE;
-        } else if (priv == PrivPredicate.SHOW_WORKLOAD_GROUP) {
-            return USAGE;
-        } else if (priv == PrivPredicate.GRANT) {
-            return GRANT;
-        } else if (priv == PrivPredicate.ADMIN) {
-            return ADMIN;
-        } else if (priv == PrivPredicate.LOAD) {
-            return LOAD;
-        } else if (priv == PrivPredicate.ALTER) {
-            return ALTER;
-        } else if (priv == PrivPredicate.CREATE) {
-            return CREATE;
-        } else if (priv == PrivPredicate.ALTER_CREATE) {
-            return ALTER_CREATE;
-        } else if (priv == PrivPredicate.ALTER_CREATE_DROP) {
-            return ALTER_CREATE_DROP;
-        } else if (priv == PrivPredicate.DROP) {
-            return DROP;
-        } else if (priv == PrivPredicate.SELECT) {
-            return SELECT;
-        } else if (priv == PrivPredicate.OPERATOR) {
-            return OPERATOR;
-        } else if (priv == PrivPredicate.USAGE) {
-            return USAGE;
-        } else if (priv == PrivPredicate.ALL) {
-            return ALL;
-        } else {
-            return NONE;
+    public static DorisAccessType toAccessType(Privilege privilege) {
+        switch (privilege) {
+            case ADMIN_PRIV:
+                return ADMIN;
+            case NODE_PRIV:
+                return NODE;
+            case GRANT_PRIV:
+                return GRANT;
+            case SELECT_PRIV:
+                return SELECT;
+            case LOAD_PRIV:
+                return LOAD;
+            case ALTER_PRIV:
+                return ALTER;
+            case CREATE_PRIV:
+                return CREATE;
+            case DROP_PRIV:
+                return DROP;
+            case USAGE_PRIV:
+                return USAGE;
+            case SHOW_VIEW_PRIV:
+                return SHOW_VIEW;
+            default:
+                return NONE;
         }
     }
 }

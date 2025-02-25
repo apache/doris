@@ -27,6 +27,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -44,7 +45,8 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    Status do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
+                      vectorized::Block* output_block);
     void make_nullable_output_key(vectorized::Block* block);
 
 private:
@@ -65,11 +67,11 @@ private:
     void _update_memusage_with_serialized_key();
     Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status _get_results_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
                                            bool* eos);
-    Status _serialize_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                 bool* eos);
+    Status _get_results_with_serialized_key(RuntimeState* state, vectorized::Block* block,
+                                            bool* eos);
 
     template <bool limit, bool for_spill = false>
     Status _merge_with_serialized_key_helper(vectorized::Block* block);
@@ -83,25 +85,19 @@ private:
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _get_hash_table_size();
 
-    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
-    RuntimeProfile::Counter* _queue_size_counter = nullptr;
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
@@ -136,13 +132,13 @@ private:
                 if constexpr (NeedFinalize) {
                     return local_state->_get_without_key_result(state, block, eos);
                 } else {
-                    return local_state->_serialize_without_key(state, block, eos);
+                    return local_state->_get_results_without_key(state, block, eos);
                 }
             } else {
                 if constexpr (NeedFinalize) {
                     return local_state->_get_with_serialized_key_result(state, block, eos);
                 } else {
-                    return local_state->_serialize_with_serialized_key_result(state, block, eos);
+                    return local_state->_get_results_with_serialized_key(state, block, eos);
                 }
             }
         }
@@ -173,12 +169,6 @@ private:
     };
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 
-    struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
-    };
-    MemoryRecord _mem_usage_record;
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
     std::unique_ptr<vectorized::Block> _pre_aggregated_block = nullptr;
@@ -219,6 +209,9 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
+    void set_low_memory_mode(RuntimeState* state) override {
+        _spill_streaming_agg_mem_limit = 1024 * 1024;
+    }
 
 private:
     friend class StreamingAggLocalState;
@@ -249,4 +242,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

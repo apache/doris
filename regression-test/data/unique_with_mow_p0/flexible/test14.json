@@ -1,0 +1,4 @@
+{"k": 0, "v1": 999, "__DORIS_SKIP_BITMAP_COL__": "data"}
+{"k": 1, "v2": 999, "__DORIS_VERSION_COL__": 100, "__DORIS_SKIP_BITMAP_COL__": "data3"}
+{"k": 2, "v3": 999, "__DORIS_SEQUENCE_COL__": 100}
+{"k": 2, "v2": 999, "__DORIS_ROW_STORE_COL__": "data2"}

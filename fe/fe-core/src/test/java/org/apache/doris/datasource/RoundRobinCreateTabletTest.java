@@ -121,7 +121,7 @@ public class RoundRobinCreateTabletTest {
         int beNum = 4;
         for (Tablet tablet : index.getTablets()) {
             for (Replica replica : tablet.getReplicas()) {
-                Assert.assertEquals((i++ % beNum) + 1, replica.getBackendId());
+                Assert.assertEquals((i++ % beNum) + 1, replica.getBackendIdWithoutException());
             }
         }
     }

@@ -62,11 +62,17 @@ public class InitDatabaseLog implements Writable {
     @SerializedName(value = "refreshTableIds")
     private List<Long> refreshTableIds;
 
+    @SerializedName(value = "refreshRemoteTableNames")
+    private List<String> refreshRemoteTableNames;
+
     @SerializedName(value = "createTableIds")
     private List<Long> createTableIds;
 
     @SerializedName(value = "createTableNames")
     private List<String> createTableNames;
+
+    @SerializedName(value = "remoteTableNames")
+    private List<String> remoteTableNames;
 
     @SerializedName(value = "type")
     private Type type;
@@ -80,20 +86,24 @@ public class InitDatabaseLog implements Writable {
         catalogId = 0;
         dbId = 0;
         refreshTableIds = Lists.newArrayList();
+        refreshRemoteTableNames = Lists.newArrayList();
         createTableIds = Lists.newArrayList();
         createTableNames = Lists.newArrayList();
+        remoteTableNames = Lists.newArrayList();
         type = Type.UNKNOWN;
     }
 
-    public void addRefreshTable(long id) {
+    public void addRefreshTable(long id, String remoteName) {
         refreshCount += 1;
         refreshTableIds.add(id);
+        refreshRemoteTableNames.add(remoteName);
     }
 
-    public void addCreateTable(long id, String name) {
+    public void addCreateTable(long id, String name, String remoteName) {
         createCount += 1;
         createTableIds.add(id);
         createTableNames.add(name);
+        remoteTableNames.add(remoteName);
     }
 
     @Override

@@ -68,6 +68,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -105,6 +106,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private boolean skipWriteIndexOnLoad = false;
 
     private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+
+    private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
@@ -218,6 +221,26 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildInAtomicRestore() {
+        isInAtomicRestore = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "false"));
+        return this;
+    }
+
+    public boolean isInAtomicRestore() {
+        return isInAtomicRestore;
+    }
+
+    public TableProperty setInAtomicRestore() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "true");
+        return this;
+    }
+
+    public TableProperty clearInAtomicRestore() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
+        return this;
+    }
+
     public TableProperty buildTTLSeconds() {
         ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
         return this;
@@ -301,6 +324,17 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public long rowStorePageSize() {
         return rowStorePageSize;
+    }
+
+    public TableProperty buildStoragePageSize() {
+        storagePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long storagePageSize() {
+        return storagePageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -433,7 +467,10 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
+        dynamicPartitionProperty.clearStoragePolicy();
     }
 
     public List<String> getCopiedRowStoreColumns() {
@@ -596,6 +633,11 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
+    public boolean getEnableUniqueKeySkipBitmap() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+            PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false"));
+    }
+
     // In order to ensure that unique tables without the `enable_unique_key_merge_on_write` property specified
     // before version 2.1 still maintain the merge-on-read implementation after the upgrade, we will keep
     // the default value here as false.
@@ -694,6 +736,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildStoreRowColumn();
         buildRowStoreColumns();
         buildRowStorePageSize();
+        buildStoragePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -705,6 +748,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
+        buildInAtomicRestore();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
@@ -745,10 +789,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
-    }
-
-    public void setStorageVaultName(String storageVaultName) {
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 
     public String getPropertiesString() throws IOException {

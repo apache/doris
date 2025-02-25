@@ -47,10 +47,6 @@ using FromDoubleIntermediateType = long double;
 using FromDoubleIntermediateType = boost::multiprecision::cpp_bin_float_double_extended;
 #endif
 
-namespace CityHash_v1_0_2 {
-struct uint128;
-}
-
 namespace wide {
 
 template <typename T>
@@ -301,18 +297,6 @@ struct integer<Bits, Signed>::_impl {
                 self.items[i] = 0;
             }
             wide_integer_from_tuple_like<TupleLike, i + 1>(self, tuple);
-        }
-    }
-
-    template <typename CityHashUInt128 = CityHash_v1_0_2::uint128>
-    constexpr static void wide_integer_from_cityhash_uint128(
-            integer<Bits, Signed>& self, const CityHashUInt128& value) noexcept {
-        static_assert(sizeof(item_count) >= 2);
-
-        if constexpr (std::endian::native == std::endian::little) {
-            wide_integer_from_tuple_like(self, std::make_pair(value.low64, value.high64));
-        } else {
-            wide_integer_from_tuple_like(self, std::make_pair(value.high64, value.low64));
         }
     }
 
@@ -1011,14 +995,18 @@ public:
 // Members
 
 template <size_t Bits, typename Signed>
+template <size_t Bits2, typename Signed2>
+constexpr integer<Bits, Signed>::integer(const integer<Bits2, Signed2> rhs) noexcept : items {} {
+    _impl::wide_integer_from_wide_integer(*this, rhs);
+}
+
+template <size_t Bits, typename Signed>
 template <typename T>
+    requires(std::is_arithmetic_v<T> || std::is_same_v<T, __int128> ||
+             std::is_same_v<T, unsigned __int128>)
 constexpr integer<Bits, Signed>::integer(T rhs) noexcept : items {} {
-    if constexpr (IsWideInteger<T>::value) {
-        _impl::wide_integer_from_wide_integer(*this, rhs);
-    } else if constexpr (IsTupleLike<T>::value) {
+    if constexpr (IsTupleLike<T>::value) {
         _impl::wide_integer_from_tuple_like(*this, rhs);
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-        _impl::wide_integer_from_cityhash_uint128(*this, rhs);
     } else {
         _impl::wide_integer_from_builtin(*this, rhs);
     }
@@ -1032,8 +1020,6 @@ constexpr integer<Bits, Signed>::integer(std::initializer_list<T> il) noexcept :
             _impl::wide_integer_from_wide_integer(*this, *il.begin());
         } else if constexpr (IsTupleLike<T>::value) {
             _impl::wide_integer_from_tuple_like(*this, *il.begin());
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-            _impl::wide_integer_from_cityhash_uint128(*this, *il.begin());
         } else {
             _impl::wide_integer_from_builtin(*this, *il.begin());
         }
@@ -1065,8 +1051,6 @@ template <typename T>
 constexpr integer<Bits, Signed>& integer<Bits, Signed>::operator=(T rhs) noexcept {
     if constexpr (IsTupleLike<T>::value) {
         _impl::wide_integer_from_tuple_like(*this, rhs);
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-        _impl::wide_integer_from_cityhash_uint128(*this, rhs);
     } else {
         _impl::wide_integer_from_builtin(*this, rhs);
     }

@@ -89,4 +89,5 @@ suite("test_time_round") {
     qt_select "select hour_floor(dt,2,o) from dbround order by id;"
     qt_select "select hour_floor(dt,p,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select "select hour_floor(dt,2,'1919-08-10 11:45:14') from dbround order by id;"
+    qt_select_1 "select dt,hour_floor(dt,0) from dbround order by id;"
 }

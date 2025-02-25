@@ -16,7 +16,18 @@
 // under the License.
 
 suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    def command = "sudo docker ps"
+    def process = command.execute()
+    process.waitFor()
+
+    def output = process.in.text
+
+    def keytab_root_dir = "/keytabs"
+
+    println "Docker containers:"
+    println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
         sql """drop catalog if exists hms_kerberos;"""
@@ -24,13 +35,17 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             CREATE CATALOG IF NOT EXISTS hms_kerberos
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+                "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
+                "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
                 "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
+                "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
             );
         """
         sql """ switch hms_kerberos """
@@ -44,11 +59,11 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
                 PROPERTIES (
                     "type" = "hms",
-                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                    "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                     "hadoop.security.authentication" = "kerberos",
                     "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab"
+                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab"
                 );
             """
             sql """ switch hms_kerberos_hadoop_err1 """
@@ -57,7 +72,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             logger.info(e.toString())
             // caused by a warning msg if enable sasl on hive but "hive.metastore.sasl.enabled" is not true:
             // "set_ugi() not successful, Likely cause: new client talking to old server. Continuing without it."
-            assertTrue(e.toString().contains("org.apache.thrift.transport.TTransportException: null"))
+            assertTrue(e.toString().contains("thrift.transport.TTransportException"))
         }
 
         try {
@@ -67,8 +82,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 PROPERTIES (
                     "type" = "hms",
                     "hive.metastore.sasl.enabled " = "true",
-                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-                    "fs.defaultFS" = "hdfs://172.31.71.25:8020"
+                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520"
                 );
             """
             sql """ switch hms_kerberos_hadoop_err2 """
@@ -83,11 +98,11 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         //                CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
         //                PROPERTIES (
         //                    "type" = "hms",
-        //                    "hive.metastore.uris" = "thrift://172.31.71.25:9083",
-        //                    "fs.defaultFS" = "hdfs://172.31.71.25:8020",
+        //                    "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+        //                    "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
         //                    "hadoop.security.authentication" = "kerberos",
         //                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
-        //                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+        //                    "hadoop.kerberos.keytab" = "${keytab_root_dir}/presto-server.keytab",
         //                    "hive.metastore.thrift.impersonation.enabled" = true"
         //                    "hive.metastore.client.credential-cache.location" = "hive-presto-master-krbcc"
         //                );
@@ -97,5 +112,15 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         //        } catch (Exception e) {
         //            logger.error(e.message)
         //        }
+        
+        // test information_schema.backend_kerberos_ticket_cache
+        // switch to a normal catalog
+        sql "switch internal";
+        List<List<Object>> backends = sql "show backends"
+        int beNum = backends.size();
+        test {
+            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
+            rowNum beNum
+        } 
     }
 }

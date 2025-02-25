@@ -111,7 +111,7 @@ void encode_and_decode(size_t len_of_varchar, std::string function_name) {
                 continue;
             } else {
                 std::string random_bytes = generate_random_len_and_random_bytes(m);
-                col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
+                col_source_str_mutate->insert(Field(random_bytes));
             }
         }
 
@@ -185,7 +185,7 @@ TEST(CompressedMaterializationTest, abnormal_test) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         std::string random_bytes = generate_random_bytes(16);
-        col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
+        col_source_str_mutate->insert(Field(random_bytes));
     }
 
     auto col_source_str = std::move(col_source_str_mutate);

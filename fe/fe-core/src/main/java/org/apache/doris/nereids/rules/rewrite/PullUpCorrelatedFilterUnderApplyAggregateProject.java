@@ -19,17 +19,22 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Swap the order of project and filter under agg in correlated subqueries.
@@ -94,8 +99,22 @@ public class PullUpCorrelatedFilterUnderApplyAggregateProject implements Rewrite
             }
         });
 
-        LogicalProject<Plan> newProject = project.withProjectsAndChild(newProjects, filter.child());
-        LogicalFilter<Plan> newFilter = new LogicalFilter<>(filter.getConjuncts(), newProject);
+        Set<Slot> correlatedSlots = ExpressionUtils.getInputSlotSet(apply.getCorrelationSlot());
+        Set<Expression> pullUpPredicates = Sets.newLinkedHashSet();
+        Set<Expression> filterPredicates = Sets.newLinkedHashSet();
+        for (Expression conjunct : filter.getConjuncts()) {
+            Set<Slot> conjunctSlots = conjunct.getInputSlots();
+            if (Sets.intersection(conjunctSlots, correlatedSlots).isEmpty()) {
+                filterPredicates.add(conjunct);
+            } else {
+                pullUpPredicates.add(conjunct);
+            }
+        }
+
+        LogicalProject<Plan> newProject = project.withProjectsAndChild(newProjects,
+                filterPredicates.isEmpty() ? filter.child()
+                        : filter.withConjuncts(filterPredicates));
+        LogicalFilter<Plan> newFilter = new LogicalFilter<>(pullUpPredicates, newProject);
         LogicalAggregate<Plan> newAgg = agg.withChildren(ImmutableList.of(newFilter));
         return (LogicalApply<?, ?>) (apply.withChildren(apply.left(),
                 isRightChildAgg ? newAgg : apply.right().withChildren(newAgg)));

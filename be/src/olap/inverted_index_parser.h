@@ -38,6 +38,7 @@ enum class InvertedIndexParserType {
     PARSER_ENGLISH = 3,
     PARSER_CHINESE = 4,
     PARSER_UNICODE = 5,
+    PARSER_ICU = 6
 };
 
 using CharFilterMap = std::map<std::string, std::string>;
@@ -46,6 +47,8 @@ struct InvertedIndexCtx {
     InvertedIndexParserType parser_type;
     std::string parser_mode;
     CharFilterMap char_filter_map;
+    std::string lower_case;
+    std::string stop_words;
     lucene::analysis::Analyzer* analyzer = nullptr;
 };
 
@@ -65,6 +68,7 @@ const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
 const std::string INVERTED_INDEX_PARSER_UNICODE = "unicode";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
+const std::string INVERTED_INDEX_PARSER_ICU = "icu";
 
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
@@ -80,6 +84,8 @@ const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE = "256";
 const std::string INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
 
 const std::string INVERTED_INDEX_PARSER_STOPWORDS_KEY = "stopwords";
+
+const std::string INVERTED_INDEX_PARSER_DICT_COMPRESSION_KEY = "dict_compression";
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
@@ -115,6 +121,9 @@ std::string get_parser_lowercase_from_properties(
 }
 
 std::string get_parser_stopwords_from_properties(
+        const std::map<std::string, std::string>& properties);
+
+std::string get_parser_dict_compression_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris

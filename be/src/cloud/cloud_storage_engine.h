@@ -57,7 +57,7 @@ public:
 
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     Status set_cluster_id(int32_t cluster_id) override {
         _effective_cluster_id = cluster_id;
@@ -72,16 +72,24 @@ public:
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
-    void _check_file_cache_ttl_block_valid();
 
-    std::optional<StorageResource> get_storage_resource(const std::string& vault_id) const {
-        if (vault_id.empty()) {
-            return StorageResource {latest_fs()};
-        }
+    std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
+        VLOG_DEBUG << "Getting storage resource for vault_id: " << vault_id;
 
-        if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {
-            return storage_resource->first;
-        }
+        bool synced = false;
+        do {
+            if (vault_id.empty() && latest_fs() != nullptr) {
+                return StorageResource {latest_fs()};
+            }
+            if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {
+                return storage_resource->first;
+            }
+            if (synced) {
+                break;
+            }
+            sync_storage_vault();
+            synced = true;
+        } while (true);
 
         return std::nullopt;
     }
@@ -147,6 +155,7 @@ private:
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
+    void _check_tablet_delete_bitmap_score_callback();
 
     std::atomic_bool _stopped {false};
 

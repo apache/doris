@@ -30,6 +30,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
 #include "vec/columns/column.h"
@@ -41,12 +42,7 @@ bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudFullCompaction::~CloudFullCompaction() = default;
 
@@ -98,7 +94,9 @@ Status CloudFullCompaction::prepare_compact() {
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();
-        _input_rowsets_size += rs->data_disk_size();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
     }
     LOG_INFO("start CloudFullCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -106,7 +104,9 @@ Status CloudFullCompaction::prepare_compact() {
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size);
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size);
     return st;
 }
 
@@ -162,16 +162,20 @@ Status CloudFullCompaction::execute_compact() {
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
             .tag("output_rows", _output_rowset->num_rows())
             .tag("output_segments", _output_rowset->num_segments())
-            .tag("output_data_size", _output_rowset->data_disk_size());
+            .tag("output_rowset_data_size", _output_rowset->data_disk_size())
+            .tag("output_rowset_index_size", _output_rowset->index_disk_size())
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
 
     _state = CompactionState::SUCCESS;
 
     DorisMetrics::instance()->full_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_size);
-    full_output_size << _output_rowset->data_disk_size();
+    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_total_size);
+    full_output_size << _output_rowset->total_disk_size();
 
     return Status::OK();
 }
@@ -193,8 +197,12 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->set_output_cumulative_point(_output_rowset->end_version() + 1);
     compaction_job->set_num_input_rows(_input_row_num);
     compaction_job->set_num_output_rows(_output_rowset->num_rows());
-    compaction_job->set_size_input_rowsets(_input_rowsets_size);
-    compaction_job->set_size_output_rowsets(_output_rowset->data_disk_size());
+    compaction_job->set_size_input_rowsets(_input_rowsets_total_size);
+    compaction_job->set_size_output_rowsets(_output_rowset->total_disk_size());
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_compaction_data_size", {
+        compaction_job->set_size_input_rowsets(1);
+        compaction_job->set_size_output_rowsets(10000001);
+    })
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
     compaction_job->set_num_input_rowsets(_input_rowsets.size());
@@ -204,14 +212,18 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->add_output_versions(_output_rowset->end_version());
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
+    compaction_job->set_index_size_input_rowsets(_input_rowsets_index_size);
+    compaction_job->set_segment_size_input_rowsets(_input_rowsets_data_size);
+    compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
+    compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
+
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.block", DBUG_BLOCK);
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(this->initiator()));
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -252,7 +264,7 @@ Status CloudFullCompaction::modify_rowsets() {
     return Status::OK();
 }
 
-void CloudFullCompaction::garbage_collection() {
+Status CloudFullCompaction::garbage_collection() {
     //file_cache_garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -267,9 +279,7 @@ void CloudFullCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::FULL);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -278,6 +288,7 @@ void CloudFullCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudFullCompaction::do_lease() {
@@ -341,7 +352,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
             .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
     _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
     return Status::OK();

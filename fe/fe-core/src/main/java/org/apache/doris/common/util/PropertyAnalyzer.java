@@ -34,8 +34,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -83,6 +83,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
     public static final String PROPERTIES_PARTITION_ID = "partition_id";
     public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
+    public static final String PROPERTIES_IN_ATOMIC_RESTORE = "in_atomic_restore";
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
@@ -98,6 +99,9 @@ public class PropertyAnalyzer {
     // row store page size, default 16KB
     public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
     public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
+
+    public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
+    public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
@@ -186,6 +190,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION =
             "enable_nondeterministic_function";
+
+    public static final String PROPERTIES_USE_FOR_REWRITE =
+            "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
@@ -201,6 +208,7 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -340,8 +348,13 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                try {
+                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                } catch (AnalysisException e) {
+                    LOG.warn("dateLiteral failed, use max cool down time", e);
+                    cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+                }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 hasStoragePolicy = true;
                 newStoragePolicy = value;
@@ -625,6 +638,9 @@ public class PropertyAnalyzer {
             }
 
             String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
+            if (bfColumnArr.length == 0) {
+                return bfColumns;
+            }
             Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             for (String bfColumn : bfColumnArr) {
                 bfColumn = bfColumn.trim();
@@ -633,11 +649,8 @@ public class PropertyAnalyzer {
                     if (column.getName().equalsIgnoreCase(bfColumn)) {
                         PrimitiveType type = column.getDataType();
 
-                        // tinyint/float/double columns don't support
                         // key columns and none/replace aggregate non-key columns support
-                        if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
-                                || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isComplexType()) {
+                        if (!column.isSupportBloomFilter()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
@@ -1066,6 +1079,24 @@ public class PropertyAnalyzer {
         return rowStorePageSize;
     }
 
+    public static long analyzeStoragePageSize(Map<String, String> properties) throws AnalysisException {
+        long storagePageSize = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_PAGE_SIZE)) {
+            String storagePageSizeStr = properties.get(PROPERTIES_STORAGE_PAGE_SIZE);
+            try {
+                storagePageSize = Long.parseLong(storagePageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage page size: " + storagePageSizeStr);
+            }
+            if (storagePageSize < 4096 || storagePageSize > 10485760) {
+                throw new AnalysisException("Storage page size must be between 4KB and 10MB.");
+            }
+            storagePageSize = alignTo4K(storagePageSize);
+            properties.remove(PROPERTIES_STORAGE_PAGE_SIZE);
+        }
+        return storagePageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1099,6 +1130,8 @@ public class PropertyAnalyzer {
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
@@ -1108,9 +1141,13 @@ public class PropertyAnalyzer {
             return TInvertedIndexFileStorageFormat.V1;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
+            return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
@@ -1147,14 +1184,50 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
-    public static String analyzeStorageVault(Map<String, String> properties) {
-        String storageVault = null;
+    /**
+     * @param properties
+     * @return <storageVaultName, storageVaultId>
+     * @throws AnalysisException
+     */
+    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties) throws AnalysisException {
+        String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            storageVaultName = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
             properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
-        return storageVault;
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            // If user does not specify one storage vault then FE would use the default vault
+            Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+            if (info == null) {
+                throw new AnalysisException("No default storage vault."
+                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                        + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+            }
+            storageVaultName = info.first;
+            LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+        }
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            throw new AnalysisException("Invalid Storage Vault. "
+                    + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                    + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
+        }
+
+        String storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new AnalysisException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
+
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_ID)) {
+            Preconditions.checkArgument(storageVaultId.equals(properties.get(PROPERTIES_STORAGE_VAULT_ID)),
+                    "storageVaultId check failed, %s-%s", storageVaultId, properties.get(PROPERTIES_STORAGE_VAULT_ID));
+            properties.remove(PROPERTIES_STORAGE_VAULT_ID);
+        }
+
+        return Pair.of(storageVaultName, storageVaultId);
     }
 
     // analyze property like : "type" = "xxx";
@@ -1240,7 +1313,7 @@ public class PropertyAnalyzer {
             tagMap.put(tag.type, tag.value);
             iter.remove();
         }
-        if (tagMap.isEmpty() && defaultValue != null) {
+        if (defaultValue != null && !tagMap.containsKey(defaultValue.type)) {
             tagMap.put(defaultValue.type, defaultValue.value);
         }
         return tagMap;
@@ -1471,6 +1544,24 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
+    public static boolean analyzeUniqueKeySkipBitmapColumn(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN
+                + " must be `true` or `false`");
+    }
+
     public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
             boolean enableUniqueKeyMergeOnWrite)
             throws AnalysisException {
@@ -1556,16 +1647,6 @@ public class PropertyAnalyzer {
         // "access_controller.properties.prop2" = "yyy",
         // )
         // 1. get access controller class
-        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
-        if (!Strings.isNullOrEmpty(acClass)) {
-            // 2. check if class exists
-            try {
-                Class.forName(acClass);
-            } catch (ClassNotFoundException e) {
-                throw new AnalysisException("failed to find class " + acClass, e);
-            }
-        }
-
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified
             if (properties.containsKey(ExternalCatalog.USE_META_CACHE)) {
@@ -1627,7 +1708,7 @@ public class PropertyAnalyzer {
 
     private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
             String ctl, String database, Map<String, String> properties) {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
         if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
@@ -1670,6 +1751,14 @@ public class PropertyAnalyzer {
     public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
         if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        }
+        return properties;
+    }
+
+    public static Map<String, String> addEnableUniqueKeySkipBitmapPropertyIfNotExists(Map<String, String> properties) {
+        if (properties != null && !properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN,
+                    Boolean.toString(Config.enable_skip_bitmap_column_by_default));
         }
         return properties;
     }

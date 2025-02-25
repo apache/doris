@@ -25,12 +25,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -294,7 +297,8 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
-                                + "or maybe all be on same host.\n"
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -304,7 +308,8 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
-                                + "or maybe all be on same host.\n"
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
@@ -785,6 +790,20 @@ public class CreateTableTest extends TestWithFeService {
         } finally {
             Config.force_olap_table_replication_num = -1;
         }
+    }
+
+    @Test
+    public void testCreateTableDetailMsg() throws Exception {
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "group_a"),  (short) 6);
+        Assert.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
+                Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)));
+
+        allocMap.clear();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
+        String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
+        Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
     }
 
     @Test

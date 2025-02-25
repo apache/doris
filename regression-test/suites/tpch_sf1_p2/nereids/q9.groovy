@@ -64,7 +64,7 @@ suite("tpch_sf1_q9_nereids") {
     """
 
     qt_select """
-    select/*+SET_VAR(exec_mem_limit=17179869184, parallel_fragment_exec_instance_num=4, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_runtime_filter_prune=true, runtime_filter_wait_time_ms=10000) */
+    select/*+SET_VAR(exec_mem_limit=17179869184, parallel_pipeline_task_num=4, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=true, enable_runtime_filter_prune=true, runtime_filter_wait_time_ms=10000) */
         nation,
         o_year,
         sum(amount) as sum_profit

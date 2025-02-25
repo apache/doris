@@ -18,6 +18,7 @@
 #pragma once
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class AggregateFunctionSimpleFactory;
 } // namespace vectorized
@@ -33,3 +34,5 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

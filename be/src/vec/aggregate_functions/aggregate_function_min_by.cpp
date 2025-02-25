@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(

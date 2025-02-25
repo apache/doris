@@ -27,7 +27,6 @@ include "Planner.thrift"
 include "DataSinks.thrift"
 include "Data.thrift"
 include "RuntimeProfile.thrift"
-include "PaloService.thrift"
 
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
@@ -104,7 +103,7 @@ struct TQueryOptions {
   13: optional bool abort_on_default_limit_exceeded = 0
   14: optional i32 query_timeout = 3600
   15: optional bool is_report_success = 0
-  16: optional i32 codegen_level = 0
+  16: optional i32 codegen_level = 0 // Deprecated
   // INT64::MAX
   17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
@@ -182,7 +181,7 @@ struct TQueryOptions {
 
   52: optional i32 be_exec_version = 0
 
-  53: optional i32 partitioned_hash_join_rows_threshold = 0
+  53: optional i32 partitioned_hash_join_rows_threshold = 0 // deprecated
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
@@ -195,10 +194,11 @@ struct TQueryOptions {
 
   58: optional i32 repeat_max_num = 0 // Deprecated
 
+  // deprecated, use spill_sort_mem_limit
   59: optional i64 external_sort_bytes_threshold = 0
 
   // deprecated
-  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
   61: optional bool enable_file_cache = false
 
@@ -213,9 +213,10 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
+  // Not used anymore
   68: optional i64 external_agg_bytes_threshold = 0
 
-  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  // Not used anymore, use spill_aggregation_partition_count
   69: optional i32 external_agg_partition_bits = 4
 
   // Specify base path for file cache
@@ -226,8 +227,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
@@ -281,10 +282,13 @@ struct TQueryOptions {
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  // deprecated
   101: optional bool enable_join_spill = false
 
+  // deprecated
   102: optional bool enable_sort_spill = false
 
+  // deprecated
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
@@ -317,10 +321,11 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+  119: optional bool enable_match_without_inverted_index = true;
 
-  120: optional bool enable_match_without_inverted_index = true;
-  121: optional bool enable_fallback_on_missing_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
@@ -332,15 +337,59 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-
   127: optional i32 in_list_value_count_threshold = 10;
-
   // We need this two fields to make sure thrift id on master is compatible with other branch.
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 
   130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
   131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
+  132: optional i32 parallel_prepare_threshold = 0;
+  133: optional i32 partition_topn_max_partitions = 1024;
+  134: optional i32 partition_topn_pre_partition_rows = 1000;
+
+  135: optional bool enable_parallel_outfile = false;
+
+  136: optional bool enable_phrase_query_sequential_opt = true;
+  
+  137: optional bool enable_auto_create_when_overwrite = false;
+
+  138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
+  139: optional i64 orc_once_max_read_bytes = 8388608;
+  140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  141: optional bool ignore_runtime_filter_error = false;
+
+  142: optional bool enable_fixed_len_to_uint32_v2 = false;
+  143: optional bool enable_shared_exchange_sink_buffer = true;
+
+
+  144: optional bool enable_inverted_index_searcher_cache = true;
+  145: optional bool enable_inverted_index_query_cache = true;
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+
+  147: optional i32 profile_level = 1;
+
+  148: optional i32 min_scanner_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0;
+  150: optional bool enable_runtime_filter_partition_prune = true;
+
+  // The minimum memory that an operator required to run.
+  151: optional i32 minimum_operator_memory_required_kb = 1024;
+
+  152: optional bool enable_mem_overcommit = true;
+  153: optional i32 query_slot_count = 0;
+  154: optional bool enable_spill = false
+  155: optional bool enable_reserve_memory = true
+  156: optional i32 revocable_memory_high_watermark_percent = -1
+
+  157: optional i64 spill_sort_mem_limit = 134217728
+  158: optional i64 spill_sort_batch_bytes = 8388608
+  159: optional i32 spill_aggregation_partition_count = 32
+  160: optional i32 spill_hash_join_partition_count = 32
+  161: optional i64 low_memory_mode_buffer_limit = 33554432
+  162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -355,6 +404,7 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
+// deprecated
 struct TRuntimeFilterTargetParams {
   1: required Types.TUniqueId target_fragment_instance_id
   // The address of the instance where the fragment is expected to run
@@ -365,22 +415,25 @@ struct TRuntimeFilterTargetParamsV2 {
   1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
+  3: optional list<i32> target_fragment_ids
 }
 
 struct TRuntimeFilterParams {
-  // Runtime filter merge instance address
+  // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
-  // Runtime filter ID to the instance address of the fragment,
-  // that is expected to use this runtime filter
+  // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
+  // Used if this filter has a remote target
   3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
 
   // Number of Runtime filter producers
+  // Used if this filter has a remote target
   4: optional map<i32, i32> runtime_filter_builder_num
 
+  // Used if this filter has a remote target
   5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
@@ -599,11 +652,6 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
-// fold constant expr
-struct TExprMap {
-  1: required map<string, Exprs.TExpr> expr_map
-}
-
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
@@ -625,9 +673,6 @@ struct TTransmitDataParams {
 
   // required in V1
   4: optional Types.TPlanNodeId dest_node_id
-
-  // required in V1
-  5: optional Data.TRowBatch row_batch
 
   // if set to true, indicates that no more row batches will be sent
   // for this dest_node_id
@@ -651,66 +696,6 @@ struct TTransmitDataResult {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
-}
-
-// open a tablet writer
-struct TTabletWriterOpenParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-    3: required i64 txn_id
-    4: required Descriptors.TOlapTableSchemaParam schema
-    5: required list<TTabletWithPartition> tablets
-
-    6: required i32 num_senders
-}
-
-struct TTabletWriterOpenResult {
-    1: required Status.TStatus status
-}
-
-// add batch to tablet writer
-struct TTabletWriterAddBatchParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i64 packet_seq
-    4: required list<Types.TTabletId> tablet_ids
-    5: required Data.TRowBatch row_batch
-
-    6: required i32 sender_no
-}
-
-struct TTabletWriterAddBatchResult {
-    1: required Status.TStatus status
-}
-
-struct TTabletWriterCloseParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCloseResult {
-    1: required Status.TStatus status
-}
-
-//
-struct TTabletWriterCancelParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCancelResult {
-}
-
-struct TFetchDataParams {
-  1: required PaloInternalServiceVersion protocol_version
-  // required in V1
-  // query id which want to fetch data
-  2: required Types.TUniqueId fragment_instance_id
 }
 
 struct TFetchDataResult {
@@ -759,7 +744,7 @@ struct TPipelineInstanceParams {
   4: optional i32 sender_id
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
-  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
   9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
@@ -803,7 +788,7 @@ struct TPipelineFragmentParams {
   33: optional i32 num_local_sink
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
-  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   37: optional i32 parallel_instances
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
@@ -811,11 +796,27 @@ struct TPipelineFragmentParams {
   41: optional i64 wal_id
   42: optional i64 content_length
   43: optional Types.TNetworkAddress current_connect_fe
+  // Used by 2.1
+  44: optional list<i32> topn_filter_source_node_ids
 
   // For cloud
   1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {
-    1: optional list<TPipelineFragmentParams> params_list;
+  1: optional list<TPipelineFragmentParams> params_list;
+  2: optional Descriptors.TDescriptorTable desc_tbl;
+  // scan node id -> scan range params, only for external file scan
+  3: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params;
+  4: optional Types.TNetworkAddress coord;
+  5: optional TQueryGlobals query_globals;
+  6: optional Types.TResourceInfo resource_info;
+  // The total number of fragments on same BE host
+  7: optional i32 fragment_num_on_host
+  8: optional TQueryOptions query_options
+  9: optional bool is_nereids = true;
+  10: optional list<TPipelineWorkloadGroup> workload_groups
+  11: optional Types.TUniqueId query_id
+  12: optional list<i32> topn_filter_source_node_ids
+  13: optional Types.TNetworkAddress runtime_filter_merge_addr
 }

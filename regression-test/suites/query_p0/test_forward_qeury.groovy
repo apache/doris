@@ -19,7 +19,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite("test_forward_query") {
+suite("test_forward_query", 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.setFeNum(2)
@@ -41,12 +41,9 @@ suite("test_forward_query") {
 
         sql """ INSERT INTO ${tbl} VALUES(1);"""
 
-        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true]])
+        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true, execute:1]])
 
-        try {
-            sql """ SELECT * FROM ${tbl} """
-        } catch (Exception ignored) {
-            assertTrue(false)
-        }
+        def ret = sql """ SELECT * FROM ${tbl} """
+        assertEquals(ret[0][0], 1)
     }
 }

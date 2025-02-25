@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -48,7 +49,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    _schema_scanner->set_dependency(_data_dependency, _finish_dependency);
+    _schema_scanner->set_dependency(_data_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
@@ -144,7 +145,7 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    _slot_num = _dest_tuple_desc->slots().size();
+    _slot_num = cast_set<int>(_dest_tuple_desc->slots().size());
     // get src tuple desc
     const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
@@ -190,14 +191,6 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
     }
 
     _tuple_idx = 0;
-
-    if (_common_scanner_param->user) {
-        TSetSessionParams param;
-        param.__set_user(*_common_scanner_param->user);
-        //TStatus t_status;
-        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
-        //RETURN_IF_ERROR(Status(t_status));
-    }
 
     return Status::OK();
 }
@@ -259,8 +252,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
+                                                     _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
     } while (block->rows() == 0 && !*eos);
@@ -269,4 +262,5 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

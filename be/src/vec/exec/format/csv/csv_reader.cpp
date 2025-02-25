@@ -26,7 +26,6 @@
 #include <cstddef>
 #include <map>
 #include <memory>
-#include <new>
 #include <ostream>
 #include <utility>
 
@@ -45,7 +44,6 @@
 #include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -58,7 +56,6 @@ class RuntimeProfile;
 namespace vectorized {
 class IColumn;
 } // namespace vectorized
-
 namespace io {
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
@@ -66,7 +63,7 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const static Slice _s_null_slice = Slice("\\N");
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -172,6 +169,23 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
     } else {
         _split_field_multi_char(line, splitted_values);
     }
+}
+
+void HiveCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const size_t size = line.size;
+    size_t value_start = 0;
+    for (size_t i = 0; i < size; ++i) {
+        if (data[i] == _value_sep[0]) {
+            // hive will escape the field separator in string
+            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+                continue;
+            }
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
+        }
+    }
+    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -324,7 +338,7 @@ Status CsvReader::init_reader(bool is_load) {
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     _options.escape_char = _escape;
-    if (_params.file_attributes.text_params.collection_delimiter.size() == 0) {
+    if (_params.file_attributes.text_params.collection_delimiter.empty()) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
             _options.collection_delim = ',';
@@ -338,7 +352,7 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
-    if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
+    if (_params.file_attributes.text_params.mapkv_delimiter.empty()) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
             _options.map_key_delim = ':';
@@ -352,6 +366,12 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
+
+    if (_params.file_attributes.text_params.__isset.null_format) {
+        _options.null_format = _params.file_attributes.text_params.null_format.data();
+        _options.null_len = _params.file_attributes.text_params.null_format.length();
+    }
+
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
@@ -376,9 +396,14 @@ Status CsvReader::init_reader(bool is_load) {
     if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
-
-        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        if (_text_serde_type == TTextSerdeType::HIVE_TEXT_SERDE) {
+            _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
+                    _escape);
+        } else {
+            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        }
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
@@ -447,7 +472,7 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         // For load task, the column order is same as file column order
         int i = 0;
-        for (auto& desc [[maybe_unused]] : _file_slot_descs) {
+        for (const auto& desc [[maybe_unused]] : _file_slot_descs) {
             _col_idxs.push_back(i++);
         }
     }
@@ -547,7 +572,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
 Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
-    for (auto& slot : _file_slot_descs) {
+    for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
@@ -594,7 +619,7 @@ template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
-        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
@@ -629,7 +654,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -672,7 +697,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
                                    size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        IColumn* col_ptr = columns[i];
+        IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
             col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
@@ -685,7 +710,7 @@ Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& 
 }
 
 Status CsvReader::_validate_line(const Slice& line, bool* success) {
-    if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
+    if (!_is_proto_format && !validate_utf8(_params, line.data, line.size)) {
         if (!_is_load) {
             return Status::InternalError<false>("Only support csv data in utf8 codec");
         } else {
@@ -767,7 +792,7 @@ void CsvReader::_split_line(const Slice& line) {
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
     // if not the array format, filter this line and return error url
     for (int j = 0; j < _file_slot_descs.size(); ++j) {
-        auto slot_desc = _file_slot_descs[j];
+        auto* slot_desc = _file_slot_descs[j];
         if (!slot_desc->is_materialized()) {
             continue;
         }
@@ -856,7 +881,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
     _options.converted_from_string = _trim_double_quotes;
     _options.escape_char = _escape;
-    if (_params.file_attributes.text_params.collection_delimiter.size() == 0) {
+    if (_params.file_attributes.text_params.collection_delimiter.empty()) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
             _options.collection_delim = ',';
@@ -870,7 +895,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
-    if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
+    if (_params.file_attributes.text_params.mapkv_delimiter.empty()) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
             _options.collection_delim = ':';
@@ -900,9 +925,13 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                 _trim_tailing_spaces, _trim_double_quotes, _value_separator,
                 _value_separator_length);
     } else {
+        // If we pass `_file_slot_descs.size() - 1` to EncloseCsvTextFieldSplitter, it will cause BE core dump
+        // because currently _file_slot_descs is an empty vector.
+        // The _file_slot_descs.size() is only used to reserve space,
+        // so it's ok to pass 0 to EncloseCsvLineReaderContext
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
+                0, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
                 std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
@@ -922,7 +951,7 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
         return Status::InternalError<false>(
                 "The first line is empty, can not parse column numbers");
     }
-    if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+    if (!validate_utf8(_params, const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     ptr = _remove_bom(ptr, size);
@@ -939,13 +968,13 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     if (size == 0) {
         return Status::InternalError<false>("The first line is empty, can not parse column names");
     }
-    if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+    if (!validate_utf8(_params, const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
     }
     ptr = _remove_bom(ptr, size);
     _split_line(Slice(ptr, size));
-    for (size_t idx = 0; idx < _split_values.size(); ++idx) {
-        col_names->emplace_back(_split_values[idx].to_string());
+    for (auto _split_value : _split_values) {
+        col_names->emplace_back(_split_value.to_string());
     }
     return Status::OK();
 }
@@ -987,4 +1016,5 @@ Status CsvReader::close() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

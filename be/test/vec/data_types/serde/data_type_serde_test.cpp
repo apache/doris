@@ -166,7 +166,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
@@ -175,7 +175,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
@@ -218,6 +218,68 @@ inline void serialize_and_deserialize_pb_test() {
 
 TEST(DataTypeSerDeTest, DataTypeScalaSerDeTest) {
     serialize_and_deserialize_pb_test();
+}
+
+TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
+    // ipv6
+    {
+        std::string ip = "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b";
+        auto vec = vectorized::ColumnVector<IPv6>::create();
+        IPv6Value ipv6;
+        EXPECT_TRUE(ipv6.from_string(ip));
+        vec->insert(ipv6.value());
+
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        auto serde = data_type->get_serde(0);
+        JsonbWriterT<JsonbOutStream> jsonb_writer;
+        Arena pool;
+        jsonb_writer.writeStartObject();
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
+        jsonb_writer.writeEndObject();
+        auto jsonb_column = ColumnString::create();
+        jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
+                                  jsonb_writer.getOutput()->getSize());
+        StringRef jsonb_data = jsonb_column->get_data_at(0);
+        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+        JsonbDocument& doc = *pdoc;
+        for (auto it = doc->begin(); it != doc->end(); ++it) {
+            serde->read_one_cell_from_jsonb(*vec, it->value());
+        }
+        EXPECT_TRUE(vec->size() == 2);
+        IPv6 data = vec->get_element(1);
+        IPv6Value ipv6_value(data);
+        EXPECT_EQ(ipv6_value.to_string(), ip);
+    }
+
+    // ipv4
+    {
+        std::string ip = "192.0.0.1";
+        auto vec = vectorized::ColumnVector<IPv4>::create();
+        IPv4Value ipv4;
+        EXPECT_TRUE(ipv4.from_string(ip));
+        vec->insert(ipv4.value());
+
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        auto serde = data_type->get_serde(0);
+        JsonbWriterT<JsonbOutStream> jsonb_writer;
+        Arena pool;
+        jsonb_writer.writeStartObject();
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
+        jsonb_writer.writeEndObject();
+        auto jsonb_column = ColumnString::create();
+        jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
+                                  jsonb_writer.getOutput()->getSize());
+        StringRef jsonb_data = jsonb_column->get_data_at(0);
+        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+        JsonbDocument& doc = *pdoc;
+        for (auto it = doc->begin(); it != doc->end(); ++it) {
+            serde->read_one_cell_from_jsonb(*vec, it->value());
+        }
+        EXPECT_TRUE(vec->size() == 2);
+        IPv4 data = vec->get_element(1);
+        IPv4Value ipv4_value(data);
+        EXPECT_EQ(ipv4_value.to_string(), ip);
+    }
 }
 
 } // namespace doris::vectorized

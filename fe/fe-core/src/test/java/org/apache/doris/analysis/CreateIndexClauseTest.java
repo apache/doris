@@ -40,9 +40,19 @@ public class CreateIndexClauseTest {
                 new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
                 false);
         clause.analyze(analyzer);
-        Assert.assertEquals("CREATE INDEX index1 ON `db`.`table` (`col1`) USING INVERTED COMMENT 'balabala'",
+        Assert.assertEquals("CREATE INDEX `index1` ON `db`.`table` (`col1`) USING INVERTED COMMENT 'balabala'",
                 clause.toSql());
 
+    }
+
+    @Test
+    public void testAlter() throws AnalysisException {
+        CreateIndexClause clause = new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
+                true);
+        clause.analyze(analyzer);
+        Assert.assertEquals("ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)

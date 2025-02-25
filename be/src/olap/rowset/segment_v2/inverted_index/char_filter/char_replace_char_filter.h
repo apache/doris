@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <CLucene.h>
+#include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/analysis/CharFilter.h>
 
 #include <bitset>

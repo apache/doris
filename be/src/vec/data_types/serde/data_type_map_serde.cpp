@@ -30,21 +30,21 @@
 namespace doris {
 namespace vectorized {
 class Arena;
-
-Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
+#include "common/compile_check_begin.h"
+Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                  int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -97,19 +97,23 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
          *
          *  So i use 'kv <= from' in order to get _map_kv_delimiter that appears first.
          * */
-        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from) {
+        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from &&
+            (options.escape_char == 0 || i == 0 || slice[i - 1] != options.escape_char)) {
             kv = i;
             continue;
         }
         if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
-            key_slices.push_back({slice.data + from, kv - from});
-            value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
+            if (options.escape_char != 0 && i > 0 && slice[i - 1] == options.escape_char) {
+                continue;
+            }
+            key_slices.emplace_back(slice.data + from, kv - from);
+            value_slices.emplace_back(slice.data + kv + 1, i - 1 - kv);
             from = i + 1;
             kv = from;
         }
     }
 
-    int num_keys = 0, num_values = 0;
+    uint64_t num_keys = 0, num_values = 0;
     Status st;
     st = key_serde->deserialize_column_from_hive_text_vector(
             nested_key_column, key_slices, &num_keys, options,
@@ -132,20 +136,20 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
-        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
     size_t start = offsets[row_num - 1];
@@ -174,7 +178,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
-                                                             int* num_deserialized,
+                                                             uint64_t* num_deserialized,
                                                              const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
@@ -310,13 +314,14 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
 }
 
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
 void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena* mem_pool, int32_t col_id, int row_num) const {
-    result.writeKey(col_id);
+                                               Arena* mem_pool, int32_t col_id,
+                                               int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
@@ -326,20 +331,20 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 }
 
 void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start, int end,
-                                             const cctz::time_zone& ctz) const {
+                                             arrow::ArrayBuilder* array_builder, int64_t start,
+                                             int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     // now we default set key value in map is nullable
     DCHECK(nested_keys_column.is_nullable());
     DCHECK(nested_values_column.is_nullable());
-    auto keys_nullmap_data =
+    const auto* keys_nullmap_data =
             check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
-    auto& offsets = map_column.get_offsets();
-    auto key_builder = builder.key_builder();
-    auto value_builder = builder.item_builder();
+    const auto& offsets = map_column.get_offsets();
+    auto* key_builder = builder.key_builder();
+    auto* value_builder = builder.item_builder();
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
@@ -375,13 +380,13 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 }
 
 void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                              int start, int end,
+                                              int64_t start, int64_t end,
                                               const cctz::time_zone& ctz) const {
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
-    auto concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
+    const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
-    auto arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     auto arrow_nested_start_offset = arrow_offsets->Value(start);
     auto arrow_nested_end_offset = arrow_offsets->Value(end);
@@ -398,9 +403,9 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
 template <bool is_binary_format>
 Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const,
+                                                int64_t row_idx, bool col_const,
                                                 const FormatOptions& options) const {
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
@@ -411,7 +416,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
     if (0 != result.push_string("{", 1)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    auto& offsets = map_column.get_offsets();
+    const auto& offsets = map_column.get_offsets();
     for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
         if (j != offsets[col_index - 1]) {
             if (0 != result.push_string(", ", 2)) {
@@ -468,21 +473,22 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                               MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                bool col_const, const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_mysql(const IColumn& column,
-                                               MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                               MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
                                                bool col_const, const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
-                                             orc::ColumnVectorBatch* orc_col_batch, int start,
-                                             int end, std::vector<StringRef>& buffer_list) const {
+                                             orc::ColumnVectorBatch* orc_col_batch, int64_t start,
+                                             int64_t end,
+                                             std::vector<StringRef>& buffer_list) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
@@ -510,8 +516,8 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                            int end) const {
+Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                            int64_t end) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::MAP);

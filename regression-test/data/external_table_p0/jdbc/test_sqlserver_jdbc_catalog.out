@@ -73,10 +73,6 @@ sys
 2	alice	19
 3	bob	20
 
--- !filter4_old --
-2	alice	19
-3	bob	20
-
 -- !id --
 2
 
@@ -129,6 +125,10 @@ timestamp_col	text	Yes	true	\N
 
 -- !query_timestamp --
 1
+
+-- !all_types_tvf --
+1	doris	18	0	1	1	123.123	123.123	123.123	12345678901234567890123456789012345678	12345678901234567890123456789012345678	1234567890123456789012345678.0123456789	1234567890123456789012345678.0123456789	Make Doris Great!   	Make Doris Great!	Make Doris Great!	Make Doris Great!   	Make Doris Great!	Make Doris Great!	2023-01-17	16:49:05.123	2023-01-17T16:49:05	2023-01-17T16:49:05.123456	2023-01-17T16:49	2023-01-17 16:49:05 +08:00	Make Doris Great!	Make Doris Great!	922337203685477.5807	214748.3647	false
+2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !sql --
 db_accessadmin

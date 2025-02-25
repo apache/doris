@@ -66,12 +66,15 @@ message POlapTableSchemaParam {
     repeated PSlotDescriptor slot_descs = 4;
     required PTupleDescriptor tuple_desc = 5;
     repeated POlapTableIndexSchema indexes = 6;
-    optional bool partial_update = 7 [default = false];
+    optional bool partial_update = 7 [default = false]; // deprecated, use unique_key_update_mode
     repeated string partial_update_input_columns = 8;
     optional bool is_strict_mode = 9 [default = false];
     optional string auto_increment_column = 10;
     optional int64 timestamp_ms = 11 [default = 0];
     optional string timezone = 12;
     optional int32 auto_increment_column_unique_id = 13 [default = -1];
+    optional int32 nano_seconds = 14 [default = 0];
+    optional UniqueKeyUpdateModePB unique_key_update_mode = 15 [default = UPSERT];
+    optional int32 sequence_map_col_unique_id = 16 [default = -1];
 };
 

@@ -49,7 +49,8 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_HLL,       /* 19 */
     TYPE_DECIMALV2, /* 20 */
 
-    TYPE_TIME,            /* 21 */
+    TYPE_TIME [[deprecated]], /*TYPE_TIMEV2*/
+
     TYPE_OBJECT,          /* 22 */
     TYPE_STRING,          /* 23 */
     TYPE_QUANTILE_STATE,  /* 24 */

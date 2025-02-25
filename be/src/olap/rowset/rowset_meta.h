@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_policy.h"
@@ -33,7 +34,7 @@
 
 namespace doris {
 
-class RowsetMeta {
+class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
     RowsetMeta() = default;
     ~RowsetMeta();
@@ -129,21 +130,21 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
-    size_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
+    int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
-    void set_total_disk_size(size_t total_disk_size) {
+    void set_total_disk_size(int64_t total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    size_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
+    int64_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
 
-    void set_data_disk_size(size_t data_disk_size) {
+    void set_data_disk_size(int64_t data_disk_size) {
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    size_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
+    int64_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
 
-    void set_index_disk_size(size_t index_disk_size) {
+    void set_index_disk_size(int64_t index_disk_size) {
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
@@ -363,9 +364,10 @@ public:
         return _rowset_meta_pb.inverted_index_file_info();
     }
 
-    void add_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+    void add_inverted_index_files_info(
+            const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
 
-    void update_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+    int64_t get_metadata_size() const override;
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

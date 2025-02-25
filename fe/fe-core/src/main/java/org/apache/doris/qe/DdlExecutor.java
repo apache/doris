@@ -136,7 +136,7 @@ import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -263,10 +263,10 @@ public class DdlExecutor {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSystemStmt) {
             AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            env.alterCluster(stmt);
+            env.alterSystem(stmt);
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
-            env.cancelAlterCluster(stmt);
+            env.cancelAlterSystem(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
             env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
@@ -389,7 +389,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
-            env.getLoadManager().cleanLabel((CleanLabelStmt) ddlStmt);
+            env.getLoadManager().cleanLabel(((CleanLabelStmt) ddlStmt).getDb(), ((CleanLabelStmt) ddlStmt).getLabel());
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
             env.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshCatalogStmt) {
@@ -565,7 +565,7 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
-                || ddlStmt instanceof AlterSystemStmt) {
+                || ddlStmt instanceof CancelAlterSystemStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }

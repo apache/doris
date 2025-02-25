@@ -53,13 +53,16 @@ struct CachePath {
     io::FileCacheSettings init_settings() const;
 
     CachePath(std::string path, int64_t total_bytes, int64_t query_limit_bytes,
-              size_t normal_percent, size_t disposable_percent, size_t index_percent)
+              size_t normal_percent, size_t disposable_percent, size_t index_percent,
+              size_t ttl_percent, std::string storage)
             : path(std::move(path)),
               total_bytes(total_bytes),
               query_limit_bytes(query_limit_bytes),
               normal_percent(normal_percent),
               disposable_percent(disposable_percent),
-              index_percent(index_percent) {}
+              index_percent(index_percent),
+              ttl_percent(ttl_percent),
+              storage(storage) {}
 
     std::string path;
     int64_t total_bytes = 0;
@@ -67,6 +70,8 @@ struct CachePath {
     size_t normal_percent = io::DEFAULT_NORMAL_PERCENT;
     size_t disposable_percent = io::DEFAULT_DISPOSABLE_PERCENT;
     size_t index_percent = io::DEFAULT_INDEX_PERCENT;
+    size_t ttl_percent = io::DEFAULT_TTL_PERCENT;
+    std::string storage = "disk";
 };
 
 Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& path);

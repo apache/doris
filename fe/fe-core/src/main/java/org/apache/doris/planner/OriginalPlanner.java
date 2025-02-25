@@ -79,10 +79,6 @@ public class OriginalPlanner extends Planner {
         this.analyzer = analyzer;
     }
 
-    public boolean isBlockQuery() {
-        return isBlockQuery;
-    }
-
     public PlannerContext getPlannerContext() {
         return plannerContext;
     }
@@ -276,17 +272,6 @@ public class OriginalPlanner extends Planner {
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
-            if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
-                isBlockQuery = true;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this is block query");
-                }
-            } else {
-                isBlockQuery = false;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this isn't block query");
-                }
-            }
             if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
                 if (singleNodePlan instanceof SortNode
@@ -525,7 +510,6 @@ public class OriginalPlanner extends Planner {
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
                     && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnFilterLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {

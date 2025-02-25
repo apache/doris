@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-    suite("filter_to_select") {
+suite("filter_to_select") {
     sql "SET enable_nereids_planner=true;"
-    sql "SET enable_fallback_to_original_planner=true;"
 
     sql "drop table if exists t_filter_to_select;"
     sql """
@@ -34,8 +33,6 @@
     sql """
         insert into t_filter_to_select values (5,4), (6,2), (7,0);
     """
-
-    sql "SET enable_fallback_to_original_planner=false;"
 
     qt_select """ 
         select * from (select * from t_filter_to_select order by k1 desc limit 2) a where k1 > 5;

@@ -126,6 +126,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
     def command_metrics = "curl http://${beHost}:${bePort}/metrics"
     def command_vars = "curl http://${beHost}:${beBrpcPort}/vars"
+    def command_load_channels = "curl http://${beHost}:${bePort}/api/load_channels"
     def command_load_streams = "curl http://${beHost}:${bePort}/api/load_streams"
     while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
         clear = true
@@ -214,6 +215,16 @@ suite("check_before_quit", "nonConcurrent,p0") {
             break
         }
 
+        logger.info("executing command: ${command_load_channels}")
+        def process_load_channels = command_load_channels.execute()
+        def outputStream_load_channels = new StringBuffer()
+        def errorStream_load_channels = new StringBuffer()
+        process_load_channels.consumeProcessOutput(outputStream_load_channels, errorStream_load_channels)
+        def code_load_channels = process_load_channels.waitFor()
+        def load_channels = outputStream_load_channels.toString()
+        logger.info("Request BE load_channels: code=" + code_load_channels + ", err=" + errorStream_load_channels.toString())
+        logger.info("load_channels: " + load_channels);
+
         logger.info("executing command: ${command_load_streams}")
         def process_load_streams = command_load_streams.execute()
         def outputStream_load_streams = new StringBuffer()
@@ -226,5 +237,65 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
         Thread.sleep(2000)
     }
+
+    // check create table sql
+    List<List<Object>> allDataBases = sql "show databases;"
+    logger.info("show all databases: ${allDataBases}")
+
+    def num = allDataBases.size()
+
+    for (int i = 0; i < num; i++) {
+        def db = allDataBases[i][0]
+        if (db == "__internal_schema" || db == "information_schema" || db == "mysql") {
+            continue
+        }
+        List<List<Object>> allTables = sql "show tables from ${db}"
+        logger.info("show all tabkes: ${allTables}")
+        for (int j = 0; j < allTables.size(); j++) {
+            def tbl = allTables[j][0]
+            def createTableSql = ""
+            def isNotLightSchemaChanged = false
+            try {
+                createTableSql = sql "show create table ${db}.${tbl}"
+                logger.info("create table sql: ${createTableSql}")
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    try {
+                        createTableSql = sql "show create materialized view ${tbl}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        } else {
+                            logger.info(e2.getMessage())
+                            throw e2
+                        }
+                    }
+                    logger.info("create materialized view sql: ${createTableSql}")
+                }
+            }
+
+            if (!createTableSql[0][1].contains("\"light_schema_change\" = \"true\"")) {
+                isNotLightSchemaChanged = true
+            }
+
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                sql "drop view if exists ${tbl}"
+            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                sql "drop materialized view if exists ${tbl}"
+            } else {
+                sql "drop table if exists ${tbl}"
+                // only re create table, because the table which view depends may be dropped,
+                // so recreate view may fail
+                sql(createTableSql[0][1])
+                def createTableSqlResult = sql "show create table ${tbl}"
+                logger.info("create table/view sql result info: ${createTableSqlResult}")
+
+                createTableSqlResult = createTableSqlResult[0][1].replaceAll(",?\\s*light_schema_change = true", "")
+                
+                assertEquals(createTableSqlResult, createTableSql[0][1])
+            }
+        }
+    }
+
     assertTrue(clear)
 }

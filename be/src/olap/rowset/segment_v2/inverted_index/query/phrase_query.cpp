@@ -17,7 +17,12 @@
 
 #include "phrase_query.h"
 
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <charconv>
+
+#include "CLucene/index/Terms.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 
 namespace doris::segment_v2 {
 
@@ -118,8 +123,8 @@ bool OrderedSloppyPhraseMatcher::stretch_to_order(PostingsAndPosition* prev_post
 }
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options)
-        : _searcher(searcher) {}
+                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 PhraseQuery::~PhraseQuery() {
     for (auto& term_doc : _term_docs) {
@@ -141,19 +146,21 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     _slop = query_info.slop;
     if (_slop == 0 || query_info.ordered) {
+        if (query_info.ordered) {
+            _additional_terms = query_info.additional_terms;
+        }
         // Logic for no slop query and ordered phrase query
         add(query_info.field_name, query_info.terms);
     } else {
         // Simple slop query follows the default phrase query algorithm
-        auto query = std::make_unique<CL_NS(search)::PhraseQuery>();
+        _phrase_query = std::make_unique<CL_NS(search)::PhraseQuery>();
         for (const auto& term : query_info.terms) {
             std::wstring ws_term = StringUtil::string_to_wstring(term);
             auto* t = _CLNEW lucene::index::Term(query_info.field_name.c_str(), ws_term.c_str());
-            query->add(t);
+            _phrase_query->add(t);
             _CLDECDELETE(t);
         }
-        query->setSlop(_slop);
-        _matcher = std::move(query);
+        _phrase_query->setSlop(_slop);
     }
 }
 
@@ -166,20 +173,23 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         std::wstring ws_term = StringUtil::string_to_wstring(terms[0]);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
+        TermDocs* term_doc = _searcher->getReader()->termDocs(t, _io_ctx);
         _term_docs.push_back(term_doc);
         _lead1 = TermIterator(term_doc);
         return;
     }
 
     std::vector<TermIterator> iterators;
-    auto ensureTermPosition = [this, &iterators, &field_name](const std::string& term) {
+    auto ensureTermPosition = [this, &iterators, &field_name](const std::string& term,
+                                                              bool is_save_iter = true) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermPositions* term_pos = _searcher->getReader()->termPositions(t);
+        TermPositions* term_pos = _searcher->getReader()->termPositions(t, _io_ctx);
         _term_docs.push_back(term_pos);
-        iterators.emplace_back(term_pos);
+        if (is_save_iter) {
+            iterators.emplace_back(term_pos);
+        }
         return term_pos;
     };
 
@@ -190,16 +200,29 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
             auto* term_pos = ensureTermPosition(term);
             matcher._postings.emplace_back(term_pos, i);
         }
-        _matcher = matcher;
+        _matchers.emplace_back(matcher);
     } else {
-        OrderedSloppyPhraseMatcher matcher;
-        for (size_t i = 0; i < terms.size(); i++) {
-            const auto& term = terms[i];
-            auto* term_pos = ensureTermPosition(term);
-            matcher._postings.emplace_back(term_pos, i);
+        {
+            OrderedSloppyPhraseMatcher single_matcher;
+            for (size_t i = 0; i < terms.size(); i++) {
+                const auto& term = terms[i];
+                auto* term_pos = ensureTermPosition(term);
+                single_matcher._postings.emplace_back(term_pos, i);
+            }
+            single_matcher._allowed_slop = _slop;
+            _matchers.emplace_back(single_matcher);
         }
-        matcher._allowed_slop = _slop;
-        _matcher = matcher;
+        {
+            for (auto& terms : _additional_terms) {
+                ExactPhraseMatcher single_matcher;
+                for (size_t i = 0; i < terms.size(); i++) {
+                    const auto& term = terms[i];
+                    auto* term_pos = ensureTermPosition(term, false);
+                    single_matcher._postings.emplace_back(term_pos, i);
+                }
+                _matchers.emplace_back(std::move(single_matcher));
+            }
+        }
     }
 
     std::sort(iterators.begin(), iterators.end(), [](const TermIterator& a, const TermIterator& b) {
@@ -214,9 +237,9 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
-    if (std::holds_alternative<PhraseQueryPtr>(_matcher)) {
+    if (_phrase_query) {
         _searcher->_search(
-                std::get<PhraseQueryPtr>(_matcher).get(),
+                _phrase_query.get(),
                 [&roaring](const int32_t docid, const float_t /*score*/) { roaring.add(docid); });
     } else {
         if (_lead1.isEmpty()) {
@@ -288,17 +311,9 @@ int32_t PhraseQuery::do_next(int32_t doc) {
 }
 
 bool PhraseQuery::matches(int32_t doc) {
-    return std::visit(
-            [&doc](auto&& m) -> bool {
-                using T = std::decay_t<decltype(m)>;
-                if constexpr (std::is_same_v<T, PhraseQueryPtr>) {
-                    _CLTHROWA(CL_ERR_IllegalArgument,
-                              "PhraseQueryPtr does not support matches function");
-                } else {
-                    return m.matches(doc);
-                }
-            },
-            _matcher);
+    return std::ranges::all_of(_matchers, [&doc](auto&& matcher) {
+        return std::visit([&doc](auto&& m) -> bool { return m.matches(doc); }, matcher);
+    });
 }
 
 void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_info) {
@@ -339,6 +354,24 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
                     query = query.substr(0, last_space_pos);
                 }
             } while (false);
+        }
+    }
+}
+
+void PhraseQuery::parser_info(std::string& query, const std::string& field_name,
+                              InvertedIndexQueryType query_type,
+                              const std::map<std::string, std::string>& properties,
+                              InvertedIndexQueryInfo& query_info, bool sequential_opt) {
+    parser_slop(query, query_info);
+    query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            query, field_name, query_type, properties);
+    if (sequential_opt && query_info.ordered) {
+        std::vector<std::string> t_querys;
+        boost::split(t_querys, query, boost::algorithm::is_any_of(" "));
+        for (auto& t_query : t_querys) {
+            auto terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    t_query, field_name, query_type, properties);
+            query_info.additional_terms.emplace_back(std::move(terms));
         }
     }
 }

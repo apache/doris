@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -166,6 +167,7 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
+        RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
         int topn_filter_target_node_id = -1;
         // used for special optimization for query : ORDER BY key LIMIT n

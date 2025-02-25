@@ -35,7 +35,7 @@ char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_v
     __builtin_unreachable();
 }
 
-const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
+const char* DataTypeNothing::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize not support");
     __builtin_unreachable();

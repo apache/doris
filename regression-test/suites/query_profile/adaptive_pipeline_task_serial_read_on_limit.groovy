@@ -30,7 +30,6 @@ def getProfileList = {
     return conn.getInputStream().getText()
 }
 
-
 def getProfile = { id ->
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
@@ -39,6 +38,35 @@ def getProfile = { id ->
                 (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
         conn.setRequestProperty("Authorization", "Basic ${encoding}")
         return conn.getInputStream().getText()
+}
+
+def verifyProfileContent = { stmt, serialReadOnLimit ->
+    // Sleep 500ms to wait for the profile collection 
+    Thread.sleep(500)
+    // Get profile list by using getProfileList
+    List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+    // Find the profile id for the query that we just emitted
+    String profileId = ""
+    for (def profileItem : profileData) {
+        if (profileItem["Sql Statement"].toString().contains(stmt)) {
+            profileId = profileItem["Profile ID"].toString()
+            logger.info("Profile ID of ${stmt} is ${profileId}")
+            break
+        }
+    }
+    if (profileId == "" || profileId == null) {
+        logger.error("Profile ID of ${stmt} is not found")
+        return false
+    }
+    // Get profile content by using getProfile
+    def String profileContent = getProfile(profileId).toString()
+    logger.info("Profile content of ${stmt} is\n${profileContent}")
+    // Check if the profile contains the expected content
+    if (serialReadOnLimit) {
+        return profileContent.contains("- MaxScanConcurrency: 1") == true
+    } else {
+        return !profileContent.contains("- MaxScanConcurrency: 1") == true
+    }
 }
 
 suite('adaptive_pipeline_task_serial_read_on_limit') {
@@ -50,7 +78,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
             `id` INT,
             `name` varchar(32)
         ) ENGINE=OLAP
-        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        DISTRIBUTED BY HASH(`id`) BUCKETS 5
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1"
         );
@@ -73,103 +101,27 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
         insert into adaptive_pipeline_task_serial_read_on_limit values 
         (1010, "A"),(2010, "B"),(3010, "C"),(4010, "D"),(5010,"E"),(6010,"F"),(7010,"G"),(8010,"H"),(9010,"K");
     """
-    
-    def uuidString = UUID.randomUUID().toString()
+
     sql "set enable_profile=true"
-    // set parallel_pipeline_task_num to 1 so that only one scan node,
+    sql "set profile_level=2"
+    // set parallel_pipeline_task_num to 1 so that only one scan operator is created,
     // and we can check MaxScannerThreadNum in profile.
     sql "set parallel_pipeline_task_num=1;"
-    // no limit, MaxScannerThreadNum = TabletNum
-    sql """
-        select "no_limit_1_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit;
-    """
-    sql "set parallel_pipeline_task_num=0;"
+
     // With Limit, MaxScannerThreadNum = 1
-    sql """
-        select "with_limit_1_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 10000;
-    """
+    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
+    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
     // With Limit, but bigger then adaptive_pipeline_task_serial_read_on_limit,  MaxScannerThreadNum = TabletNum
-    sql """
-        select "with_limit_2_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 10001;
-    """
-    sql """
-        set enable_adaptive_pipeline_task_serial_read_on_limit=false;
-    """
-    sql "set parallel_pipeline_task_num=1;"
-    // Forbid the strategy, with limit, MaxScannerThreadNum = TabletNum
-    sql """
-        select "not_enable_limit_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 100;
-    """
-
-    sql "set parallel_pipeline_task_num=0;"
-
-    // Enable the strategy, with limit 20, MaxScannerThreadNum = 1
-    sql """
-        set enable_adaptive_pipeline_task_serial_read_on_limit=true;
-    """
-    sql """
-        set adaptive_pipeline_task_serial_read_on_limit=10;
-    """
-    sql """
-        select "modify_to_20_${uuidString}", * from adaptive_pipeline_task_serial_read_on_limit limit 15;
-    """
-
-    sql "set enable_profile=false"
-
-    def wholeString = getProfileList()
-    List profileData = new JsonSlurper().parseText(wholeString).data.rows
-    String queryIdNoLimit1 = "";
-    String queryIdWithLimit1 = "";
-    String queryIdWithLimit2 = "";
-    String queryIDNotEnableLimit = "";
-    String queryIdModifyTo20 = "";
-
-    logger.info("{}", uuidString)
-
-    for (def profileItem in profileData) {
-        if (profileItem["Sql Statement"].toString().contains("no_limit_1_${uuidString}")) {
-            queryIdNoLimit1 = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-        if (profileItem["Sql Statement"].toString().contains("with_limit_1_${uuidString}")) {
-            queryIdWithLimit1 = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-        if (profileItem["Sql Statement"].toString().contains("with_limit_2_${uuidString}")) {
-            queryIdWithLimit2 = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-        if (profileItem["Sql Statement"].toString().contains("not_enable_limit_${uuidString}")) {
-            queryIDNotEnableLimit = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-        if (profileItem["Sql Statement"].toString().contains("modify_to_20_${uuidString}")) {
-            queryIdModifyTo20 = profileItem["Profile ID"].toString()
-            logger.info("profileItem: {}", profileItem)
-        }
-    }
-    
-    logger.info("queryIdNoLimit1_${uuidString}: {}", queryIdNoLimit1)
-    logger.info("queryIdWithLimit1_${uuidString}: {}", queryIdWithLimit1)
-    logger.info("queryIdWithLimit2_${uuidString}: {}", queryIdWithLimit2)
-    logger.info("queryIDNotEnableLimit_${uuidString}: {}", queryIDNotEnableLimit)
-    logger.info("queryIdModifyTo20_${uuidString}: {}", queryIdModifyTo20)
-
-    assertTrue(queryIdNoLimit1 != "")
-    assertTrue(queryIdWithLimit1 != "")
-    assertTrue(queryIdWithLimit2 != "")
-    assertTrue(queryIDNotEnableLimit != "")
-    assertTrue(queryIdModifyTo20 != "")
-
-    def String profileNoLimit1 = getProfile(queryIdNoLimit1).toString()
-    def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
-    def String profileWithLimit2 = getProfile(queryIdWithLimit2).toString()
-    def String profileNotEnableLimit = getProfile(queryIDNotEnableLimit).toString()
-    def String profileModifyTo20 = getProfile(queryIdModifyTo20).toString()
-    
-    assertTrue(profileNoLimit1.contains("- MaxScannerThreadNum: 10"))
-    assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
-    assertTrue(profileWithLimit2.contains("- MaxScannerThreadNum: 10"))
-    assertTrue(profileNotEnableLimit.contains("- MaxScannerThreadNum: 10"))
-    assertTrue(profileModifyTo20.contains("- MaxScannerThreadNum: 1"))
+    sql "set adaptive_pipeline_task_serial_read_on_limit=9998;"
+    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
+    // With limit, but with predicates too. MaxScannerThreadNum = TabletNum
+    sql "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;"
+    assertTrue(verifyProfileContent("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
+    // With large engough limit, but enable_adaptive_pipeline_task_serial_read_on_limit is false. MaxScannerThreadNum = TabletNum
+    sql "set enable_adaptive_pipeline_task_serial_read_on_limit=false;"
+    sql """select "enable_adaptive_pipeline_task_serial_read_on_limit=false", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;"""
+    assertTrue(verifyProfileContent("select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
 }

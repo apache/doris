@@ -19,22 +19,17 @@
 #include <gtest/gtest-test-part.h>
 #include <mysql/mysql.h>
 
-#include <algorithm>
-#include <concepts>
 #include <cstdint>
 #include <ctime>
 #include <memory>
-#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/exec_env.h"
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
@@ -52,16 +47,19 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
+
 namespace doris::vectorized {
 
 class DataTypeJsonb;
-class DataTypeTime;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
@@ -72,7 +70,7 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
-// FIXME: should use exception or expected to deal null value.w
+// FIXME: should use exception or expected to deal null value.
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -107,7 +105,17 @@ using FLOAT = float;
 using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
-inline auto DECIMAL = Decimal128V2::double_to_decimal;
+// cell constructors. could also use from_int_frac if you'd like
+inline auto DECIMALV2 = Decimal128V2::double_to_decimal;
+inline auto DECIMAL32 = [](int32_t x, int32_t y) { return Decimal32::from_int_frac(x, y, 5); };
+inline auto DECIMAL64 = [](int64_t x, int64_t y) { return Decimal64::from_int_frac(x, y, 9); };
+inline auto DECIMAL128V3 = [](int128_t x, int128_t y) {
+    return Decimal128V3::from_int_frac(x, y, 20);
+};
+inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y) {
+    return Decimal256::from_int_frac(x, y, 40);
+};
+
 inline auto DECIMALFIELD = [](double v) {
     return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);
 };
@@ -240,7 +248,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
-        arguments.push_back(i);
+        arguments.push_back(static_cast<unsigned int>(i));
         arg_types.push_back(desc.type_desc);
         if (desc.is_const) {
             constant_col_ptrs.push_back(
@@ -264,7 +272,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTime>) {
+                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -272,6 +280,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
+    } else if (std::is_same_v<ReturnType, Decimal128V2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
+    } else if (std::is_same_v<ReturnType, Decimal32>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
+    } else if (std::is_same_v<ReturnType, Decimal64>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
+    } else if (std::is_same_v<ReturnType, Decimal128V3>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
+    } else if (std::is_same_v<ReturnType, Decimal256>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
     } else {
         fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
     }
@@ -298,7 +316,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    EXPECT_TRUE(column != nullptr);
+    EXPECT_TRUE(column);
 
     for (int i = 0; i < row_size; ++i) {
         // update current line
@@ -339,9 +357,21 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     }
                     EXPECT_EQ(expect_data.to_string(), bitmap_col->get_element(i).to_string())
                             << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeHLL>) {
+                    const ColumnHLL* hll_col = nullptr;
+                    if constexpr (nullable) {
+                        const auto* nullable_column =
+                                assert_cast<const ColumnNullable*>(column.get());
+                        hll_col = assert_cast<const ColumnHLL*>(
+                                nullable_column->get_nested_column_ptr().get());
+                    } else {
+                        hll_col = assert_cast<const ColumnHLL*>(column.get());
+                    }
+                    EXPECT_EQ(expect_data.to_string(), hll_col->get_element(i).to_string())
+                            << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                     std::is_same_v<ReturnType, DataTypeTime>) {
+                                     std::is_same_v<ReturnType, DataTypeTimeV2>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {
@@ -373,8 +403,8 @@ using BaseInputTypeSet = std::vector<TypeIndex>;
 template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
                                  const DataSet& data_set) {
-    int arg_cnt = base_set.size();
-    TestCaseInfo::arg_size = arg_cnt;
+    size_t arg_cnt = base_set.size();
+    TestCaseInfo::arg_size = static_cast<int>(arg_cnt);
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
     for (int i = 0; i < (1 << arg_cnt); i++) {
         InputTypeSet input_types {};

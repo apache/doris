@@ -84,11 +84,12 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
         return properties;
     }
 
-    /**
-     * TODO: return ANY when support parallel outfile in pipelineX. not support now.
-     */
     public PhysicalProperties requestProperties(ConnectContext ctx) {
-        return PhysicalProperties.GATHER;
+        if (!ctx.getSessionVariable().enableParallelOutfile) {
+            return PhysicalProperties.GATHER;
+        }
+        // come here means we turn on parallel output export
+        return PhysicalProperties.ANY;
     }
 
     @Override

@@ -49,6 +49,7 @@ suite("grace_period") {
       "replication_num" = "1"
     );
     """
+    sql """alter table orders_partition modify column o_comment set stats ('row_count'='3');"""
 
     sql """
     drop table if exists lineitem_partition
@@ -81,6 +82,7 @@ suite("grace_period") {
       "replication_num" = "1"
     );
     """
+    sql """alter table lineitem_partition modify column l_comment set stats ('row_count'='3');"""
 
     sql """
     insert into orders_partition values 
@@ -147,8 +149,7 @@ suite("grace_period") {
     """
 
     // force consistency when partition table, and query use the partition changed, should fail
-    explain {
-        sql("""
+    mv_rewrite_fail("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -159,12 +160,9 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_partition_consistent_name}(${mv_partition_consistent_name})")
-    }
+    """, mv_partition_consistent_name)
     // force consistency when partition table, and query doesn't use the partition changed, should success
-    explain {
-        sql("""
+    mv_rewrite_success("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -175,9 +173,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_partition_consistent_name}(${mv_partition_consistent_name})")
-    }
+    """, mv_partition_consistent_name)
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_partition_consistent_name}"""
 
 
@@ -201,8 +197,7 @@ suite("grace_period") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // force consistency when un partition table, and query use the partition changed, should fail
-    explain {
-        sql("""
+    mv_not_part_in ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -213,13 +208,10 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_consistent_name}(${mv_un_partition_consistent_name})")
-    }
+        """, mv_un_partition_consistent_name)
 
     // force consistency when un partition table, and query use the partition changed, should fail
-    explain {
-        sql("""
+    mv_not_part_in ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -230,9 +222,7 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_consistent_name}(${mv_un_partition_consistent_name})")
-    }
+        """, mv_un_partition_consistent_name)
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_un_partition_consistent_name}"""
 
 
@@ -259,8 +249,7 @@ suite("grace_period") {
     """
 
     // allow 10s staleness when partition table, and query use the partition changed, should success
-    explain {
-        sql("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -271,12 +260,10 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     // allow 10s staleness when partition table, and query doesn't use the partition changed, should success
-    explain {
-        sql("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -287,14 +274,13 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when partition table, and query use the partition changed, should success,
     // but disable materialized view rewrite, should fail
-    explain {
-        sql("""
+    mv_not_part_in(
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -305,13 +291,11 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name)
     // allow 10s staleness when partition table, and query doesn't use the partition changed,
     // but disable materialized view rewrite, should fail
-    explain {
-        sql("""
+    mv_not_part_in(
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -322,14 +306,12 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name)
     sql "SET enable_materialized_view_rewrite=true"
     Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
-    explain {
-        sql("""
+    mv_rewrite_fail(
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -340,12 +322,9 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name)
     // after 10s when partition table, and query doesn't use the partition changed, should success
-    explain {
-        sql("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -356,9 +335,8 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_partition_allow_staleness_name}(${mv_partition_allow_staleness_name})")
-    }
+        """, mv_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_partition_allow_staleness_name}"""
 
 
@@ -383,8 +361,7 @@ suite("grace_period") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // allow 10s staleness when un partition table should success
-    explain {
-        sql("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -395,12 +372,11 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     // allow 10s staleness when un partition table, should success
-    explain {
-        sql("""
+    mv_rewrite_success (
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -411,13 +387,11 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        contains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name, true,
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
-    explain {
-        sql("""
+    mv_not_part_in("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -428,12 +402,9 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name)
     // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
-    explain {
-        sql("""
+    mv_not_part_in("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -444,14 +415,12 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name)
     sql "SET enable_materialized_view_rewrite=true"
     Thread.sleep(15000);
     // after 10s when un partition table, and query use the partition changed, should fail
-    explain {
-        sql("""
+    mv_not_part_in(
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -462,12 +431,10 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name)
     // after 10s when un partition table, and query doesn't use the partition changed, should fail
-    explain {
-        sql("""
+    mv_not_part_in(
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -478,8 +445,6 @@ suite("grace_period") {
         o_orderdate,
         l_partkey,
         l_suppkey;
-        """)
-        notContains("${mv_un_partition_allow_staleness_name}(${mv_un_partition_allow_staleness_name})")
-    }
+        """, mv_un_partition_allow_staleness_name)
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_un_partition_allow_staleness_name}"""
 }

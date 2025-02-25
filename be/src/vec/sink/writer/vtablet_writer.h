@@ -264,15 +264,11 @@ public:
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
-        std::stringstream ss;
-        ss << "close wait failed coz rpc error";
-        {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            if (!_cancel_msg.empty()) {
-                ss << ". " << _cancel_msg;
-            }
+        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        if (!_cancel_msg.empty()) {
+            return _cancel_msg;
         }
-        return ss.str();
+        return fmt::format("{} is cancelled", channel_info());
     }
 
     // two ways to stop channel:
@@ -412,6 +408,8 @@ protected:
     std::queue<AddBlockReq> _pending_blocks;
     // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
+
+    int64_t _wg_id = -1;
 
     bool _is_incremental;
 };
@@ -681,8 +679,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.

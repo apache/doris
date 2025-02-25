@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -55,6 +56,7 @@ import org.apache.doris.thrift.TVisibleVersionReq;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -67,11 +69,19 @@ import java.util.Map;
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
 
+    private int batchSize = Integer.MAX_VALUE;
+
     // backendId -> AgentTask List
     private Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
         this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+    }
+
+    public AgentBatchTask(int batchSize) {
+        this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+        this.batchSize = batchSize;
+        assert batchSize > 0;
     }
 
     public AgentBatchTask(AgentTask singleTask) {
@@ -157,9 +167,11 @@ public class AgentBatchTask implements Runnable {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
+            String errMsg = "";
             try {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (backend == null || !backend.isAlive()) {
+                    errMsg = String.format("backend %d is not alive", backendId);
                     continue;
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
@@ -169,33 +181,50 @@ public class AgentBatchTask implements Runnable {
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
-                    try {
-                        agentTaskRequests.add(toAgentTaskRequest(task));
-                    } catch (Exception e) {
-                        task.failed();
-                        throw e;
+                    agentTaskRequests.add(toAgentTaskRequest(task));
+                    if (agentTaskRequests.size() >= batchSize) {
+                        submitTasks(backendId, client, agentTaskRequests);
+                        agentTaskRequests.clear();
                     }
                 }
-                client.submitTasks(agentTaskRequests);
-                if (LOG.isDebugEnabled()) {
-                    for (AgentTask task : tasks) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("send task: type[{}], backend[{}], signature[{}]",
-                                    task.getTaskType(), backendId, task.getSignature());
-                        }
-                    }
-                }
+                submitTasks(backendId, client, agentTaskRequests);
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backendId, e);
+                errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
                 } else {
                     ClientPool.backendPool.invalidateObject(address, client);
+                    List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
+                    for (AgentTask task : tasks) {
+                        task.failedWithMsg(errMsg);
+                    }
                 }
             }
         } // end for backend
+    }
+
+    private static void submitTasks(long backendId,
+            BackendService.Client client, List<TAgentTaskRequest> agentTaskRequests) throws TException {
+        if (!agentTaskRequests.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                long size = agentTaskRequests.stream()
+                        .map(ThriftUtils::getBinaryMessageSize)
+                        .reduce(0L, Long::sum);
+                TTaskType firstTaskType = agentTaskRequests.get(0).getTaskType();
+                LOG.debug("submit {} tasks to backend[{}], total size: {}, first task type: {}",
+                        agentTaskRequests.size(), backendId, size, firstTaskType);
+            }
+            client.submitTasks(agentTaskRequests);
+        }
+        if (LOG.isDebugEnabled()) {
+            for (TAgentTaskRequest req : agentTaskRequests) {
+                LOG.debug("send task: type[{}], backend[{}], signature[{}]",
+                        req.getTaskType(), backendId, req.getSignature());
+            }
+        }
     }
 
     private TAgentTaskRequest toAgentTaskRequest(AgentTask task) {

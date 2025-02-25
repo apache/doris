@@ -17,9 +17,12 @@
 
 #include "vec/exprs/vexpr_context.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <ostream>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "runtime/runtime_state.h"
@@ -27,6 +30,7 @@
 #include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -36,6 +40,8 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -118,7 +124,7 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
                                             const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
-    return _fn_contexts.size() - 1;
+    return static_cast<int>(_fn_contexts.size()) - 1;
 }
 
 Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
@@ -131,26 +137,28 @@ bool VExprContext::all_expr_inverted_index_evaluated() {
     return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
 }
 
-Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
+Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, size_t column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();
     }
     int result_column_id = -1;
+    size_t origin_size = block->allocated_bytes();
     RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
+    vexpr_ctx->_memory_usage = (block->allocated_bytes() - origin_size);
     return Block::filter_block(block, result_column_id, column_to_keep);
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                  int column_to_keep) {
+                                  size_t column_to_keep) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
 
-    std::vector<uint32_t> columns_to_filter(column_to_keep);
+    ColumnNumbers columns_to_filter(column_to_keep);
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
     return execute_conjuncts_and_filter_block(expr_contexts, block, columns_to_filter,
-                                              column_to_keep);
+                                              static_cast<int>(column_to_keep));
 }
 
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
@@ -164,12 +172,13 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
-    int rows = block->rows();
+    size_t rows = block->rows();
     DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
-        bool need_judge_selectivity = ctx->root()->need_judge_selectivity();
+        // Statistics are only required when an rf wrapper exists in the expr.
+        bool is_rf_wrapper = ctx->root()->is_rf_wrapper();
         int result_column_id = -1;
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
         ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
@@ -185,10 +194,9 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const auto* __restrict filter_data = filter.data();
                 const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
-                int input_rows =
-                        rows - (need_judge_selectivity
-                                        ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                        : 0);
+                size_t input_rows =
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
                 if (accept_null) {
                     for (size_t i = 0; i < rows; ++i) {
@@ -200,17 +208,16 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     }
                 }
 
-                int output_rows =
-                        rows - (need_judge_selectivity
-                                        ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                        : 0);
+                size_t output_rows =
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
-                if (need_judge_selectivity) {
+                if (is_rf_wrapper) {
                     ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
                 }
 
-                if ((need_judge_selectivity && output_rows == 0) ||
-                    (!need_judge_selectivity && memchr(result_filter_data, 0x1, rows) == nullptr)) {
+                if ((is_rf_wrapper && output_rows == 0) ||
+                    (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                     *can_filter_all = true;
                     return Status::OK();
                 }
@@ -227,25 +234,24 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
             const auto* __restrict filter_data = filter.data();
 
-            int input_rows = rows - (need_judge_selectivity
-                                             ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                             : 0);
+            size_t input_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
             for (size_t i = 0; i < rows; ++i) {
                 result_filter_data[i] &= filter_data[i];
             }
 
-            int output_rows =
-                    rows - (need_judge_selectivity
-                                    ? simd::count_zero_num((int8*)result_filter_data, rows)
-                                    : 0);
+            size_t output_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
-            if (need_judge_selectivity) {
+            if (is_rf_wrapper) {
                 ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
             }
 
-            if ((need_judge_selectivity && output_rows == 0) ||
-                (!need_judge_selectivity && memchr(result_filter_data, 0x1, rows) == nullptr)) {
+            if ((is_rf_wrapper && output_rows == 0) ||
+                (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                 *can_filter_all = true;
                 return Status::OK();
             }
@@ -273,24 +279,25 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
     if (rows == 0) {
         return Status::OK();
     }
+    if (null_map.size() != rows) {
+        return Status::InternalError("null_map.size() != rows, null_map.size()={}, rows={}",
+                                     null_map.size(), rows);
+    }
 
-    null_map.resize(rows);
     auto* final_null_map = null_map.get_data().data();
-    memset(final_null_map, 0, rows);
-    filter.resize_fill(rows, 1);
     auto* final_filter_ptr = filter.data();
 
     for (const auto& conjunct : conjuncts) {
         int result_column_id = -1;
         RETURN_IF_ERROR(conjunct->execute(block, &result_column_id));
-        auto& filter_column =
+        const auto& filter_column =
                 unpack_if_const(block->get_by_position(result_column_id).column).first;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
             const IColumn::Filter& result =
                     assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-            auto* __restrict filter_data = result.data();
-            auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+            const auto* __restrict filter_data = result.data();
+            const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
             DCHECK_EQ(rows, nullable_column->size());
 
             for (size_t i = 0; i != rows; ++i) {
@@ -302,7 +309,8 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
                 final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
         } else {
-            auto* filter_data = assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
+            const auto* filter_data =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
             for (size_t i = 0; i != rows; ++i) {
                 final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
@@ -318,11 +326,19 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
                                                         int column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
+
+    _reset_memory_usage(ctxs);
+
     RETURN_IF_ERROR(
             execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
+
+    // Accumulate the usage of `result_filter` into the first context.
+    if (!ctxs.empty()) {
+        ctxs[0]->_memory_usage += result_filter.allocated_bytes();
+    }
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
-            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+            block->get_by_position(col).column->assume_mutable()->clear();
         }
     } else {
         try {
@@ -349,11 +365,18 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
                                                         std::vector<uint32_t>& columns_to_filter,
                                                         int column_to_keep,
                                                         IColumn::Filter& filter) {
+    _reset_memory_usage(ctxs);
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
+
+    // Accumulate the usage of `result_filter` into the first context.
+    if (!ctxs.empty()) {
+        ctxs[0]->_memory_usage += filter.allocated_bytes();
+    }
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
+            // NOLINTNEXTLINE(performance-move-const-arg)
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
@@ -375,13 +398,20 @@ Status VExprContext::get_output_block_after_execute_exprs(
     auto rows = input_block.rows();
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
+    _reset_memory_usage(output_vexpr_ctxs);
+
     for (const auto& vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
+        int origin_columns = tmp_block.columns();
+        size_t origin_usage = tmp_block.allocated_bytes();
         RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
+
+        vexpr_ctx->_memory_usage = tmp_block.allocated_bytes() - origin_usage;
         const auto& col = tmp_block.get_by_position(result_column_id);
-        if (do_projection) {
+        if (do_projection && origin_columns <= result_column_id) {
             result_columns.emplace_back(col.column->clone_resized(rows), col.type, col.name);
+            vexpr_ctx->_memory_usage += result_columns.back().column->allocated_bytes();
         } else {
             result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
         }
@@ -389,5 +419,12 @@ Status VExprContext::get_output_block_after_execute_exprs(
     *output_block = {result_columns};
     return Status::OK();
 }
+
+void VExprContext::_reset_memory_usage(const VExprContextSPtrs& contexts) {
+    std::for_each(contexts.begin(), contexts.end(),
+                  [](auto&& context) { context->_memory_usage = 0; });
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

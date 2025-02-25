@@ -46,7 +46,7 @@ CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, BaseStorageEngine& engin
 // calculate the crc value of the files in the tablet
 Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value,
                                            int64_t* start_version, int64_t* end_version,
-                                           int32_t* rowset_count, int64_t* file_count) {
+                                           uint32_t* rowset_count, int64_t* file_count) {
     uint64_t tablet_id = 0;
     const auto& req_tablet_id = req->param(TABLET_ID_KEY);
     if (req_tablet_id.empty()) {
@@ -110,7 +110,7 @@ void CalcFileCrcAction::handle(HttpRequest* req) {
     uint32_t crc_value = 0;
     int64_t start_version = 0;
     int64_t end_version = 0;
-    int32_t rowset_count = 0;
+    uint32_t rowset_count = 0;
     int64_t file_count = 0;
 
     MonotonicStopWatch timer;

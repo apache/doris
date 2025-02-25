@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -37,13 +38,16 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
+#include "common/be_mock_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/columns_number.h"
@@ -51,11 +55,16 @@
 namespace doris {
 class IRuntimeFilter;
 
+inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
+    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+}
+
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -80,12 +89,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
-    // for only use in pipelineX
-    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
-
-    // Used by pipelineX. This runtime state is only used for setup.
+    // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -96,7 +100,7 @@ public:
     RuntimeState();
 
     // Empty d'tor to avoid issues with unique_ptr.
-    ~RuntimeState();
+    MOCK_DEFINE(virtual) ~RuntimeState();
 
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -113,18 +117,17 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
-    int64_t query_mem_limit() const {
-        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
-            return _query_options.mem_limit;
-        }
-        return 0;
+
+    int32_t max_column_reader_num() const {
+        return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
+                                                            : 20000;
     }
 
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    int batch_size() const { return _query_options.batch_size; }
+    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
     int wait_full_block_schedule_times() const {
         return _query_options.wait_full_block_schedule_times;
     }
@@ -142,10 +145,18 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
-    double scanner_scale_up_ratio() const {
-        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
-                                                             : 0;
+    int min_scan_concurrency_of_scan_scheduler() const {
+        return _query_options.__isset.min_scan_scheduler_concurrency
+                       ? _query_options.min_scan_scheduler_concurrency
+                       : 0;
     }
+
+    int min_scan_concurrency_of_scanner() const {
+        return _query_options.__isset.min_scanner_concurrency
+                       ? _query_options.min_scanner_concurrency
+                       : 1;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -174,7 +185,7 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
@@ -212,8 +223,8 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    [[nodiscard]] bool is_cancelled() const;
-    Status cancel_reason() const;
+    [[nodiscard]] MOCK_FUNCTION bool is_cancelled() const;
+    MOCK_FUNCTION Status cancel_reason() const;
     void cancel(const Status& reason) {
         if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
@@ -364,6 +375,10 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -409,20 +424,6 @@ public:
 
     bool enable_page_cache() const;
 
-    int partitioned_hash_join_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_join_rows_threshold;
-    }
-
-    int partitioned_hash_agg_rows_threshold() const {
-        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
-            return 0;
-        }
-        return _query_options.partitioned_hash_agg_rows_threshold;
-    }
-
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -450,6 +451,11 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    [[nodiscard]] bool low_memory_mode() const;
+
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+    WorkloadGroupPtr workload_group();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -460,9 +466,15 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-    bool enable_scan_node_run_serial() const {
-        return _query_options.__isset.enable_scan_node_run_serial &&
-               _query_options.enable_scan_node_run_serial;
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
@@ -490,17 +502,22 @@ public:
                        : 0;
     }
 
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
+    }
+
     int64_t parallel_scan_min_rows_per_scanner() const {
         return _query_options.__isset.parallel_scan_min_rows_per_scanner
                        ? _query_options.parallel_scan_min_rows_per_scanner
                        : 0;
-    }
-
-    int64_t external_sort_bytes_threshold() const {
-        if (_query_options.__isset.external_sort_bytes_threshold) {
-            return _query_options.external_sort_bytes_threshold;
-        }
-        return 0;
     }
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
@@ -542,32 +559,69 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                            bool build_bf_exactly);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
-    bool enable_join_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
-    }
-
-    bool enable_sort_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
-    }
-
-    bool enable_agg_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
+    }
+
+    int64_t spill_min_revocable_mem() const {
+        if (_query_options.__isset.min_revocable_mem) {
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+        }
+        return 1;
+    }
+
+    int64_t spill_sort_mem_limit() const {
+        if (_query_options.__isset.spill_sort_mem_limit) {
+            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
+        }
+        return 134217728;
+    }
+
+    int64_t spill_sort_batch_bytes() const {
+        if (_query_options.__isset.spill_sort_batch_bytes) {
+            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
+        }
+        return 8388608;
+    }
+
+    int spill_aggregation_partition_count() const {
+        if (_query_options.__isset.spill_aggregation_partition_count) {
+            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int spill_hash_join_partition_count() const {
+        if (_query_options.__isset.spill_hash_join_partition_count) {
+            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int64_t low_memory_mode_buffer_limit() const {
+        if (_query_options.__isset.low_memory_mode_buffer_limit) {
+            return std::max(_query_options.low_memory_mode_buffer_limit, (int64_t)1);
+        }
+        return 32L * 1024 * 1024;
+    }
+
+    int spill_revocable_memory_high_watermark_percent() const {
+        if (_query_options.__isset.revocable_memory_high_watermark_percent) {
+            return _query_options.revocable_memory_high_watermark_percent;
+        }
+        return -1;
     }
 
     bool enable_local_merge_sort() const {
@@ -575,11 +629,23 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
-    int64_t min_revocable_mem() const {
-        if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
+        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
+               _query_options.enable_shared_exchange_sink_buffer;
+    }
+
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
+    }
+
+    size_t minimum_operator_memory_required_bytes() const {
+        if (_query_options.__isset.minimum_operator_memory_required_kb) {
+            return _query_options.minimum_operator_memory_required_kb * 1024;
+        } else {
+            // refer other database
+            return 100 * 1024;
         }
-        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -598,9 +664,7 @@ public:
 
     int task_num() const { return _task_num; }
 
-    vectorized::ColumnInt64* partial_update_auto_inc_column() {
-        return _partial_update_auto_inc_column;
-    };
+    int profile_level() const { return _profile_level; }
 
 private:
     Status create_error_log_file();
@@ -620,6 +684,10 @@ private:
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
+    // Why 2?
+    // During cluster upgrade, fe will not pass profile_level to be, so we need to set it to 2
+    // to make sure user can see all profile counters like before.
+    int _profile_level = 2;
 
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -686,7 +754,6 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
@@ -717,12 +784,11 @@ private:
     // prohibit copies
     RuntimeState(const RuntimeState&);
 
-    vectorized::ColumnInt64* _partial_update_auto_inc_column;
-
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    std::mutex _s3_error_log_file_lock;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

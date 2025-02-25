@@ -30,7 +30,8 @@ public class InternalDatabaseUtil {
         if (!FeConstants.INTERNAL_DB_NAME.equals(dbName)) {
             return;
         }
-        if (ctx == null || ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser()) {
+        if (ctx == null || ctx.getCurrentUserIdentity() == null
+                || !ctx.getCurrentUserIdentity().isRootUser() && !ctx.getCurrentUserIdentity().isAdminUser()) {
             throw new AnalysisException("Not allowed to operate database: " + dbName);
         }
     }

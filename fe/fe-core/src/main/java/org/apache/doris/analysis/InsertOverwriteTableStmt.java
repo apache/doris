@@ -75,7 +75,9 @@ public class InsertOverwriteTableStmt extends DdlStmt implements NotFallbackInPa
     }
 
     public List<String> getPartitionNames() {
-        if (target.getPartitionNames() == null) {
+        if (target.getPartitionNames() == null
+                || target.getPartitionNames().getPartitionNames() == null
+                || target.getPartitionNames().isStar()) {
             return new ArrayList<>();
         }
         return target.getPartitionNames().getPartitionNames();

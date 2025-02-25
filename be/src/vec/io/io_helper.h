@@ -22,6 +22,7 @@
 #include <snappy/snappy.h>
 
 #include <iostream>
+#include <type_traits>
 
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
@@ -168,7 +169,9 @@ void read_float_binary(Type& x, BufferReadable& buf) {
     read_pod_binary(x, buf);
 }
 
-inline void read_string_binary(std::string& s, BufferReadable& buf,
+template <typename Type>
+    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
+inline void read_string_binary(Type& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
     UInt64 size = 0;
     read_var_uint(size, buf);
@@ -178,7 +181,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
     }
 
     s.resize(size);
-    buf.read(s.data(), size);
+    buf.read((char*)s.data(), size);
 }
 
 inline void read_string_binary(StringRef& s, BufferReadable& buf,
@@ -225,7 +228,9 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     }
 }
 
-inline void read_binary(String& x, BufferReadable& buf) {
+template <typename Type>
+    requires(std::is_same_v<Type, String> || std::is_same_v<Type, PaddedPODArray<UInt8>>)
+inline void read_binary(Type& x, BufferReadable& buf) {
     read_string_binary(x, buf);
 }
 

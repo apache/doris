@@ -52,6 +52,11 @@ public class DecimalLiteral extends FractionalLiteral {
     }
 
     @Override
+    protected BigDecimal getBigDecimalValue() {
+        return value;
+    }
+
+    @Override
     public BigDecimal getValue() {
         return value;
     }
@@ -109,5 +114,15 @@ public class DecimalLiteral extends FractionalLiteral {
         }
         DecimalLiteral literal = (DecimalLiteral) o;
         return Objects.equals(dataType, literal.dataType);
+    }
+
+    @Override
+    public String computeToSql() {
+        return value.toPlainString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 }

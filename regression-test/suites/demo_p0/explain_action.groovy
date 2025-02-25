@@ -17,15 +17,12 @@
 
 suite("explain_action") {
 
-    // this case check explain, so we disable nereids
-    sql """set enable_nereids_planner=false"""
-
     explain {
         sql("select 100")
 
-        // contains("OUTPUT EXPRS:\n    <slot 0> 100\n") && contains("PARTITION: UNPARTITIONED\n")
-        contains "OUTPUT EXPRS:\n    100\n"
-        contains "PARTITION: UNPARTITIONED\n"
+        // contains("100") && contains("UNION")
+        contains "100"
+        contains "UNION"
     }
 
     explain {

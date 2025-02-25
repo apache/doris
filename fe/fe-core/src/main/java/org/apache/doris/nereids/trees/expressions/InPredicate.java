@@ -19,11 +19,13 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -122,7 +124,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return compareExpr.toSql() + " IN " + options.stream()
             .map(Expression::toSql).sorted()
             .collect(Collectors.joining(", ", "(", ")"));
@@ -142,7 +144,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public int hashCode() {
+    protected int computeHashCode() {
         return Objects.hash(compareExpr, options);
     }
 
@@ -164,5 +166,25 @@ public class InPredicate extends Expression {
             }
         }
         return true;
+    }
+
+    /**
+     *  sort options, only use in ut
+     */
+    @VisibleForTesting
+    public Expression sortOptions() {
+        if (options.stream().allMatch(x -> x instanceof ComparableLiteral)) {
+            try {
+                List<Expression> values = options.stream().map(e -> (ComparableLiteral) e)
+                        .sorted()
+                        .distinct()
+                        .map(Literal.class::cast)
+                        .collect(Collectors.toList());
+                return new InPredicate(compareExpr, values);
+            } catch (Exception e) {
+                return this;
+            }
+        }
+        return this;
     }
 }

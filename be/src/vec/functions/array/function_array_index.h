@@ -157,22 +157,9 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-        if (is_string_type(param_type)) {
-            Status st = iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring);
-            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
-                // if analyzed param with no term, we do not filter any rows
-                // return all rows with OK status
-                roaring->addRange(0, num_rows);
-            } else if (st != Status::OK()) {
-                return st;
-            }
-        } else {
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
-        }
+        RETURN_IF_ERROR(iter->read_from_inverted_index(
+                data_type_with_name.first, query_param->get_value(),
+                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -188,11 +175,6 @@ public:
                         roaring->cardinality(), result_bitmap);
             }
         })
-        if (iter->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-            null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
@@ -209,7 +191,15 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
+        DBUG_EXECUTE_IF("array_func.array_contains", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "array_func.array_contains", "req_id", 0);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "{} has already execute inverted index req_id {} , should not execute expr "
+                    "with rows: {}",
+                    get_name(), req_id, input_rows_count);
+        });
         return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
@@ -227,9 +217,9 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -296,9 +286,9 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -358,7 +348,7 @@ private:
         return nullptr;
     }
 
-    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, uint32_t result,
                              size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =

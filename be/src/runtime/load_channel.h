@@ -46,7 +46,7 @@ class BaseTabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                std::string sender_ip, int64_t backend_id, bool enable_profile);
+                std::string sender_ip, int64_t backend_id, bool enable_profile, int64_t wg_id);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -68,6 +68,10 @@ public:
     int64_t timeout() const { return _timeout_s; }
 
     bool is_high_priority() const { return _is_high_priority; }
+
+    std::shared_ptr<ResourceContext> resource_ctx() const { return _resource_ctx; }
+
+    WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
 
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
@@ -91,7 +95,6 @@ private:
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
-    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_times = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
@@ -104,13 +107,13 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
     // index id -> (received rows, filtered rows)
     std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
-    SpinLock _tablets_channels_lock;
+    std::mutex _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::atomic<time_t> _last_updated_time;
 

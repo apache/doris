@@ -65,7 +65,7 @@ public:
 
     // column2 is const, so in default logic column1 is no way const.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         std::string errmsg =
                 assert_cast<const ColumnConst&>(*block.get_by_position(arguments[1]).column)
                         .get_data_at(0)

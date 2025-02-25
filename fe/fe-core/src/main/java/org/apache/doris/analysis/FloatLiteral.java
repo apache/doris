@@ -126,6 +126,9 @@ public class FloatLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         return Double.compare(value, expr.getDoubleValue());
     }
 
@@ -159,6 +162,9 @@ public class FloatLiteral extends NumericLiteralExpr {
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
+            if (Double.isInfinite(getValue())) {
+                return Double.toString(getValue());
+            }
             return BigDecimal.valueOf(getValue()).toPlainString();
         }
     }

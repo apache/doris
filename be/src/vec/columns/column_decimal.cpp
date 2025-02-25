@@ -23,8 +23,6 @@
 #include <fmt/format.h>
 
 #include <limits>
-#include <ostream>
-#include <string>
 
 #include "olap/decimal12.h"
 #include "runtime/decimalv2_value.h"
@@ -76,7 +74,7 @@ size_t ColumnDecimal<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnDecimal<T>::serialize_vec(StringRef* keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
@@ -85,7 +83,7 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 }
 
 template <typename T>
-void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnDecimal<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                    const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
@@ -113,7 +111,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
 }
 
 template <typename T>
-void ColumnDecimal<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnDecimal<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i < num_rows; ++i) {
         keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
         keys[i].size -= sizeof(T);
@@ -121,8 +119,7 @@ void ColumnDecimal<T>::deserialize_vec(std::vector<StringRef>& keys, const size_
 }
 
 template <typename T>
-void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                     const size_t num_rows,
+void ColumnDecimal<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                      const uint8_t* null_map) {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
@@ -303,6 +300,14 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
 }
 
 template <typename T>
+void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
+}
+
+template <typename T>
 void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
@@ -445,7 +450,7 @@ template <typename T>
 void ColumnDecimal<T>::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                    IColumn::Permutation& perms, EqualRange& range,
                                    bool last_column) const {
-    sorter->template sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
+    sorter->sort_column(static_cast<const Self&>(*this), flags, perms, range, last_column);
 }
 
 template <typename T>

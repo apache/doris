@@ -23,6 +23,7 @@
 #include "vec/core/field.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
 
@@ -36,6 +37,8 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 private:
     friend class SortSinkOperatorX;
 
@@ -46,11 +49,13 @@ private:
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
-    SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                       const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -63,19 +68,21 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_join
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
+        } else {
+            return {ExchangeType::NOOP};
         }
-        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
-    bool require_shuffled_data_distribution() const override { return _is_analytic_sort; }
     bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    size_t get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos);
 
     Status prepare_for_spill(RuntimeState* state);
 
@@ -107,4 +114,5 @@ private:
     const bool _reuse_mem;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

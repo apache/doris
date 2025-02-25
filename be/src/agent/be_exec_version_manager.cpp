@@ -17,12 +17,9 @@
 
 #include "agent/be_exec_version_manager.h"
 
-namespace doris {
+#include "common/exception.h"
 
-const std::map<int, const std::set<std::string>> AGGREGATION_CHANGE_MAP = {
-        {AGGREGATION_2_1_VERSION,
-         {"window_funnel", "stddev_samp", "variance_samp", "percentile_approx_weighted",
-          "percentile_approx", "covar_samp", "percentile", "percentile_array"}}};
+namespace doris {
 
 Status BeExecVersionManager::check_be_exec_version(int be_exec_version) {
     if (be_exec_version > max_be_exec_version || be_exec_version < min_be_exec_version) {
@@ -35,19 +32,42 @@ Status BeExecVersionManager::check_be_exec_version(int be_exec_version) {
     return Status::OK();
 }
 
-void BeExecVersionManager::check_agg_state_compatibility(int current_be_exec_version,
-                                                         int data_be_exec_version,
-                                                         std::string function_name) {
-    if (current_be_exec_version > AGGREGATION_2_1_VERSION &&
-        data_be_exec_version <= AGGREGATION_2_1_VERSION &&
-        AGGREGATION_CHANGE_MAP.find(AGGREGATION_2_1_VERSION)->second.contains(function_name)) {
+int BeExecVersionManager::get_function_compatibility(int be_exec_version,
+                                                     std::string function_name) {
+    if (_function_restrict_map.contains(function_name) && be_exec_version != get_newest_version()) {
         throw Exception(Status::InternalError(
-                "agg state data with {} is not supported, "
-                "current_be_exec_version={}, data_be_exec_version={}, need to rebuild the data "
-                "or set the be_exec_version={} in fe.conf",
-                function_name, current_be_exec_version, data_be_exec_version,
-                AGGREGATION_2_1_VERSION));
+                "function {} do not support old be exec version, maybe it's because doris are "
+                "doing a rolling upgrade. newest_version={}, input_be_exec_version={}",
+                function_name, get_newest_version(), be_exec_version));
     }
+
+    auto it = _function_change_map.find(function_name);
+    if (it == _function_change_map.end()) {
+        // 0 means no compatibility issues need to be dealt with
+        return 0;
+    }
+
+    auto version_it = it->second.lower_bound(be_exec_version);
+    if (version_it == it->second.end()) {
+        return 0;
+    }
+
+    return *version_it;
+}
+
+void BeExecVersionManager::check_function_compatibility(int current_be_exec_version,
+                                                        int data_be_exec_version,
+                                                        std::string function_name) {
+    if (get_function_compatibility(current_be_exec_version, function_name) ==
+        get_function_compatibility(data_be_exec_version, function_name)) {
+        return;
+    }
+
+    throw Exception(Status::InternalError(
+            "agg state data with {} is not supported, "
+            "current_be_exec_version={}, data_be_exec_version={}, need to rebuild the data "
+            "or set the be_exec_version={} in fe.conf temporary",
+            function_name, current_be_exec_version, data_be_exec_version, data_be_exec_version));
 }
 
 /**
@@ -69,7 +89,7 @@ void BeExecVersionManager::check_agg_state_compatibility(int current_be_exec_ver
  * 3: start from doris 2.0.0 (by some mistakes)
  *    a. aggregation function do not serialize bitmap to string.
  *    b. support window funnel mode.
- * 4/5: start from doris 2.1.0
+ * 4: start from doris 2.1.0
  *    a. ignore this line, window funnel mode should be enabled from 2.0.
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
@@ -79,14 +99,22 @@ void BeExecVersionManager::check_agg_state_compatibility(int current_be_exec_ver
  *    g. do local merge of remote runtime filter
  *    h. "now": ALWAYS_NOT_NULLABLE -> DEPEND_ON_ARGUMENTS
  *
- * 7: start from doris 3.0.0
+ * 5: start from doris 3.0.0
+ *    a. change some agg function nullable property: PR #37215
+ *
+ * 6: start from doris 3.0.1 and 2.1.6
  *    a. change the impl of percentile (need fix)
  *    b. clear old version of version 3->4
  *    c. change FunctionIsIPAddressInRange from AlwaysNotNullable to DependOnArguments
- *    d. change some agg function nullable property: PR #37215
- *    e. change variant serde to fix PR #38413
+ *    d. change variant serde to fix PR #38413
+ *
+ * 7: start from doris 3.0.2
+ *    a. window funnel logic change
+*     b. support const column in serialize/deserialize function: PR #41175
  */
-const int BeExecVersionManager::max_be_exec_version = 7;
-const int BeExecVersionManager::min_be_exec_version = 0;
 
+const int BeExecVersionManager::max_be_exec_version = 8;
+const int BeExecVersionManager::min_be_exec_version = 0;
+std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
+std::set<std::string> BeExecVersionManager::_function_restrict_map;
 } // namespace doris

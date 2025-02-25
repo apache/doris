@@ -80,7 +80,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
-    _query_thread_context.init_unlocked(); // from load stream
+    _resource_ctx = thread_context()->resource_ctx(); // from load stream
 }
 
 LoadStreamWriter::~LoadStreamWriter() {
@@ -100,7 +100,7 @@ Status LoadStreamWriter::init() {
 
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
                                      FileType file_type) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
@@ -141,7 +141,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
 }
 
 Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
@@ -171,7 +171,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
         _is_canceled = true;
         return st;
     }
-    LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << "closed, written "
+    LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << " closed, written "
               << file_writer->bytes_appended() << " bytes"
               << ", file type is " << file_type;
     if (file_writer->bytes_appended() == 0) {
@@ -183,7 +183,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     size_t segment_file_size = 0;
     size_t inverted_file_size = 0;
     {
@@ -201,7 +201,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     }
 
     DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.size_not_match", { segment_file_size++; });
-    if (segment_file_size + inverted_file_size != stat.data_size) {
+    if (segment_file_size != stat.data_size) {
         return Status::Corruption(
                 "add_segment failed, segment stat {} does not match, file size={}, inverted file "
                 "size={}, stat.data_size={}, tablet id={}",
@@ -245,9 +245,8 @@ Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, siz
     return Status::OK();
 }
 
-Status LoadStreamWriter::close() {
-    std::lock_guard<std::mutex> l(_lock);
-    SCOPED_ATTACH_TASK(_query_thread_context);
+Status LoadStreamWriter::_pre_close() {
+    SCOPED_ATTACH_TASK(_resource_ctx);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
@@ -306,6 +305,15 @@ Status LoadStreamWriter::close() {
 
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
+    _pre_closed = true;
+    return Status::OK();
+}
+
+Status LoadStreamWriter::close() {
+    std::lock_guard<std::mutex> l(_lock);
+    if (!_pre_closed) {
+        RETURN_IF_ERROR(_pre_close());
+    }
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
     // FIXME(plat1ko): No `commit_txn` operation in cloud mode, need better abstractions
     RETURN_IF_ERROR(static_cast<RowsetBuilder*>(_rowset_builder.get())->commit_txn());

@@ -50,7 +50,7 @@ suite("test_cloud_mow_insert_timeout", "nonConcurrent") {
     def customFeConfig = [
         delete_bitmap_lock_expiration_seconds : 5,
         calculate_delete_bitmap_task_timeout_seconds : 2,
-        mow_insert_into_commit_retry_times : 2
+        mow_calculate_delete_bitmap_retry_times : 2
     ]
 
     setFeConfigTemporary(customFeConfig) {

@@ -37,7 +37,7 @@ import java.util.Set;
 /**
  * Used for unit test only.
  */
-public class FakePlan implements Plan {
+public class FakePlan implements Plan, BlockFuncDepsPropagation {
     private MutableState mutableState = new MultiMutableState();
 
     @Override
@@ -82,7 +82,7 @@ public class FakePlan implements Plan {
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT);
+        return new LogicalProperties(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT);
     }
 
     @Override

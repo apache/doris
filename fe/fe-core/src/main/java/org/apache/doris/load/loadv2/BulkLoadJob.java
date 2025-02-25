@@ -113,8 +113,13 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS,
+                                    Long.toString(var.getAutoProfileThresholdMs()));
+            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(var.getProfileLevel()));
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+            sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, Long.toString(-1));
+            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(1));
         }
     }
 
@@ -147,6 +152,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             bulkLoadJob.setComment(stmt.getComment());
             bulkLoadJob.setJobProperties(stmt.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -177,6 +184,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    public void rebuildAuthorizationInfo() throws MetaNotFoundException {
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     @Override

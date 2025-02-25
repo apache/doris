@@ -32,7 +32,6 @@
 namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
-class QueryStatistics;
 
 namespace vectorized {
 class VExprContext;
@@ -66,12 +65,16 @@ public:
         _origin_block.clear();
         _common_expr_ctxs_push_down.clear();
         _stale_expr_ctxs.clear();
+        DorisMetrics::instance()->scanner_cnt->increment(-1);
     }
 
     virtual Status init() { return Status::OK(); }
     // Not virtual, all child will call this method explictly
     virtual Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-    virtual Status open(RuntimeState* state) { return Status::OK(); }
+    virtual Status open(RuntimeState* state) {
+        _block_avg_bytes = state->batch_size() * 8;
+        return Status::OK();
+    }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
@@ -151,9 +154,11 @@ public:
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
-    void set_query_statistics(QueryStatistics* query_statistics) {
-        _query_statistics = query_statistics;
-    }
+    int64_t limit() const { return _limit; }
+
+    auto get_block_avg_bytes() const { return _block_avg_bytes; }
+
+    void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
     void _discard_conjuncts() {
@@ -165,7 +170,6 @@ protected:
 
     RuntimeState* _state = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
-    QueryStatistics* _query_statistics = nullptr;
 
     // Set if scan node has sort limit info
     int64_t _limit = -1;
@@ -209,6 +213,8 @@ protected:
 
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;
+
+    size_t _block_avg_bytes = 0;
 
     // Set true after counter is updated finally
     bool _has_updated_counter = false;

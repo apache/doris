@@ -24,6 +24,7 @@
 #include "vec/exprs/table_function/table_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -31,6 +32,18 @@ namespace doris::pipeline {
 
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
+
+Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _init_function_timer = ADD_TIMER(_runtime_profile, "InitTableFunctionTime");
+    _process_rows_timer = ADD_TIMER(_runtime_profile, "ProcessRowsTime");
+    _copy_data_timer = ADD_TIMER(_runtime_profile, "CopyDataTime");
+    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _repeat_data_timer = ADD_TIMER(_runtime_profile, "RepeatDataTime");
+    return Status::OK();
+}
 
 Status TableFunctionLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
@@ -59,6 +72,7 @@ void TableFunctionLocalState::_copy_output_slots(
     if (!_current_row_insert_times) {
         return;
     }
+    SCOPED_TIMER(_copy_data_timer);
     auto& p = _parent->cast<TableFunctionOperatorX>();
     for (auto index : p._output_slot_indexs) {
         auto src_column = _child_block->get_by_position(index).column;
@@ -182,7 +196,10 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             DCHECK_LE(1, p._fn_num);
             auto repeat_times = _fns[p._fn_num - 1]->get_value(
                     columns[p._child_slots.size() + p._fn_num - 1],
-                    state->batch_size() - columns[p._child_slots.size()]->size());
+                    //// It has already been checked that
+                    // columns[p._child_slots.size()]->size() < state->batch_size(),
+                    // so columns[p._child_slots.size()]->size() will not exceed the range of int.
+                    state->batch_size() - (int)columns[p._child_slots.size()]->size());
             _current_row_insert_times += repeat_times;
             for (int i = 0; i < p._fn_num - 1; i++) {
                 _fns[i]->get_same_many_values(columns[i + p._child_slots.size()], repeat_times);
@@ -197,15 +214,18 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
 
-    // 3. eval conjuncts
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                           output_block->columns()));
+    {
+        SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                               output_block->columns()));
+    }
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
 void TableFunctionLocalState::process_next_child_row() {
+    SCOPED_TIMER(_process_rows_timer);
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {
@@ -215,7 +235,7 @@ void TableFunctionLocalState::process_next_child_row() {
         }
 
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
-                                                ._child_x->row_desc()
+                                                ._child->row_desc()
                                                 .num_materialized_slots());
         _cur_child_offset = -1;
         return;
@@ -232,9 +252,6 @@ TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids
-    if (tnode.table_function_node.outputSlotIds.empty()) {
-        return Status::InternalError("Output slots of table function node is empty");
-    }
     SlotId max_id = -1;
     for (auto slot_id : tnode.table_function_node.outputSlotIds) {
         if (slot_id > max_id) {
@@ -263,7 +280,7 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
-    _fn_num = _fns.size();
+    _fn_num = cast_set<int>(_fns.size());
 
     // Prepare output slot ids
     RETURN_IF_ERROR(_prepare_output_slot_ids(tnode));
@@ -285,13 +302,13 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
     }
 
     // get all input slots
-    for (const auto& child_tuple_desc : _child_x->row_desc().tuple_descriptors()) {
+    for (const auto& child_tuple_desc : _child->row_desc().tuple_descriptors()) {
         for (const auto& child_slot_desc : child_tuple_desc->slots()) {
             _child_slots.push_back(child_slot_desc);
         }
     }
 
-    for (size_t i = 0; i < _child_slots.size(); i++) {
+    for (int i = 0; i < _child_slots.size(); i++) {
         if (_slot_need_copy(i)) {
             _output_slot_indexs.push_back(i);
         } else {
@@ -302,4 +319,5 @@ Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
     return vectorized::VExpr::open(_vfn_ctxs, state);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

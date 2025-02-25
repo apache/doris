@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -112,7 +113,7 @@ public abstract class RoutineLoadJob
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
-    public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
+    public static final long DEFAULT_MAX_INTERVAL_SECOND = 60;
     public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
@@ -343,7 +344,11 @@ public abstract class RoutineLoadJob
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             this.qualifiedUser = ConnectContext.get().getQualifiedUser();
-            this.cloudCluster = ConnectContext.get().getCloudCluster();
+            try {
+                this.cloudCluster = ConnectContext.get().getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -485,7 +490,7 @@ public abstract class RoutineLoadJob
         lock.writeLock().lock();
     }
 
-    protected void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -498,7 +503,12 @@ public abstract class RoutineLoadJob
     }
 
     public void setOtherMsg(String otherMsg) {
-        this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        writeLock();
+        try {
+            this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -615,7 +625,10 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        return (int) getMaxBatchIntervalS();
+        int timeoutSec = (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
+        int realTimeoutSec = timeoutSec < Config.routine_load_task_min_timeout_sec
+                    ? Config.routine_load_task_min_timeout_sec : timeoutSec;
+        return realTimeoutSec;
     }
 
     @Override
@@ -702,7 +715,7 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean isPartialUpdate() {
+    public boolean isFixedPartialUpdate() {
         return isPartialUpdate;
     }
 
@@ -781,18 +794,6 @@ public abstract class RoutineLoadJob
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
-                    int timeoutBackOffCount = routineLoadTaskInfo.getTimeoutBackOffCount();
-                    if (timeoutBackOffCount > RoutineLoadTaskInfo.MAX_TIMEOUT_BACK_OFF_COUNT) {
-                        try {
-                            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TIMEOUT_TOO_MUCH,
-                                        "task " + routineLoadTaskInfo.getId() + " timeout too much"), false);
-                        } catch (UserException e) {
-                            LOG.warn("update job state to pause failed", e);
-                        }
-                        return;
-                    }
-                    routineLoadTaskInfo.setTimeoutBackOffCount(timeoutBackOffCount + 1);
-                    routineLoadTaskInfo.setTimeoutMs((routineLoadTaskInfo.getTimeoutMs() << 1));
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
@@ -924,9 +925,10 @@ public abstract class RoutineLoadJob
                                 + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -945,9 +947,10 @@ public abstract class RoutineLoadJob
                         "current error rows is more than max_error_number "
                             + "or the max_filter_ratio is more than the value set"), isReplay);
             }
-            // reset currentTotalNum and currentErrorNum
+            // reset currentTotalNum, currentErrorNum and otherMsg
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
+            this.otherMsg = "";
         }
     }
 
@@ -1206,6 +1209,7 @@ public abstract class RoutineLoadJob
         long taskBeId = -1L;
         try {
             this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
+            setOtherMsg(txnStatusChangeReasonString);
             if (txnOperated) {
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
@@ -1517,16 +1521,21 @@ public abstract class RoutineLoadJob
             }
         }
 
-        preCheckNeedSchedule();
+        boolean needAutoResume = needAutoResume();
+
+        if (!refreshKafkaPartitions(needAutoResume)) {
+            return;
+        }
 
         writeLock();
         try {
-            if (unprotectNeedReschedule()) {
+            if (unprotectNeedReschedule() || needAutoResume) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("msg", "Job need to be rescheduled")
                         .build());
+                this.otherMsg = pauseReason == null ? "" : pauseReason.getMsg();
                 unprotectUpdateProgress();
-                executeNeedSchedule();
+                unprotectUpdateState(JobState.NEED_SCHEDULE, null, false);
             }
         } finally {
             writeUnlock();
@@ -1537,14 +1546,18 @@ public abstract class RoutineLoadJob
     // Because unprotectUpdateProgress() is protected by writelock.
     // So if there are time-consuming operations, they should be done in this method.
     // (Such as getAllKafkaPartitions() in KafkaRoutineLoad)
-    protected void preCheckNeedSchedule() throws UserException {
-
+    protected boolean refreshKafkaPartitions(boolean needAutoResume) throws UserException {
+        return false;
     }
 
     protected void unprotectUpdateProgress() throws UserException {
     }
 
     protected boolean unprotectNeedReschedule() throws UserException {
+        return false;
+    }
+
+    protected boolean needAutoResume() {
         return false;
     }
 
@@ -1568,6 +1581,11 @@ public abstract class RoutineLoadJob
 
     public String getCloudClusterId() {
         return cloudClusterId;
+    }
+
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
     }
 
     // check the correctness of commit info

@@ -149,6 +149,12 @@ public:
         assert(length <= static_cast<size_t>(std::numeric_limits<int>::max()));
         length_ = static_cast<int>(length);
     }
+    StringPiece(std::string_view view) // NOLINT(runtime/explicit)
+            : ptr_(view.data()), length_(0) {
+        size_t length = view.size();
+        assert(length <= static_cast<size_t>(std::numeric_limits<int>::max()));
+        length_ = static_cast<int>(length);
+    }
     StringPiece(const char* offset, int len) : ptr_(offset), length_(len) { assert(len >= 0); }
 
     // Substring of another StringPiece.

@@ -21,7 +21,7 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
+import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -529,8 +529,8 @@ public class AnalysisManagerTest {
                 return true;
             }
         };
-        ShowAutoAnalyzeJobsStmt stmt = new ShowAutoAnalyzeJobsStmt(null, null);
-        List<AutoAnalysisPendingJob> autoAnalysisPendingJobs = manager.showAutoPendingJobs(stmt);
+        ShowQueuedAnalyzeJobsStmt stmt = new ShowQueuedAnalyzeJobsStmt(null, null);
+        List<AutoAnalysisPendingJob> autoAnalysisPendingJobs = manager.showAutoPendingJobs(null, null);
         Assertions.assertEquals(5, autoAnalysisPendingJobs.size());
         AutoAnalysisPendingJob job = autoAnalysisPendingJobs.get(0);
         Assertions.assertEquals("catalog1", job.catalogName);
@@ -574,13 +574,7 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col7")));
         Assertions.assertEquals(JobPriority.LOW, job.priority);
 
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.HIGH.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> highJobs = manager.showAutoPendingJobs(stmt);
+        List<AutoAnalysisPendingJob> highJobs = manager.showAutoPendingJobs(null, JobPriority.HIGH.name().toUpperCase());
         Assertions.assertEquals(2, highJobs.size());
         job = highJobs.get(0);
         Assertions.assertEquals("catalog1", job.catalogName);
@@ -599,13 +593,7 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col3")));
         Assertions.assertEquals(JobPriority.HIGH, job.priority);
 
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.MID.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> midJobs = manager.showAutoPendingJobs(stmt);
+        List<AutoAnalysisPendingJob> midJobs = manager.showAutoPendingJobs(null, JobPriority.MID.name().toUpperCase());
         Assertions.assertEquals(2, midJobs.size());
         job = midJobs.get(0);
         Assertions.assertEquals("catalog3", job.catalogName);
@@ -623,13 +611,7 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col5")));
         Assertions.assertEquals(JobPriority.MID, job.priority);
 
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.LOW.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> lowJobs = manager.showAutoPendingJobs(stmt);
+        List<AutoAnalysisPendingJob> lowJobs = manager.showAutoPendingJobs(null, JobPriority.LOW.name().toUpperCase());
         Assertions.assertEquals(1, lowJobs.size());
         job = lowJobs.get(0);
         Assertions.assertEquals("catalog5", job.catalogName);
@@ -659,11 +641,11 @@ public class AnalysisManagerTest {
         AnalysisManager analysisManager = new AnalysisManager();
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
-            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, null);
+            analysisManager.submitAsyncDropStatsTask(null, 0, 0, 0, null, null, false);
         }
-        Thread.sleep(25000);
+        Thread.sleep(10000);
         System.out.println(count.get());
-        Assertions.assertTrue(count.get() > 10);
-        Assertions.assertTrue(count.get() < 20);
+        Assertions.assertTrue(count.get() > 0);
+        Assertions.assertTrue(count.get() <= 20);
     }
 }

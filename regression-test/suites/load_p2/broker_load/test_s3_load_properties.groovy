@@ -57,9 +57,22 @@ suite("test_s3_load_properties", "p2") {
 
     /* ========================================================== normal ========================================================== */
     for (String table : basicTables) {
-        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
+        def attributes = new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
                 "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "", ""))
+                "", "", "", "", "")
+        // 'use_new_load_scan_node' is deprecated and its value will be ignored. Testing backward compatibility.
+        switch (table) {
+            case 'dup_tbl_basic':
+                attributes.addProperties("use_new_load_scan_node", "false")
+                break
+            case 'uniq_tbl_basic':
+                attributes.addProperties("use_new_load_scan_node", "true")
+                break
+            default:
+                // omit this property
+                break
+        }
+        attributesList.add(attributes)
     }
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
@@ -418,6 +431,38 @@ suite("test_s3_load_properties", "p2") {
                 "", "", "", "", ""))
     }
 
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.json",
+                "${table}", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+    }
+
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.json",
+            "agg_tbl_basic", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+
+    for (String table : arrayTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_array_data.json",
+                "${table}", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+                "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
+    }
+
+    for (String table : basicTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data_by_line.json",
+                "${table}", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "", "", "", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+    }
+
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data_by_line.json",
+            "agg_tbl_basic", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+
+    for (String table : arrayTables) {
+        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_array_data_by_line.json",
+                "${table}", "", "", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
+                "", "", "", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
+    }
+
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.parq",
             "agg_tbl_basic", "", "", "FORMAT AS \"PARQUET\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", ""))
@@ -493,7 +538,7 @@ suite("test_s3_load_properties", "p2") {
             """
         logger.info("submit sql: ${sql_str}");
         sql """${sql_str}"""
-        logger.info("Submit load with lable: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
+        logger.info("Submit load with label: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
 
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {
@@ -589,7 +634,6 @@ class LoadAttributes {
         this.isExceptFailed = isExceptFailed
 
         properties = new HashMap<>()
-        properties.put("use_new_load_scan_node", "true")
     }
 
     LoadAttributes addProperties(String k, String v) {

@@ -41,6 +41,9 @@ public:
 private:
     // for ut only
     static void clear_timezone_caches();
+    static int cache_size();
+
+    static void load_offsets_to_cache();
 
     static bool parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz);
 };

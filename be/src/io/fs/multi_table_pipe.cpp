@@ -197,7 +197,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         // plan this load
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        TNetworkAddress master_addr = exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
         int64_t stream_load_put_start_time = MonotonicNanos();
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,

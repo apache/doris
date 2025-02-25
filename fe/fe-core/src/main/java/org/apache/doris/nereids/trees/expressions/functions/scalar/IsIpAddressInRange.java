@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -39,6 +41,10 @@ public class IsIpAddressInRange extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE).args(IPv4Type.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(IPv4Type.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(IPv6Type.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(IPv6Type.INSTANCE, StringType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE));
 

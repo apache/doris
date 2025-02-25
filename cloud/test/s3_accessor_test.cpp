@@ -17,8 +17,10 @@
 
 #include "recycler/s3_accessor.h"
 
+#include <aws/s3/S3Client.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <butil/guid.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include <azure/storage/blobs/blob_options.hpp>
@@ -318,6 +320,72 @@ TEST(S3AccessorTest, gcs) {
             &guards.emplace_back());
 
     test_s3_accessor(*accessor);
+}
+
+TEST(S3AccessorTest, path_style_test) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_prefix("doris-debug-instance-prefix");
+    obj_info.set_provider(ObjectStoreInfoPB_Provider_S3);
+    obj_info.set_ak("dummy_ak");
+    obj_info.set_sk("dummy_sk");
+    obj_info.set_endpoint("dummy-bucket");
+    obj_info.set_region("cn-north-1");
+    obj_info.set_bucket("dummy-bucket");
+    config::max_s3_client_retry = 0;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::vector<SyncPoint::CallbackGuard> guards;
+
+    std::string base_domain = "s3.cn-north-1.amazonaws.com.cn";
+    std::string domain_ip = "54.222.51.71"; // first ip of base_domain
+    // to test custom_domain,  add ${domain_ip} ${custom_domain} to /etc/hosts
+    // otherwise the related cases will fail
+    std::string custom_domain = "gavin.s3.aws.com";
+    // clang-format off
+    // http code 403 means there is nothing wrong the given domain in objinfo
+    //                 domain, use_path_style, http_code
+    std::vector<std::tuple<std::string, bool, int>> inputs {
+        {base_domain               , false , 403}, // works
+        {base_domain               , true  , 403}, // works
+        {"http://" + base_domain   , false , 403}, // works
+        {"http://" + base_domain   , true  , 403}, // works
+        {"https://" + base_domain  , false , 403}, // works
+        {"https://" + base_domain  , true  , 403}, // works
+        {"http://" + domain_ip     , false , 301}, // works, ip with virtual addressing
+        {"http://" + domain_ip     , true  , 301}, // works, ip with path style
+        {custom_domain             , false , -1} , // custom_domain could not resolve with virtual addressing
+        {custom_domain             , true  , 403}, // custom_domain working with path style
+        {"http://" + custom_domain , false , -1} , // custom_domain could not resolve with virtual addressing
+        {"https://" + custom_domain, true  , -1},  // certificate issue, custom_domain does not attached with any certs
+        // {"https://54.222.51.71" , false , -1} , // certificate issue
+        // {"https://54.222.51.71" , true  , -1} , // certificate issue
+    };
+
+    int case_idx = 0;
+    sp->set_call_back("S3ObjClient::delete_object",
+            [&case_idx, &inputs](auto&& args) {
+                auto* res = try_any_cast<Aws::S3::Model::DeleteObjectOutcome*>(args[0]);
+                EXPECT_EQ(std::get<2>(inputs[case_idx]), static_cast<int>(res->GetError().GetResponseCode())) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx;
+                case_idx++;
+            },
+            &guards.emplace_back());
+    // clang-format on
+
+    for (auto& i : inputs) {
+        obj_info.set_endpoint(std::get<0>(i));
+        obj_info.set_use_path_style(std::get<1>(i));
+        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        EXPECT_EQ(s3_conf->use_virtual_addressing, !obj_info.use_path_style()) << case_idx;
+        std::shared_ptr<S3Accessor> accessor;
+        int ret = S3Accessor::create(*s3_conf, &accessor);
+        EXPECT_EQ(ret, 0) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx;
+        ret = accessor->init();
+        EXPECT_EQ(ret, 0) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx;
+        // this function call will trigger syncpoint callback to increment case_idx
+        accessor->delete_file("abc"); // try to delete a nonexisted file, ignore the result
+        // EXPECT_EQ(ret, exp) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx << " domain " << std::get<0>(i);
+    }
 }
 
 } // namespace doris::cloud

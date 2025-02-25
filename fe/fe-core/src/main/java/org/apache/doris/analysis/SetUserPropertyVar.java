@@ -92,6 +92,13 @@ public class SetUserPropertyVar extends SetVar {
                                     .getCloudClusterNames().contains(value)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
                     }
+
+                    if (key.equals(UserProperty.DEFAULT_COMPUTE_GROUP)
+                            && !Strings.isNullOrEmpty(value)
+                            && !((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                    .getCloudClusterNames().contains(value)) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
+                    }
                 }
                 return;
             }

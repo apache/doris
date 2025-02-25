@@ -67,6 +67,35 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
+LocalSnapshotLockGuard LocalSnapshotLock::acquire(const std::string& path) {
+    std::unique_lock<std::mutex> l(_lock);
+    auto& ctx = _local_snapshot_contexts[path];
+    while (ctx._is_locked) {
+        ctx._waiting_count++;
+        ctx._cv.wait(l);
+        ctx._waiting_count--;
+    }
+
+    ctx._is_locked = true;
+    return {path};
+}
+
+void LocalSnapshotLock::release(const std::string& path) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto iter = _local_snapshot_contexts.find(path);
+    if (iter == _local_snapshot_contexts.end()) {
+        return;
+    }
+
+    auto& ctx = iter->second;
+    ctx._is_locked = false;
+    if (ctx._waiting_count > 0) {
+        ctx._cv.notify_one();
+    } else {
+        _local_snapshot_contexts.erase(iter);
+    }
+}
+
 SnapshotManager::SnapshotManager(StorageEngine& engine) : _engine(engine) {
     _mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
@@ -93,10 +122,15 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     TabletSharedPtr ref_tablet = target_tablet;
     if (request.__isset.ref_tablet_id) {
         int64_t ref_tablet_id = request.ref_tablet_id;
-        ref_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
-        if (ref_tablet == nullptr) {
-            return Status::Error<TABLE_NOT_FOUND>("failed to get ref tablet. tablet={}",
-                                                  ref_tablet_id);
+        TabletSharedPtr base_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
+
+        // Some tasks, like medium migration, cause the target tablet and base tablet to stay on
+        // different disks. In this case, we fall through to the normal restore path.
+        //
+        // Otherwise, we can directly link the rowset files from the base tablet to the target tablet.
+        if (base_tablet != nullptr &&
+            base_tablet->data_dir()->path() == target_tablet->data_dir()->path()) {
+            ref_tablet = std::move(base_tablet);
         }
     }
 
@@ -113,6 +147,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 }
 
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
+    auto local_snapshot_guard = LocalSnapshotLock::instance().acquire(snapshot_path);
+
     // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
     // Otherwise, it is considered an illegal request and returns an error result.
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -406,13 +442,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     string snapshot_id;
     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
+    std::vector<RowsetSharedPtr> consistent_rowsets;
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
-        std::vector<RowsetSharedPtr> consistent_rowsets;
         DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
@@ -443,7 +479,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
             // be would definitely set it as true no matter has missed version or not
-            // but it would take no effets on the following range loop
+            // but it would take no effects on the following range loop
             if (!is_single_rowset_clone && request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -623,17 +659,16 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         RowsetBinlogMetasPB rowset_binlog_metas_pb;
-        if (request.__isset.missing_version) {
-            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
-                                                      &rowset_binlog_metas_pb);
-        } else {
-            std::vector<TVersion> missing_versions;
-            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        for (auto& rs : consistent_rowsets) {
+            if (!rs->is_local()) {
+                continue;
+            }
+            res = ref_tablet->get_rowset_binlog_metas(rs->version(), &rowset_binlog_metas_pb);
+            if (!res.ok()) {
+                break;
+            }
         }
-        if (!res.ok()) {
-            break;
-        }
-        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+        if (!res.ok() || rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
             break;
         }
 
@@ -694,13 +729,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
                 if (tablet_schema.get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
-                    for (const auto& index : tablet_schema.indexes()) {
-                        if (index.index_type() != IndexType::INVERTED) {
-                            continue;
-                        }
-                        auto index_id = index.index_id();
-                        auto index_file = ref_tablet->get_segment_index_filepath(
-                                rowset_id, segment_index, index_id);
+                    for (const auto& index : tablet_schema.inverted_indexes()) {
+                        auto index_id = index->index_id();
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path),
+                                index_id, index->get_index_suffix());
                         auto snapshot_segment_index_file_path =
                                 fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
                                             segment_index, index_id);

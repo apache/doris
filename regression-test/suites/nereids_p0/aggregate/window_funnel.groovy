@@ -720,4 +720,25 @@ suite("window_funnel") {
         order BY user_id
     """
 
+    sql """ DROP TABLE IF EXISTS windowfunnel_test_1 """
+    sql """
+        CREATE TABLE windowfunnel_test_1 (
+            `xwho` varchar(50) NULL COMMENT 'xwho',
+            `xwhen` datetime(3) COMMENT 'xwhen',
+            `xwhat` int NULL COMMENT 'xwhat'
+        ) DUPLICATE KEY(xwho)
+        DISTRIBUTED BY HASH(xwho) BUCKETS 3
+        PROPERTIES ("replication_num" = "1");
+    """
+    sql """ INSERT INTO windowfunnel_test_1 (xwho, xwhen, xwhat) VALUES
+        ('1', '2022-03-12 10:41:00.111', 1),  
+        ('1', '2022-03-12 10:41:00.888', 2),  
+        ('1', '2022-03-12 13:28:02.177', 3),  
+        ('1', '2022-03-12 16:15:01.444', 4);  """
+    explain {
+        sql("""select window_funnel(3600 * 3, 'deduplication', t.xwhen, t.xwhat = 1, t.xwhat = 2 ) AS level from windowfunnel_test_1 t;""")
+        notContains("cast")
+    }
+
+    qt_window_funnel_datetimev2 """select window_funnel(3600 * 3, 'deduplication', t.xwhen, t.xwhat = 1, t.xwhat = 2 ) AS level from windowfunnel_test_1 t; """
 }

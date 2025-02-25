@@ -78,6 +78,7 @@ public class TabletChecker extends MasterDaemon {
             put("added", new AtomicLong(0L));
             put("in_sched", new AtomicLong(0L));
             put("not_ready", new AtomicLong(0L));
+            put("exceed_limit", new AtomicLong(0L));
         }
     };
 
@@ -224,6 +225,7 @@ public class TabletChecker extends MasterDaemon {
         public long addToSchedulerTabletNum = 0;
         public long tabletInScheduler = 0;
         public long tabletNotReady = 0;
+        public long tabletExceedLimit = 0;
     }
 
     private enum LoopControlStatus {
@@ -344,10 +346,12 @@ public class TabletChecker extends MasterDaemon {
         tabletCountByStatus.get("added").set(counter.addToSchedulerTabletNum);
         tabletCountByStatus.get("in_sched").set(counter.tabletInScheduler);
         tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
+        tabletCountByStatus.get("exceed_limit").set(counter.tabletExceedLimit);
 
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{},"
+                + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+                counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
@@ -404,11 +408,13 @@ public class TabletChecker extends MasterDaemon {
                 tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                if (res == AddResult.DISABLED) {
                     LOG.info("tablet scheduler return: {}. stop tablet checker", res.name());
                     return LoopControlStatus.BREAK_OUT;
                 } else if (res == AddResult.ADDED) {
                     counter.addToSchedulerTabletNum++;
+                } else if (res == AddResult.REPLACE_ADDED || res == AddResult.LIMIT_EXCEED) {
+                    counter.tabletExceedLimit++;
                 }
             }
         } // indices

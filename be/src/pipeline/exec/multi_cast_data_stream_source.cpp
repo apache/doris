@@ -24,13 +24,13 @@
 #include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
-          RuntimeFilterConsumer(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                                parent->runtime_filter_descs(),
-                                static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {}
+          RuntimeFilterConsumer(
+                  static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
+                  static_cast<Parent*>(parent)->_multi_cast_output_row_descriptor, _conjuncts) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -38,13 +38,26 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
+    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
+                                                                _runtime_profile.get());
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
+    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
+    _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
+}
+
+std::vector<Dependency*> MultiCastDataStreamSourceLocalState::dependencies() const {
+    auto dependencies = Base::dependencies();
+    auto& p = _parent->cast<Parent>();
+    dependencies.emplace_back(
+            _shared_state->multi_cast_data_streamer->get_spill_read_dependency(p._consumer_id));
+    return dependencies;
 }
 
 Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
@@ -86,20 +99,23 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(_consumer_id,
-                                                                              output_block, eos));
-
-    if (!local_state._conjuncts.empty()) {
+    {
+        SCOPED_TIMER(local_state._get_data_timer);
+        RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(
+                state, _consumer_id, output_block, eos));
+    }
+    if (!local_state._conjuncts.empty() && !output_block->empty()) {
+        SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                                output_block->columns()));
     }
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
+        SCOPED_TIMER(local_state._materialize_data_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
         vectorized::materialize_block_inplace(*block);
     }
-    COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     return Status::OK();
 }
 

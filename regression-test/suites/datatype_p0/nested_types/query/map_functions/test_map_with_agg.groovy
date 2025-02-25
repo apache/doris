@@ -39,13 +39,6 @@ suite("test_map_with_agg", "p0") {
 
     sql """ set parallel_pipeline_task_num=5; """
 
-    // test in old planner
-    sql """set enable_nereids_planner=false"""
-    order_qt_old_sql """  SELECT id, c_char, map('exp_sea', 1) as m  FROM t_map_count  WHERE p1 = 'comr' AND p2 = 'ex'  GROUP BY 1,2
-                          union all
-                          SELECT id, c_char, map('exp_seac', count(CASE WHEN et = 'page_l' THEN uid END )) as m FROM t_map_count  WHERE  p1 = 'consumer-un' AND p2 = '17469174857s957ssf'  GROUP BY 1,2;"""
-
-
     // test in nereids planner
     sql """set enable_nereids_planner=true"""
     sql """ set enable_fallback_to_original_planner=false"""

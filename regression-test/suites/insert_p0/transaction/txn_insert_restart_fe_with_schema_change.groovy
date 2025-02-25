@@ -22,7 +22,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite("txn_insert_restart_fe_with_schema_change") {
+suite("txn_insert_restart_fe_with_schema_change", 'docker') {
     def getAlterTableState = { dbName, show_sql ->
         def retry = 0
         sql "use ${dbName};"
