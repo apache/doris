@@ -17,6 +17,8 @@
 
 #include "partitioned_hash_join_probe_operator.h"
 
+#include <memory>
+
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
@@ -34,7 +36,7 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
     RETURN_IF_ERROR(PipelineXSpillLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
+    _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
 
     _partitioned_blocks.resize(p._partition_count);
@@ -174,7 +176,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
             auto& partitioned_block = _partitioned_blocks[partition_index];
             if (partitioned_block && partitioned_block->allocated_bytes() >=
                                              vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                blocks.emplace_back(partitioned_block->to_block());
+                blocks.emplace_back(std::move(*partitioned_block).to_block());
                 partitioned_block.reset();
             }
 
@@ -516,7 +518,7 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     auto tnode_ = _tnode;
     tnode_.runtime_filters.clear();
 
-    for (auto& conjunct : tnode.hash_join_node.eq_join_conjuncts) {
+    for (const auto& conjunct : tnode.hash_join_node.eq_join_conjuncts) {
         _probe_exprs.emplace_back(conjunct.left);
     }
     _partitioner = std::make_unique<SpillPartitionerType>(_partition_count);
@@ -549,7 +551,8 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
         if (eos) {
             for (uint32_t i = 0; i != _partition_count; ++i) {
                 if (partitioned_blocks[i] && !partitioned_blocks[i]->empty()) {
-                    local_state._probe_blocks[i].emplace_back(partitioned_blocks[i]->to_block());
+                    local_state._probe_blocks[i].emplace_back(
+                            std::move(*partitioned_blocks[i]).to_block());
                     partitioned_blocks[i].reset();
                 }
             }
@@ -583,7 +586,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
 
         if (partitioned_blocks[i]->rows() > 2 * 1024 * 1024 ||
             (eos && partitioned_blocks[i]->rows() > 0)) {
-            local_state._probe_blocks[i].emplace_back(partitioned_blocks[i]->to_block());
+            local_state._probe_blocks[i].emplace_back(std::move(*partitioned_blocks[i]).to_block());
             partitioned_blocks[i].reset();
         }
     }
@@ -648,7 +651,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
             local_state._shared_state->partitioned_build_blocks[local_state._partition_cursor];
     vectorized::Block block;
     if (partitioned_block && partitioned_block->rows() > 0) {
-        block = partitioned_block->to_block();
+        block = std::move(*partitioned_block).to_block();
         partitioned_block.reset();
     }
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::sink", {
@@ -685,7 +688,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
         local_state._need_to_setup_internal_operators = false;
         auto& mutable_block = local_state._partitioned_blocks[partition_index];
         if (mutable_block && !mutable_block->empty()) {
-            probe_blocks.emplace_back(mutable_block->to_block());
+            probe_blocks.emplace_back(std::move(*mutable_block).to_block());
         }
     }
     bool in_mem_eos = false;

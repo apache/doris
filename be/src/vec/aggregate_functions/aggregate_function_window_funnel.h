@@ -49,17 +49,12 @@
 #include "vec/io/var_int.h"
 #include "vec/runtime/vdatetime_value.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 enum class WindowFunnelMode : Int64 { INVALID, DEFAULT, DEDUPLICATION, FIXED, INCREASE };
 
@@ -86,7 +81,7 @@ struct WindowFunnelState {
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
     mutable vectorized::MutableBlock mutable_block;
-    ColumnVector<NativeType>::Container* timestamp_column_data = nullptr;
+    typename ColumnVector<NativeType>::Container* timestamp_column_data = nullptr;
     std::vector<ColumnVector<UInt8>::Container*> event_columns_datas;
     SortDescription sort_description {1};
 
@@ -145,7 +140,7 @@ struct WindowFunnelState {
     }
 
     void sort() {
-        Block tmp_block = mutable_block.to_block();
+        Block tmp_block = std::move(mutable_block).to_block();
         auto block = tmp_block.clone_without_columns();
         sort_block(tmp_block, block, sort_description, 0);
         mutable_block = std::move(block);
@@ -278,7 +273,7 @@ struct WindowFunnelState {
 
     void merge(const WindowFunnelState& other) {
         if (!other.mutable_block.empty()) {
-            auto st = mutable_block.merge(other.mutable_block.to_block());
+            auto st = mutable_block.merge(std::move(other.mutable_block).to_block());
             if (!st.ok()) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
                 return;
@@ -308,7 +303,7 @@ struct WindowFunnelState {
         size_t compressed_bytes = 0;
         Status status;
         std::string buff;
-        Block block = mutable_block.to_block();
+        Block block = std::move(mutable_block).to_block();
         // as the branch-2.1 is used the new impl of window funnel, and the be_exec_version is 5
         // but in branch-3.0 this be_exec_version have update to 7, so when upgrade from branch-2.1 to branch-3.0
         // maybe have error send the branch-3.0 version of version 7 to branch-2.1([0---version--5])
