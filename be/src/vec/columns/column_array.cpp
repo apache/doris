@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include "vec/columns/column_array.h"
+
 #include <glog/logging.h>
 
 #include <algorithm>
