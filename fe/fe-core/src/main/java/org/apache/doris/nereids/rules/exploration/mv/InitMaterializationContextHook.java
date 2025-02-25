@@ -28,11 +28,13 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -201,8 +203,12 @@ public class InitMaterializationContextHook implements PlannerHook {
                             LOG.warn(String.format("can't parse %s ", createMvSql));
                             continue;
                         }
-                        MTMVCache mtmvCache = MaterializedViewUtils.createMTMVCache(querySql.get(),
+                        ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
                                 cascadesContext.getConnectContext());
+                        basicMvContext.setDatabase(meta.getDbName());
+                        MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
+                                basicMvContext, true,
+                                false, cascadesContext.getConnectContext());
                         contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
                                 mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), indexName,
                                 cascadesContext, mtmvCache.getStatistics()));

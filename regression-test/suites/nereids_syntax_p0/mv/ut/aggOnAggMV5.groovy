@@ -36,7 +36,10 @@ suite ("aggOnAggMV5") {
     sql """alter table aggOnAggMV5 modify column time_col set stats ('row_count'='4');"""
 
     sql """insert into aggOnAggMV5 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV5 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV5 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV5 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV5 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV5 values("2020-01-03",3,"c",3,3,3);"""
 
     createMV("create materialized view aggOnAggMV5_mv as select deptno, commission, sum(salary) from aggOnAggMV5 group by deptno, commission;")
@@ -44,6 +47,8 @@ suite ("aggOnAggMV5") {
     sql """insert into aggOnAggMV5 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV5 with sync;"
+    sql """alter table aggOnAggMV5 modify column commission set stats ('row_count'='8');"""
+
 
     mv_rewrite_fail("select * from aggOnAggMV5 order by empid;", "aggOnAggMV5_mv")
     

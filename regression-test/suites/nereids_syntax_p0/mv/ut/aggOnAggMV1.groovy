@@ -34,7 +34,13 @@ suite ("aggOnAggMV1") {
         """
 
     sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV1 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV1 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV1 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV1 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV1 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV1 values("2020-01-03",3,"c",3,3,3);"""
 
 
@@ -45,7 +51,7 @@ suite ("aggOnAggMV1") {
     sql """insert into aggOnAggMV1 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV1 with sync;"
-    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
+    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='9');"""
 
     sql """set enable_stats=false;"""
 
