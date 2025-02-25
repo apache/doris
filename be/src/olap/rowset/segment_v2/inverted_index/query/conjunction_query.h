@@ -30,7 +30,7 @@ public:
                      const TQueryOptions& query_options);
     ~ConjunctionQuery() override;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:

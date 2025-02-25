@@ -23,13 +23,13 @@ DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSe
                                    const TQueryOptions& query_options)
         : _searcher(searcher) {}
 
-void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.empty()) {
+void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.terms.empty()) {
         _CLTHROWA(CL_ERR_IllegalArgument, "DisjunctionQuery::add: terms empty");
     }
 
-    _field_name = field_name;
-    _terms = terms;
+    _field_name = query_info.field_name;
+    _terms = query_info.terms;
 }
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {

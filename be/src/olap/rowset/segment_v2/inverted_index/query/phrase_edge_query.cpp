@@ -35,12 +35,12 @@ PhraseEdgeQuery::PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSear
           _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
           _max_expansions(query_options.inverted_index_max_expansions) {}
 
-void PhraseEdgeQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.empty()) {
+void PhraseEdgeQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.terms.empty()) {
         _CLTHROWA(CL_ERR_IllegalArgument, "PhraseEdgeQuery::add: terms empty");
     }
-    _field_name = field_name;
-    _terms = terms;
+    _field_name = query_info.field_name;
+    _terms = query_info.terms;
 }
 
 void PhraseEdgeQuery::search(roaring::Roaring& roaring) {

@@ -38,15 +38,15 @@ ConjunctionQuery::~ConjunctionQuery() {
     }
 }
 
-void ConjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.empty()) {
+void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.terms.empty()) {
         _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms empty");
     }
 
     std::vector<TermIterator> iterators;
-    for (const auto& term : terms) {
+    for (const auto& term : query_info.terms) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
-        Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
+        Term* t = _CLNEW Term(query_info.field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
         TermDocs* term_doc = _searcher->getReader()->termDocs(t);
         _term_docs.push_back(term_doc);

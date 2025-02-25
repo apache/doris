@@ -28,24 +28,24 @@ PhrasePrefixQuery::PhrasePrefixQuery(const std::shared_ptr<lucene::search::Index
           _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
           _max_expansions(query_options.inverted_index_max_expansions) {}
 
-void PhrasePrefixQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.empty()) {
+void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.terms.empty()) {
         _CLTHROWA(CL_ERR_IllegalArgument, "PhrasePrefixQuery::add: terms empty");
     }
 
-    for (size_t i = 0; i < terms.size(); i++) {
-        if (i < terms.size() - 1) {
-            std::wstring ws = StringUtil::string_to_wstring(terms[i]);
-            Term* t = _CLNEW Term(field_name.c_str(), ws.c_str());
+    for (size_t i = 0; i < query_info.terms.size(); i++) {
+        if (i < query_info.terms.size() - 1) {
+            std::wstring ws = StringUtil::string_to_wstring(query_info.terms[i]);
+            Term* t = _CLNEW Term(query_info.field_name.c_str(), ws.c_str());
             _query->add(t);
             _CLLDECDELETE(t);
         } else {
             std::vector<CL_NS(index)::Term*> prefix_terms;
-            PrefixQuery::get_prefix_terms(_searcher->getReader(), field_name, terms[i],
-                                          prefix_terms, _max_expansions);
+            PrefixQuery::get_prefix_terms(_searcher->getReader(), query_info.field_name,
+                                          query_info.terms[i], prefix_terms, _max_expansions);
             if (prefix_terms.empty()) {
-                std::wstring ws_term = StringUtil::string_to_wstring(terms[i]);
-                Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
+                std::wstring ws_term = StringUtil::string_to_wstring(query_info.terms[i]);
+                Term* t = _CLNEW Term(query_info.field_name.c_str(), ws_term.c_str());
                 prefix_terms.push_back(t);
             }
             _query->add(prefix_terms);

@@ -31,7 +31,7 @@ public:
                 const TQueryOptions& query_options);
     ~RegexpQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& patterns) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
