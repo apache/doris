@@ -41,8 +41,8 @@ static Status read_thrift_footer(io::FileReaderSPtr file, std::vector<uint8_t>& 
     size_t file_size = file->size();
     bytes_read = std::min(file_size, INIT_META_SIZE);
     footer.reserve(bytes_read);
-    RETURN_IF_ERROR(file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read),
-                                  &bytes_read, io_ctx));
+    return file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read), &bytes_read,
+                         io_ctx);
 }
 
 static bool validate_magic_number(const std::vector<uint8_t>& footer, size_t bytes_read) {
