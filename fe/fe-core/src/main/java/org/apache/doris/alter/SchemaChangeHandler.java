@@ -729,7 +729,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     String columnName = col.getName();
                     if (col.isMaterializedViewColumn()) {
                         throw new DdlException("Can not modify column contained by mv, mv="
-                                + olapTable.getIndexNameById(entry.getKey()));
+                                + olapTable.getIndexNameById(otherIndexId));
                     }
                     if (!columnName.equalsIgnoreCase(modColumn.getName())) {
                         continue;
