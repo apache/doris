@@ -17,6 +17,7 @@
 
 package org.apache.doris.policy;
 
+import org.apache.doris.analysis.ColumnName;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -119,6 +120,15 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                         stmt.getTableName().getDb(), stmt.getTableName().getTbl(), userIdent, stmt.getRoleName(),
                         stmt.getOrigStmt().originStmt, stmt.getOrigStmt().idx, stmt.getFilterType(),
                         stmt.getWherePredicate());
+            case DATA_MASK:
+                UserIdentity userIdentity = stmt.getUser();
+                if (userIdentity != null) {
+                    userIdentity.analyze();
+                }
+                ColumnName colName = (ColumnName) stmt.getTableName();
+                return new DorisDataMaskPolicy(policyId, stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName(),
+                    colName.getCtl(), colName.getDb(), colName.getTbl(), colName.getCol(), stmt.getDataMaskType());
+
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }

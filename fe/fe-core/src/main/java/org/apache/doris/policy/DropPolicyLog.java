@@ -51,8 +51,10 @@ public class DropPolicyLog implements Writable {
 
     @SerializedName(value = "ctlName")
     private String ctlName;
+
     @SerializedName(value = "dbName")
     private String dbName;
+
     @SerializedName(value = "tableName")
     private String tableName;
 
@@ -73,8 +75,8 @@ public class DropPolicyLog implements Writable {
         this.policyName = policyName;
     }
 
-    public DropPolicyLog(String ctlName, String dbName, String tableName, PolicyTypeEnum type, String policyName,
-            UserIdentity user, String roleName) {
+    public DropPolicyLog(String ctlName, String dbName, String tableName, PolicyTypeEnum type,
+                         String policyName, UserIdentity user, String roleName) {
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -90,11 +92,12 @@ public class DropPolicyLog implements Writable {
     public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) throws AnalysisException {
         switch (stmt.getType()) {
             case STORAGE:
+            case DATA_MASK:
                 return new DropPolicyLog(stmt.getType(), stmt.getPolicyName());
             case ROW:
                 return new DropPolicyLog(stmt.getTableName().getCtl(), stmt.getTableName().getDb(),
-                        stmt.getTableName().getTbl(), stmt.getType(),
-                        stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName());
+                    stmt.getTableName().getTbl(), stmt.getType(), stmt.getPolicyName(),
+                    stmt.getUser(), stmt.getRoleName());
             default:
                 throw new AnalysisException("Invalid policy type: " + stmt.getType().name());
         }

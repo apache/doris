@@ -603,5 +603,10 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         public String getPolicyIdent() {
             return "custom policy: " + project;
         }
+
+        @Override
+        public Expression parseMaskTypeDef(NereidsParser parser, Slot slot) {
+            return parser.parseExpression(getMaskTypeDef());
+        }
     }
 }
