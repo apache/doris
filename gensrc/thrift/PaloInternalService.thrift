@@ -194,6 +194,7 @@ struct TQueryOptions {
 
   58: optional i32 repeat_max_num = 0 // Deprecated
 
+  // deprecated, use spill_sort_mem_limit
   59: optional i64 external_sort_bytes_threshold = 0
 
   // deprecated
@@ -212,9 +213,10 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
+  // Not used anymore
   68: optional i64 external_agg_bytes_threshold = 0
 
-  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
+  // Not used anymore, use spill_aggregation_partition_count
   69: optional i32 external_agg_partition_bits = 4
 
   // Specify base path for file cache
@@ -280,10 +282,13 @@ struct TQueryOptions {
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  // deprecated
   101: optional bool enable_join_spill = false
 
+  // deprecated
   102: optional bool enable_sort_spill = false
 
+  // deprecated
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
@@ -332,9 +337,7 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-
   127: optional i32 in_list_value_count_threshold = 10;
-
   // We need this two fields to make sure thrift id on master is compatible with other branch.
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
@@ -349,7 +352,7 @@ struct TQueryOptions {
   135: optional bool enable_parallel_outfile = false;
 
   136: optional bool enable_phrase_query_sequential_opt = true;
-
+  
   137: optional bool enable_auto_create_when_overwrite = false;
 
   138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
@@ -357,6 +360,7 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+
   142: optional bool enable_fixed_len_to_uint32_v2 = false;
   143: optional bool enable_shared_exchange_sink_buffer = true;
 
@@ -370,6 +374,22 @@ struct TQueryOptions {
   148: optional i32 min_scanner_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0;
   150: optional bool enable_runtime_filter_partition_prune = true;
+
+  // The minimum memory that an operator required to run.
+  151: optional i32 minimum_operator_memory_required_kb = 1024;
+
+  152: optional bool enable_mem_overcommit = true;
+  153: optional i32 query_slot_count = 0;
+  154: optional bool enable_spill = false
+  155: optional bool enable_reserve_memory = true
+  156: optional i32 revocable_memory_high_watermark_percent = -1
+
+  157: optional i64 spill_sort_mem_limit = 134217728
+  158: optional i64 spill_sort_batch_bytes = 8388608
+  159: optional i32 spill_aggregation_partition_count = 32
+  160: optional i32 spill_hash_join_partition_count = 32
+  161: optional i64 low_memory_mode_buffer_limit = 33554432
+  162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

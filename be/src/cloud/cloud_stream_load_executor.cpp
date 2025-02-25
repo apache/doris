@@ -29,9 +29,9 @@
 
 namespace doris {
 
-bvar::Adder<uint64_t> stream_load_commit_retry_counter;
+bvar::Adder<uint64_t> stream_load_commit_retry_counter("stream_load_commit_retry_counter");
 bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
-        &stream_load_commit_retry_counter, 60);
+        "stream_load_commit_retry_counter", "1m", &stream_load_commit_retry_counter, 60);
 
 enum class TxnOpParamType : int {
     ILLEGAL,

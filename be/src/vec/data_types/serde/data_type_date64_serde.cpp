@@ -38,6 +38,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
     if (options.date_olap_format) {
         tm time_tm;
@@ -56,6 +59,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -69,6 +75,9 @@ Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
 Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
@@ -159,11 +168,11 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
 void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
+        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),

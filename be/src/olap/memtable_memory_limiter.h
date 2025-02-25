@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/countdown_latch.h"
 #include "util/stopwatch.hpp"
 
@@ -37,9 +38,12 @@ public:
 
     Status init(int64_t process_mem_limit);
 
-    // check if the total mem consumption exceeds limit.
-    // If yes, it will flush memtable to try to reduce memory consumption.
-    void handle_memtable_flush();
+    void handle_workload_group_memtable_flush(WorkloadGroupPtr wg);
+
+    int64_t flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush_bytes);
+
+    void get_workload_group_memtable_usage(uint64_t wg_id, int64_t* active_bytes,
+                                           int64_t* queue_bytes, int64_t* flush_bytes);
 
     void register_writer(std::weak_ptr<MemTableWriter> writer);
 
@@ -50,6 +54,12 @@ public:
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
+    // check if the total mem consumption exceeds limit.
+    // If yes, it will flush memtable to try to reduce memory consumption.
+    // Every write operation will call this API to check if need flush memtable OR hang
+    // when memory is not available.
+    void _handle_memtable_flush(WorkloadGroupPtr wg);
+
     static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
     static inline int64_t _process_used_mem_more_than_soft_mem_limit();
 
@@ -57,7 +67,7 @@ private:
     bool _hard_limit_reached();
     bool _load_usage_low();
     int64_t _need_flush();
-    void _flush_active_memtables(int64_t need_flush);
+    int64_t _flush_active_memtables(uint64_t wg_id, int64_t need_flush);
     void _refresh_mem_tracker();
 
     std::mutex _lock;
