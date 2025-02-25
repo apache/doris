@@ -68,9 +68,6 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
-static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
-// static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
-
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
                                  std::shared_ptr<RateLimiter> rate_limiter) {
