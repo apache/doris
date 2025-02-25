@@ -92,6 +92,15 @@ public:
               _texprs(texprs),
               _partitioned_exprs_num(texprs.size()),
               _shuffle_idx_to_instance_idx(bucket_seq_to_instance_idx) {}
+#ifdef BE_TEST
+    LocalExchangeSinkOperatorX(const std::vector<TExpr>& texprs,
+                               const std::map<int, int>& bucket_seq_to_instance_idx)
+            : Base(),
+              _num_partitions(0),
+              _texprs(texprs),
+              _partitioned_exprs_num(texprs.size()),
+              _shuffle_idx_to_instance_idx(bucket_seq_to_instance_idx) {}
+#endif
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
@@ -107,6 +116,13 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state.exec_time_counter());
+        local_state._shared_state->set_low_memory_mode(state);
+        local_state._exchanger->set_low_memory_mode();
+    }
 
 private:
     friend class LocalExchangeSinkLocalState;

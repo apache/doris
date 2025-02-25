@@ -1205,6 +1205,8 @@ DECLARE_mBool(allow_invalid_decimalv2_literal);
 DECLARE_mString(kerberos_ccache_path);
 // set krb5.conf path, use "/etc/krb5.conf" by default
 DECLARE_mString(kerberos_krb5_conf_path);
+// the interval for renew kerberos ticket cache
+DECLARE_mInt32(kerberos_refresh_interval_second);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1362,6 +1364,7 @@ DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
+DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 

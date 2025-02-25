@@ -74,6 +74,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
+#include "common/compile_check_begin.h"
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -177,7 +178,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
                                      type->get_name());
     }
     Block tmp_block {arguments};
-    size_t result_column = tmp_block.columns();
+    uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
     if (WhichDataType(arg.type).is_nothing()) {
@@ -593,7 +594,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
     vectorized::ColumnNumbers argnum;
     argnum.emplace_back(0);
     argnum.emplace_back(1);
-    size_t result_column = tmp_block.columns();
+    uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
     tmp_block.insert({nullptr, json_type, ""});
     RETURN_IF_ERROR(function->execute(nullptr, tmp_block, argnum, result_column, source->size()));
     dst = tmp_block.get_by_position(result_column)
@@ -618,4 +619,5 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::schema_util

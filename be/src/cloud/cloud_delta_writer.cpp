@@ -61,7 +61,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
 }
 
 Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const std::vector<uint32_t>& row_idxs) {
+                               const DorisVector<uint32_t>& row_idxs) {
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }

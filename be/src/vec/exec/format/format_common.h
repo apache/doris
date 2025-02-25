@@ -21,6 +21,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct DecimalScaleParams {
     enum ScaleType {
@@ -133,7 +134,7 @@ public:
     }
 
 private:
-    uint32_t _get_idx(const std::string& key) {
+    uint32_t _get_idx(const std::string& key) const {
         return (uint32_t)std::hash<std::string>()(key) % _num_shards;
     }
 
@@ -141,4 +142,5 @@ private:
     KVCache<std::string>** _shards = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -451,8 +451,8 @@ Status PointQueryExecutor::_lookup_row_data() {
             bool use_row_cache = !config::disable_storage_row_cache;
             RETURN_IF_ERROR(_tablet->lookup_row_data(
                     _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
-                    *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
-                    _profile_metrics.read_stats, value, use_row_cache));
+                    *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
+                    use_row_cache));
             // serilize value to block, currently only jsonb row formt
             vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),

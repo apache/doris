@@ -267,7 +267,7 @@ public class QueryStmtTest {
                 + "  (SELECT curdate()) a;";
         StatementBase stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         SessionVariable sessionVariable = new SessionVariable();
-        TQueryOptions queryOptions = sessionVariable.getQueryOptionVariables();
+        TQueryOptions queryOptions = sessionVariable.toThrift();
         stmt.foldConstant(new Analyzer(ctx.getEnv(), ctx).getExprRewriter(), queryOptions);
 
         // reAnalyze

@@ -199,6 +199,8 @@ struct TQueryStatistics {
     9: optional i64 shuffle_send_rows
     10: optional i64 scan_bytes_from_local_storage
     11: optional i64 scan_bytes_from_remote_storage
+    12: optional i64 spill_write_bytes_to_local_storage
+    13: optional i64 spill_read_bytes_from_local_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -980,6 +982,7 @@ struct TGetBinlogRequest {
     7: optional string user_ip
     8: optional string token
     9: optional i64 prev_commit_seq
+    10: optional i64 num_acquired // the max num of binlogs in a batch
 }
 
 enum TBinlogType {

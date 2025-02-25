@@ -16,6 +16,7 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -51,7 +52,7 @@ namespace doris::config {
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // Dir of jdbc drivers
-DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
@@ -118,7 +119,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
@@ -1151,8 +1152,9 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
+DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1285,6 +1287,9 @@ DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
 });
 DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
+// paused query in queue timeout(ms) will be resumed or canceled
+DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
+
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
@@ -1300,7 +1305,7 @@ DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS

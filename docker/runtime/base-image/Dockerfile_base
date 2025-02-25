@@ -41,6 +41,6 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
         wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/openjdk-8u352-b08-linux-x64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/openjdk-8u352-b08-linux-x64/ /usr/lib/jvm/jdk-8; \
     fi;
 
-COPY --from=selectdb/doris-debug-ubuntu:latest /doris-debug /opt/apache-doris/
+COPY --from=apache/doris:debug-latest /doris-debug /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
