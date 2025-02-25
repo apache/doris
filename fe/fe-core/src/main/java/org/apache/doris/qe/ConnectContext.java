@@ -117,6 +117,8 @@ public class ConnectContext {
     // set for http_stream
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
+    // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
+    protected int preparedStmtId = Integer.MIN_VALUE;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
@@ -415,10 +417,11 @@ public class ConnectContext {
         }
         if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
             throw new UserException("Failed to create a server prepared statement"
-                    + "possibly because there are too many active prepared statements on server already."
+                    + " possibly because there are too many active prepared statements on server already."
                     + "set max_prepared_stmt_count with larger number than " + sessionVariable.maxPreparedStmtCount);
         }
         this.preparedStatementContextMap.put(stmtName, ctx);
+        incPreparedStmtId();
     }
 
     public void removePrepareStmt(String stmtName) {
@@ -443,6 +446,14 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getPreparedStmtId() {
+        return preparedStmtId;
+    }
+
+    public void incPreparedStmtId() {
+        ++preparedStmtId;
     }
 
     public long getBackendId() {

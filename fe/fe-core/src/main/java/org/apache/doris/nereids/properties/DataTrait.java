@@ -366,6 +366,10 @@ public class DataTrait {
             fdDgBuilder.removeNotContain(outputSlots);
         }
 
+        public void pruneEqualSetSlots(Set<Slot> outputSlots) {
+            equalSetBuilder.removeNotContain(outputSlots);
+        }
+
         public void replaceUniformBy(Map<Slot, Slot> replaceMap) {
             uniformSet.replace(replaceMap);
         }

@@ -37,6 +37,7 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -321,14 +322,23 @@ public:
         return 0;
     }
 
-    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                               size_t max_row_byte_size) const {
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const {
+        serialize_vec(keys.data(), num_rows, max_row_byte_size);
+    }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map) const {
+        serialize_vec_with_null_map(keys.data(), num_rows, null_map);
+    }
+
+    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
-    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -336,15 +346,24 @@ public:
         __builtin_unreachable();
     }
 
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+        deserialize_vec(keys.data(), num_rows);
+    }
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) {
+        deserialize_vec_with_null_map(keys.data(), num_rows, null_map);
+    }
+
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
