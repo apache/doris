@@ -112,7 +112,8 @@ Status KerberosTicketMgr::get_or_set_ticket_cache(
     new_ticket_cache->start_periodic_refresh();
 
     // Insert into _ticket_caches
-    KerberosTicketEntry entry {.cache = new_ticket_cache};
+    KerberosTicketEntry entry {.cache = new_ticket_cache,
+                               .last_access_time = std::chrono::steady_clock::now()};
     auto [inserted_it, success] = _ticket_caches.emplace(key, std::move(entry));
     if (!success) {
         return Status::InternalError("Failed to insert ticket cache into map");
