@@ -32,6 +32,8 @@ import java.io.InputStream;
  * @param <C> cloud SDK Client
  */
 public interface ObjStorage<C> {
+    public static final int CHUNK_SIZE = 5 * 1024 * 1024;
+
     C getClient() throws UserException;
 
     Triple<String, String, String> getStsToken() throws DdlException;
