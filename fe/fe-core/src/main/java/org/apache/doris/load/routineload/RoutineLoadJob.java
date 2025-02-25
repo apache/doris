@@ -71,7 +71,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -83,6 +82,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -992,6 +992,14 @@ public abstract class RoutineLoadJob
                     needCleanCtx = true;
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
+                }
+            } else {
+                if (ConnectContext.get() == null) {
+                    ConnectContext ctx = new ConnectContext();
+                    ctx.setThreadLocalInfo();
+                    ctx.setQualifiedUser(this.getQualifiedUser());
+                } else if (StringUtils.isEmpty(ConnectContext.get().getQualifiedUser())) {
+                    ConnectContext.get().setQualifiedUser(getQualifiedUser());
                 }
             }
 

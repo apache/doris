@@ -161,7 +161,7 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getParallelFragmentExecInstanceNum();
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public Set<Tag> getComputeGroupTags(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {

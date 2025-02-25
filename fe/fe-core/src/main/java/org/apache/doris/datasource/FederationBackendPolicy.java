@@ -21,6 +21,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IndexedPriorityQueue;
 import org.apache.doris.common.ResettableRandomizedIterator;
@@ -155,19 +156,24 @@ public class FederationBackendPolicy {
 
     public void init(List<String> preLocations) throws UserException {
         Set<Tag> tags = Sets.newHashSet();
-        if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
-            String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-            // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
-            // just ignore it.
-            if (!Strings.isNullOrEmpty(qualifiedUser)) {
-                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                    throw new UserException("No valid resource tag for user: " + qualifiedUser);
+        // in cloud mode, resource tag may be a subgroup under compute group,
+        // so the logic for filtering BE by BeSelectionPolicy should be retained.
+        // but in local mode, BE is filtered by ComputeGroup.
+        if (Config.isCloudMode()) {
+            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
+                String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
+                // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
+                // just ignore it.
+                if (!Strings.isNullOrEmpty(qualifiedUser)) {
+                    tags = Env.getCurrentEnv().getAuth().getComputeGroupTags(qualifiedUser);
+                    if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                        throw new UserException("No valid resource tag for user: " + qualifiedUser);
+                    }
                 }
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
+                }
             }
         }
 
@@ -184,11 +190,23 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo()
-                .getBackendsByCurrentCluster().values().asList()));
+        ConnectContext ctx = ConnectContext.get();
+        List<Backend> backendList = null;
+        if (ctx == null) {
+            if (Config.isCloudMode()) {
+                throw new AnalysisException("ConnectContext is null");
+            } else {
+                ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+
+        }
+        backendList = ctx.getComputeGroup().getBackendList();
+
+        backends.addAll(policy.getCandidateBackends(backendList));
         if (backends.isEmpty()) {
             throw new UserException("No available backends, "
-                + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+                    + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);
