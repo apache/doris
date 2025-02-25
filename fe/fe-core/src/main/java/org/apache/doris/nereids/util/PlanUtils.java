@@ -179,6 +179,30 @@ public class PlanUtils {
         return output.build();
     }
 
+    /** fastGetChildrenOutput */
+    public static List<Slot> fastGetChildrenAsteriskOutputs(List<Plan> children) {
+        switch (children.size()) {
+            case 1: return children.get(0).getAsteriskOutput();
+            case 0: return ImmutableList.of();
+            default: {
+            }
+        }
+
+        int outputNum = 0;
+        // child.output is cached by AbstractPlan.logicalProperties,
+        // we can compute output num without the overhead of re-compute output
+        for (Plan child : children) {
+            List<Slot> output = child.getAsteriskOutput();
+            outputNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        Builder<Slot> output = ImmutableList.builderWithExpectedSize(outputNum);
+        for (Plan child : children) {
+            output.addAll(child.getAsteriskOutput());
+        }
+        return output.build();
+    }
+
     /** fastGetInputSlots */
     public static Set<Slot> fastGetInputSlots(List<? extends Expression> expressions) {
         switch (expressions.size()) {
