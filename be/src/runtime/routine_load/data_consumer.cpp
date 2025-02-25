@@ -38,6 +38,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -219,6 +220,9 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
         consumer_watch.start();
         std::unique_ptr<RdKafka::Message> msg(_k_consumer->consume(1000 /* timeout, ms */));
         consumer_watch.stop();
+        DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
+        DorisMetrics::instance()->routine_load_get_msg_latency->increment(
+                consumer_watch.elapsed_time() / 1000 / 1000);
         DBUG_EXECUTE_IF("KafkaDataConsumer.group_consume.out_of_range", {
             done = true;
             std::stringstream ss;
@@ -234,6 +238,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             if (_consuming_partition_ids.count(msg->partition()) <= 0) {
                 _consuming_partition_ids.insert(msg->partition());
             }
+            DorisMetrics::instance()->routine_load_consume_bytes->increment(msg->len());
             if (msg->len() == 0) {
                 // ignore msg with length 0.
                 // put empty msg into queue will cause the load process shutting down.
@@ -246,6 +251,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 msg.release(); // release the ownership, msg will be deleted after being processed
             }
             ++received_rows;
+            DorisMetrics::instance()->routine_load_consume_rows->increment(1);
             break;
         case RdKafka::ERR__TIMED_OUT:
             // leave the status as OK, because this may happened

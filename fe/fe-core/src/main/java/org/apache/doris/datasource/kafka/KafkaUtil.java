@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -221,37 +222,46 @@ public class KafkaUtil {
 
     private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
                                                         throws LoadException {
+        long startTime = System.currentTimeMillis();
         int retryTimes = 0;
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
-        while (retryTimes < 3) {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendIds.isEmpty()) {
-                throw new LoadException("Failed to get info. No alive backends");
-            }
-            Collections.shuffle(backendIds);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+        try {
+            while (retryTimes < 3) {
+                List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                if (backendIds.isEmpty()) {
+                    MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
+                    throw new LoadException("Failed to get info. No alive backends");
+                }
+                Collections.shuffle(backendIds);
+                Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
-            try {
-                future = BackendServiceProxy.getInstance().getInfo(address, request);
-                result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
-                retryTimes++;
-                continue;
+                try {
+                    future = BackendServiceProxy.getInstance().getInfo(address, request);
+                    result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
+                    retryTimes++;
+                    continue;
+                }
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code != TStatusCode.OK) {
+                    LOG.warn("failed to get info request to "
+                            + address + " err " + result.getStatus().getErrorMsgsList());
+                    retryTimes++;
+                } else {
+                    return result;
+                }
             }
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            if (code != TStatusCode.OK) {
-                LOG.warn("failed to get info request to "
-                        + address + " err " + result.getStatus().getErrorMsgsList());
-                retryTimes++;
-            } else {
-                return result;
-            }
+
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
+            throw new LoadException("Failed to get info");
+        } finally {
+            long endTime = System.currentTimeMillis();
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
-
-        throw new LoadException("Failed to get info");
     }
 }

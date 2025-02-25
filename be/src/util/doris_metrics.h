@@ -113,6 +113,11 @@ public:
     IntCounter* load_rows = nullptr;
     IntCounter* load_bytes = nullptr;
 
+    IntCounter* routine_load_get_msg_latency = nullptr;
+    IntCounter* routine_load_get_msg_count = nullptr;
+    IntCounter* routine_load_consume_bytes = nullptr;
+    IntCounter* routine_load_consume_rows = nullptr;
+
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
 
@@ -174,6 +179,7 @@ public:
     UIntGauge* result_buffer_block_count = nullptr;
     UIntGauge* result_block_queue_count = nullptr;
     UIntGauge* routine_load_task_count = nullptr;
+    UIntGauge* routine_load_thread_num = nullptr;
     UIntGauge* small_file_cache_count = nullptr;
     UIntGauge* stream_load_pipe_count = nullptr;
     UIntGauge* new_stream_load_pipe_count = nullptr;
