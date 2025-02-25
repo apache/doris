@@ -70,27 +70,27 @@ std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consum
     return iter->second;
 }
 
-Status RuntimeFilterMgr::register_consumer_filter(
-        const TRuntimeFilterDesc& desc, const TQueryOptions& options, int node_id,
-        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, bool need_local_merge,
-        RuntimeProfile* parent_profile) {
+Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
+                                                  const TQueryOptions& options, int node_id,
+                                                  std::shared_ptr<RuntimeFilterConsumer>* consumer,
+                                                  bool need_local_merge,
+                                                  RuntimeProfile* parent_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(!(_is_global xor need_local_merge))
             << " _is_global: " << _is_global << " need_local_merge: " << need_local_merge;
-    std::shared_ptr<RuntimeFilterConsumer> filter;
-    RETURN_IF_ERROR(RuntimeFilterConsumer::create(_state, &desc, node_id, &filter, parent_profile));
-    _consumer_map[key].push_back(filter);
-    *consumer_filter = filter;
+    RETURN_IF_ERROR(
+            RuntimeFilterConsumer::create(_state, &desc, node_id, consumer, parent_profile));
+    _consumer_map[key].push_back(*consumer);
 
     return Status::OK();
 }
 
 Status RuntimeFilterMgr::register_local_merger_producer_filter(
         const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-        std::shared_ptr<RuntimeFilterProducer> producer_filter, RuntimeProfile* parent_profile) {
+        std::shared_ptr<RuntimeFilterProducer> producer, RuntimeProfile* parent_profile) {
     DCHECK(_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
@@ -105,12 +105,10 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
     {
         std::lock_guard<std::mutex> l(context->mtx);
         if (!context->merger) {
-            std::shared_ptr<RuntimeFilterMerger> merge_filter;
             RETURN_IF_ERROR(
-                    RuntimeFilterMerger::create(_state, &desc, &merge_filter, parent_profile));
-            context->merger = merge_filter;
+                    RuntimeFilterMerger::create(_state, &desc, &context->merger, parent_profile));
         }
-        context->producers.emplace_back(producer_filter);
+        context->producers.emplace_back(producer);
         context->merger->set_expected_producer_num(context->producers.size());
     }
     return Status::OK();
@@ -132,9 +130,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_producer_filter(
-        const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-        std::shared_ptr<RuntimeFilterProducer>* producer_filter, RuntimeProfile* parent_profile) {
+Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
+                                                  const TQueryOptions& options,
+                                                  std::shared_ptr<RuntimeFilterProducer>* producer,
+                                                  RuntimeProfile* parent_profile) {
     DCHECK(!_is_global);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
@@ -144,7 +143,7 @@ Status RuntimeFilterMgr::register_producer_filter(
     if (_producer_id_set.contains(key)) {
         return Status::InvalidArgument("filter {} has been registered", key);
     }
-    RETURN_IF_ERROR(RuntimeFilterProducer::create(_state, &desc, producer_filter, parent_profile));
+    RETURN_IF_ERROR(RuntimeFilterProducer::create(_state, &desc, producer, parent_profile));
     _producer_id_set.insert(key);
     return Status::OK();
 }

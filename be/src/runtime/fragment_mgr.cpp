@@ -1299,7 +1299,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
                 runtime_filter_mgr->get_consume_filters(request->filter_id());
 
-        // 2. create the filter wrapper to replace or ignore the target filters
+        // 2. create the filter wrapper to replace or ignore/disable the target filters
         if (!filters.empty()) {
             RETURN_IF_ERROR(filters[0]->assign(*request, attach_data));
             std::ranges::for_each(filters, [&](auto& filter) { filter->signal(filters[0].get()); });
