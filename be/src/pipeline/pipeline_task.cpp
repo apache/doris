@@ -252,10 +252,6 @@ bool PipelineTask::_is_blocked() {
         }
     });
 
-    if (_wake_up_early) {
-        return false;
-    }
-
     for (auto* spill_dependency : _spill_dependencies) {
         _blocked_dep = spill_dependency->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
