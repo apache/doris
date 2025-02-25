@@ -159,6 +159,11 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     return Status::OK();
 }
 
+size_t SortSinkOperatorX::get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->get_reserve_mem_size(state, eos);
+}
+
 size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->data_size();

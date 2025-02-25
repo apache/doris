@@ -71,7 +71,7 @@ struct ProcessHashTableProbe {
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(vectorized::Block* output_block, std::vector<uint8_t>& visited,
+    Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited,
                                    bool has_null_in_build_side);
 
     template <bool with_other_conjuncts>

@@ -232,8 +232,14 @@ void AsyncResultWriter::force_close(Status s) {
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
-    _memory_used_counter->update(b->allocated_bytes());
-    _free_blocks.enqueue(std::move(b));
+    if (_low_memory_mode) {
+        return;
+    }
+
+    const auto allocated_bytes = b->allocated_bytes();
+    if (_free_blocks.enqueue(std::move(b))) {
+        _memory_used_counter->update(allocated_bytes);
+    }
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
@@ -248,5 +254,12 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+void AsyncResultWriter::set_low_memory_mode() {
+    _low_memory_mode = true;
+    clear_blocks(_free_blocks, _memory_used_counter);
+}
 } // namespace vectorized
 } // namespace doris
