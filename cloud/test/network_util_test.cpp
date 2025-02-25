@@ -28,7 +28,9 @@ int main(int argc, char** argv) {
 
 TEST(NetWorkUtilTest, GetLocaHostTest) {
     doris::cloud::config::priority_networks = "";
+
     bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+
     doris::cloud::config::enable_loopback_address_for_ms = true;
     // prepare an existed ip for test
     auto ip = doris::cloud::get_local_ip(doris::cloud::config::priority_networks);
