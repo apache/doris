@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -26,11 +26,15 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TMaterializationNode;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPlanNodeType;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -65,13 +69,11 @@ import java.util.Set;
  *     7：bool do_gc = false; // 最靠近root的 MaterializeNode设置为true，其它M 设置为false
  * }
  */
-public class MaterializeNode extends PlanNode {
+public class MaterializationNode extends PlanNode {
     private TPaloNodesInfo nodesInfo;
-    private PlanNodeId id;
-    private TupleDescriptor outputTupleDescriptor;
     private TupleDescriptor materializeTupleDescriptor;
 
-    private List<SlotRef> rowIds;
+    private List<Expr> rowIds;
 
     private List<List<Column>> columns;
 
@@ -79,12 +81,13 @@ public class MaterializeNode extends PlanNode {
 
     private List<Boolean> slotRowStoreFlags;
 
+    private List<Boolean> isRowStoreFlags;
+
     private boolean isTopMaterializeNode;
 
-    public MaterializeNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
+    public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
         super(id, desc.getId().asList(), "MaterializeNode", StatisticalType.DEFAULT);
         this.materializeTupleDescriptor = desc;
-        this.outputTupleDescriptor = desc;
         initNodeInfo();
         this.children.add(child);
     }
@@ -108,12 +111,66 @@ public class MaterializeNode extends PlanNode {
     }
 
     @Override
-    protected void toThrift(TPlanNode msg) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+        output.append(detailPrefix)
+                .append("materialize tuple id:")
+                .append(materializeTupleDescriptor.getId()).append("\n");
 
+        if (!projectList.isEmpty()) {
+            output.append(detailPrefix)
+                    .append("output tuple id:").append(outputTupleDesc.getId()).append("\n");
+
+            output.append(detailPrefix)
+                    .append("projectList:").append(projectList.toString()).append("\n");
+        }
+        output.append(detailPrefix).append("locations: ").append(locations).append("\n");
+
+        return output.toString();
     }
 
     @Override
-    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
-        return "";
+    protected void toThrift(TPlanNode msg) {
+        msg.node_type = TPlanNodeType.MATERIALIZATION_NODE;
+        msg.materialization_node = new TMaterializationNode();
+        msg.materialization_node.setTupleId(tupleIds.get(0).asInt());
+        msg.materialization_node.setIntermediateTupleId(materializeTupleDescriptor.getId().asInt());
+        msg.materialization_node.setNodesInfo(nodesInfo);
+        msg.materialization_node.setFetchExprLists(Expr.treesToThrift(rowIds));
+
+        List<List<TColumn>> thriftCols = new ArrayList<>();
+        for (List<Column> cols : columns) {
+            List<TColumn> array = new ArrayList<>();
+            for (Column col : cols) {
+                array.add(col.toThrift());
+            }
+            thriftCols.add(array);
+        }
+        msg.materialization_node.setColumnDescsLists(thriftCols);
+
+        msg.materialization_node.setSlotLocsLists(locations);
+
+        msg.materialization_node.setFetchRowStores(slotRowStoreFlags);
     }
+
+    public void setRowIds(List<Expr> rowIds) {
+        this.rowIds = rowIds;
+    }
+
+    public void setColumns(List<List<Column>> columns) {
+        this.columns = columns;
+    }
+
+    public void setLocations(List<List<Integer>> locations) {
+        this.locations = locations;
+    }
+
+    public void setIsRowStoreFlags(List<Boolean> isRowStoreFlags) {
+        this.isRowStoreFlags = isRowStoreFlags;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
 }

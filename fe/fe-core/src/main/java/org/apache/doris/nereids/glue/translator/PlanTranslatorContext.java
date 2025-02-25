@@ -114,6 +114,8 @@ public class PlanTranslatorContext {
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    private boolean isTopMaterializeNode = true;
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -337,4 +339,13 @@ public class PlanTranslatorContext {
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
 }

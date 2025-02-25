@@ -47,4 +47,12 @@ suite("lazy"){
     ) T join customer on n_nationkey=c_nationkey
     order by c_name limit 1;
     """
+
+explain physical plan
+    select n_name, c_phone, n_comment, c_name
+    from (
+        select n_name, c_phone, n_comment, c_name
+        from nation join customer on n_nationkey=c_nationkey
+    )T
+    order by c_name limit 1;
 }

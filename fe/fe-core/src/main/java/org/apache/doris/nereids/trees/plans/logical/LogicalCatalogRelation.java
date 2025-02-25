@@ -114,6 +114,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<String> getQualifier() {
         return qualifier;
     }

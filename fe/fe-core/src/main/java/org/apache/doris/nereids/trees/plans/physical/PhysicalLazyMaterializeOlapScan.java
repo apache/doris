@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -40,6 +41,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     /**
      * constr
      */
+
     public PhysicalLazyMaterializeOlapScan(PhysicalOlapScan physicalOlapScan,
             SlotReference rowId, List<Slot> lazySlots) {
         super(physicalOlapScan.getRelationId(), physicalOlapScan.getTable(), physicalOlapScan.getQualifier(),
@@ -102,4 +104,9 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
         return shapeBuilder.toString();
     }
 
+    @Override
+    public PhysicalLazyMaterializeOlapScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
+            Statistics statistics) {
+        return new PhysicalLazyMaterializeOlapScan(scan, rowId, lazySlots);
+    }
 }

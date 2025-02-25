@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -34,5 +35,10 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
                 scan.getTableSnapshot());
         this.scan = scan;
         this.rowId = rowId;
+    }
+
+    @Override
+    public List<String> getQualifier() {
+        return scan.getQualifier();
     }
 }

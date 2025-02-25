@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeSource;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -24,44 +25,97 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
     lazy materialize node
  */
 public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
-    private final List<Slot> originOutput;
+    private final Map<CatalogRelation, List<Slot>> relationToLazySlotMap;
 
-    private final List<Slot> materializedSlots;
+    private final BiMap<CatalogRelation, SlotReference> relationToRowId;
 
     private final Map<Slot, MaterializeSource> materializeMap;
 
-    private final List<Slot> lazyMaterializeSlots;
+    private final List<Slot> materializedSlots;
+
+    private final List<Slot> materializeInput;
+    private final List<Slot> materializeOutput;
+    // used for BE
+    private List<List<Column>> lazyColumns = new ArrayList<>();
+    private List<List<Integer>> lazySlotLocations = new ArrayList<>();
+    private final List<CatalogRelation> relations;
 
     /**
      * constructor
      */
-    public PhysicalLazyMaterialize(CHILD_TYPE child, List<Slot> originOutput,
-            Map<Slot, MaterializeSource> materializeMap, List<Slot> lazyMaterializeSlots) {
+    public PhysicalLazyMaterialize(CHILD_TYPE child,
+            List<Slot> materializeInput,
+            List<Slot> materializedSlots,
+            Map<CatalogRelation, List<Slot>> relationToLazySlotMap,
+            BiMap<CatalogRelation, SlotReference> relationToRowId,
+            Map<Slot, MaterializeSource> materializeMap) {
+        this(child, materializeInput, materializedSlots, relationToLazySlotMap,
+                relationToRowId, materializeMap, null, null);
+    }
+
+    /**
+     * constructor
+     */
+    public PhysicalLazyMaterialize(CHILD_TYPE child,
+            List<Slot> materializeInput,
+            List<Slot> materializedSlots,
+            Map<CatalogRelation, List<Slot>> relationToLazySlotMap,
+            BiMap<CatalogRelation, SlotReference> relationToRowId,
+            Map<Slot, MaterializeSource> materializeMap,
+            PhysicalProperties physicalProperties, Statistics statistics) {
         super(PlanType.PHYSICAL_MATERIALIZE, Optional.empty(),
-                null, child);
-        this.originOutput = originOutput;
+                null, physicalProperties, statistics, child);
+        this.materializeInput = materializeInput;
+        this.relationToLazySlotMap = relationToLazySlotMap;
+        this.relationToRowId = relationToRowId;
+        this.materializedSlots = ImmutableList.copyOf(materializedSlots);
+        this.relations = ImmutableList.copyOf(relationToRowId.keySet());
         this.materializeMap = materializeMap;
-        this.lazyMaterializeSlots = lazyMaterializeSlots;
-        materializedSlots = originOutput.stream()
-                .filter(slot -> !lazyMaterializeSlots.contains(slot))
-                .collect(ImmutableList.toImmutableList());
+
+        lazySlotLocations = new ArrayList<>();
+        lazyColumns = new ArrayList<>();
+
+        ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
+        outputBuilder.addAll(materializedSlots);
+        int idx = materializedSlots.size();
+        int loc = idx;
+        for (; idx < materializeInput.size(); idx++) {
+            Slot rowId = materializeInput.get(idx);
+            CatalogRelation rel = relationToRowId.inverse().get(rowId);
+            List<Column> lazyColumnForRel = new ArrayList<>();
+            lazyColumns.add(lazyColumnForRel);
+            List<Integer> lazySlotLocationForRel = new ArrayList<>();
+            lazySlotLocations.add(lazySlotLocationForRel);
+            for (Slot lazySlot : relationToLazySlotMap.get(rel)) {
+                outputBuilder.add(lazySlot);
+                lazyColumnForRel.add(((SlotReference) lazySlot).getColumn().get());
+                lazySlotLocationForRel.add(loc);
+                loc++;
+            }
+        }
+        this.materializeOutput = outputBuilder.build();
     }
 
     @Override
@@ -76,7 +130,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     @Override
     public List<Slot> computeOutput() {
-        return originOutput;
+        return materializeOutput;
     }
 
     @Override
@@ -112,23 +166,27 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return null;
+        return new PhysicalLazyMaterialize<>(children.get(0),
+                materializeInput, materializedSlots, relationToLazySlotMap,
+                relationToRowId, materializeMap, null, null);
     }
 
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append("PhysicalLazyMaterialize [Output= (")
-                .append(originOutput)
-                .append("), lazySlots= (")
-                .append(lazyMaterializeSlots)
-                .append(")]");
+                .append(getOutput()).append("), lazySlots= (");
+        for (Map.Entry<CatalogRelation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
+            builder.append(entry.getValue());
+        }
+        builder.append(")]");
         return builder.toString();
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return null;
+        return new PhysicalLazyMaterialize(children.get(0), materializeInput, materializedSlots, relationToLazySlotMap,
+                relationToRowId, materializeMap, physicalProperties, statistics);
     }
 
     @Override
@@ -137,8 +195,27 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         shapeBuilder.append(this.getClass().getSimpleName())
                 .append("[").append("materializedSlots:")
                 .append(ExpressionUtils.slotListShapeInfo(materializedSlots))
-                .append("lazySlots:").append(ExpressionUtils.slotListShapeInfo(lazyMaterializeSlots))
-                .append("]");
+                .append("lazySlots: (");
+        for (Map.Entry<CatalogRelation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
+            shapeBuilder.append(entry.getValue());
+        }
+        shapeBuilder.append(")]");
         return shapeBuilder.toString();
+    }
+
+    public List<CatalogRelation> getRelations() {
+        return relations;
+    }
+
+    public List<List<Column>> getLazyColumns() {
+        return lazyColumns;
+    }
+
+    public List<List<Integer>> getLazySlotLocations() {
+        return lazySlotLocations;
+    }
+
+    public List<SlotReference> getRowIds() {
+        return relationToRowId.values().stream().collect(Collectors.toList());
     }
 }
