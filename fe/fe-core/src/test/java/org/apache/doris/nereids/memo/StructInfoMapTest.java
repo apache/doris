@@ -68,6 +68,12 @@ class StructInfoMapTest extends SqlTestBase {
                 return true;
             }
         };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
 
@@ -126,6 +132,12 @@ class StructInfoMapTest extends SqlTestBase {
                 return true;
             }
         };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
@@ -171,6 +183,12 @@ class StructInfoMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+                return true;
+            }
+        };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
                 return true;
             }
         };
