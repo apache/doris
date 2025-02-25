@@ -255,6 +255,9 @@ public:
     }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+    pipeline::Dependency* get_memory_sufficient_dependency() {
+        return _memory_sufficient_dependency.get();
+    }
 
     std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
 
@@ -425,7 +428,10 @@ private:
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
+    // This dependency indicates if memory is sufficient to execute.
+    std::unique_ptr<pipeline::Dependency> _memory_sufficient_dependency;
 
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
@@ -437,8 +443,6 @@ private:
     std::mutex _paused_mutex;
     Status _paused_reason;
     std::atomic<int64_t> _paused_count = 0;
-    MonotonicStopWatch _paused_timer;
-    std::atomic<int64_t> _paused_period_secs = 0;
     std::atomic<bool> _low_memory_mode = false;
     std::atomic<bool> _enable_reserve_memory = true;
     int64_t _user_set_mem_limit = 0;
