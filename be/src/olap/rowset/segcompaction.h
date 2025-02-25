@@ -51,6 +51,14 @@ class SegcompactionWorker {
 public:
     explicit SegcompactionWorker(BetaRowsetWriter* writer);
 
+    ~SegcompactionWorker() {
+        DCHECK(_seg_compact_mem_tracker != nullptr);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
+        if (_rowid_conversion) {
+            _rowid_conversion.reset();
+        }
+    }
+
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
     bool need_convert_delete_bitmap();
@@ -95,7 +103,7 @@ private:
     InvertedIndexFileWriterPtr _inverted_index_file_writer = nullptr;
 
     // for unique key mow table
-    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;
+    std::unique_ptr<SimpleRowIdConversion> _rowid_conversion {nullptr};
     DeleteBitmapPtr _converted_delete_bitmap;
     std::shared_ptr<MemTrackerLimiter> _seg_compact_mem_tracker = nullptr;
 

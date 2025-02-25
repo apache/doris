@@ -33,9 +33,9 @@ suite("test_alter_vault_name", "nonConcurrent") {
         CREATE STORAGE VAULT ${hdfsVaultName}
         PROPERTIES (
             "type" = "HDFS",
-            "fs.defaultFS" = "${getHdfsFs()}",
+            "fs.defaultFS" = "${getHmsHdfsFs()}",
             "path_prefix" = "${hdfsVaultName}",
-            "hadoop.username" = "${getHdfsUser()}"
+            "hadoop.username" = "${getHmsUser()}"
         );
     """
 
@@ -65,7 +65,7 @@ suite("test_alter_vault_name", "nonConcurrent") {
                 "VAULT_NAME" = "${hdfsVaultName}"
             );
         """
-    }, "vault name no change")
+    }, "Vault name has not been changed")
 
     // case2
     expectExceptionLike({
@@ -87,7 +87,7 @@ suite("test_alter_vault_name", "nonConcurrent") {
                 "VAULT_NAME" = "${s3VaultName}"
             );
         """
-    }, "vault name no change")
+    }, "Vault name has not been changed")
 
     // case4
     expectExceptionLike({
@@ -101,6 +101,17 @@ suite("test_alter_vault_name", "nonConcurrent") {
     }, "already existed")
 
     // case5
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type" = "s3",
+                "VAULT_NAME" = "@#¥%*&-+=null."
+            );
+        """
+    }, "Incorrect vault name")
+
+    // case6
     sql """
         CREATE TABLE ${hdfsVaultName} (
             C_CUSTKEY     INTEGER NOT NULL,

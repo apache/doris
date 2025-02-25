@@ -52,7 +52,7 @@ suite("test_show_data", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -627,7 +627,7 @@ suite("test_show_data_with_compaction", "p2") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    backend_id = backendId_to_backendIP.keySet()[0]
+    def backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
 
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
@@ -644,8 +644,8 @@ suite("test_show_data_with_compaction", "p2") {
     }
 
     def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        for (String bid: backendId_to_backendIP.keySet()) {
+            (code, out, err) = update_be_config(backendId_to_backendIP.get(bid), backendId_to_backendHttpPort.get(bid), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
@@ -659,7 +659,7 @@ suite("test_show_data_with_compaction", "p2") {
                           `request` text NULL,
                           `status` int(11) NULL,
                           `size` int(11) NULL,
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         DISTRIBUTED BY HASH(`@timestamp`) BUCKETS 1
@@ -751,7 +751,7 @@ suite("test_show_data_with_compaction", "p2") {
                 `hobbies` text NULL,
                 `score` int(11) NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)

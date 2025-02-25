@@ -35,6 +35,10 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_partial_update_delete_sign_with_conflict") {
+    if (isCloudMode()) {
+        return
+    }
+
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_partial_update_delete_sign_with_conflict"
 

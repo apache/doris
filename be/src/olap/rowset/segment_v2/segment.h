@@ -57,7 +57,6 @@ class IDataType;
 class ShortKeyIndexDecoder;
 class Schema;
 class StorageReadOptions;
-class MemTracker;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
 struct RowLocation;
@@ -93,6 +92,7 @@ public:
     ~Segment();
 
     int64_t get_metadata_size() const override;
+    void update_metadata_size();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
@@ -111,9 +111,11 @@ public:
                                          std::unique_ptr<ColumnIterator>* iter,
                                          const StorageReadOptions* opt);
 
-    Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
+    Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
+                               std::unique_ptr<ColumnIterator>* iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                     const StorageReadOptions& read_options,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
@@ -161,6 +163,8 @@ public:
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
+    // Including the column reader memory.
+    // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
     // Identify the column by unique id or path info
@@ -234,7 +238,7 @@ private:
 
     Status _open_inverted_index();
 
-    Status _create_column_readers_once();
+    Status _create_column_readers_once(OlapReaderStatistics* stats);
 
 private:
     friend class SegmentIterator;
@@ -247,9 +251,8 @@ private:
     // 1. Tracking memory use by segment meta data such as footer or index page.
     // 2. Tracking memory use by segment column reader
     // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
     int64_t _meta_mem_usage;
+    int64_t _tracked_meta_mem_usage = 0;
 
     RowsetId _rowset_id;
     TabletSchemaSPtr _tablet_schema;

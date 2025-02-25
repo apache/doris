@@ -41,6 +41,7 @@ suite ("testProjectionMV3") {
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql """analyze table emps with sync;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
@@ -53,7 +54,7 @@ suite ("testProjectionMV3") {
     qt_select_mv2 "select name from emps where deptno = 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
     mv_rewrite_success("select empid + 1, name from emps where deptno = 1 order by empid;", "emps_mv")

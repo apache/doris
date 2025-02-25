@@ -191,7 +191,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
         // If the remote name is missing during upgrade, all tables in the Map will be reinitialized.
-        if (log.getRemoteTableNames() == null || log.getRemoteTableNames().isEmpty()) {
+        if ((log.getCreateCount() > 0 && (log.getRemoteTableNames() == null || log.getRemoteTableNames().isEmpty()))
+                || (log.getRefreshCount() > 0
+                && (log.getRefreshRemoteTableNames() == null || log.getRefreshRemoteTableNames().isEmpty()))) {
             tableNameToId = Maps.newConcurrentMap();
             idToTbl = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -209,8 +211,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
             if (table.isPresent()) {
+                table.get().setRemoteName(log.getRefreshRemoteTableNames().get(i));
                 tmpTableNameToId.put(table.get().getName(), table.get().getId());
                 tmpIdToTbl.put(table.get().getId(), table.get());
+
+                // Add logic to set the database if missing
+                if (table.get().getDb() == null) {
+                    table.get().setDb(this);
+                }
+                LOG.info("Synchronized table (refresh): [Name: {}, ID: {}]", table.get().getName(),
+                        table.get().getId());
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
@@ -219,6 +229,26 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             log.getCreateTableIds().get(i), catalog, this, false);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
+
+            // Add logic to set the database if missing
+            if (table.getDb() == null) {
+                table.setDb(this);
+            }
+            LOG.info("Synchronized table (create): [Name: {}, ID: {}, Remote Name: {}]",
+                    table.getName(), table.getId(), log.getRemoteTableNames().get(i));
+        }
+        // Check whether the remoteName and db Tbl db in tmpIdToTbl is empty
+        for (T table : tmpIdToTbl.values()) {
+            if (Strings.isNullOrEmpty(table.getRemoteName())
+                    || table.getDb() == null) {
+                LOG.info("Table [{}] remoteName or database is empty, mark as uninitialized",
+                        table.getName());
+                tableNameToId = Maps.newConcurrentMap();
+                idToTbl = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
+            }
         }
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;
@@ -252,7 +282,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                         table.setDb(this);
                     }
                     tmpIdToTbl.put(tblId, table);
-                    initDatabaseLog.addRefreshTable(tblId);
+                    initDatabaseLog.addRefreshTable(tblId, remoteTableName);
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(localTableName, tblId);
@@ -555,7 +585,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 databases have the same table name, the id will be the same.
-            return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
+            return metaCache.getMetaObj(tableName,
+                    Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
         } else {
             if (!tableNameToId.containsKey(tableName)) {
                 return null;
@@ -605,14 +636,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     case "ExternalInfoSchemaTable":
                         ExternalInfoSchemaTable infoSchemaTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalInfoSchemaTable.class);
+                        if (infoSchemaTable.getDb() == null) {
+                            infoSchemaTable.setDb(this);
+                        }
                         tmpIdToTbl.put(infoSchemaTable.getId(), (T) infoSchemaTable);
                         tableNameToId.put(infoSchemaTable.getName(), infoSchemaTable.getId());
+                        lowerCaseToTableName.put(infoSchemaTable.getName().toLowerCase(), infoSchemaTable.getName());
                         break;
                     case "ExternalMysqlTable":
                         ExternalMysqlTable mysqlTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
                                 ExternalMysqlTable.class);
+                        if (mysqlTable.getDb() == null) {
+                            mysqlTable.setDb(this);
+                        }
                         tmpIdToTbl.put(mysqlTable.getId(), (T) mysqlTable);
                         tableNameToId.put(mysqlTable.getName(), mysqlTable.getId());
+                        lowerCaseToTableName.put(mysqlTable.getName().toLowerCase(), mysqlTable.getName());
                         break;
                     default:
                         break;
@@ -623,6 +662,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
                 lowerCaseToTableName.put(((ExternalTable) obj).getName().toLowerCase(),
                         ((ExternalTable) obj).getName());
+            }
+        }
+        // Check whether the remoteName and db Tbl db in tmpIdToTbl is empty
+        for (T table : tmpIdToTbl.values()) {
+            if (Strings.isNullOrEmpty(table.getRemoteName())
+                    || table.getDb() == null) {
+                initialized = false;
+                break;
             }
         }
         idToTbl = tmpIdToTbl;
@@ -641,7 +688,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
+                metaCache.invalidate(tableName, Util.genIdByName(extCatalog.getName(), name, tableName));
                 lowerCaseToTableName.remove(tableName.toLowerCase());
             }
         } else {
@@ -674,7 +721,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         if (extCatalog.getUseMetaCache().get()) {
             if (isInitialized()) {
-                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
+                String localName = extCatalog.fromRemoteTableName(this.remoteName, tableName);
+                metaCache.updateCache(tableName, localName, (T) tableIf,
+                        Util.genIdByName(extCatalog.getName(), name, localName));
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
             }
         } else {
@@ -688,10 +737,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
-    }
-
-    public String getQualifiedName(String tblName) {
-        return String.join(".", extCatalog.getName(), name, tblName);
     }
 
     private boolean isStoredTableNamesLowerCase() {

@@ -146,6 +146,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         // test select all types
         order_qt_select_all_types """select * from ${test_all_types}; """
 
+        order_qt_select_all_types_tvf """ select * from query('catalog' = '${catalog_name}', 'query' = 'select * from catalog_pg_test.${test_all_types};') order by 1"""
+
         // test select all array types
         order_qt_select_all_arr_types """select *  from test_all_support_types_array order by 1;"""
 

@@ -260,7 +260,17 @@ public class InsertUtils {
     /**
      * normalize plan to let it could be process correctly by nereids
      */
-    public static Plan normalizePlan(Plan plan, TableIf table, Optional<InsertCommandContext> insertCtx) {
+    public static Plan normalizePlan(LogicalPlan plan, TableIf table, Optional<InsertCommandContext> insertCtx) {
+        table.readLock();
+        try {
+            return normalizePlanWithoutLock(plan, table, insertCtx);
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private static Plan normalizePlanWithoutLock(LogicalPlan plan, TableIf table,
+            Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;

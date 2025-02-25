@@ -308,7 +308,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Skip partitions with row count < row count / 2 expected to be sampled per partition.
             // It can be expected to sample a smaller number of partitions to avoid uneven distribution
             // of sampling results.
-            if (materializedIndex.getRowCount() < (avgRowsPerPartition / 2)) {
+            if (materializedIndex.getRowCount() < (avgRowsPerPartition / 2) && !forPartitionColumn) {
                 continue;
             }
             long avgRowsPerTablet = Math.max(materializedIndex.getRowCount() / ids.size(), 1);
@@ -339,8 +339,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (totalRows < sampleRows) {
             // can't fill full sample rows
             sampleTabletIds.clear();
+            actualSampledRowCount = 0;
         } else if (sampleTabletIds.size() == totalTablet && !enough) {
             sampleTabletIds.clear();
+            actualSampledRowCount = 0;
         }
         return Pair.of(sampleTabletIds, actualSampledRowCount);
     }

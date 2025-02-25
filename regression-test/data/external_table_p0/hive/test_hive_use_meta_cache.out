@@ -34,6 +34,8 @@ p1=part1
 p1=part2
 
 -- !sql10 --
+test_use_meta_cache_partitioned_tbl_hive
+test_use_meta_cache_tbl_hive
 
 -- !sql11 --
 
@@ -123,6 +125,8 @@ p1=part1
 p1=part2
 
 -- !sql10 --
+test_use_meta_cache_partitioned_tbl_hive
+test_use_meta_cache_tbl_hive
 
 -- !sql11 --
 

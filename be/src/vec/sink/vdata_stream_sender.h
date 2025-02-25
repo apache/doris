@@ -55,7 +55,6 @@
 namespace doris {
 class ObjectPool;
 class RuntimeState;
-class MemTracker;
 class RowDescriptor;
 class TDataSink;
 class TDataStreamSink;

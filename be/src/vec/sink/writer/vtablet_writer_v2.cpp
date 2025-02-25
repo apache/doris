@@ -378,6 +378,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::vector<int64_t> failed_node_ids;
     const auto* location = _location->find_tablet(tablet_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
@@ -391,14 +392,40 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->select_one_stream();
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            LOG(INFO) << "[skip_two_backends](detail) tablet_id=" << tablet_id
+                      << ", node_id=" << node_id
+                      << ", stream_ok=" << (stream == nullptr ? "no" : "yes");
+        });
         if (stream == nullptr) {
+            LOG(WARNING) << "skip writing tablet " << tablet_id << " to backend " << node_id
+                         << ": stream is not open";
+            failed_node_ids.push_back(node_id);
             continue;
         }
         streams.emplace_back(std::move(stream));
     }
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+        LOG(INFO) << "[skip_two_backends](summary) tablet_id=" << tablet_id
+                  << ", num_streams=" << streams.size()
+                  << ", num_nodes=" << location->node_ids.size();
+    });
     if (streams.size() <= location->node_ids.size() / 2) {
-        return Status::InternalError("not enough streams {}/{}", streams.size(),
-                                     location->node_ids.size());
+        std::ostringstream success_msg;
+        std::ostringstream failed_msg;
+        for (auto& s : streams) {
+            success_msg << ", " << s->dst_id();
+        }
+        for (auto id : failed_node_ids) {
+            failed_msg << ", " << id;
+        }
+        LOG(INFO) << "failed to write enough replicas " << streams.size() << "/"
+                  << location->node_ids.size() << " for tablet " << tablet_id
+                  << " due to connection errors; success nodes" << success_msg.str()
+                  << "; failed nodes" << failed_msg.str() << ".";
+        return Status::InternalError(
+                "failed to write enough replicas {}/{} for tablet {} due to connection errors",
+                streams.size(), location->node_ids.size(), tablet_id);
     }
     Status st;
     for (auto& stream : streams) {

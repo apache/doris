@@ -57,17 +57,18 @@ namespace segment_v2 {
 class CSIndexInput : public lucene::store::BufferedIndexInput {
 private:
     CL_NS(store)::IndexInput* base;
+    std::string file_name;
     int64_t fileOffset;
     int64_t _length;
     const io::IOContext* _io_ctx = nullptr;
-    bool _is_index_file = false; // Indicates if the file is a TII file
 
 protected:
     void readInternal(uint8_t* /*b*/, const int32_t /*len*/) override;
     void seekInternal(const int64_t /*pos*/) override {}
 
 public:
-    CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOffset, const int64_t length,
+    CSIndexInput(CL_NS(store)::IndexInput* base, const std::string& file_name,
+                 const int64_t fileOffset, const int64_t length,
                  const int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE);
     CSIndexInput(const CSIndexInput& clone);
     ~CSIndexInput() override;
@@ -78,13 +79,14 @@ public:
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "CSIndexInput"; }
     void setIoContext(const void* io_ctx) override;
-    void setIndexFile(bool isIndexFile) override;
 };
 
-CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOffset,
-                           const int64_t length, const int32_t read_buffer_size)
+CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const std::string& file_name,
+                           const int64_t fileOffset, const int64_t length,
+                           const int32_t read_buffer_size)
         : BufferedIndexInput(read_buffer_size) {
     this->base = base;
+    this->file_name = file_name;
     this->fileOffset = fileOffset;
     this->_length = length;
 }
@@ -101,7 +103,27 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
         base->setIoContext(_io_ctx);
     }
 
-    base->setIndexFile(_is_index_file);
+    DBUG_EXECUTE_IF("CSIndexInput.readInternal", {
+        for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+            if (file_name.find(entry.first) != std::string::npos) {
+                if (!static_cast<const io::IOContext*>(base->getIoContext())->is_index_data) {
+                    _CLTHROWA(CL_ERR_IO,
+                              "The 'is_index_data' flag should be true for inverted index meta "
+                              "files.");
+                }
+            }
+        }
+        for (const auto& entry : InvertedIndexDescriptor::normal_file_info_map) {
+            if (file_name.find(entry.first) != std::string::npos) {
+                if (static_cast<const io::IOContext*>(base->getIoContext())->is_index_data) {
+                    _CLTHROWA(CL_ERR_IO,
+                              "The 'is_index_data' flag should be false for non-meta inverted "
+                              "index files.");
+                }
+            }
+        }
+    });
+
     base->seek(fileOffset + start);
     bool read_from_buffer = true;
     base->readBytes(b, len, read_from_buffer);
@@ -119,6 +141,7 @@ lucene::store::IndexInput* CSIndexInput::clone() const {
 
 CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone) {
     this->base = clone.base;
+    this->file_name = clone.file_name;
     this->fileOffset = clone.fileOffset;
     this->_length = clone._length;
 }
@@ -129,15 +152,35 @@ void CSIndexInput::setIoContext(const void* io_ctx) {
     _io_ctx = static_cast<const io::IOContext*>(io_ctx);
 }
 
-void CSIndexInput::setIndexFile(bool isIndexFile) {
-    _is_index_file = isIndexFile;
-}
+DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream,
+                                         EntriesType* entries_clone, int32_t read_buffer_size,
+                                         const io::IOContext* io_ctx)
+        : _stream(stream),
+          _entries(_CLNEW EntriesType(true, true)),
+          _read_buffer_size(read_buffer_size) {
+    // After stream clone, the io_ctx needs to be reconfigured.
+    initialize(io_ctx);
 
-DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32_t read_buffer_size)
+    for (auto& e : *entries_clone) {
+        auto* origin_entry = e.second;
+        auto* entry = _CLNEW ReaderFileEntry();
+        char* aid = strdup(e.first);
+        entry->file_name = origin_entry->file_name;
+        entry->offset = origin_entry->offset;
+        entry->length = origin_entry->length;
+        _entries->put(aid, entry);
+    }
+};
+
+DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32_t read_buffer_size,
+                                         const io::IOContext* io_ctx)
         : _ram_dir(new lucene::store::RAMDirectory()),
           _stream(stream),
           _entries(_CLNEW EntriesType(true, true)),
           _read_buffer_size(read_buffer_size) {
+    // After stream clone, the io_ctx needs to be reconfigured.
+    initialize(io_ctx);
+
     try {
         int32_t count = _stream->readVInt();
         ReaderFileEntry* entry = nullptr;
@@ -238,6 +281,9 @@ const char* DorisCompoundReader::getObjectName() const {
 }
 
 bool DorisCompoundReader::list(std::vector<std::string>* names) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     for (EntriesType::const_iterator i = _entries->begin(); i != _entries->end(); i++) {
         names->push_back(i->first);
     }
@@ -245,6 +291,9 @@ bool DorisCompoundReader::list(std::vector<std::string>* names) const {
 }
 
 bool DorisCompoundReader::fileExists(const char* name) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     return _entries->exists((char*)name);
 }
 
@@ -253,6 +302,9 @@ int64_t DorisCompoundReader::fileModified(const char* name) const {
 }
 
 int64_t DorisCompoundReader::fileLength(const char* name) const {
+    if (_closed || _entries == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
+    }
     ReaderFileEntry* e = _entries->get((char*)name);
     if (e == nullptr) {
         char buf[CL_MAX_PATH + 30];
@@ -267,6 +319,10 @@ int64_t DorisCompoundReader::fileLength(const char* name) const {
 bool DorisCompoundReader::openInput(const char* name,
                                     std::unique_ptr<lucene::store::IndexInput>& ret,
                                     CLuceneError& error, int32_t bufferSize) {
+    if (_closed || _entries == nullptr) {
+        error.set(CL_ERR_IO, "DorisCompoundReader is already closed");
+        return false;
+    }
     lucene::store::IndexInput* tmp;
     bool success = openInput(name, tmp, error, bufferSize);
     if (success) {
@@ -299,7 +355,7 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
         bufferSize = _read_buffer_size;
     }
 
-    ret = _CLNEW CSIndexInput(_stream, entry->offset, entry->length, bufferSize);
+    ret = _CLNEW CSIndexInput(_stream, entry->file_name, entry->offset, entry->length, bufferSize);
     return true;
 }
 
@@ -310,6 +366,10 @@ void DorisCompoundReader::close() {
         _CLDELETE(_stream)
     }
     if (_entries != nullptr) {
+        // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
+        // DO NOT DELETE _entries here, it will be deleted in the destructor
+        // When directory is closed, all _entries are cleared. But the directory may be called in other places.
+        // If we delete the _entries object here, it will cause core dump.
         _entries->clear();
     }
     if (_ram_dir) {
@@ -345,6 +405,11 @@ std::string DorisCompoundReader::toString() const {
 
 CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
     return _stream;
+}
+
+void DorisCompoundReader::initialize(const io::IOContext* io_ctx) {
+    _stream->setIoContext(io_ctx);
+    _stream->setIdxFileCache(true);
 }
 
 } // namespace segment_v2

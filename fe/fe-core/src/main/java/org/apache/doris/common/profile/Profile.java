@@ -81,22 +81,22 @@ public class Profile {
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
 
-    // id will be assgined to id of SummaryProfile.
-    // For broker load, its SummaryPRofile id is a string representation of a long integer,
+    // id will be assigned to id of SummaryProfile.
+    // For broker load, its SummaryProfile id is a string representation of a long integer,
     // for others, it is queryID
     private String id = "";
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
-    // executionProfiles will be stored to storage as text, when geting profile content, we will read
+    // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
-    // isQueryFinished means the coordinator or stmtexecutor is finished.
+    // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
     private boolean isQueryFinished = false;
@@ -274,7 +274,7 @@ public class Profile {
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
-    // isFinished ONLY means the coordinator or stmtexecutor is finished.
+    // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
         try {

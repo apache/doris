@@ -2940,3 +2940,83 @@ INSERT INTO catalog_pg_test.test_all_support_types_array_2d (
     ARRAY[ARRAY[5.5, 6.6], ARRAY[NULL::double precision, NULL::double precision]]
 );
 
+
+INSERT INTO doris_test.TEST_LOWER(k2) VALUES ('a');
+analyze doris_test.TEST_LOWER;
+
+-- Insert maximum values for testing upper bounds
+INSERT INTO catalog_pg_test.extreme_test (
+    smallint_val, int_val, bigint_val, decimal_val, real_val, double_val,
+    char_val, varchar_val, text_val, date_val, timestamp_val, timestamptz_val,
+    interval_val, bool_val, bytea_val, inet_val, cidr_val, macaddr_val,
+    json_val, jsonb_val, point_val, line_val, circle_val, uuid_val
+) VALUES (
+    32767, 2147483647, 9223372036854775807, 9999999999999999999.9999999999,
+    3.402823466E+38, 1.7976931348623157E+308, 'X', repeat('a', 65535),
+    repeat('b', 1000000), '294276-12-31', '294276-12-31 23:59:59.999999',
+    '294276-12-31 23:59:59.999999+08', 'P1Y2M3DT4H5M6S', true, '\xDEADBEEF',
+    '192.168.0.1/24', '192.168.0.0/16', '08:00:2b:01:02:03',
+    '{"key": "max", "array": [1, 2, 3]}',
+    '{"key": "max", "array": [1, 2, 3]}',
+    '(10,20)', '{1,-2,3}', '<(0,0),1>',
+    'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'
+);
+
+-- Insert minimum values for testing lower bounds
+INSERT INTO catalog_pg_test.extreme_test (
+    smallint_val, int_val, bigint_val, decimal_val, real_val, double_val,
+    char_val, varchar_val, text_val, date_val, timestamp_val, timestamptz_val,
+    interval_val, bool_val, bytea_val, inet_val, cidr_val, macaddr_val,
+    json_val, jsonb_val, point_val, line_val, circle_val, uuid_val
+) VALUES (
+    -32768, -2147483648, -9223372036854775808, -9999999999999999999.9999999999,
+    -3.402823466E+38, -1.7976931348623157E+308, 'A', '', '',
+    '4713-01-01 BC', '4713-01-01 00:00:00 BC', '4713-01-01 00:00:00 BC',
+    '-178000000 years', false, '\x',
+    '0.0.0.0', '0.0.0.0/0', '00:00:00:00:00:00',
+    '{"key": "min"}', '{"key": "min"}',
+    '(0,0)', '{1,1,0}', '<(0,0),0>',
+    '00000000-0000-0000-0000-000000000000'
+);
+
+-- Insert empty values for testing default behavior
+INSERT INTO catalog_pg_test.extreme_test (
+    smallint_val, int_val, bigint_val, decimal_val, real_val, double_val,
+    char_val, varchar_val, text_val, date_val, timestamp_val, timestamptz_val,
+    interval_val, bool_val, bytea_val, inet_val, cidr_val, macaddr_val,
+    json_val, jsonb_val, point_val, line_val, circle_val, uuid_val
+) VALUES (
+    0, 0, 0, 0.0, 0.0, 0.0,
+    ' ', '', '', 'infinity', 'infinity', 'infinity',
+    '0 years', false, '\x',
+    '::1', '::1/128', '00:00:00:00:00:00',
+    '{}', '{}',
+    '(0,0)', '{1,1,0}', '<(0,0),0>',
+    '00000000-0000-0000-0000-000000000000'
+);
+
+-- Insert NULL values for testing NULL handling
+INSERT INTO catalog_pg_test.extreme_test (
+    smallint_val, int_val, bigint_val, decimal_val, real_val, double_val,
+    char_val, varchar_val, text_val, date_val, timestamp_val, timestamptz_val,
+    interval_val, bool_val, bytea_val, inet_val, cidr_val, macaddr_val,
+    json_val, jsonb_val, point_val, line_val, circle_val, uuid_val
+) VALUES (
+    NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL
+);
+
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
+insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test;

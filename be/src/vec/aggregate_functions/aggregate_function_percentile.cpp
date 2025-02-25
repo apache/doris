@@ -66,7 +66,7 @@ void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& fact
                                    creator_with_numeric_type::creator<AggregateFunctionPercentile>);
     factory.register_function_both(
             "percentile_array",
-            creator_with_integer_type::creator<AggregateFunctionPercentileArray>);
+            creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {

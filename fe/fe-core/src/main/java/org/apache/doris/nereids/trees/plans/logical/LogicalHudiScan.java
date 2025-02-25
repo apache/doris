@@ -187,7 +187,7 @@ public class LogicalHudiScan extends LogicalFileScan {
                     optParams.put(k, v);
                 }
             });
-            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(table);
+            HoodieTableMetaClient hudiClient = table.getHudiClient();
             try {
                 boolean isCowOrRoTable = table.isHoodieCowTable();
                 if (isCowOrRoTable) {

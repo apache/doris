@@ -127,8 +127,6 @@ public:
 
     // Caller should make sure the pipeline task is still running when calling this function
     void update_peak_running_scanner(int num);
-    // Caller should make sure the pipeline task is still running when calling this function
-    void update_peak_memory_usage(int64_t usage);
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.

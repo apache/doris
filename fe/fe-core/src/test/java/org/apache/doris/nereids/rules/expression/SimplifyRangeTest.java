@@ -24,6 +24,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -369,7 +370,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
@@ -442,5 +443,21 @@ public class SimplifyRangeTest extends ExpressionRewrite {
             default:
                 return BigIntType.INSTANCE;
         }
+    }
+
+    private Expression sortChildren(Expression expression) {
+        if (expression instanceof InPredicate) {
+            return ((InPredicate) expression).sortOptions();
+        }
+        List<Expression> children = Lists.newArrayList();
+        boolean hasNewChildren = false;
+        for (Expression child : expression.children()) {
+            Expression newChild = sortChildren(child);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            children.add(newChild);
+        }
+        return hasNewChildren ? expression.withChildren(children) : expression;
     }
 }

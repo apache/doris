@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -118,6 +119,8 @@ public class StatementContext implements Closeable {
 
     private boolean isDpHyp = false;
 
+    private boolean hasNondeterministic = false;
+
     // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
     // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
     // And hence, when column stats are unknown, even if the tables used by a sql is more than
@@ -174,6 +177,8 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
     private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    // save insert into schema to avoid schema changed between two read locks
+    private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -229,7 +234,7 @@ public class StatementContext implements Closeable {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
             if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
         } else {
             this.sqlCacheContext = null;
@@ -275,6 +280,10 @@ public class StatementContext implements Closeable {
         return tables;
     }
 
+    public List<Column> getInsertTargetSchema() {
+        return insertTargetSchema;
+    }
+
     public void setTables(Map<List<String>, TableIf> tables) {
         this.tables.clear();
         this.tables.putAll(tables);
@@ -301,6 +310,14 @@ public class StatementContext implements Closeable {
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+    }
+
+    public void setHasNondeterministic(boolean hasNondeterministic) {
+        this.hasNondeterministic = hasNondeterministic;
+    }
+
+    public boolean hasNondeterministic() {
+        return hasNondeterministic;
     }
 
     public ConnectContext getConnectContext() {

@@ -17,6 +17,7 @@
 
 #include <gmock/gmock.h>
 
+#include "olap/utils.h"
 #include "util/index_compaction_utils.cpp"
 
 namespace doris {
@@ -56,6 +57,37 @@ protected:
         static_cast<void>(_data_dir->update_capacity());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
+        // set config
+        config::inverted_index_dict_path =
+                _current_dir + "/be/src/clucene/src/contribs-lib/CLucene/analysis/jieba/dict";
+        config::enable_segcompaction = false;
+        config::enable_ordered_data_compaction = false;
+        config::total_permits_for_compaction_score = 200000;
+        config::inverted_index_ram_dir_enable = true;
+        config::string_type_length_soft_limit_bytes = 10485760;
+    }
+    void TearDown() override {
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
+        _engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+
+        // restore config
+        config::inverted_index_max_buffered_docs = -1;
+        config::compaction_batch_size = -1;
+        config::inverted_index_compaction_enable = false;
+        config::enable_segcompaction = true;
+        config::enable_ordered_data_compaction = true;
+        config::total_permits_for_compaction_score = 1000000;
+        config::inverted_index_ram_dir_enable = true;
+        config::string_type_length_soft_limit_bytes = 1048576;
+    }
+
+    IndexCompactionTest() = default;
+    ~IndexCompactionTest() override = default;
+
+    void _build_tablet() {
         // tablet_schema
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -65,8 +97,10 @@ protected:
                                                "key_index", 0, "INT", "key");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001,
                                                "v1_index", 1, "STRING", "v1");
+        std::map<std::string, std::string> properties;
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002,
-                                               "v2_index", 2, "STRING", "v2", true);
+                                               "v2_index", 2, "STRING", "v2", properties);
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003,
                                                "v3_index", 3, "INT", "v3");
         _tablet_schema = std::make_shared<TabletSchema>();
@@ -78,16 +112,625 @@ protected:
         _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
         EXPECT_TRUE(_tablet->init().ok());
     }
-    void TearDown() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
-        _engine_ref = nullptr;
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+
+    void _build_wiki_tablet(const KeysType& keys_type,
+                            const InvertedIndexStorageFormatPB& storage_format) {
+        // tablet_schema
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(keys_type);
+        schema_pb.set_inverted_index_storage_format(storage_format);
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000,
+                                               "idx_title", 0, "STRING", "title",
+                                               std::map<std::string, std::string>(), true);
+        // parser = english, support_phrase = true, lower_case = true, char_filter = none
+        std::map<std::string, std::string> properties;
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001,
+                                               "idx_content_1", 1, "STRING", "content_1",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = true, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002,
+                                               "idx_content_2", 2, "STRING", "content_2",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = true, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003,
+                                               "idx_content_3", 3, "STRING", "content_3",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = true, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10004,
+                                               "idx_content_4", 4, "STRING", "content_4",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = false, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10005,
+                                               "idx_content_5", 5, "STRING", "content_5",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = false, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10006,
+                                               "idx_content_6", 6, "STRING", "content_6",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = false, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10007,
+                                               "idx_content_7", 7, "STRING", "content_7",
+                                               properties);
+        properties.clear();
+        // parser = english, support_phrase = false, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10008,
+                                               "idx_content_8", 8, "STRING", "content_8",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = true, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10009,
+                                               "idx_content_9", 9, "STRING", "content_9",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = true, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10010,
+                                               "idx_content_10", 10, "STRING", "content_10",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = true, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10011,
+                                               "idx_content_11", 11, "STRING", "content_11",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = true, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10012,
+                                               "idx_content_12", 12, "STRING", "content_12",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = false, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10013,
+                                               "idx_content_13", 13, "STRING", "content_13",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = false, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10014,
+                                               "idx_content_14", 14, "STRING", "content_14",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = false, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10015,
+                                               "idx_content_15", 15, "STRING", "content_15",
+                                               properties);
+        properties.clear();
+        // parser = unicode, support_phrase = false, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10016,
+                                               "idx_content_16", 16, "STRING", "content_16",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = true, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10017,
+                                               "idx_content_17", 17, "STRING", "content_17",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = true, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10018,
+                                               "idx_content_18", 18, "STRING", "content_18",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = true, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10019,
+                                               "idx_content_19", 19, "STRING", "content_19",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = true, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10020,
+                                               "idx_content_20", 20, "STRING", "content_20",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = false, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10021,
+                                               "idx_content_21", 21, "STRING", "content_21",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = false, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10022,
+                                               "idx_content_22", 22, "STRING", "content_22",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = false, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10023,
+                                               "idx_content_23", 23, "STRING", "content_23",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = fine_grained, support_phrase = false, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY, INVERTED_INDEX_PARSER_FINE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10024,
+                                               "idx_content_24", 24, "STRING", "content_24",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = true, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10025,
+                                               "idx_content_25", 25, "STRING", "content_25",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = true, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10026,
+                                               "idx_content_26", 26, "STRING", "content_26",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = true, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10027,
+                                               "idx_content_27", 27, "STRING", "content_27",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = true, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10028,
+                                               "idx_content_28", 28, "STRING", "content_28",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = false, lower_case = true, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10029,
+                                               "idx_content_29", 29, "STRING", "content_29",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = false, lower_case = true, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10030,
+                                               "idx_content_30", 30, "STRING", "content_30",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = false, lower_case = false, char_filter = none
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10031,
+                                               "idx_content_31", 31, "STRING", "content_31",
+                                               properties);
+        properties.clear();
+        // parser = chinese, parser_mode = coarse_grained, support_phrase = false, lower_case = false, char_filter = char_replace
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_CHINESE);
+        properties.emplace(INVERTED_INDEX_PARSER_MODE_KEY,
+                           INVERTED_INDEX_PARSER_COARSE_GRANULARITY);
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
+        properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10032,
+                                               "idx_content_32", 32, "STRING", "content_32",
+                                               properties);
+        properties.clear();
+        // parser = none, ignore_above = 256
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE);
+        properties.emplace(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY, "256");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10033,
+                                               "idx_content_33", 33, "STRING", "content_33",
+                                               properties);
+        properties.clear();
+        // parser = none, ignore_above = 16383
+        properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE);
+        properties.emplace(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY, "16383");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10034,
+                                               "idx_content_34", 34, "STRING", "content_34",
+                                               properties);
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10035,
+                                               "idx_redirect", 35, "STRING", "redirect");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10036,
+                                               "idx_namespace", 36, "STRING", "namespace");
+
+        if (keys_type == KeysType::UNIQUE_KEYS) {
+            // unique table must contain the DELETE_SIGN column
+            auto* column_pb = schema_pb.add_column();
+            IndexCompactionUtils::construct_column(column_pb, 37, "TINYINT", DELETE_SIGN);
+            column_pb->set_length(1);
+            column_pb->set_index_length(1);
+            column_pb->set_is_nullable(false);
+        }
+
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->init_from_pb(schema_pb);
+
+        // tablet
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+        if (keys_type == KeysType::UNIQUE_KEYS) {
+            tablet_meta->_enable_unique_key_merge_on_write = true;
+        }
+        _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+        EXPECT_TRUE(_tablet->init().ok());
     }
 
-    IndexCompactionTest() = default;
-    ~IndexCompactionTest() override = default;
+    void _run_normal_wiki_test(bool with_delete = false, const std::string& delete_pred = "",
+                               int64_t max_rows_per_segment = 100000,
+                               int output_rowset_segment_number = 1) {
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+        std::string data_file1 =
+                _current_dir +
+                "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-1.json";
+        std::string data_file2 =
+                _current_dir +
+                "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+        // for MOW table to delete
+        std::string data_file3 =
+                _current_dir +
+                "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+        std::vector<std::string> data_files;
+        data_files.push_back(data_file1);
+        data_files.push_back(data_file2);
+        data_files.push_back(data_file3);
+
+        std::vector<RowsetSharedPtr> rowsets(data_files.size());
+        auto custom_check_build_rowsets = [this](const int32_t& size) {
+            auto keys_type = _tablet_schema->keys_type();
+            if (keys_type == KeysType::UNIQUE_KEYS) {
+                EXPECT_EQ(size, _tablet_schema->num_columns() - 1);
+            } else {
+                EXPECT_EQ(size, _tablet_schema->num_columns());
+            }
+        };
+        IndexCompactionUtils::build_rowsets<IndexCompactionUtils::WikiDataRow>(
+                _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+                custom_check_build_rowsets, false, 50);
+
+        if (with_delete) {
+            // create delete predicate rowset and add to tablet
+            auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
+                    _tablet_schema, delete_pred, _inc_id);
+            EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
+            EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
+            rowsets.push_back(delete_rowset);
+            EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
+        }
+        auto custom_check_index = [this, output_rowset_segment_number](
+                                          const BaseCompaction& compaction,
+                                          const RowsetWriterContext& ctx) {
+            auto keys_type = _tablet_schema->keys_type();
+            if (keys_type == KeysType::UNIQUE_KEYS) {
+                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                          _tablet_schema->num_columns() - 1);
+                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(),
+                          _tablet_schema->num_columns() - 1);
+            } else {
+                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                          _tablet_schema->num_columns());
+                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns());
+            }
+            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
+            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+            EXPECT_EQ(compaction._output_rowset->num_segments(), output_rowset_segment_number)
+                    << compaction._output_rowset->num_segments();
+        };
+
+        RowsetSharedPtr output_rowset_index;
+        Status st;
+        {
+            OlapStopWatch watch;
+            st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                     output_rowset_index, custom_check_index,
+                                                     max_rows_per_segment);
+            std::cout << "index compaction time: " << watch.get_elapse_second() << "s" << std::endl;
+        }
+        EXPECT_TRUE(st.ok()) << st.to_string();
+
+        auto custom_check_normal = [this, output_rowset_segment_number](
+                                           const BaseCompaction& compaction,
+                                           const RowsetWriterContext& ctx) {
+            auto keys_type = _tablet_schema->keys_type();
+            if (keys_type == KeysType::UNIQUE_KEYS) {
+                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                          _tablet_schema->num_columns() - 1);
+            } else {
+                EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                          _tablet_schema->num_columns());
+            }
+            EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+            EXPECT_TRUE(compaction._output_rowset->num_segments() == output_rowset_segment_number)
+                    << compaction._output_rowset->num_segments();
+        };
+
+        RowsetSharedPtr output_rowset_normal;
+        {
+            OlapStopWatch watch;
+            st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
+                                                     output_rowset_normal, custom_check_normal,
+                                                     max_rows_per_segment);
+            std::cout << "normal compaction time: " << watch.get_elapse_second() << "s"
+                      << std::endl;
+        }
+        EXPECT_TRUE(st.ok()) << st.to_string();
+
+        auto num_segments_idx = output_rowset_index->num_segments();
+        auto num_segments_normal = output_rowset_normal->num_segments();
+        for (int idx = 10000; idx < 10037; idx++) {
+            if (num_segments_idx == num_segments_normal == 1) {
+                // check index file terms for single segment
+                const auto& seg_path = output_rowset_index->segment_path(0);
+                EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+                auto inverted_index_file_reader_index =
+                        IndexCompactionUtils::init_index_file_reader(
+                                output_rowset_index, seg_path.value(),
+                                _tablet_schema->get_inverted_index_storage_format());
+
+                const auto& seg_path_normal = output_rowset_normal->segment_path(0);
+                EXPECT_TRUE(seg_path_normal.has_value()) << seg_path_normal.error();
+                auto inverted_index_file_reader_normal =
+                        IndexCompactionUtils::init_index_file_reader(
+                                output_rowset_normal, seg_path_normal.value(),
+                                _tablet_schema->get_inverted_index_storage_format());
+
+                auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
+                EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
+                auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
+                EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
+                st = IndexCompactionUtils::check_idx_file_correctness(dir_idx->get(),
+                                                                      dir_normal->get());
+                EXPECT_TRUE(st.ok()) << st.to_string();
+            } else {
+                // check index file terms for multiple segments
+                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_idx(num_segments_idx);
+                for (int i = 0; i < num_segments_idx; i++) {
+                    const auto& seg_path = output_rowset_index->segment_path(i);
+                    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+                    auto inverted_index_file_reader_index =
+                            IndexCompactionUtils::init_index_file_reader(
+                                    output_rowset_index, seg_path.value(),
+                                    _tablet_schema->get_inverted_index_storage_format());
+                    auto dir_idx = inverted_index_file_reader_index->_open(idx, "");
+                    EXPECT_TRUE(dir_idx.has_value()) << dir_idx.error();
+                    dirs_idx[i] = std::move(dir_idx.value());
+                }
+                std::vector<std::unique_ptr<DorisCompoundReader>> dirs_normal(num_segments_normal);
+                for (int i = 0; i < num_segments_normal; i++) {
+                    const auto& seg_path = output_rowset_normal->segment_path(i);
+                    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+                    auto inverted_index_file_reader_normal =
+                            IndexCompactionUtils::init_index_file_reader(
+                                    output_rowset_normal, seg_path.value(),
+                                    _tablet_schema->get_inverted_index_storage_format());
+                    auto dir_normal = inverted_index_file_reader_normal->_open(idx, "");
+                    EXPECT_TRUE(dir_normal.has_value()) << dir_normal.error();
+                    dirs_normal[i] = std::move(dir_normal.value());
+                }
+                st = IndexCompactionUtils::check_idx_file_correctness(dirs_idx, dirs_normal);
+                EXPECT_TRUE(st.ok()) << st.to_string();
+            }
+        }
+    }
 
 private:
     TabletSchemaSPtr _tablet_schema = nullptr;
@@ -96,9 +739,11 @@ private:
     TabletSharedPtr _tablet = nullptr;
     std::string _absolute_dir;
     std::string _current_dir;
+    int64_t _inc_id = 1000;
 };
 
 TEST_F(IndexCompactionTest, tes_write_index_normally) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -111,8 +756,9 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -179,6 +825,7 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
 }
 
 TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
+    _build_tablet();
     // clear column unique id in tablet index 10001 and rebuild tablet_schema
     TabletSchemaPB schema_pb;
     _tablet_schema->to_schema_pb(&schema_pb);
@@ -198,8 +845,9 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -229,6 +877,7 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
 }
 
 TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
+    _build_tablet();
     // replace unique id from 2 to 1 in tablet index 10002 and rebuild tablet_schema
     TabletSchemaPB schema_pb;
     _tablet_schema->to_schema_pb(&schema_pb);
@@ -248,8 +897,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -279,6 +929,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
 }
 
 TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
+    _build_tablet();
     // set index suffix in tablet index 10001 and rebuild tablet_schema
     // simulate the case that index is null, tablet_schema->inverted_index(1) will return nullptr
     TabletSchemaPB schema_pb;
@@ -299,8 +950,9 @@ TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -330,6 +982,7 @@ TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
 }
 
 TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -342,8 +995,9 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -375,7 +1029,7 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
             _tablet_schema->get_inverted_index_storage_format());
 
     // check index file
-    // index 10001 cannot be found in idx file
+    // index 10001 should be found in idx file, it can be produced by normal compaction
     auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, "");
     EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
     // check index 10001 term stats
@@ -386,6 +1040,7 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
 }
 
 TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
+    _build_tablet();
     // add mock property in tablet index 10001 and rebuild tablet_schema
     // simulate the case that index properties not equal among input rowsets
     TabletSchemaSPtr mock_schema = std::make_shared<TabletSchema>();
@@ -407,8 +1062,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -443,6 +1099,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
 }
 
 TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -455,8 +1112,9 @@ TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -491,6 +1149,7 @@ TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
 }
 
 TEST_F(IndexCompactionTest, test_rowset_fs_nullptr) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -503,8 +1162,9 @@ TEST_F(IndexCompactionTest, test_rowset_fs_nullptr) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -529,6 +1189,7 @@ TEST_F(IndexCompactionTest, test_rowset_fs_nullptr) {
 }
 
 TEST_F(IndexCompactionTest, test_input_row_num_zero) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -541,8 +1202,9 @@ TEST_F(IndexCompactionTest, test_input_row_num_zero) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -582,6 +1244,7 @@ TEST_F(IndexCompactionTest, test_input_row_num_zero) {
 }
 
 TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
+    _build_tablet();
     // add mock property in tablet index 10001, 10002 and rebuild tablet_schema
     // simulate the case that index properties not equal among input rowsets
     // the two cols will skip index compaction and make ctx.columns_to_do_index_compaction empty
@@ -606,8 +1269,9 @@ TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 4);
@@ -644,6 +1308,7 @@ TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
 }
 
 TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
+    _build_tablet();
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
@@ -656,12 +1321,13 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
     auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
-    IndexCompactionUtils::build_rowsets(_data_dir, _tablet_schema, _tablet, _engine_ref, rowsets,
-                                        data_files, custom_check_build_rowsets);
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
 
     // create delete predicate rowset and add to tablet
     auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(
-            _tablet_schema, "v1='great'", inc_id++);
+            _tablet_schema, "v1='great'", _inc_id);
     EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
     EXPECT_TRUE(_tablet->rowset_map().size() == 3);
     rowsets.push_back(delete_rowset);
@@ -731,4 +1397,197 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
     IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
 }
 
+TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test();
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test();
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_partial_delete) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test(true, "namespace='Adel, OR'");
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_partial_delete) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test(true, "namespace='Adel, OR'");
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    std::string delete_pred = "title IS NOT NULL";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    std::string data_file1 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-1.json";
+    std::string data_file2 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+    // for MOW table to delete
+    std::string data_file3 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+    std::vector<std::string> data_files;
+    data_files.push_back(data_file1);
+    data_files.push_back(data_file2);
+    data_files.push_back(data_file3);
+
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto custom_check_build_rowsets = [this](const int32_t& size) {
+        EXPECT_EQ(size, _tablet_schema->num_columns());
+    };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::WikiDataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets, false, 50);
+
+    // create delete predicate rowset and add to tablet
+    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(_tablet_schema,
+                                                                              delete_pred, _inc_id);
+    EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
+    EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
+    rowsets.push_back(delete_rowset);
+    EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
+
+    auto custom_check_index = [this](const BaseCompaction& compaction,
+                                     const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                  _tablet_schema->num_columns());
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == _tablet_schema->num_columns());
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
+    };
+
+    RowsetSharedPtr output_rowset_index;
+    Status st;
+    {
+        OlapStopWatch watch;
+        st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                 output_rowset_index, custom_check_index);
+        std::cout << "index compaction time: " << watch.get_elapse_second() << "s" << std::endl;
+    }
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    auto custom_check_normal = [this](const BaseCompaction& compaction,
+                                      const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                  _tablet_schema->num_columns());
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
+    };
+
+    RowsetSharedPtr output_rowset_normal;
+    {
+        OlapStopWatch watch;
+        st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
+                                                 output_rowset_normal, custom_check_normal);
+        std::cout << "normal compaction time: " << watch.get_elapse_second() << "s" << std::endl;
+    }
+    EXPECT_TRUE(st.ok()) << st.to_string();
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    std::string delete_pred = "title IS NOT NULL";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    std::string data_file1 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-1.json";
+    std::string data_file2 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+    // for MOW table to delete
+    std::string data_file3 =
+            _current_dir +
+            "/be/test/olap/rowset/segment_v2/inverted_index/data/sorted_wikipedia-50-2.json";
+    std::vector<std::string> data_files;
+    data_files.push_back(data_file1);
+    data_files.push_back(data_file2);
+    data_files.push_back(data_file3);
+
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto custom_check_build_rowsets = [this](const int32_t& size) {
+        EXPECT_EQ(size, _tablet_schema->num_columns() - 1);
+    };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::WikiDataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets, false, 50);
+
+    // create delete predicate rowset and add to tablet
+    auto delete_rowset = IndexCompactionUtils::create_delete_predicate_rowset(_tablet_schema,
+                                                                              delete_pred, _inc_id);
+    EXPECT_TRUE(_tablet->add_rowset(delete_rowset).ok());
+    EXPECT_TRUE(_tablet->rowset_map().size() == (data_files.size() + 1));
+    rowsets.push_back(delete_rowset);
+    EXPECT_TRUE(rowsets.size() == (data_files.size() + 1));
+
+    auto custom_check_index = [this](const BaseCompaction& compaction,
+                                     const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                  _tablet_schema->num_columns() - 1);
+        EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns() - 1);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
+    };
+
+    RowsetSharedPtr output_rowset_index;
+    Status st;
+    {
+        OlapStopWatch watch;
+        st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                 output_rowset_index, custom_check_index);
+        std::cout << "index compaction time: " << watch.get_elapse_second() << "s" << std::endl;
+    }
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    auto custom_check_normal = [this](const BaseCompaction& compaction,
+                                      const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
+                  _tablet_schema->num_columns() - 1);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 0);
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
+    };
+
+    RowsetSharedPtr output_rowset_normal;
+    {
+        OlapStopWatch watch;
+        st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
+                                                 output_rowset_normal, custom_check_normal);
+        std::cout << "normal compaction time: " << watch.get_elapse_second() << "s" << std::endl;
+    }
+    EXPECT_TRUE(st.ok()) << st.to_string();
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_dest_segments) {
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test(false, "", 50, 3);
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_dest_segments) {
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test(false, "", 50, 2);
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_multiple_src_lucene_segments) {
+    config::inverted_index_max_buffered_docs = 100;
+    _build_wiki_tablet(KeysType::DUP_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test();
+}
+
+TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_src_lucene_segments) {
+    config::inverted_index_max_buffered_docs = 100;
+    _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
+    _run_normal_wiki_test();
+}
 } // namespace doris

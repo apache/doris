@@ -275,10 +275,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 long buildSideNdv = getBuildSideNdv(join, equalTo);
-                Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(equalTo.right());
-                if (pair == null) {
-                    continue;
-                }
                 if (equalTo.left().getInputSlots().size() == 1) {
                     RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                             RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(

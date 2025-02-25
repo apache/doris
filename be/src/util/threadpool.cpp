@@ -32,10 +32,23 @@
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/scoped_cleanup.h"
+#include "util/stopwatch.hpp"
 #include "util/thread.h"
 
 namespace doris {
+// The name of these varialbs will be useds as metric name in prometheus.
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_execution_time_ns_avg_in_last_1000_times,
+                                   MetricUnit::NANOSECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_wait_worker_ns_avg_in_last_1000_times,
+                                   MetricUnit::NANOSECONDS);
 using namespace ErrorCode;
 
 using std::string;
@@ -51,8 +64,9 @@ private:
     std::function<void()> _func;
 };
 
-ThreadPoolBuilder::ThreadPoolBuilder(string name)
+ThreadPoolBuilder::ThreadPoolBuilder(string name, string workload_group)
         : _name(std::move(name)),
+          _workload_group(std::move(workload_group)),
           _min_threads(0),
           _max_threads(std::thread::hardware_concurrency()),
           _max_queue_size(std::numeric_limits<int>::max()),
@@ -236,6 +250,7 @@ bool ThreadPoolToken::need_dispatch() {
 
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
         : _name(builder._name),
+          _workload_group(builder._workload_group),
           _min_threads(builder._min_threads),
           _max_threads(builder._max_threads),
           _max_queue_size(builder._max_queue_size),
@@ -246,7 +261,8 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _active_threads(0),
           _total_queued_tasks(0),
           _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
-          _tokenless(new_token(ExecutionMode::CONCURRENT)) {}
+          _tokenless(new_token(ExecutionMode::CONCURRENT)),
+          _id(UniqueId::gen_uid()) {}
 
 ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
@@ -268,10 +284,48 @@ Status ThreadPool::init() {
             return status;
         }
     }
+    // _id of thread pool is used to make sure when we create thread pool with same name, we can
+    // get different _metric_entity
+    // If not, we will have problem when we deregister entity and register hook.
+    _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            fmt::format("thread_pool_{}", _name), {{"thread_pool_name", _name},
+                                                   {"workload_group", _workload_group},
+                                                   {"id", _id.to_string()}});
+
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_active_threads);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_queue_size);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_execution_time_ns_avg_in_last_1000_times);
+    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_wait_worker_ns_avg_in_last_1000_times);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_submit_failed);
+
+    _metric_entity->register_hook("update", [this]() {
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (!_pool_status.ok()) {
+                return;
+            }
+        }
+
+        thread_pool_active_threads->set_value(num_active_threads());
+        thread_pool_queue_size->set_value(get_queue_size());
+        thread_pool_max_queue_size->set_value(get_max_queue_size());
+        thread_pool_max_threads->set_value(max_threads());
+        task_execution_time_ns_avg_in_last_1000_times->set_value(
+                _task_execution_time_ns_statistic.mean());
+        task_wait_worker_ns_avg_in_last_1000_times->set_value(
+                _task_wait_worker_time_ns_statistic.mean());
+    });
     return Status::OK();
 }
 
 void ThreadPool::shutdown() {
+    // Why access to doris_metrics is safe here?
+    // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
+    // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
+    // ExecEnv::destroy().
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
@@ -355,8 +409,6 @@ Status ThreadPool::submit_func(std::function<void()> f) {
 
 Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token) {
     DCHECK(token);
-    std::chrono::time_point<std::chrono::system_clock> submit_time =
-            std::chrono::system_clock::now();
 
     std::unique_lock<std::mutex> l(_lock);
     if (PREDICT_FALSE(!_pool_status.ok())) {
@@ -371,6 +423,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     int64_t capacity_remaining = static_cast<int64_t>(_max_threads) - _active_threads +
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
+        thread_pool_submit_failed->increment(1);
         return Status::Error<SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)", _name,
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
@@ -406,7 +459,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
 
     Task task;
     task.runnable = std::move(r);
-    task.submit_time = submit_time;
+    task.submit_time_wather.start();
 
     // Add the task to the token's queue.
     ThreadPoolToken::State state = token->state();
@@ -526,12 +579,15 @@ void ThreadPool::dispatch_thread() {
             continue;
         }
 
+        MonotonicStopWatch task_execution_time_watch;
+        task_execution_time_watch.start();
         // Get the next token and task to execute.
         ThreadPoolToken* token = _queue.front();
         _queue.pop_front();
         DCHECK_EQ(ThreadPoolToken::State::RUNNING, token->state());
         DCHECK(!token->_entries.empty());
         Task task = std::move(token->_entries.front());
+        _task_wait_worker_time_ns_statistic.add(task.submit_time_wather.elapsed_time());
         token->_entries.pop_front();
         token->_active_threads++;
         --_total_queued_tasks;
@@ -541,7 +597,6 @@ void ThreadPool::dispatch_thread() {
 
         // Execute the task
         task.runnable->run();
-
         // Destruct the task while we do not hold the lock.
         //
         // The task's destructor may be expensive if it has a lot of bound
@@ -550,7 +605,7 @@ void ThreadPool::dispatch_thread() {
         // with this threadpool, and produce a deadlock.
         task.runnable.reset();
         l.lock();
-
+        _task_execution_time_ns_statistic.add(task_execution_time_watch.elapsed_time());
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
         // 2. The token has no more queued tasks. Transition back to IDLE.

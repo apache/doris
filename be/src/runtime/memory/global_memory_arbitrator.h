@@ -76,7 +76,7 @@ public:
     static inline int64_t sys_mem_available() {
         return MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed) -
                refresh_interval_memory_growth.load(std::memory_order_relaxed) -
-               process_reserved_memory() + static_cast<int64_t>(MemInfo::allocator_cache_mem());
+               process_reserved_memory();
     }
 
     static inline std::string sys_mem_available_str() {
@@ -91,14 +91,12 @@ public:
     static inline std::string sys_mem_available_details_str() {
         auto msg = fmt::format(
                 "sys available memory {}(= {}[proc/available] - {}[reserved] - "
-                "{}B[waiting_refresh] + {}[tc/jemalloc_cache])",
+                "{}B[waiting_refresh])",
                 PrettyPrinter::print(sys_mem_available(), TUnit::BYTES),
                 PrettyPrinter::print(MemInfo::_s_sys_mem_available.load(std::memory_order_relaxed),
                                      TUnit::BYTES),
                 PrettyPrinter::print(process_reserved_memory(), TUnit::BYTES),
-                refresh_interval_memory_growth,
-                PrettyPrinter::print(static_cast<uint64_t>(MemInfo::allocator_cache_mem()),
-                                     TUnit::BYTES));
+                refresh_interval_memory_growth);
 #ifdef ADDRESS_SANITIZER
         msg = "[ASAN]" + msg;
 #endif

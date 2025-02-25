@@ -48,7 +48,7 @@ public:
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
+    WorkloadGroupPtr get_group(uint64_t wg_id);
 
     void do_sweep();
 
@@ -63,6 +63,8 @@ public:
     void refresh_wg_weighted_memory_limit();
 
     void get_wg_resource_usage(vectorized::Block* block);
+
+    void refresh_workload_group_metrics();
 
 private:
     std::shared_mutex _group_mutex;

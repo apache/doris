@@ -80,7 +80,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
             if (inner_sink_state_) {
                 auto inner_sink_state =
                         assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
-                return inner_sink_state->_build_side_mem_used;
+                return inner_sink_state->_build_blocks_memory_usage->value();
             }
         }
         return 0;
@@ -161,7 +161,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
             {
                 SCOPED_TIMER(_partition_timer);
-                (void)_partitioner->do_partitioning(state, &sub_block, _mem_tracker.get());
+                (void)_partitioner->do_partitioning(state, &sub_block);
             }
 
             const auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
@@ -334,7 +334,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
         SCOPED_TIMER(_partition_timer);
-        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block, _mem_tracker.get()));
+        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block));
     }
 
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();

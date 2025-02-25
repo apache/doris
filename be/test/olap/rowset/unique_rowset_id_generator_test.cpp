@@ -123,6 +123,7 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdBenchmark) {
     hi <<= 56;
     RowsetId last_id = id_generator.next_id();
     EXPECT_EQ(last_id.hi, hi + kNumThreads * kIdPerThread + 1);
+    pool.reset();
 }
 
 } // namespace doris

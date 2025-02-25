@@ -41,8 +41,6 @@
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/memory/lru_cache_policy.h"
-#include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
@@ -1040,6 +1038,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _row_store_page_size = schema.row_store_page_size();
+    _storage_page_size = schema.storage_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1118,6 +1117,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _storage_page_size = ori_tablet_schema.storage_page_size();
     _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
@@ -1274,6 +1274,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
+    tablet_schema_pb->set_storage_page_size(_storage_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
@@ -1351,6 +1352,10 @@ bool TabletSchema::exist_column(const std::string& field_name) const {
     return _field_name_to_index.contains(StringRef {field_name});
 }
 
+bool TabletSchema::has_column_unique_id(int32_t col_unique_id) const {
+    return _field_id_to_index.contains(col_unique_id);
+}
+
 Status TabletSchema::have_column(const std::string& field_name) const {
     if (!_field_name_to_index.contains(StringRef(field_name))) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -1394,11 +1399,11 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
                                                 const std::string& suffix_path) const {
+    const std::string escaped_suffix = escape_for_path_name(suffix_path);
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id &&
-                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
+                if (id == col_unique_id && _indexes[i].get_index_suffix() == escaped_suffix) {
                     return &(_indexes[i]);
                 }
             }
@@ -1540,6 +1545,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
+    if (a._storage_page_size != b._storage_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
     return true;

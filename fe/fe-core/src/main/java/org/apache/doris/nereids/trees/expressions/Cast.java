@@ -114,7 +114,7 @@ public class Cast extends Expression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), targetType);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), targetType);
     }
 }

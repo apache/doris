@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_system_user") {
+suite("test_system_user","p0,auth") {
     test {
           sql """
               create user `root`;
@@ -36,4 +36,30 @@ suite("test_system_user") {
           """
           exception "system"
     }
+    test {
+          sql """
+              revoke "operator" from root;
+          """
+          exception "Can not revoke role"
+    }
+    test {
+          sql """
+              revoke 'admin' from `admin`;
+          """
+          exception "Unsupported operation"
+    }
+
+    sql """
+        grant select_priv on *.*.* to  `root`;
+    """
+    sql """
+        revoke select_priv on *.*.* from  `root`;
+    """
+    sql """
+        grant select_priv on *.*.* to  `admin`;
+    """
+    sql """
+        revoke select_priv on *.*.* from  `admin`;
+    """
+
 }

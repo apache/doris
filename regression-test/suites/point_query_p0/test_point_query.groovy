@@ -16,6 +16,17 @@
 // under the License.
 
 import java.math.BigDecimal;
+import com.mysql.cj.ServerPreparedQuery
+import com.mysql.cj.jdbc.ConnectionImpl
+import com.mysql.cj.jdbc.JdbcStatement
+import com.mysql.cj.jdbc.ServerPreparedStatement
+import com.mysql.cj.jdbc.StatementImpl
+import org.apache.doris.regression.util.JdbcUtils
+
+import java.lang.reflect.Field
+import java.sql.PreparedStatement
+import java.sql.ResultSet
+import java.util.concurrent.CopyOnWriteArrayList
 
 suite("test_point_query", "nonConcurrent") {
     def backendId_to_backendIP = [:]
@@ -383,5 +394,28 @@ suite("test_point_query", "nonConcurrent") {
         partial_prepared_stmt.setString(2, "feature")
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
+        partial_prepared_stmt.setInt(1, 10)
+        partial_prepared_stmt.setInt(2, 20)
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        // test prepared statement should not be short-circuited plan which use nondeterministic function
+        try (PreparedStatement pstmt = prepareStatement("select now(3) data_time from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = 'feature'")) {
+            def result1 = ""
+            def result2 = ""
+            try (ResultSet rs = pstmt.executeQuery()) {
+                result1 = JdbcUtils.toList(rs).v1
+                logger.info("result: {}", result1)
+            }
+            sleep(100)
+            try (ResultSet rs = pstmt.executeQuery()) {
+                result2 = JdbcUtils.toList(rs).v1
+                logger.info("result: {}", result2)
+            }
+            assertNotEquals(result1, result2)
+        }
     }
 } 

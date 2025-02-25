@@ -64,11 +64,18 @@ public class TableAddOrDropColumnsInfoTest {
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         indexSchemaMap.put(tableId, fullSchema);
 
+        Map<Long, List<Column>> oldIndexSchemaMap = new HashMap<>();
+        oldIndexSchemaMap.put(tableId, fullSchema);
+
+        Map<String, Long> indexNameToId = new HashMap<>();
+        indexNameToId.put("index", 1L);
+
         List<Index> indexes = Lists.newArrayList(
                 new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.INVERTED, null, "xxxxxx", Lists.newArrayList(1)));
 
-        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo("", dbId, tableId,
-                indexSchemaMap, indexes, jobId);
+        TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(
+                "", dbId, tableId, tableId,
+                indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId);
 
         String c1Json = GsonUtils.GSON.toJson(tableAddOrDropColumnsInfo1);
         Text.writeString(out, c1Json);

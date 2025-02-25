@@ -827,7 +827,10 @@ public class NumericArithmetic {
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
         checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
-        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue())));
+        if (first.getValue().equals(1.0d)) {
+            throw new NotSupportedException("the first input of function log can not be 1.0");
+        }
+        return checkOutputBoundary(new DoubleLiteral(Math.log(second.getValue()) / Math.log(first.getValue())));
     }
 
     /**
@@ -863,6 +866,9 @@ public class NumericArithmetic {
     @ExecFunction(name = "power")
     public static Expression power(DoubleLiteral first, DoubleLiteral second) {
         checkInputBoundary(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (first.getValue() < 0 && second.getValue() % 1 != 0) {
+            throw new NotSupportedException("input pair of function power can not be negative number and non-integer");
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
     }
 
@@ -1078,7 +1084,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(first.getValue() / second.getValue()));
+        return checkOutputBoundary(new DoubleLiteral(first.getValue() % second.getValue()));
     }
 
     /**
@@ -1086,7 +1092,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(FloatLiteral first, FloatLiteral second) {
-        return new FloatLiteral(first.getValue() / second.getValue());
+        return new FloatLiteral(first.getValue() % second.getValue());
     }
 
     /**

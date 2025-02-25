@@ -236,6 +236,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                             .region = "region",
                             .ak = "ak",
                             .sk = "sk",
+                            .token = "",
+                            .bucket = "",
                     }};
     std::string resource_id = "10000";
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);

@@ -45,7 +45,8 @@ public class RelationUtil {
                 String tableName = nameParts.get(0);
                 CatalogIf catalogIf = context.getCurrentCatalog();
                 if (catalogIf == null) {
-                    throw new IllegalStateException("Current catalog is not set.");
+                    throw new IllegalStateException(
+                            "Current catalog is not set. default catalog is: " + context.getDefaultCatalog());
                 }
                 String catalogName = catalogIf.getName();
                 String dbName = context.getDatabase();

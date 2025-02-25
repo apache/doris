@@ -143,6 +143,7 @@ public class RuntimeFilterTranslator {
                     targetTupleIdMapList, context.getLimits());
             if (node instanceof HashJoinNode) {
                 origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
+                origFilter.setSingleEq(((HashJoinNode) node).getEqJoinConjuncts().size());
             } else {
                 // nest loop join
                 origFilter.setIsBroadcast(true);

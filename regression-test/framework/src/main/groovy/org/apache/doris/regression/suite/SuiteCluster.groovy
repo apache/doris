@@ -38,6 +38,7 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
+    int msNum = 1
 
     Boolean sqlModeNodeMgr = false
     Boolean beMetaServiceEndpoint = true
@@ -58,6 +59,10 @@ class ClusterOptions {
         'report_disk_state_interval_seconds=2',
         'report_random_wait=false',
     ]
+
+    List<String> msConfigs = []
+
+    List<String> recycleConfigs = []
 
     boolean connectToFollower = false
 
@@ -297,6 +302,9 @@ class SuiteCluster {
         if (options.beNum > 0) {
             cmd += ['--add-be-num', String.valueOf(options.beNum)]
         }
+        if (options.msNum > 0) {
+            cmd += ['--add-ms-num', String.valueOf(options.msNum)]
+        }
         // TODO: need escape white space in config
         if (options.feConfigs != null && options.feConfigs.size() > 0) {
             cmd += ['--fe-config']
@@ -305,6 +313,14 @@ class SuiteCluster {
         if (options.beConfigs != null && options.beConfigs.size() > 0) {
             cmd += ['--be-config']
             cmd += options.beConfigs
+        }
+        if (options.msConfigs != null && options.msConfigs.size() > 0) {
+            cmd += ['--ms-config']
+            cmd += options.msConfigs
+        }
+        if (options.recycleConfigs != null && options.recycleConfigs.size() > 0) {
+            cmd += ['--recycle-config']
+            cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
@@ -561,6 +577,16 @@ class SuiteCluster {
         runBackendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
+    // if not specific ms indices, then restart all ms
+    void restartMs(int... indices) {
+        runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    } 
+
+    // if not specific recycler indices, then restart all recyclers
+    void restartRecyclers(int... indices) {
+        runRecyclerCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
     // if not specific fe indices, then drop all frontends
     void dropFrontends(boolean clean=false, int... indices) {
         def cmd = 'down'
@@ -637,6 +663,16 @@ class SuiteCluster {
 
     private void runBackendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --be-id ' + indices.join(' ')
+        runCmd(cmd, timeoutSecond)
+    }
+
+    private void runMsCmd(int timeoutSecond, String op, int... indices) {
+        def cmd = op + ' ' + name + ' --ms-id ' + indices.join(' ')
+        runCmd(cmd, timeoutSecond)
+    }
+
+    private void runRecyclerCmd(int timeoutSecond, String op, int... indices) {
+        def cmd = op + ' ' + name + ' --recycle-id ' + indices.join(' ')
         runCmd(cmd, timeoutSecond)
     }
 

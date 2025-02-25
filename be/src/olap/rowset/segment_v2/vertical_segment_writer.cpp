@@ -59,6 +59,7 @@
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -240,6 +241,33 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
 #undef CHECK_FIELD_TYPE
 
+    int64_t storage_page_size = _tablet_schema->storage_page_size();
+    // storage_page_size must be between 4KB and 10MB.
+    if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
+        opts.data_page_size = storage_page_size;
+    }
+    DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
+        auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
+                "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
+                INT_MIN);
+        auto target_data_page_size = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
+                "VerticalSegmentWriter._create_column_writer.storage_page_size",
+                "storage_page_size", INT_MIN);
+        if (table_id == INT_MIN || target_data_page_size == INT_MIN) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Debug point parameters missing: either 'table_id' or 'storage_page_size' not "
+                    "set.");
+        }
+        if (table_id == _tablet_schema->table_id() &&
+            opts.data_page_size != target_data_page_size) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Mismatch in 'storage_page_size': expected size does not match the current "
+                    "data page size. "
+                    "Expected: " +
+                    std::to_string(target_data_page_size) +
+                    ", Actual: " + std::to_string(opts.data_page_size) + ".");
+        }
+    })
     if (column.is_row_store_column()) {
         // smaller page size for row store column
         auto page_size = _tablet_schema->row_store_page_size();
@@ -432,6 +460,8 @@ Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data,
                                                                  vectorized::Block& full_block) {
+    DBUG_EXECUTE_IF("_append_block_with_partial_content.block", DBUG_BLOCK);
+
     RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos));
 
     // create full block and fill with input columns
@@ -914,6 +944,11 @@ void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(_key_index_size.size() == _num_sort_key_columns);
+    if (!(key_columns.size() == _num_sort_key_columns &&
+          _key_coders.size() == _num_sort_key_columns)) {
+        LOG_INFO("key_columns.size()={}, _key_coders.size()={}, _num_sort_key_columns={}, ",
+                 key_columns.size(), _key_coders.size(), _num_sort_key_columns);
+    }
     assert(key_columns.size() == _num_sort_key_columns &&
            _key_coders.size() == _num_sort_key_columns);
     return _full_encode_keys(_key_coders, key_columns, pos);

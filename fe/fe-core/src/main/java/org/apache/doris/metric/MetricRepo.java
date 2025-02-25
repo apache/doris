@@ -19,11 +19,13 @@ package org.apache.doris.metric;
 
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
@@ -99,6 +101,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_CACHE_HIT_SQL;
     public static LongCounterMetric COUNTER_CACHE_HIT_PARTITION;
 
+    public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
+
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_EDIT_LOG_CURRENT;
@@ -144,6 +148,13 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
+    public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
+
+    // Catlaog/Database/Table num
+    public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
+    public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
+    public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -155,6 +166,25 @@ public final class MetricRepo {
         if (isInit) {
             return;
         }
+
+        // version
+        GaugeMetric<Long> feVersion = new GaugeMetric<Long>("version", MetricUnit.NOUNIT, "") {
+            @Override
+            public Long getValue() {
+                try {
+                    return Long.parseLong("" + Version.DORIS_BUILD_VERSION_MAJOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_MINOR + "0"
+                                            + Version.DORIS_BUILD_VERSION_PATCH
+                                            + (Version.DORIS_BUILD_VERSION_HOTFIX > 0
+                                                ? ("0" + Version.DORIS_BUILD_VERSION_HOTFIX)
+                                                : ""));
+                } catch (Throwable t) {
+                    LOG.warn("failed to init version metrics", t);
+                    return 0L;
+                }
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(feVersion);
 
         // load jobs
         for (EtlJobType jobType : EtlJobType.values()) {
@@ -467,6 +497,10 @@ public final class MetricRepo {
                 "counter of failed transactions");
         COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
+        COUNTER_UPDATE_TABLET_STAT_FAILED = new LongCounterMetric("update_tablet_stat_failed", MetricUnit.REQUESTS,
+            "counter of failed to update tablet stat");
+        COUNTER_UPDATE_TABLET_STAT_FAILED.addLabel(new MetricLabel("type", "failed"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_UPDATE_TABLET_STAT_FAILED);
         HISTO_TXN_EXEC_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("txn", "exec", "latency", "ms"));
         HISTO_TXN_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
@@ -528,6 +562,37 @@ public final class MetricRepo {
             MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
         HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
             MetricRegistry.name("http_copy_into_query", "latency", "ms"));
+
+        HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
+
+        GAUGE_CATALOG_NUM = new GaugeMetric<Integer>("catalog_num",
+                MetricUnit.NOUNIT, "total catalog num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getCatalogMgr().getCatalogNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_CATALOG_NUM);
+
+        GAUGE_INTERNAL_DATABASE_NUM = new GaugeMetric<Integer>("internal_database_num",
+                MetricUnit.NOUNIT, "total internal database num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getCatalogMgr().getInternalCatalog().getDbNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_DATABASE_NUM);
+
+        GAUGE_INTERNAL_TABLE_NUM = new GaugeMetric<Integer>("internal_table_num",
+                MetricUnit.NOUNIT, "total internal table num") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getCatalogMgr().getInternalCatalog().getAllDbs().stream()
+                        .map(d -> (Database) d).map(Database::getTableNum).reduce(0, Integer::sum);
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
 
         // init system metrics
         initSystemMetrics();

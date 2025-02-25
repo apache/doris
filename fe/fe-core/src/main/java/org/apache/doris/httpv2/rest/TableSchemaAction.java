@@ -19,20 +19,26 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,8 +60,10 @@ import javax.servlet.http.HttpServletResponse;
 @RestController
 public class TableSchemaAction extends RestBaseController {
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", method = RequestMethod.GET)
+    @RequestMapping(path = {"/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",
+            "/api/{" + CATALOG_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema"}, method = RequestMethod.GET)
     protected Object schema(
+            @PathVariable(value = CATALOG_KEY, required = false) String catalogName,
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
@@ -63,15 +71,22 @@ public class TableSchemaAction extends RestBaseController {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
+        if (StringUtils.isBlank(catalogName)) {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+
         try {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            OlapTable table;
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+                    PrivPredicate.SELECT);
+            TableIf table;
             try {
-                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-                table = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
-            } catch (MetaNotFoundException e) {
+                CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(catalogName) : Env.getCurrentInternalCatalog();
+                DatabaseIf db = catalog.getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName);
+            } catch (MetaNotFoundException | AnalysisException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
             table.readLock();
@@ -97,7 +112,9 @@ public class TableSchemaAction extends RestBaseController {
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
-                    resultMap.put("keysType", table.getKeysType().name());
+                    if (table instanceof OlapTable) {
+                        resultMap.put("keysType", ((OlapTable) table).getKeysType().name());
+                    }
                     resultMap.put("properties", propList);
                 } catch (Exception e) {
                     // Transform the general Exception to custom DorisHttpException
@@ -115,6 +132,7 @@ public class TableSchemaAction extends RestBaseController {
         return ResponseEntityBuilder.ok(resultMap);
     }
 
+
     private static class DDLRequestBody {
         public Boolean isDropColumn;
         public String columnName;
@@ -128,7 +146,7 @@ public class TableSchemaAction extends RestBaseController {
      * }
      */
     @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
-                    + "}/{" + TABLE_KEY + "}", method = { RequestMethod.GET })
+            + "}/{" + TABLE_KEY + "}", method = {RequestMethod.GET})
     public Object columnChangeCanSync(
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
@@ -145,7 +163,8 @@ public class TableSchemaAction extends RestBaseController {
         if (!table.getEnableLightSchemaChange()) {
             return ResponseEntityBuilder.okWithCommonError("table " + tableName + " disable light schema change");
         }
-        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {}.getType();
+        java.lang.reflect.Type type = new TypeToken<DDLRequestBody>() {
+        }.getType();
         DDLRequestBody ddlRequestBody = new Gson().fromJson(body, type);
         if (ddlRequestBody.isDropColumn) {
             boolean enableLightSchemaChange = true;
@@ -165,7 +184,7 @@ public class TableSchemaAction extends RestBaseController {
             }
             if (!enableLightSchemaChange) {
                 return ResponseEntityBuilder.okWithCommonError("Column " + ddlRequestBody.columnName
-                                + " is primary key in materializedIndex that can't do the light schema change");
+                        + " is primary key in materializedIndex that can't do the light schema change");
             }
         }
         return ResponseEntityBuilder.ok();

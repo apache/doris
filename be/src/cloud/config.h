@@ -98,7 +98,7 @@ DECLARE_mBool(save_load_error_log_to_s3);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
-DECLARE_Int32(delete_bitmap_lock_expiration_seconds);
+DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
@@ -110,6 +110,10 @@ DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
 DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
+
+DECLARE_mInt32(delete_bitmap_rpc_retry_times);
+
+DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

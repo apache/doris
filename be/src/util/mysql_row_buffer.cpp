@@ -115,6 +115,7 @@ void MysqlRowBuffer<is_binary_format>::open_dynamic_mode() {
         // write length when dynamic mode close
         _len_pos = (_pos - _buf);
         _pos = _pos + 8;
+        _field_pos++;
     }
     _dynamic_mode++;
 }
@@ -360,13 +361,76 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
     return 0;
 }
 
+// Refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+// Encode time into MySQL binary protocol format with support for scale (microsecond precision)
+// Time value is limited between '-838:59:59' and '838:59:59'
+static int encode_binary_timev2(char* buff, double time, int scale) {
+    // Check if scale is valid (0 to 6)
+    if (scale < 0 || scale > 6) {
+        return -1; // Return error for invalid scale
+    }
+
+    int pos = 0;                      // Current position in the buffer
+    bool is_negative = time < 0;      // Determine if the time is negative
+    double abs_time = std::abs(time); // Convert time to absolute value
+
+    // Maximum time in microseconds: 838 hours, 59 minutes, 59 seconds
+    const int64_t MAX_TIME_MICROSECONDS = (838 * 3600 + 59 * 60 + 59) * 1000000LL;
+
+    // Convert time into microseconds and enforce range limit
+    int64_t total_microseconds = static_cast<int64_t>(abs_time); // Total microseconds
+    if (total_microseconds > MAX_TIME_MICROSECONDS) {
+        total_microseconds = MAX_TIME_MICROSECONDS; // Cap at max time
+    }
+
+    // Adjust microseconds precision based on scale
+    total_microseconds /= static_cast<int64_t>(std::pow(10, 6 - scale)); // Scale adjustment
+    total_microseconds *= static_cast<int64_t>(std::pow(10, 6 - scale)); // Truncate extra precision
+
+    // Extract days, hours, minutes, seconds, and microseconds
+    int64_t days = total_microseconds / (3600LL * 24 * 1000000); // Calculate days
+    total_microseconds %= (3600LL * 24 * 1000000);
+
+    int64_t hours = total_microseconds / (3600LL * 1000000); // Remaining hours
+    total_microseconds %= (3600LL * 1000000);
+
+    int64_t minutes = total_microseconds / (60LL * 1000000); // Remaining minutes
+    total_microseconds %= (60LL * 1000000);
+
+    int64_t seconds = total_microseconds / 1000000;      // Remaining seconds
+    int64_t microseconds = total_microseconds % 1000000; // Remaining microseconds
+
+    // MySQL binary protocol rules for time encoding
+    if (days == 0 && hours == 0 && minutes == 0 && seconds == 0 && microseconds == 0) {
+        buff[pos++] = 0; // All zero: length is 0
+    } else if (microseconds == 0) {
+        buff[pos++] = 8;                                    // No microseconds: length is 8
+        buff[pos++] = is_negative ? 1 : 0;                  // Sign byte
+        int4store(buff + pos, static_cast<uint32_t>(days)); // Store days (4 bytes)
+        pos += 4;
+        buff[pos++] = static_cast<char>(hours);   // Store hours (1 byte)
+        buff[pos++] = static_cast<char>(minutes); // Store minutes (1 byte)
+        buff[pos++] = static_cast<char>(seconds); // Store seconds (1 byte)
+    } else {
+        buff[pos++] = 12;                                   // Include microseconds: length is 12
+        buff[pos++] = is_negative ? 1 : 0;                  // Sign byte
+        int4store(buff + pos, static_cast<uint32_t>(days)); // Store days (4 bytes)
+        pos += 4;
+        buff[pos++] = static_cast<char>(hours);                     // Store hours (1 byte)
+        buff[pos++] = static_cast<char>(minutes);                   // Store minutes (1 byte)
+        buff[pos++] = static_cast<char>(seconds);                   // Store seconds (1 byte)
+        int4store(buff + pos, static_cast<uint32_t>(microseconds)); // Store microseconds (4 bytes)
+        pos += 4;
+    }
+
+    return pos; // Return total bytes written to buffer
+}
+
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_time(double data) {
     if (is_binary_format && !_dynamic_mode) {
-        char buff[8];
-        _field_pos++;
-        float8store(buff, data);
-        return append(buff, 8);
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Not supported time type for binary protocol");
     }
     // 1 for string trail, 1 for length, other for time str
     reserve(2 + MAX_TIME_WIDTH);
@@ -378,14 +442,13 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
     if (is_binary_format && !_dynamic_mode) {
-        char buff[8];
+        char buff[13];
         _field_pos++;
-        float8store(buff, data);
-        return append(buff, 8);
+        int length = encode_binary_timev2(buff, data, scale);
+        return append(buff, length);
     }
-    // 1 for string trail, 1 for length, other for time str
-    reserve(2 + MAX_TIME_WIDTH);
 
+    reserve(2 + MAX_TIME_WIDTH);
     _pos = add_timev2(data, _pos, _dynamic_mode, scale);
     return 0;
 }

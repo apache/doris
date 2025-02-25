@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_ip_functions") {
+suite("test_ip_functions", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
 
     qt_sql "SELECT ipv4_num_to_string(-1);"
