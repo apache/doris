@@ -99,7 +99,6 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 );
     }
 
-    // eliminate avg
     @Test
     void eliminateAvg() {
         String sql = "select id, avg(age) from t group by id";
@@ -114,7 +113,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                         )
                 );
     }
-    // eliminate count(1)
+
     @Test
     void eliminateCountStar() {
         String sql = "select id, count(*) from t group by id";
@@ -129,7 +128,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                         )
                 );
     }
-    // eliminate avg(a+1),min(a+1)
+
     @Test
     void eliminateExpr() {
         String sql = "select id, avg(age+1), min(abs(age)) from t group by id";
