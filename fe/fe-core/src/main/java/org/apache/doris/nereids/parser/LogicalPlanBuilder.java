@@ -3841,10 +3841,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                     break;
                 case DorisParser.LIKE:
-                    outExpression = new Like(
-                        valueExpression,
-                        getExpression(ctx.pattern)
-                    );
+                    if (ctx.escape != null) {
+                        outExpression = new Like(valueExpression, getExpression(ctx.pattern),
+                            getExpression(ctx.escape));
+                    } else {
+                        outExpression = new Like(valueExpression, getExpression(ctx.pattern));
+                    }
                     break;
                 case DorisParser.RLIKE:
                 case DorisParser.REGEXP:
