@@ -39,6 +39,8 @@ namespace doris::cloud {
 class Transaction;
 
 constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
