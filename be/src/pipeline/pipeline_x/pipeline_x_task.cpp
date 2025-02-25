@@ -263,6 +263,17 @@ Status PipelineXTask::execute(bool* eos) {
 
     // The status must be runnable
     if (!_opened) {
+        DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
+            auto required_pipeline_id =
+                    DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                            "PipelineTask::execute.open_sleep", "pipeline_id", -1);
+            auto required_task_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "PipelineTask::execute.open_sleep", "task_id", -1);
+            if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                LOG(WARNING) << "PipelineTask::execute.open_sleep sleep 5s";
+                sleep(5);
+            }
+        });
         if (_wake_up_early) {
             *eos = true;
             _eos = true;
@@ -352,6 +363,20 @@ Status PipelineXTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
+
+            DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
+                auto required_pipeline_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "pipeline_id", -1);
+                auto required_task_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "task_id", -1);
+                if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                    LOG(WARNING) << "PipelineTask::execute.sink_eos_sleep sleep 10s";
+                    sleep(10);
+                }
+            });
+
             status = _sink->sink(_state, block, *eos);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 set_wake_up_and_dep_ready();
