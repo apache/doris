@@ -195,6 +195,9 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     size_t rows = in_block->rows();
     _distinct_row.clear();
     _distinct_row.reserve(rows);
+    if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg && low_memory_mode()) {
+        _stop_emplace_flag = true;
+    }
 
     if (!_stop_emplace_flag) {
         _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
@@ -447,8 +450,7 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
     local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty

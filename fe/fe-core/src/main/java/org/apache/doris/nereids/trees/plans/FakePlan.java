@@ -82,7 +82,7 @@ public class FakePlan implements Plan, BlockFuncDepsPropagation {
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        return new LogicalProperties(ArrayList::new, () -> DataTrait.EMPTY_TRAIT);
+        return new LogicalProperties(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT);
     }
 
     @Override

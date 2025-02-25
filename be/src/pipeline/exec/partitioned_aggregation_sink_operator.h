@@ -16,10 +16,16 @@
 // under the License.
 
 #pragma once
+#include <limits>
+#include <memory>
+
 #include "aggregation_sink_operator.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "util/pretty_printer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -40,12 +46,12 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
-    Status revoke_memory(RuntimeState* state);
+    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
     Status setup_in_memory_agg_op(RuntimeState* state);
 
+    template <bool spilled>
     void update_profile(RuntimeProfile* child_profile);
 
     template <typename KeyType>
@@ -55,7 +61,7 @@ public:
     };
     template <typename HashTableCtxType, typename HashTableType>
     Status _spill_hash_table(RuntimeState* state, HashTableCtxType& context,
-                             HashTableType& hash_table, bool eos) {
+                             HashTableType& hash_table, const size_t size_to_revoke, bool eos) {
         Status status;
         Defer defer {[&]() {
             if (!status.ok()) {
@@ -67,8 +73,21 @@ public:
 
         Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
 
-        static int spill_batch_rows = 4096;
-        int row_count = 0;
+        const auto total_rows =
+                Base::_shared_state->in_mem_shared_state->aggregate_data_container->total_count();
+
+        const size_t size_to_revoke_ = std::max<size_t>(size_to_revoke, 1);
+
+        // `spill_batch_rows` will be between 4k and 1M
+        // and each block to spill will not be larger than 32MB(`MAX_SPILL_WRITE_BATCH_MEM`)
+        const auto spill_batch_rows = std::min<size_t>(
+                1024 * 1024,
+                std::max<size_t>(4096, vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM *
+                                               total_rows / size_to_revoke_));
+
+        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+                   << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows;
+        size_t row_count = 0;
 
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
                 Base::_shared_state->partition_count);
@@ -85,6 +104,7 @@ public:
                 for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled();
                      ++i) {
                     if (spill_infos[i].keys_.size() >= spill_batch_rows) {
+                        _rows_in_partitions[i] += spill_infos[i].keys_.size();
                         status = _spill_partition(
                                 state, context, Base::_shared_state->spill_partitions[i],
                                 spill_infos[i].keys_, spill_infos[i].values_, nullptr, false);
@@ -100,6 +120,7 @@ public:
             auto spill_null_key_data =
                     (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
             if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
+                _rows_in_partitions[i] += spill_infos[i].keys_.size();
                 status = _spill_partition(state, context, Base::_shared_state->spill_partitions[i],
                                           spill_infos[i].keys_, spill_infos[i].values_,
                                           spill_null_key_data
@@ -130,10 +151,6 @@ public:
         auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
                                                         Base::profile(), spill_stream);
         RETURN_IF_ERROR(status);
-        spill_stream->set_write_counters(Base::_spill_serialize_block_timer,
-                                         Base::_spill_block_count, Base::_spill_data_size,
-                                         Base::_spill_write_disk_timer,
-                                         Base::_spill_write_wait_io_timer);
 
         status = to_block(context, keys, values, null_key_data);
         RETURN_IF_ERROR(status);
@@ -148,14 +165,9 @@ public:
             keys.clear();
             values.clear();
         }
-        status = spill_stream->prepare_spill();
+        status = spill_stream->spill_block(state, block_, false);
         RETURN_IF_ERROR(status);
 
-        {
-            SCOPED_TIMER(_spill_write_disk_timer);
-            status = spill_stream->spill_block(state, block_, false);
-        }
-        RETURN_IF_ERROR(status);
         status = spill_partition->flush_if_full();
         _reset_tmp_data();
         return status;
@@ -260,8 +272,6 @@ public:
 
     std::unique_ptr<RuntimeState> _runtime_state;
 
-    std::shared_ptr<Dependency> _finish_dependency;
-
     // temp structures during spilling
     vectorized::MutableColumns key_columns_;
     vectorized::MutableColumns value_columns_;
@@ -271,18 +281,7 @@ public:
     vectorized::Block value_block_;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
 };
@@ -318,13 +317,16 @@ public:
     }
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
 
-    size_t _spill_partition_count_bits = 4;
+    size_t _spill_partition_count = 32;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
