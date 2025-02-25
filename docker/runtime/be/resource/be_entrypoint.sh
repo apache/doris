@@ -86,32 +86,29 @@ update_conf_from_configmap()
 
 kerberos_config()
 {
-   if [[ -n "$KRB5_PATH" ]]; then
-        KRB5_CONFIG=${KRB5_CONFIG:-"/etc/krb5.conf"}
-
-        if [[ -f "$KRB5_PATH/krb5.conf" ]]; then
-            log_stderr "[info] Creating symlink from $KRB5_PATH/krb5.conf to $KRB5_CONFIG"
-            ln -sfT "$KRB5_PATH/krb5.conf" "$KRB5_CONFIG"
-        else
-            log_stderr "[warning] krb5.conf not found in $KRB5_PATH"
-        fi
-    fi
-
-    if [[ -n "$KEYTAB_PATH" ]]; then
-        if [[ -d "$KEYTAB_PATH" ]]; then
-            keytab_files=($(find "$KEYTAB_PATH" -name "*.keytab"))
-            if [[ ${#keytab_files[@]} -gt 0 ]]; then
-                log_stderr "[info] Found keytab file(s) in $KEYTAB_PATH:"
-                for keytab_file in "${keytab_files[@]}"; do
-                    echo "$keytab_file"
-                done
-            else
-                log_stderr "[warning] No keytab files found in $KEYTAB_PATH"
+   if [[ -n "$KRB5_MOUNT_PATH" ]]; then
+        if [[ -f "$KRB5_MOUNT_PATH/krb5.conf" ]]; then
+            KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+            if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+                log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+                mkdir -p "$KRB5_CONFIG_DIR"
             fi
+            log_stderr "[info] Creating krb5 symlink from $KRB5_MOUNT_PATH/krb5.conf to $KRB5_CONFIG"
+            ln -sfT "$KRB5_MOUNT_PATH/krb5.conf" "$KRB5_CONFIG"
         else
-            log_stderr "[warning] KEYTAB_PATH $KEYTAB_PATH does not exist or is not a directory"
+            log_stderr "[warning] krb5.conf not found in $KRB5_MOUNT_PATH"
         fi
-    fi
+   fi
+
+   if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+       log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlink"
+       return
+   fi
+
+   if [[ -n "$KEYTAB_MOUNT_PATH" ]]; then
+        log_stderr "[info] Creating keytab symlink from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+        ln -sfT "$KEYTAB_MOUNT_PATH/" "$KEYTAB_FINAL_USED_PATH"
+   fi
 }
 
 # resolve password for root
