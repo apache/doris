@@ -451,7 +451,6 @@ include_directories(
 
 include_directories(
     ${SRC_DIR}/
-    ${TEST_DIR}/
 )
 
 include_directories(
@@ -799,6 +798,7 @@ add_subdirectory(${SRC_DIR}/pipeline)
 # this include doris_be_test
 if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
+    include_directories(${TEST_DIR}/)
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
