@@ -86,8 +86,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
 template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
-    UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
-    UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
     UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
     UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
     UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
