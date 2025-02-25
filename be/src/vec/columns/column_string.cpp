@@ -56,7 +56,7 @@ void ColumnStr<T>::sanity_check_simple() const {
     auto count = offsets.size();
     if (chars.size() != offsets[count - 1]) {
         throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: ",
-                                              count, chars.size(), count - 1, offsets[count - 1]));
+                                              count, chars.size(), offsets[count - 1]));
     }
     if (offsets[-1] != 0) {
         throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
