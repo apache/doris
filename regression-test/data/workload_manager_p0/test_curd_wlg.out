@@ -144,11 +144,11 @@ test_wg_priv_role1	test_wg_priv_g1	Usage_priv	NO
 -- !select_wgp_12 --
 
 -- !select_default_val_wg_1 --
-default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	50%	80%		-1	-1
+default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	75%	85%		-1	-1
 
 -- !select_default_val_wg_2 --
-default_val_wg	1024	1%	true	100	1	123	1%	1	12	10	50%	80%	abc	123	10
+default_val_wg	1024	1%	true	100	1	123	1%	1	12	10	75%	85%	abc	123	10
 
 -- !select_default_val_wg_3 --
-default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	50%	80%		-1	-1
+default_val_wg	-1	-1	true	2147483647	0	0	-1	-1	-1	-1	75%	85%		-1	-1
 

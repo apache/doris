@@ -38,6 +38,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
+    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
+                                                                _runtime_profile.get());
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
@@ -48,6 +50,14 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
+}
+
+std::vector<Dependency*> MultiCastDataStreamSourceLocalState::dependencies() const {
+    auto dependencies = Base::dependencies();
+    auto& p = _parent->cast<Parent>();
+    dependencies.emplace_back(
+            _shared_state->multi_cast_data_streamer->get_spill_read_dependency(p._consumer_id));
+    return dependencies;
 }
 
 Status MultiCastDataStreamSourceLocalState::open(RuntimeState* state) {
@@ -92,9 +102,9 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     {
         SCOPED_TIMER(local_state._get_data_timer);
         RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(
-                _consumer_id, output_block, eos));
+                state, _consumer_id, output_block, eos));
     }
-    if (!local_state._conjuncts.empty()) {
+    if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                                output_block->columns()));
