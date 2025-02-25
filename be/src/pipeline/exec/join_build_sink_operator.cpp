@@ -31,13 +31,15 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
     auto& p = PipelineXSinkLocalState<SharedStateArg>::_parent
                       ->template cast<typename Derived::Parent>();
 
-    PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
-                                                                        to_string(p._join_op));
+    PipelineXSinkLocalState<SharedStateArg>::operator_custom_profile()->add_info_string(
+            "JoinType", to_string(p._join_op));
 
-    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(),
-                                              "PublishRuntimeFilterTime");
+    _publish_runtime_filter_timer =
+            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::operator_custom_profile(),
+                      "PublishRuntimeFilterTime");
     _runtime_filter_compute_timer =
-            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::profile(), "BuildRuntimeFilterTime");
+            ADD_TIMER(PipelineXSinkLocalState<SharedStateArg>::operator_custom_profile(),
+                      "BuildRuntimeFilterTime");
     return Status::OK();
 }
 

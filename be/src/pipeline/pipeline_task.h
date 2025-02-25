@@ -290,7 +290,6 @@ private:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _get_block_timer = nullptr;
-    RuntimeProfile::Counter* _get_block_counter = nullptr;
     RuntimeProfile::Counter* _sink_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;

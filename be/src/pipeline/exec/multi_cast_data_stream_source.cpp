@@ -39,14 +39,14 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
     _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
-                                                                _runtime_profile.get());
+                                                                operator_custom_profile());
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
-    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
-    _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
+    _wait_for_rf_timer = ADD_TIMER(_operator_custom_profile, "WaitForRuntimeFilter");
+    _filter_timer = ADD_TIMER(_operator_custom_profile, "FilterTime");
+    _get_data_timer = ADD_TIMER(_operator_custom_profile, "GetDataTime");
+    _materialize_data_timer = ADD_TIMER(_operator_custom_profile, "MaterializeDataTime");
     // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
+    RuntimeFilterConsumer::_init_profile(_operator_custom_profile.get());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
                                    p.get_name() + "_FILTER_DEPENDENCY");
     return Status::OK();
