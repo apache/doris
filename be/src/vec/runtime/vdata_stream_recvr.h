@@ -73,10 +73,9 @@ class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeProfile::HighWaterMarkCounter* counter,
-                     RuntimeState* state, const RowDescriptor& row_desc,
-                     const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile,
-                     size_t data_queue_capacity);
+                     RuntimeState* state, const TUniqueId& fragment_instance_id,
+                     PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                     RuntimeProfile* profile, size_t data_queue_capacity);
 
     ~VDataStreamRecvr() override;
 
@@ -97,7 +96,6 @@ public:
 
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
-    const RowDescriptor& row_desc() const { return _row_desc; }
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
@@ -176,14 +174,10 @@ private:
 
 class VDataStreamRecvr::SenderQueue {
 public:
-    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
+    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
                 std::shared_ptr<pipeline::Dependency> local_channel_dependency);
 
     ~SenderQueue();
-
-    std::shared_ptr<pipeline::Dependency> local_channel_dependency() {
-        return _local_channel_dependency;
-    }
 
     Status get_batch(Block* next_block, bool* eos);
 
@@ -203,15 +197,15 @@ public:
         _source_dependency = dependency;
     }
 
+protected:
     void add_blocks_memory_usage(int64_t size);
 
     void sub_blocks_memory_usage(int64_t size);
 
     bool exceeds_limit();
-
-protected:
     friend class pipeline::ExchangeLocalState;
-    void try_set_dep_ready_without_lock();
+
+    void set_source_ready(std::lock_guard<std::mutex>&);
 
     // To record information about several variables in the event of a DCHECK failure.
     //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)

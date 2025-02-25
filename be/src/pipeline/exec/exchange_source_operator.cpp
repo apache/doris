@@ -65,8 +65,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, _memory_used_counter, p.input_row_desc(), state->fragment_instance_id(),
-            p.node_id(), p.num_senders(), profile(), p.is_merging(),
+            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
+            p.num_senders(), profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
     const auto& queues = stream_recvr->sender_queues();
