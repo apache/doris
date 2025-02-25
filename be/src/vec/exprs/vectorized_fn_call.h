@@ -70,6 +70,8 @@ public:
     bool can_push_down_to_index() const override;
     bool equals(const VExpr& other) override;
 
+    size_t estimate_memory(const size_t rows) override;
+
 protected:
     FunctionBasePtr _function;
     std::string _expr_name;
