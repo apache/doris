@@ -85,6 +85,8 @@ private:
 
     // If true, we will skip the row containing the null key, if false, directly report an error
     const bool _skip_null_key;
+
+    const int64_t _memory_limit;
 };
 
 } // namespace doris::pipeline

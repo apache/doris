@@ -92,6 +92,12 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         return Status::InternalError("Failed to create dictionary");
     }
 
+    if (dict->allocated_bytes() > p._memory_limit) {
+        return Status::InternalError(
+                "load dict  memory limit exceeded , current memory usage: {} , memory limit: {}",
+                dict->allocated_bytes(), p._memory_limit);
+    }
+
     LOG(INFO) << fmt::format("Loading dictionary {}, version: {}", p._dictionary_id, p._version_id);
     RETURN_IF_ERROR(ExecEnv::GetInstance()->dict_factory()->register_dict(p._dictionary_id,
                                                                           p._version_id, dict));
@@ -111,7 +117,8 @@ DictSinkOperatorX::DictSinkOperatorX(int operator_id, const RowDescriptor& row_d
           _value_names(dict_sink.value_names),
           _row_desc(row_desc),
           _t_output_expr(dict_input_expr),
-          _skip_null_key(dict_sink.skip_null_key) {}
+          _skip_null_key(dict_sink.skip_null_key),
+          _memory_limit(dict_sink.memory_limit) {}
 
 Status DictSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
