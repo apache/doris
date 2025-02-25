@@ -30,9 +30,10 @@ namespace doris {
 // this class used in cross join node
 class RuntimeFilterProducerHelperCross : public RuntimeFilterProducerHelper {
 public:
-    RuntimeFilterProducerHelperCross(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                                     RuntimeProfile* profile)
-            : RuntimeFilterProducerHelper(build_expr_ctxs, profile, true, false) {}
+    ~RuntimeFilterProducerHelperCross() override = default;
+
+    RuntimeFilterProducerHelperCross(RuntimeProfile* profile)
+            : RuntimeFilterProducerHelper(profile, true, false) {}
 
     Status process(RuntimeState* state, vectorized::Blocks& blocks) {
         for (auto& block : blocks) {
@@ -47,7 +48,7 @@ public:
 
 private:
     Status _process_block(vectorized::Block* block) {
-        for (const auto& vexpr_ctx : _build_expr_context) {
+        for (const auto& vexpr_ctx : _filter_expr_contexts) {
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
             DCHECK(result_column_id != -1);
@@ -57,6 +58,11 @@ private:
         }
         _insert(block, 0);
         return Status::OK();
+    }
+
+    void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                    const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
+        _filter_expr_contexts = build_expr_ctxs;
     }
 };
 

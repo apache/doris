@@ -33,11 +33,11 @@ namespace doris {
  */
 class RuntimeFilterProducerHelper {
 public:
-    RuntimeFilterProducerHelper(const vectorized::VExprContextSPtrs& build_expr_ctxs,
-                                RuntimeProfile* profile, bool should_build_hash_table,
+    virtual ~RuntimeFilterProducerHelper() = default;
+
+    RuntimeFilterProducerHelper(RuntimeProfile* profile, bool should_build_hash_table,
                                 bool is_broadcast_join)
-            : _build_expr_context(build_expr_ctxs),
-              _should_build_hash_table(should_build_hash_table),
+            : _should_build_hash_table(should_build_hash_table),
               _profile(new RuntimeProfile("RuntimeFilterProducerHelper")),
               _is_broadcast_join(is_broadcast_join) {
         profile->add_child(_profile.get(), true, nullptr);
@@ -46,7 +46,8 @@ public:
     }
 
     // create and register runtime filters producers
-    Status init(RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
+    Status init(RuntimeState* state, const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
 
     // send local size to remote to sync global rf size if needed
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
@@ -61,11 +62,12 @@ public:
                    vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
 
 protected:
+    virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+                            const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
     void _insert(const vectorized::Block* block, size_t start);
     Status _publish(RuntimeState* state);
 
-    const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
     const bool _should_build_hash_table;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
@@ -73,6 +75,8 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     bool _skip_runtime_filters_process = false;
     const bool _is_broadcast_join;
+
+    std::vector<std::shared_ptr<vectorized::VExprContext>> _filter_expr_contexts;
 };
 
 } // namespace doris

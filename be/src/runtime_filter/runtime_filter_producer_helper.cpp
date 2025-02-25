@@ -22,13 +22,24 @@
 
 namespace doris {
 
+void RuntimeFilterProducerHelper::_init_expr(
+        const vectorized::VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+    _filter_expr_contexts.resize(runtime_filter_descs.size());
+    for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
+        _filter_expr_contexts[i] = build_expr_ctxs[runtime_filter_descs[i].expr_order];
+    }
+}
+
 Status RuntimeFilterProducerHelper::init(
-        RuntimeState* state, const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
+        RuntimeState* state, const vectorized::VExprContextSPtrs& build_expr_ctxs,
+        const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _producers.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(runtime_filter_descs[i],
                                                                 &_producers[i], _profile.get()));
     }
+    _init_expr(build_expr_ctxs, runtime_filter_descs);
     return Status::OK();
 }
 
@@ -55,13 +66,13 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
 
 void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer);
-    for (const auto& filter : _producers) {
+    for (int i = 0; i < _producers.size(); i++) {
+        auto filter = _producers[i];
         if (!filter->impl()->is_valid()) {
             // Skip building if ignored or disabled.
             continue;
         }
-        int result_column_id =
-                _build_expr_context[filter->expr_order()]->get_last_result_column_id();
+        int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
         const auto& column = block->get_by_position(result_column_id).column;
         filter->insert(column, start);
     }

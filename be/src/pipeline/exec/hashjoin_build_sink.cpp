@@ -89,8 +89,9 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
-            _build_expr_ctxs, profile(), _should_build_hash_table, p._is_broadcast_join);
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, p._runtime_filter_descs));
+            profile(), _should_build_hash_table, p._is_broadcast_join);
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
+                                                          p._runtime_filter_descs));
     return Status::OK();
 }
 
