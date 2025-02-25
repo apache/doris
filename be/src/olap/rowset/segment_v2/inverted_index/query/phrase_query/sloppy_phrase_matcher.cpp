@@ -1,5 +1,10 @@
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
 
+#include <memory>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+
 namespace doris::segment_v2::inverted_index {
 
 SloppyPhraseMatcher::SloppyPhraseMatcher(const std::vector<PostingsAndFreq>& postings, int32_t slop)
@@ -12,7 +17,15 @@ SloppyPhraseMatcher::SloppyPhraseMatcher(const std::vector<PostingsAndFreq>& pos
     }
 }
 
-void SloppyPhraseMatcher::reset() {
+void SloppyPhraseMatcher::reset(int32_t doc) {
+    for (const auto& pp : _phrase_positions) {
+        if (pp->_postings.docID() != doc) {
+            std::string error_message = "docID mismatch: expected " + std::to_string(doc) +
+                                        ", but got " + std::to_string(pp->_postings.docID());
+            throw Exception(ErrorCode::INTERNAL_ERROR, error_message);
+        }
+    }
+
     _positioned = init_phrase_positions();
     _match_length = std::numeric_limits<int32_t>::max();
 }
@@ -101,6 +114,10 @@ PhrasePositions* SloppyPhraseMatcher::lesser(PhrasePositions* pp, PhrasePosition
 }
 
 int32_t SloppyPhraseMatcher::collide(PhrasePositions* pp) {
+    if (pp->_rpt_group + 1 > _rpt_groups.size()) {
+        return -1;
+    }
+
     int32_t cur_tp_pos = tp_pos(pp);
     const auto& rg = _rpt_groups[pp->_rpt_group];
     for (auto* pp2 : rg) {
@@ -147,14 +164,14 @@ bool SloppyPhraseMatcher::init_first_time() {
     return true;
 }
 
-std::unordered_map<std::string, int32_t> SloppyPhraseMatcher::repeating_terms() {
-    std::unordered_map<std::string, int32_t> tord;
+LinkedHashMap<std::string, int32_t> SloppyPhraseMatcher::repeating_terms() {
+    LinkedHashMap<std::string, int32_t> tord;
     std::unordered_map<std::string, int32_t> tcnt;
     for (const auto& pp : _phrase_positions) {
         for (const auto& t : pp->_terms) {
-            int32_t cnt = ++tcnt[t];
-            if (cnt == 2) {
-                tord.insert(std::make_pair(t, tord.size()));
+            tcnt[t]++;
+            if (tcnt[t] == 2) {
+                tord.insert(t, tord.size());
             }
         }
     }
@@ -168,8 +185,8 @@ void SloppyPhraseMatcher::place_first_positions() {
 }
 
 std::vector<std::vector<PhrasePositions*>> SloppyPhraseMatcher::gather_rpt_groups(
-        const std::unordered_map<std::string, int32_t>& rptTerms) {
-    auto rpp = repeating_pps(rptTerms);
+        const LinkedHashMap<std::string, int32_t>& rpt_terms) {
+    auto rpp = repeating_pps(rpt_terms);
     std::vector<std::vector<PhrasePositions*>> res;
     if (!_has_multi_term_rpts) {
         // simpler - no multi-terms - can base on positions in first doc
@@ -189,7 +206,8 @@ std::vector<std::vector<PhrasePositions*>> SloppyPhraseMatcher::gather_rpt_group
                 if (g < 0) {
                     g = res.size();
                     pp->_rpt_group = g;
-                    std::vector<PhrasePositions*> rl(2);
+                    std::vector<PhrasePositions*> rl;
+                    rl.reserve(2);
                     rl.emplace_back(pp);
                     res.emplace_back(rl);
                 }
@@ -205,18 +223,51 @@ std::vector<std::vector<PhrasePositions*>> SloppyPhraseMatcher::gather_rpt_group
 }
 
 std::vector<PhrasePositions*> SloppyPhraseMatcher::repeating_pps(
-        const std::unordered_map<std::string, int32_t>& rpt_terms) {
+        const LinkedHashMap<std::string, int32_t>& rpt_terms) {
     std::vector<PhrasePositions*> rp;
     for (const auto& pp : _phrase_positions) {
         for (const auto& t : pp->_terms) {
             if (rpt_terms.contains(t)) {
-                rp.emplace_back(pp);
+                rp.emplace_back(pp.get());
                 _has_multi_term_rpts |= (pp->_terms.size() > 1);
                 break;
             }
         }
     }
     return rp;
+}
+
+std::vector<FixedBitSetPtr> SloppyPhraseMatcher::pp_terms_bit_sets(
+        const std::vector<PhrasePositions*>& rpp, const LinkedHashMap<std::string, int32_t>& tord) {
+    std::vector<FixedBitSetPtr> bb(rpp.size());
+    for (PhrasePositions* pp : rpp) {
+        auto b = std::make_unique<FixedBitSet>(tord.size());
+        const int32_t* ord = nullptr;
+        for (const auto& t : pp->_terms) {
+            if ((ord = tord.find(t)) != nullptr) {
+                b->set(*ord);
+            }
+        }
+        bb.emplace_back(std::move(b));
+    }
+    return bb;
+}
+
+void SloppyPhraseMatcher::union_term_groups(std::vector<FixedBitSetPtr>& bb) {
+    int32_t incr = 0;
+    for (int32_t i = 0; i < bb.size() - 1; i += incr) {
+        incr = 1;
+        int32_t j = i + 1;
+        while (j < bb.size()) {
+            if (bb[i]->intersects(*bb[j])) {
+                bb[i]->bit_set_or(*bb[j]);
+                bb.erase(bb.begin() + j);
+                incr = 0;
+            } else {
+                ++j;
+            }
+        }
+    }
 }
 
 void SloppyPhraseMatcher::sort_rpt_groups(std::vector<std::vector<PhrasePositions*>>& rgs) {
@@ -278,6 +329,21 @@ bool SloppyPhraseMatcher::init_complex() {
     }
     fill_queue();
     return true;
+}
+
+std::unordered_map<std::string, int32_t> SloppyPhraseMatcher::term_groups(
+        const LinkedHashMap<std::string, int32_t>& tord, const std::vector<FixedBitSetPtr>& bb) {
+    std::unordered_map<std::string, int32_t> tg;
+    std::vector<std::string> terms = tord.to_vector();
+    for (int32_t i = 0; i < bb.size(); i++) {
+        const auto& bits = bb[i];
+        for (int32_t ord = bits->next_set_bit(0); ord != std::numeric_limits<int32_t>::max();
+             ord = ord + 1 >= bits->length() ? std::numeric_limits<int32_t>::max()
+                                             : bits->next_set_bit(ord + 1)) {
+            tg.insert(std::make_pair(terms[ord], i));
+        }
+    }
+    return tg;
 }
 
 } // namespace doris::segment_v2::inverted_index

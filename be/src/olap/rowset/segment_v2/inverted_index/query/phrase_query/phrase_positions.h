@@ -51,8 +51,8 @@ public:
     int32_t _ord = 0;
     TermPositionIterator _postings;
     PhrasePositions* _next = nullptr;
-    uint32_t _rpt_group = -1;
-    uint32_t _rpt_ind = 0;
+    int32_t _rpt_group = -1;
+    int32_t _rpt_ind = 0;
     std::vector<std::string> _terms;
 };
 

@@ -24,11 +24,11 @@ namespace doris::segment_v2::inverted_index {
 class ExactPhraseMatcher : public PhraseMatcherBase<ExactPhraseMatcher> {
 public:
     ExactPhraseMatcher(std::vector<PostingsAndPosition> postings);
-    ~ExactPhraseMatcher() override = default;
+
+    void reset(int32_t doc);
+    bool next_match();
 
 private:
-    void reset();
-    bool next_match();
     bool advance_position(PostingsAndPosition& posting, int32_t target);
 
     std::vector<PostingsAndPosition> _postings;

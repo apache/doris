@@ -17,12 +17,19 @@
 
 #pragma once
 
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <limits>
+
 namespace doris::segment_v2::inverted_index {
 
 template <typename T>
 class PriorityQueue {
 public:
     PriorityQueue(size_t max_size, std::function<T()> sentinel_object_supplier = nullptr) {
+        assert(max_size >= 0 && max_size < std::numeric_limits<int32_t>::max());
         size_t heap_size = (max_size == 0) ? 2 : max_size + 1;
         _heap.resize(heap_size);
         _max_size = max_size;
@@ -38,9 +45,9 @@ public:
     virtual ~PriorityQueue() = default;
 
     T add(const T& element) {
-        assert(_size + 1 <= _max_size);
-        size_t index = ++_size;
+        size_t index = _size + 1;
         _heap[index] = element;
+        _size = index;
         up_heap(index);
         return _heap[1];
     }
@@ -59,7 +66,7 @@ public:
         }
     }
 
-    const T& top() const { return _heap[1]; }
+    T top() const { return _heap[1]; }
 
     T pop() {
         if (_size > 0) {
@@ -82,6 +89,8 @@ public:
         _heap[1] = new_top;
         return update_top();
     }
+
+    int32_t size() { return _size; }
 
     void clear() {
         for (size_t i = 1; i <= _size; i++) {
@@ -113,11 +122,11 @@ private:
     bool up_heap(size_t orig_pos) {
         size_t i = orig_pos;
         T node = _heap[i];
-        size_t j = i >> 2;
+        size_t j = i >> 1;
         while (j > 0 && less_than(node, _heap[j])) {
             _heap[i] = _heap[j];
             i = j;
-            j = j >> 2;
+            j = j >> 1;
         }
         _heap[i] = node;
         return i != orig_pos;
@@ -125,7 +134,7 @@ private:
 
     void down_heap(size_t i) {
         T node = _heap[i];
-        size_t j = i << 2;
+        size_t j = i << 1;
         size_t k = j + 1;
         if (k <= _size && less_than(_heap[k], _heap[j])) {
             j = k;
@@ -133,7 +142,7 @@ private:
         while (j <= _size && less_than(_heap[j], node)) {
             _heap[i] = _heap[j];
             i = j;
-            j = i << 2;
+            j = i << 1;
             k = j + 1;
             if (k <= _size && less_than(_heap[k], _heap[j])) {
                 j = k;

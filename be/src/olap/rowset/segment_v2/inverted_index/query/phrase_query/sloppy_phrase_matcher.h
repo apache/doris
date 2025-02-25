@@ -20,20 +20,19 @@
 #include <limits>
 #include <memory>
 
-#include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_positions.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_queue.h"
 #include "olap/rowset/segment_v2/inverted_index/util/fixed_bit_set.h"
+#include "olap/rowset/segment_v2/inverted_index/util/linked_hash_map.h"
 
 namespace doris::segment_v2::inverted_index {
 
 class SloppyPhraseMatcher : public PhraseMatcherBase<SloppyPhraseMatcher> {
 public:
     SloppyPhraseMatcher(const std::vector<PostingsAndFreq>& postings, int32_t slop);
-    ~SloppyPhraseMatcher() override = default;
 
-    void reset();
+    void reset(int32_t doc);
     bool next_match();
     bool advance_rpts(PhrasePositions* pp);
 
@@ -44,17 +43,22 @@ private:
     int32_t tp_pos(PhrasePositions* pp);
     bool init_phrase_positions();
     bool init_first_time();
-    std::unordered_map<std::string, int32_t> repeating_terms();
+    LinkedHashMap<std::string, int32_t> repeating_terms();
     void place_first_positions();
     std::vector<std::vector<PhrasePositions*>> gather_rpt_groups(
-            const std::unordered_map<std::string, int32_t>& rptTerms);
+            const LinkedHashMap<std::string, int32_t>& rptTerms);
     std::vector<PhrasePositions*> repeating_pps(
-            const std::unordered_map<std::string, int32_t>& rpt_terms);
+            const LinkedHashMap<std::string, int32_t>& rpt_terms);
+    std::vector<FixedBitSetPtr> pp_terms_bit_sets(const std::vector<PhrasePositions*>& rpp,
+                                                  const LinkedHashMap<std::string, int32_t>& tord);
+    void union_term_groups(std::vector<FixedBitSetPtr>& bb);
     void sort_rpt_groups(std::vector<std::vector<PhrasePositions*>>& rgs);
     bool advance_repeat_groups();
     void fill_queue();
     void init_simple();
     bool init_complex();
+    std::unordered_map<std::string, int32_t> term_groups(
+            const LinkedHashMap<std::string, int32_t>& tord, const std::vector<FixedBitSetPtr>& bb);
 
     std::vector<std::unique_ptr<PhrasePositions>> _phrase_positions;
 

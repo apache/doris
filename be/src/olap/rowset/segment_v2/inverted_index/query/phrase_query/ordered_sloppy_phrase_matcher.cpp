@@ -6,8 +6,14 @@ OrderedSloppyPhraseMatcher::OrderedSloppyPhraseMatcher(std::vector<PostingsAndPo
                                                        int32_t slop)
         : _allowed_slop(slop), _postings(std::move(postings)) {}
 
-void OrderedSloppyPhraseMatcher::reset() {
+void OrderedSloppyPhraseMatcher::reset(int32_t doc) {
     for (PostingsAndPosition& posting : _postings) {
+        if (posting._postings.docID() != doc) {
+            std::string error_message = "docID mismatch: expected " + std::to_string(doc) +
+                                        ", but got " + std::to_string(posting._postings.docID());
+            throw Exception(ErrorCode::INTERNAL_ERROR, error_message);
+        }
+
         posting._freq = posting._postings.freq();
         posting._pos = -1;
         posting._upTo = 0;

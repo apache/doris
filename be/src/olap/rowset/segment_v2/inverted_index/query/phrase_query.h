@@ -39,8 +39,7 @@ using namespace inverted_index;
 // ExactPhraseMatcher: x match_phrase 'aaa bbb'
 // SloppyPhraseMatcher: x match_phrase 'aaa bbb ~2', support slop
 // OrderedSloppyPhraseMatcher: x match_phrase 'aaa bbb ~2+', ensuring that the words appear in the specified order.
-using Matcher = std::variant<ExactPhraseMatcher, inverted_index::SloppyPhraseMatcher,
-                             OrderedSloppyPhraseMatcher>;
+using Matcher = std::variant<ExactPhraseMatcher, SloppyPhraseMatcher, OrderedSloppyPhraseMatcher>;
 
 class PhraseQuery : public Query {
 public:

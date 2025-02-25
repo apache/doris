@@ -19,6 +19,8 @@
 
 #include <CLucene/search/query/TermPositionIterator.h>
 
+#include "common/exception.h"
+
 namespace doris::segment_v2::inverted_index {
 
 class PostingsAndFreq {
@@ -55,9 +57,6 @@ public:
 template <typename Derived>
 class PhraseMatcherBase {
 public:
-    PhraseMatcherBase() = default;
-    virtual ~PhraseMatcherBase() = default;
-
     // Handle position information for different types of phrase queries
     inline bool matches(int32_t doc) {
         derived()->reset(doc);

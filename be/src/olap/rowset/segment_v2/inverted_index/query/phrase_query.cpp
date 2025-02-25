@@ -73,13 +73,15 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 }
 
+void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {}
+
 TermPositions* PhraseQuery::ensure_term_position(const std::string& term,
                                                  const std::wstring& field_name,
                                                  bool is_save_iter) {
     std::wstring ws_term = StringUtil::string_to_wstring(term);
     Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
     _terms.push_back(t);
-    TermPositions* term_pos = _searcher->getReader()->termPositions(t);
+    auto* term_pos = _searcher->getReader()->termPositions(t);
     _term_docs.push_back(term_pos);
     if (is_save_iter) {
         _iterators.emplace_back(term_pos);

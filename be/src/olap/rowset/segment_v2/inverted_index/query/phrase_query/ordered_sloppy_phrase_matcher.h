@@ -24,11 +24,11 @@ namespace doris::segment_v2::inverted_index {
 class OrderedSloppyPhraseMatcher : public PhraseMatcherBase<OrderedSloppyPhraseMatcher> {
 public:
     OrderedSloppyPhraseMatcher(std::vector<PostingsAndPosition> postings, int32_t slop);
-    ~OrderedSloppyPhraseMatcher() override = default;
+
+    void reset(int32_t doc);
+    bool next_match();
 
 private:
-    void reset();
-    bool next_match();
     bool stretch_to_order(PostingsAndPosition* prev_posting);
     bool advance_position(PostingsAndPosition& posting, int32_t target);
 
