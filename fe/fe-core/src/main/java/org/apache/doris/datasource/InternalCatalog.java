@@ -1608,6 +1608,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
+            if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST
+                    && !isTempPartition) {
+                throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
+            }
+
             Map<String, String> properties = singlePartitionDesc.getProperties();
 
             /*
