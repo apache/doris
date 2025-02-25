@@ -72,6 +72,10 @@ public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
         return port;
     }
 
+    public ModifyOpType getModifyOpType() {
+        return modifyOpType;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws AnalysisException {
         HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);

@@ -74,11 +74,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     }
 
     @Override
-    public PlanType getType() {
-        throw new RuntimeException("Command do not implement getType");
-    }
-
-    @Override
     public List<? extends Expression> getExpressions() {
         throw new RuntimeException("Command do not implement getExpressions");
     }

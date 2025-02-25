@@ -47,6 +47,18 @@ public class ModifyBackendOp extends BackendOp {
         this.properties = new HashMap<>(properties);
     }
 
+    public Map<String, String> getTagMap() {
+        return tagMap;
+    }
+
+    public Boolean isQueryDisabled() {
+        return isQueryDisabled;
+    }
+
+    public Boolean isLoadDisabled() {
+        return isLoadDisabled;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws AnalysisException {
         super.validate(ctx);

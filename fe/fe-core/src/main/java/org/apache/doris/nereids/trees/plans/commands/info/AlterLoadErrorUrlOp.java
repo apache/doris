@@ -17,41 +17,42 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.DropBackendClause;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 
-import java.util.List;
+import java.util.Map;
 
 /**
- * DropBackendOp
+ * ALTER SYSTEM SET LOAD ERRORS HUB properties("type" = "xxx");
  */
-public class DropBackendOp extends BackendOp {
-    private final boolean force;
+public class AlterLoadErrorUrlOp extends AlterSystemOp {
+    private Map<String, String> properties;
 
-    public DropBackendOp(List<String> hostPorts, boolean force) {
-        super(hostPorts);
-        this.force = force;
+    public AlterLoadErrorUrlOp(Map<String, String> properties) {
+        super(AlterOpType.ALTER_OTHER);
+        this.properties = properties;
     }
 
-    public boolean isForce() {
-        return force;
+    @Override
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    @Override
+    public AlterClause translateToLegacyAlterClause() throws UserException {
+        return null;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP BACKEND ");
-        for (int i = 0; i < params.size(); i++) {
-            sb.append("\"").append(params.get(i)).append("\"");
-            if (i != params.size() - 1) {
-                sb.append(", ");
-            }
-        }
+        sb.append("ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES(");
+        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, true, true);
+        sb.append(printableMap.toString());
+        sb.append(")");
         return sb.toString();
     }
 
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new DropBackendClause(ids, hostInfos, force);
-    }
 }
