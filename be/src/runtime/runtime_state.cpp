@@ -279,6 +279,10 @@ std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
     return _query_mem_tracker;
 }
 
+WorkloadGroupPtr RuntimeState::workload_group() {
+    return _query_ctx->workload_group();
+}
+
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
@@ -538,6 +542,15 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         }
     }
     return _pipeline_id_to_profile;
+}
+
+bool RuntimeState::low_memory_mode() const {
+#ifdef BE_TEST
+    if (!_query_ctx) {
+        return false;
+    }
+#endif
+    return _query_ctx->low_memory_mode();
 }
 
 } // end namespace doris

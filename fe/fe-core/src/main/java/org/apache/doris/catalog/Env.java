@@ -165,6 +165,7 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
 import org.apache.doris.load.Load;
@@ -202,6 +203,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -257,7 +259,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -1885,7 +1886,6 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
-        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -2552,6 +2552,16 @@ public class Env {
         long curTime = System.currentTimeMillis();
         List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
                 .collect(Collectors.toList());
+        if (jobs.size() > Config.max_export_history_job_num) {
+            jobs.sort(Comparator.comparingLong(ExportJob::getCreateTimeMs));
+            Iterator<ExportJob> iterator = jobs.iterator();
+            while (jobs.size() > Config.max_export_history_job_num && iterator.hasNext()) {
+                ExportJob job = iterator.next();
+                if (job.getState() == ExportJobState.FINISHED || job.getState() == ExportJobState.CANCELLED) {
+                    iterator.remove();
+                }
+            }
+        }
         int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
@@ -3990,12 +4000,11 @@ public class Env {
                 if (indexIds.size() == 1 && indexIds.get(0) == olapTable.getBaseIndexId()) {
                     break;
                 }
+                indexIds = indexIds.stream().filter(item -> item != olapTable.getBaseIndexId())
+                        .collect(Collectors.toList());
                 sb.append("\nROLLUP (\n");
                 for (int i = 0; i < indexIds.size(); i++) {
                     Long indexId = indexIds.get(i);
-                    if (indexId == olapTable.getBaseIndexId()) {
-                        continue;
-                    }
 
                     MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(indexId);
                     String indexName = olapTable.getIndexNameById(indexId);
@@ -4010,7 +4019,6 @@ public class Env {
                         }
                     }
                     sb.append(")");
-
                     if (i != indexIds.size() - 1) {
                         sb.append(",\n");
                     }
@@ -5701,6 +5709,10 @@ public class Env {
 
     public void alterSystem(AlterSystemCommand command) throws UserException {
         this.alter.processAlterSystem(command);
+    }
+
+    public void analyze(AnalyzeCommand command, boolean isProxy) throws DdlException, AnalysisException {
+        this.analysisManager.createAnalyze(command, isProxy);
     }
 
     public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {

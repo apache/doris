@@ -92,6 +92,7 @@ message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -204,30 +205,6 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-set(ICU_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-find_package(ICU COMPONENTS uc i18n data)
-
-if (ICU_FOUND)
-    add_library(icu INTERFACE)
-    
-    target_link_libraries(icu INTERFACE
-        ICU::uc
-        ICU::i18n
-        ICU::data
-    )
-
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        icu
-    )
-
-    add_definitions(-DUSE_ICU)
-
-    message(STATUS "ICU found and linked successfully!")
-else()
-    message(WARNING "ICU not found! Please install ICU first.")
-endif()
-
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
@@ -250,7 +227,7 @@ install(DIRECTORY
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/core/CLucene/analysis/icu/data/uax29
+    ${BASE_DIR}/dict/icu/uax29
     DESTINATION ${OUTPUT_DIR}/dict/icu)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -356,13 +333,17 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
+    add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
+        add_definitions(-DUSE_AVX2)
+        add_definitions(-DLIBDIVIDE_AVX2)
     endif()
 endif()
 
 if (ARCH_ARM)
     add_compile_options(-march=armv8-a+crc)
+    add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
 

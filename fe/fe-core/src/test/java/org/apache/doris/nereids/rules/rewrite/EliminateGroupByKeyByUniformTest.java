@@ -108,9 +108,7 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  c2 from (select a c1,1 c2, 3 c3 from eli_gbk_by_uniform_t) t group by c2,c3 order by 1;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 1
-                                && agg.getGroupByExpressions().get(0).toSql().equals("c2")));
+                .nonMatch(logicalAggregate());
     }
 
     @Test
@@ -191,7 +189,7 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t1.b from eli_gbk_by_uniform_t t1 left semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t1.b")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+                .nonMatch(logicalAggregate());
     }
 
     @Test
@@ -209,7 +207,7 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .analyze("select  t2.b from eli_gbk_by_uniform_t t1 right semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t2.b")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+                .nonMatch(logicalAggregate());
     }
 
     @Test

@@ -2136,6 +2136,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
+            ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
+        }
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 2;
@@ -3474,7 +3477,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        OlapTable table = (OlapTable) (db.getTable(tableId).get());
+        Table table = db.getTable(tableId).get();
         if (table == null) {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
@@ -3556,16 +3559,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
-            if (partition == null) {
-                String partInfos = table.getAllPartitions().stream()
-                        .map(partitionArg -> partitionArg.getName() + partitionArg.getId())
-                        .collect(Collectors.joining(", "));
-
-                errorStatus.setErrorMsgs(Lists.newArrayList("get partition " + partitionName + " failed"));
-                result.setStatus(errorStatus);
-                LOG.warn("send create partition error status: {}, {}", result, partInfos);
-                return result;
-            }
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();

@@ -78,6 +78,11 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         shuffle_idx_to_instance_idx[i] = i;
     }
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit =
+            (num_partitions - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::pair<std::vector<uint32_t>, int>> hash_vals_and_value;
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
@@ -124,6 +129,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -141,10 +148,6 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit =
-            (num_partitions - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue 2 blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_partitions; i++) {
@@ -173,8 +176,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                                    _sink_local_states[i]->_partitioner.get(),
                                    _sink_local_states[i].get(), &shuffle_idx_to_instance_idx}),
                           Status::OK());
-                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), i < num_partitions - 1);
                 EXPECT_EQ(_sink_local_states[i]->_channel_id, i);
+                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), i < num_partitions - 1);
             }
         }
     }
@@ -320,6 +323,10 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = num_sources + 1;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -345,6 +352,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -362,9 +371,6 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = num_sources + 1;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -511,6 +517,10 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -536,6 +546,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -553,9 +565,6 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -710,6 +719,10 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -735,6 +748,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -752,9 +767,6 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -901,6 +913,13 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto splited_block_bytes = 64;
+    const auto num_blocks = num_sources;
+    const auto num_rows_per_block = num_sources * 3;
+    config::local_exchange_buffer_mem_limit = splited_block_bytes * num_sources * num_blocks +
+                                              (num_sources - 2) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -926,6 +945,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -944,12 +965,6 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     }
 
     EXPECT_EQ(exchanger->_is_pass_through, false);
-    const auto expect_block_bytes = 128;
-    const auto splited_block_bytes = 64;
-    const auto num_blocks = num_sources;
-    const auto num_rows_per_block = num_sources * 3;
-    config::local_exchange_buffer_mem_limit = splited_block_bytes * num_sources * num_blocks +
-                                              (num_sources - 2) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -1160,6 +1175,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -1254,6 +1271,7 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
     int free_block_limit = 0;
     const auto expect_block_bytes = 128;
     const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = expect_block_bytes * num_partitions;
     std::vector<bool> is_asc_order;
     std::vector<bool> nulls_first;
     vectorized::VExprContextSPtrs ordering_expr_ctxs;
@@ -1280,7 +1298,6 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
     _local_states.resize(num_sources);
-    config::local_exchange_buffer_mem_limit = expect_block_bytes * num_partitions;
     auto profile = std::make_shared<RuntimeProfile>("");
     auto shared_state = LocalMergeExchangeSharedState::create_shared(num_partitions);
     shared_state->exchanger = LocalMergeSortExchanger::create_unique(
@@ -1306,6 +1323,8 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_deps[i].get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -1442,6 +1461,8 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchangerWithEmptyBlock) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_deps[i].get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     LocalExchangeSourceOperatorX op;
     for (size_t i = 0; i < num_sources; i++) {

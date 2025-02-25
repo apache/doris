@@ -140,6 +140,11 @@ public class Config extends ConfigBase {
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"PreparedStatement stmtId 起始位置，仅用于测试",
+                    "PreparedStatement stmtId starting position, used for testing onl"})
+    public static long prepared_stmt_start_id = -1;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
@@ -189,6 +194,12 @@ public class Config extends ConfigBase {
             "针对 ALTER, EXPORT 作业，如果作业已经完成，且超过这个时间后，会被删除。",
             "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
+            "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
+                    + "the oldest records will be deleted."})
+    public static int max_export_history_job_num = 1000;
 
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "

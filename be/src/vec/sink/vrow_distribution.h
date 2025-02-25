@@ -48,9 +48,9 @@ class VNodeChannel;
 // <row_idx, partition_id, tablet_id>
 class RowPartTabletIds {
 public:
-    std::vector<uint32_t> row_ids;
-    std::vector<int64_t> partition_ids;
-    std::vector<int64_t> tablet_ids;
+    DorisVector<uint32_t> row_ids;
+    DorisVector<int64_t> partition_ids;
+    DorisVector<int64_t> tablet_ids;
 
     std::string debug_string() const {
         std::string value;
