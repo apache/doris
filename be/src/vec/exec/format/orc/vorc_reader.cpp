@@ -471,20 +471,41 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
     const auto* value = literal_data.data;
     try {
         switch (type->getKind()) {
-        case orc::TypeKind::BOOLEAN:
+        case orc::TypeKind::BOOLEAN: {
+            if (primitive_type != TYPE_BOOLEAN) {
+                return std::make_tuple(false, orc::Literal(false));
+            }
             return std::make_tuple(true, orc::Literal(bool(*((uint8_t*)value))));
+        }
         case orc::TypeKind::BYTE:
-            return std::make_tuple(true, orc::Literal(int64_t(*((int8_t*)value))));
         case orc::TypeKind::SHORT:
-            return std::make_tuple(true, orc::Literal(int64_t(*((int16_t*)value))));
         case orc::TypeKind::INT:
-            return std::make_tuple(true, orc::Literal(int64_t(*((int32_t*)value))));
-        case orc::TypeKind::LONG:
-            return std::make_tuple(true, orc::Literal(*((int64_t*)value)));
-        case orc::TypeKind::FLOAT:
-            return std::make_tuple(true, orc::Literal(double(*((float*)value))));
-        case orc::TypeKind::DOUBLE:
-            return std::make_tuple(true, orc::Literal(*((double*)value)));
+        case orc::TypeKind::LONG: {
+            if constexpr (primitive_type == TYPE_TINYINT) {
+                return std::make_tuple(true, orc::Literal(int64_t(*((int8_t*)value))));
+            } else if constexpr (primitive_type == TYPE_SMALLINT) {
+                return std::make_tuple(true, orc::Literal(int64_t(*((int16_t*)value))));
+            } else if constexpr (primitive_type == TYPE_INT) {
+                return std::make_tuple(true, orc::Literal(int64_t(*((int32_t*)value))));
+            } else if constexpr (primitive_type == TYPE_BIGINT) {
+                return std::make_tuple(true, orc::Literal(int64_t(*((int64_t*)value))));
+            }
+            return std::make_tuple(false, orc::Literal(false));
+        }
+        case orc::TypeKind::FLOAT: {
+            if constexpr (primitive_type == TYPE_FLOAT) {
+                return std::make_tuple(true, orc::Literal(double(*((float*)value))));
+            } else if constexpr (primitive_type == TYPE_DOUBLE) {
+                return std::make_tuple(true, orc::Literal(double(*((double*)value))));
+            }
+            return std::make_tuple(false, orc::Literal(false));
+        }
+        case orc::TypeKind::DOUBLE: {
+            if (primitive_type == TYPE_DOUBLE) {
+                return std::make_tuple(true, orc::Literal(*((double*)value)));
+            }
+            return std::make_tuple(false, orc::Literal(false));
+        }
         case orc::TypeKind::STRING:
             [[fallthrough]];
         case orc::TypeKind::BINARY:
@@ -493,7 +514,11 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
         // case orc::TypeKind::CHAR:
         //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
-            return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
+            if (primitive_type == TYPE_STRING || primitive_type == TYPE_CHAR ||
+                primitive_type == TYPE_VARCHAR) {
+                return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
+            }
+            return std::make_tuple(false, orc::Literal(false));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
@@ -505,8 +530,10 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
                 decimal_value = *((int32_t*)value);
             } else if constexpr (primitive_type == TYPE_DECIMAL64) {
                 decimal_value = *((int64_t*)value);
-            } else {
+            } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
                 decimal_value = *((int128_t*)value);
+            } else {
+                return std::make_tuple(false, orc::Literal(false));
             }
             return std::make_tuple(true, orc::Literal(orc::Int128(uint64_t(decimal_value >> 64),
                                                                   uint64_t(decimal_value)),
@@ -520,12 +547,14 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
                 cctz::civil_day civil_date(date_v1.year(), date_v1.month(), date_v1.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
-            } else { // primitive_type == TYPE_DATEV2
+            } else if (primitive_type == TYPE_DATEV2) {
                 const DateV2Value<DateV2ValueType> date_v2 =
                         *reinterpret_cast<const DateV2Value<DateV2ValueType>*>(value);
                 cctz::civil_day civil_date(date_v2.year(), date_v2.month(), date_v2.day());
                 day_offset =
                         cctz::convert(civil_date, utc0).time_since_epoch().count() / (24 * 60 * 60);
+            } else {
+                return std::make_tuple(false, orc::Literal(false));
             }
             return std::make_tuple(true, orc::Literal(orc::PredicateDataType::DATE, day_offset));
         }
@@ -542,7 +571,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
                                                  datetime_v1.minute(), datetime_v1.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
                 nanos = 0;
-            } else { // primitive_type == TYPE_DATETIMEV2
+            } else if (primitive_type == TYPE_DATETIMEV2) {
                 const DateV2Value<DateTimeV2ValueType> datetime_v2 =
                         *reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(value);
                 cctz::civil_second civil_seconds(datetime_v2.year(), datetime_v2.month(),
@@ -550,6 +579,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
                                                  datetime_v2.minute(), datetime_v2.second());
                 seconds = cctz::convert(civil_seconds, utc0).time_since_epoch().count();
                 nanos = datetime_v2.microsecond() * 1000;
+            } else {
+                return std::make_tuple(false, orc::Literal(false));
             }
             return std::make_tuple(true, orc::Literal(seconds, nanos));
         }
@@ -1753,7 +1784,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, Colum
 
     if (!_converters.contains(converter_key)) {
         std::unique_ptr<converter::ColumnTypeConverter> converter =
-                converter::ColumnTypeConverter::get_converter(src_type, data_type);
+                converter::ColumnTypeConverter::get_converter(src_type, data_type,
+                                                              converter::FileFormat::ORC);
         if (!converter->support()) {
             return Status::InternalError(
                     "The column type of '{}' has changed and is not supported: ", col_name,
