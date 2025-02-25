@@ -2607,7 +2607,6 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     }
 
     response->mutable_schema_dict()->Swap(&schema_dict);
-    TEST_SYNC_POINT_CALLBACK("get_schema_dict::finish", &response);
 }
 
 } // namespace doris::cloud
