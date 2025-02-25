@@ -114,6 +114,10 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
+Status HdfsFileReader::update_size() {
+    return _handle->update_file_size();
+}
+
 #ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
