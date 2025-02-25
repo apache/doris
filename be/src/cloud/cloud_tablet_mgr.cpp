@@ -285,9 +285,6 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
             auto st = tablet->sync_meta();
             if (!st) {
                 LOG_WARNING("failed to sync tablet meta {}", tablet->tablet_id()).error(st);
-                if (st.is<ErrorCode::NOT_FOUND>()) {
-                    continue;
-                }
             }
 
             st = tablet->sync_rowsets(-1);
