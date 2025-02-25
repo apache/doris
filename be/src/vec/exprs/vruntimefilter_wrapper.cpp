@@ -56,11 +56,13 @@ namespace doris::vectorized {
 class VExprContext;
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl,
-                                             double ignore_thredhold, bool null_aware)
+                                             double ignore_thredhold, bool null_aware,
+                                             int filter_id)
         : VExpr(node),
           _impl(std::move(impl)),
           _ignore_thredhold(ignore_thredhold),
-          _null_aware(null_aware) {
+          _null_aware(null_aware),
+          _filter_id(filter_id) {
     reset_judge_selectivity();
 }
 
