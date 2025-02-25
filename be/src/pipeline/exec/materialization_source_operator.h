@@ -47,8 +47,9 @@ private:
 class MaterializationSourceOperatorX final : public OperatorX<MaterializationSourceLocalState> {
 public:
     using Base = OperatorX<MaterializationSourceLocalState>;
-    MaterializationSourceOperatorX(ObjectPool* pool, int plan_node_id, int operator_id)
-            : Base(pool, plan_node_id, operator_id) {
+    MaterializationSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
+                                   const DescriptorTbl& descs)
+            : Base(pool, tnode, operator_id, descs) {
         _op_name = "MATERIALIZATION_SOURCE_OPERATOR";
     };
     ~MaterializationSourceOperatorX() override = default;
@@ -56,12 +57,6 @@ public:
     Status get_block(doris::RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
-
-    const RowDescriptor& intermediate_row_desc() const override {
-        return _child->intermediate_row_desc();
-    }
-    RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
-    const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 };
 
 } // namespace pipeline

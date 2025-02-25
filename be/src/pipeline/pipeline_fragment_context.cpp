@@ -1587,7 +1587,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::MATERIALIZATION_NODE: {
-        op.reset(new MaterializationSourceOperatorX(pool, tnode.node_id, next_operator_id()));
+        op.reset(new MaterializationSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
 
@@ -1601,6 +1601,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
                 op->operator_id(), next_sink_operator_id(), pool, tnode));
         RETURN_IF_ERROR(new_pipe->set_sink(sink));
+        cur_pipe = new_pipe;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
