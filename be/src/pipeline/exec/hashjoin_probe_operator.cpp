@@ -385,7 +385,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
         RETURN_IF_ERROR(filter_block(_conjuncts, temp_block, temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block));
+    RETURN_IF_ERROR(_build_output_block(state, temp_block, output_block));
     reached_limit(output_block, eos);
     return Status::OK();
 }

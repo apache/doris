@@ -71,7 +71,11 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
 
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
-        vectorized::Block* origin_block, vectorized::Block* output_block) {
+        RuntimeState* state, vectorized::Block* origin_block, vectorized::Block* output_block) {
+    if (!state->is_nereids()) {
+        return Status::InternalError("only support nereids planner: " +
+                                     print_id(state->query_id()));
+    }
     if (!output_block->mem_reuse()) {
         output_block->swap(origin_block->clone_empty());
     }
