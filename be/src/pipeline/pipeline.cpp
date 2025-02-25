@@ -114,8 +114,9 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
 void Pipeline::make_all_runnable() {
     DBUG_EXECUTE_IF("Pipeline::make_all_runnable.sleep", {
         auto pipeline_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "Pipeline::make_all_runnable", "pipeline_id", 0);
+                "Pipeline::make_all_runnable.sleep", "pipeline_id", -1);
         if (pipeline_id == id()) {
+            LOG(WARNING) << "Pipeline::make_all_runnable.sleep sleep 10s";
             sleep(10);
         }
     });
