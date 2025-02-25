@@ -2559,6 +2559,10 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                instance_id, db_id, tmp_rowsets_meta, err);
         if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
             !allow_txn_lazy_commit) {
+            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                msg += ", likely due to committing too many tablets. "
+                       "Please reduce the number of partitions involved in the load.";
+            }
             return;
         }
         DCHECK(code != MetaServiceCode::OK);
