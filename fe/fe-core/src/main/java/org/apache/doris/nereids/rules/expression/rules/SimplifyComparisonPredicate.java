@@ -107,7 +107,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         Expression result;
 
         // process type coercion
-        if (left.getDataType().isIntegerLikeType() && right.getDataType().isIntegerLikeType()) {
+        if (left.getDataType().isIntegralType() && right.getDataType().isIntegralType()) {
             result = processIntegerLikeTypeCoercion(cp, left, right);
         } else if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
             result = processFloatLikeTypeCoercion(cp, left, right);
@@ -134,8 +134,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         // then will have cast(a as bigint) > cast(500000 + 100000).
         // After fold constant, will have cast(a as bigint) > big int(600000),
         // since 600000 can represent as an int type, will rewrite as a > int(600000).
-        if (left instanceof Cast && left.getDataType().isIntegerLikeType()
-                && ((Cast) left).child().getDataType().isIntegerLikeType()
+        if (left instanceof Cast && left.getDataType().isIntegralType()
+                && ((Cast) left).child().getDataType().isIntegralType()
                 && right instanceof IntegerLikeLiteral) {
             DataType castDataType = left.getDataType();
             DataType childDataType = ((Cast) left).child().getDataType();

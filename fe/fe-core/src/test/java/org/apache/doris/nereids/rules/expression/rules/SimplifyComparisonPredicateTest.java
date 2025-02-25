@@ -58,6 +58,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -130,10 +131,13 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 )
         ));
 
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
         Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
         Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
         Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
 
+        assertRewrite(new LessThan(new Cast(bigIntSlot, LargeIntType.INSTANCE), new LargeIntLiteral(new BigInteger("10"))),
+                new LessThan(bigIntSlot, new BigIntLiteral(10L)));
         assertRewrite(new LessThan(new Cast(intSlot, BigIntType.INSTANCE), new BigIntLiteral(10L)),
                 new LessThan(intSlot, new IntegerLiteral(10)));
         assertRewrite(new LessThan(new Cast(smallIntSlot, BigIntType.INSTANCE), new BigIntLiteral(10L)),
