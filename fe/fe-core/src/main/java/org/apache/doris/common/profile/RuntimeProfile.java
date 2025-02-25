@@ -265,9 +265,7 @@ public class RuntimeProfile {
         if (node.isSetMetadata()) {
             this.nodeid = (int) node.getMetadata();
         }
-        if (node.isSetIsSink()) {
-            this.isSinkOperator = node.is_sink;
-        }
+
         Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
         if (node.counters != null) {

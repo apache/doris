@@ -146,7 +146,8 @@ public class RuntimeProfileMergeTest {
         LOG.info("Profile1:\n{}", profile1.toString());
 
         /*
-        * 	mergedProfile:
+        *
+        mergedProfile:
               node1:
                  - Counter1: sum 3, avg 1, max 1, min 1
                    - Counter1-Child1: sum 3, avg 1, max 1, min 1
@@ -175,7 +176,7 @@ public class RuntimeProfileMergeTest {
     }
 
     // Test the case where counter of RuntimeProfile has different structure.
-    // When non-ZeroCounter is involved, counter-structure of RuntimeProfile is different. 
+    // When non-ZeroCounter is involved, counter-structure of RuntimeProfile is different.
     @Test
     public void testMergeProfileWithDifferentCounter() {
         /*
@@ -230,7 +231,7 @@ public class RuntimeProfileMergeTest {
         node2.child_counters_map = childCountersMap;
         RuntimeProfile profile1 = new RuntimeProfile("profile1");
         profile1.update(tRuntimeProfileTree1);
-        
+
         /*
         profile1:
             node1:
@@ -275,8 +276,10 @@ public class RuntimeProfileMergeTest {
         StringBuilder builder = new StringBuilder();
         mergedProfile.prettyPrint(builder, "\t");
         LOG.info("Merged profile:\n{}", builder.toString());
+
         /*
-        * 	mergedProfile:
+        *
+        mergedProfile:
           node1:
              - Counter1: sum 1, avg 1, max 1, min 1
                - Counter1-Child1: sum 1, avg 1, max 1, min 1

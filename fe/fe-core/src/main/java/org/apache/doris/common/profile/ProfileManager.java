@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;

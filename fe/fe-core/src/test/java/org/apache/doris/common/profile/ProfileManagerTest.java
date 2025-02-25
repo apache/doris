@@ -24,12 +24,9 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.Mocked;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -333,7 +330,7 @@ class ProfileManagerTest {
 
         Assertions.assertEquals(normalProfiles - 1, profileManager.queryIdToExecutionProfiles.size());
     }
-    
+
     @Test
     void getOnStorageProfileInfosTest() throws Exception {
         // Create a temporary directory for profile storage
@@ -342,7 +339,7 @@ class ProfileManagerTest {
         try {
             // Override config path to use temp dir
             ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
-            
+
             // Create some test profile files
             for (int i = 0; i < 3; i++) {
                 UUID taskId = UUID.randomUUID();
@@ -353,7 +350,7 @@ class ProfileManagerTest {
 
             // Get profiles from storage
             List<String> profiles = profileManager.getOnStorageProfileInfos();
-            
+
             // Verify result
             Assertions.assertEquals(3, profiles.size());
             for (String profile : profiles) {
@@ -421,13 +418,19 @@ class ProfileManagerTest {
                 List<Integer> fragments = new ArrayList<>();
                 profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
                 if (i % 2 == 0) {
-                    new Expectations(profile) {{
-                        profile.shouldStoreToStorage(); result = true;
-                    }};
+                    new Expectations(profile) {
+                        {
+                            profile.shouldStoreToStorage();
+                            result = true;
+                        }
+                    };
                 } else {
-                    new Expectations(profile) {{
-                        profile.shouldStoreToStorage(); result = false;
-                    }};
+                    new Expectations(profile) {
+                        {
+                            profile.shouldStoreToStorage();
+                            result = false;
+                        }
+                    };
                 }
                 profileManager.pushProfile(profile);
             }
@@ -471,10 +474,14 @@ class ProfileManagerTest {
                 }
 
                 // Make sure all profile is released
-                new Expectations(profile) {{
-                    profile.shouldStoreToStorage(); result = true;
-                    profile.releaseMemory(); times = 1;
-                }};
+                new Expectations(profile) {
+                    {
+                        profile.shouldStoreToStorage();
+                        result = true;
+                        profile.releaseMemory();
+                        times = 1;
+                    }
+                };
 
                 profileManager.pushProfile(profile);
             }
@@ -483,6 +490,7 @@ class ProfileManagerTest {
 
             // Verify result
             File[] files = tempDir.listFiles();
+            assert files != null;
             Assertions.assertEquals(30, files.length);
             Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
@@ -521,9 +529,12 @@ class ProfileManagerTest {
                 for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
                     profileManager.addExecutionProfile(executionProfile);
                 }
-                new Expectations(profile) {{
-                    profile.profileHasBeenStored(); result = true;
-                }};
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                    }
+                };
 
                 profileManager.pushProfile(profile);
             }
@@ -552,10 +563,11 @@ class ProfileManagerTest {
             ProfileManager.PROFILE_STORAGE_PATH = originalPath;
             // Cleanup temp files
             FileUtils.deleteDirectory(tempDir);
+            Config.max_spilled_profile_num = originMaxSpilledProfileNum;
         }
     }
 
-    
+
     @Test
     void testDeleteOutdatedProfilesFromStorage() throws IOException {
         File tempDir = Files.createTempDirectory("profile_test").toFile();
@@ -571,11 +583,16 @@ class ProfileManagerTest {
                 Thread.sleep(100);
                 Profile profile = ProfilePersistentTest.constructRandomProfile(1);
                 profile.isQueryFinished = true;
-                profile.setQueryFinishTimestamp(System.currentTimeMillis());   
-                new Expectations(profile) {{
-                    profile.profileHasBeenStored(); result = true;
-                    profile.deleteFromStorage(); times = i < 20 ? 1 : 0; // First 20 should be deleted
-                }};
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+                int finalI = i;
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                        profile.deleteFromStorage();
+                        times = finalI < 20 ? 1 : 0; // First 20 should be deleted
+                    }
+                };
 
                 profileManager.pushProfile(profile);
             }
@@ -595,7 +612,7 @@ class ProfileManagerTest {
         }
     }
 
-    @Test 
+    @Test
     void testGetBrokenProfiles() throws IOException {
         File tempDir = Files.createTempDirectory("profile_test").toFile();
         String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
@@ -608,11 +625,11 @@ class ProfileManagerTest {
                 UUID taskId = UUID.randomUUID();
                 TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
                 String profileId = DebugUtil.printId(queryId);
-                
+
                 // Create profile in memory
                 Profile profile = constructProfile(profileId);
                 profileManager.pushProfile(profile);
-                
+
                 // Create profile file
                 File profileFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
                 profileFile.createNewFile();
@@ -628,7 +645,7 @@ class ProfileManagerTest {
 
             // Get broken profiles
             List<String> brokenProfiles = profileManager.getBrokenProfiles();
-            
+
             // Verify result - should find 2 broken profiles
             Assertions.assertEquals(2, brokenProfiles.size());
             for (String profile : brokenProfiles) {
@@ -658,10 +675,10 @@ class ProfileManagerTest {
                 UUID taskId = UUID.randomUUID();
                 TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
                 String profileId = DebugUtil.printId(queryId);
-                
+
                 Profile profile = constructProfile(profileId);
                 profileManager.pushProfile(profile);
-                
+
                 File normalFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
                 normalFile.createNewFile();
                 normalFiles.add(normalFile);

@@ -37,6 +37,7 @@ import java.util.Set;
 
 public class RuntimeProfileTest {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfileTest.class);
+
     @Test
     public void testSortChildren() {
         RuntimeProfile profile = new RuntimeProfile("profile");
