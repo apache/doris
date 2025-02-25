@@ -302,6 +302,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         }
     }
     auto& cnt_val = iter->second;
+    bool is_ready = false;
     {
         std::lock_guard<std::mutex> l(iter->second.mtx);
         // Skip the other broadcast join runtime filter
@@ -317,9 +318,10 @@ Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> que
         RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get()));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
+        is_ready = cnt_val.merger->ready(); // update is_ready in locked scope
     }
 
-    if (cnt_val.merger->ready()) {
+    if (is_ready) {
         DCHECK_GT(cnt_val.targetv2_info.size(), 0);
 
         butil::IOBuf request_attachment;
