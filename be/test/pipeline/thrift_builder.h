@@ -186,8 +186,8 @@ public:
         _desc.__set_bloom_filter_size_bytes(bloom_filter_size_bytes);
         return *this;
     }
-    TRuntimeFilterDescBuilder& set_build_bf_exactly(bool build_bf_exactly) {
-        _desc.__set_build_bf_exactly(build_bf_exactly);
+    TRuntimeFilterDescBuilder& set_build_bf_by_runtime_size(bool build_bf_by_runtime_size) {
+        _desc.__set_build_bf_by_runtime_size(build_bf_by_runtime_size);
         return *this;
     }
     TRuntimeFilterDesc& build() { return _desc; }
