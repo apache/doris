@@ -272,7 +272,8 @@ public class RuntimeProfile {
         // update this level's counters
         if (node.counters != null) {
             for (TCounter tcounter : node.counters) {
-                Counter counter = counterMap.get(tcounter.name);
+                // If different node has counter with the same name, it will lead to chaos.
+                Counter counter = this.counterMap.get(tcounter.name);
                 if (counter == null) {
                     counterMap.put(tcounter.name, new Counter(tcounter.type, tcounter.value, tcounter.level));
                 } else {
@@ -460,10 +461,10 @@ public class RuntimeProfile {
         if (planNodeInfos.isEmpty()) {
             return;
         }
-        builder.append(prefix + "- " + "PlanInfo\n");
+        builder.append(prefix).append("- ").append("PlanInfo\n");
 
         for (String info : planNodeInfos) {
-            builder.append(prefix + "   - " + info + "\n");
+            builder.append(prefix).append("   - ").append(info).append("\n");
         }
     }
 
@@ -497,6 +498,7 @@ public class RuntimeProfile {
         RuntimeProfile templateProfile = profiles.get(0);
         for (int i = 0; i < templateProfile.childList.size(); i++) {
             RuntimeProfile templateChildProfile = templateProfile.childList.get(i).first;
+            // Traverse all profiles and get the child profile with the same name
             List<RuntimeProfile> allChilds = getChildListFromLists(templateChildProfile.name, profiles);
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
@@ -510,7 +512,7 @@ public class RuntimeProfile {
         }
     }
 
-    private static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
+    static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile) {
         if (profiles.isEmpty()) {
             return;
@@ -540,7 +542,7 @@ public class RuntimeProfile {
                 Counter oldCounter = templateCounterMap.get(childCounterName);
                 AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
-                    // orgCounter could be null if counter structure is changed
+                    // orgCounter could be null if counter-structure is changed
                     // change of counter structure happens when NonZeroCounter is involved.
                     // So here we have to ignore the counter if it is not found in the profile.
                     Counter orgCounter = profile.counterMap.get(childCounterName);
@@ -699,7 +701,7 @@ public class RuntimeProfile {
         } finally {
             childLock.writeLock().unlock();
         }
-        // insert plan node info to profile strinfo
+        // insert plan node info to profile string info
         if (planNodeMap == null || !planNodeMap.containsKey(child.nodeId())) {
             return;
         }
@@ -721,30 +723,6 @@ public class RuntimeProfile {
         for (String info : infoList) {
             planNodeInfos.add(info);
         }
-    }
-
-    public void addFirstChild(RuntimeProfile child) {
-        if (child == null) {
-            return;
-        }
-        childLock.writeLock().lock();
-        try {
-            if (childMap.containsKey(child.name)) {
-                childList.removeIf(e -> e.first.name.equals(child.name));
-            }
-            this.childMap.put(child.name, child);
-            Pair<RuntimeProfile, Boolean> pair = Pair.of(child, true);
-            this.childList.addFirst(pair);
-        } finally {
-            childLock.writeLock().unlock();
-        }
-    }
-
-    // Because the profile of summary and child fragment is not a real parent-child
-    // relationship
-    // Each child profile needs to calculate the time proportion consumed by itself
-    public void computeTimeInChildProfile() {
-        childMap.values().forEach(RuntimeProfile::computeTimeInProfile);
     }
 
     public void computeTimeInProfile() {
