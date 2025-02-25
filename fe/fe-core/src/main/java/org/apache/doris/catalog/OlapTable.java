@@ -2225,6 +2225,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (properties.containsKey(DynamicPartitionProperty.STORAGE_POLICY)) {
             properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
         }
+        // storage policy is invalid for table/partition when table is being synced
+        partitionInfo.refreshTableStoragePolicy("");
     }
 
     public void checkChangeReplicaAllocation() throws DdlException {
