@@ -2492,6 +2492,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = visitPhysicalOlapScan(lazyScan.getScan(), context);
         TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
         planFragment.getPlanRoot().setOutputTupleDesc(outputTuple);
+        planFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(outputTuple.getId()));
         return planFragment;
     }
 
