@@ -78,6 +78,18 @@
 #include "util/string_util.h"
 #include "util/threadpool.h"
 
+// 添加信号处理
+#include <signal.h>
+
+// 全局变量，用于优雅退出
+volatile sig_atomic_t g_running = 1;
+
+// 信号处理函数
+void signal_handler(int sig) {
+    LOG(INFO) << "Received signal " << sig << ", shutting down gracefully...";
+    g_running = 0;
+}
+
 using doris::io::FileCacheFactory;
 using doris::io::BlockFileCache;
 
@@ -85,51 +97,115 @@ bvar::LatencyRecorder microbench_write_latency("file_cache_microbench_append");
 bvar::LatencyRecorder microbench_read_latency("file_cache_microbench_read_at");
 
 const std::string HIDDEN_PREFIX = "test_file_cache_microbench/";
+const char PAD_CHAR = 'x';
+const size_t BUFFER_SIZE = 1024 * 1024;
 // Just 10^9.
 static constexpr auto NS = 1000000000UL;
 
 DEFINE_int32(port, 8888, "Http Port of this server");
 
-// 添加一个数据生成器类
+// 修改 DataGenerator 类，使其生成更规范的数据块
 class DataGenerator {
 public:
-    DataGenerator(size_t total_size, size_t buffer_size = 1024 * 1024) // 默认1MB缓冲区
-            : _total_size(total_size), _generated_size(0), _buffer_size(buffer_size) {
-        _buffer.resize(_buffer_size, 'x');
-    }
-
-    // 生成特定大小的数据，作为静态函数
-    static std::string generate_fixed_size_data(size_t size) {
-        return std::string(size, 'x'); // 生成指定大小的 'x' 字符串
+    DataGenerator(size_t total_size) : _total_size(total_size), _generated_size(0) {
+        _buffer.resize(BUFFER_SIZE);
     }
 
     // 获取下一块数据
-    doris::Slice next_chunk() {
+    doris::Slice next_chunk(const std::string& key) {
         if (_generated_size >= _total_size) {
             return doris::Slice(); // 返回空slice表示结束
         }
 
         size_t remaining = _total_size - _generated_size;
-        size_t chunk_size = std::min(remaining, _buffer_size);
-        _generated_size += chunk_size;
+        size_t chunk_size = std::min(remaining, BUFFER_SIZE);
 
+        // 生成这个块的tag
+        std::string tag = fmt::format("key={},offset={}\n", key, _generated_size);
+        size_t tag_size = tag.size();
+
+        // 确保 chunk_size 不小于 tag_size
+        if (chunk_size < tag_size) {
+            std::memcpy(_buffer.data(), tag.data(), chunk_size);
+        } else {
+            // 将 key:offset 填充到缓冲区
+            std::memcpy(_buffer.data(), tag.data(), tag_size);
+            // 填充剩余部分
+            std::fill(_buffer.data() + tag_size, _buffer.data() + chunk_size, PAD_CHAR);
+        }
+
+        _generated_size += chunk_size;
         return doris::Slice(_buffer.data(), chunk_size);
     }
 
-    // 重置生成器
-    void reset() { _generated_size = 0; }
-
-    // 检查是否还有更多数据
     bool has_more() const { return _generated_size < _total_size; }
-
-    // 获取总大小
-    size_t total_size() const { return _total_size; }
 
 private:
     const size_t _total_size;
     size_t _generated_size;
-    const size_t _buffer_size;
-    std::string _buffer;
+    std::vector<char> _buffer;
+};
+
+class DataVerifier {
+public:
+    static bool verify_data(const std::string& key, size_t file_size, size_t read_offset,
+                            const std::string& data, size_t data_size) {
+        size_t current_block_start = (read_offset / BUFFER_SIZE) * BUFFER_SIZE;
+        size_t data_pos = 0;
+
+        while (data_pos < data_size) {
+            // 计算当前块中的偏移量
+            size_t block_offset = read_offset + data_pos - current_block_start;
+
+            // 检查是否超出文件总大小
+            if (current_block_start >= file_size) {
+                break;
+            }
+
+            // 生成预期的tag
+            std::string expected_tag = fmt::format("key={},offset={}\n", key, current_block_start);
+
+            // 如果在tag范围内，需要验证tag
+            if (block_offset < expected_tag.size()) {
+                // 计算在当前数据中可以读取的tag长度
+                size_t available_tag_len =
+                        std::min(expected_tag.size() - block_offset, data_size - data_pos);
+
+                // 如果已经到达文件末尾，只验证实际存在的数据
+                if (read_offset + data_pos + available_tag_len > file_size) {
+                    available_tag_len = file_size - (read_offset + data_pos);
+                }
+
+                if (available_tag_len == 0) break;
+                std::string_view actual_tag(data.data() + data_pos, available_tag_len);
+                std::string_view expected_tag_part(expected_tag.data() + block_offset,
+                                                   available_tag_len);
+
+                if (actual_tag != expected_tag_part) {
+                    LOG(ERROR) << "Tag mismatch at offset " << (read_offset + data_pos)
+                               << "\nExpected: " << expected_tag_part << "\nGot: " << actual_tag;
+                    return false;
+                }
+                data_pos += available_tag_len;
+            } else {
+                char expected_byte = static_cast<char>(PAD_CHAR);
+                if (data[data_pos] != expected_byte) {
+                    LOG(ERROR) << "Data mismatch at offset " << (read_offset + data_pos)
+                               << "\nExpected byte: " << (char)expected_byte
+                               << "\nGot byte: " << (char)data[data_pos];
+                    return false;
+                }
+                data_pos++;
+            }
+
+            // 如果到达块末尾，移动到下一个块
+            if ((read_offset + data_pos) % BUFFER_SIZE == 0) {
+                current_block_start += BUFFER_SIZE;
+            }
+        }
+
+        return true;
+    }
 };
 
 // 定义一个结构体来存储文件信息
@@ -258,22 +334,35 @@ private:
 class ThreadPool {
 public:
     ThreadPool(size_t num_threads) : stop(false) {
-        for (size_t i = 0; i < num_threads; ++i) {
-            workers.emplace_back([this] {
-                while (true) {
-                    std::function<void()> task;
-                    {
-                        std::unique_lock<std::mutex> lock(queue_mutex);
-                        condition.wait(lock, [this] { return stop || !tasks.empty(); });
-                        if (stop && tasks.empty()) {
-                            return;
+        try {
+            for (size_t i = 0; i < num_threads; ++i) {
+                workers.emplace_back([this] {
+                    try {
+                        while (true) {
+                            std::function<void()> task;
+                            {
+                                std::unique_lock<std::mutex> lock(queue_mutex);
+                                condition.wait(lock, [this] { return stop || !tasks.empty(); });
+                                if (stop && tasks.empty()) {
+                                    return;
+                                }
+                                task = std::move(tasks.front());
+                                tasks.pop();
+                            }
+                            task();
                         }
-                        task = std::move(tasks.front());
-                        tasks.pop();
+                    } catch (const std::exception& e) {
+                        LOG(ERROR) << "Exception in thread pool worker: " << e.what();
+                    } catch (...) {
+                        LOG(ERROR) << "Unknown exception in thread pool worker";
                     }
-                    task();
-                }
-            });
+                });
+            }
+        } catch (...) {
+            // 确保在构造函数中出现异常时也能正确清理
+            stop = true;
+            condition.notify_all();
+            throw;
         }
     }
 
@@ -286,7 +375,15 @@ public:
             if (stop) {
                 throw std::runtime_error("enqueue on stopped ThreadPool");
             }
-            tasks.emplace([task]() { (*task)(); });
+            tasks.emplace([task]() {
+                try {
+                    (*task)();
+                } catch (const std::exception& e) {
+                    LOG(ERROR) << "Exception in task: " << e.what();
+                } catch (...) {
+                    LOG(ERROR) << "Unknown exception in task";
+                }
+            });
         }
         condition.notify_one();
         return res;
@@ -298,8 +395,16 @@ public:
             stop = true;
         }
         condition.notify_all();
-        for (std::thread& worker : workers) {
-            worker.join();
+
+        // 安全地等待所有线程完成
+        for (auto& worker : workers) {
+            try {
+                if (worker.joinable()) {
+                    worker.join();
+                }
+            } catch (const std::system_error& e) {
+                LOG(WARNING) << "Failed to join thread: " << e.what();
+            }
         }
     }
 
@@ -391,98 +496,104 @@ std::string get_usage(const std::string& progname) {
 
 // Job配置结构
 struct JobConfig {
-    int64_t size_bytes_perfile;
+    // 默认值初始化
+    int64_t size_bytes_perfile = 1024 * 1024;
     int32_t write_iops = 0;
     int32_t read_iops = 0;
-    int32_t num_threads;
-    int32_t num_files;
+    int32_t num_threads = 200;
+    int32_t num_files = 1;
     std::string file_prefix;
-    std::string cache_type;
-    int64_t expiration;
+    std::string cache_type = "NORMAL";
+    int64_t expiration = 0;
     int32_t repeat = 1;
-    int64_t write_batch_size;
-    int64_t read_offset_left;
-    int64_t read_offset_right;
-    int64_t read_length_left;
-    int64_t read_length_right;
+    int64_t write_batch_size = doris::config::s3_write_buffer_size;
+    int64_t read_offset_left = 0;
+    int64_t read_offset_right = 0;
+    int64_t read_length_left = 0;
+    int64_t read_length_right = 0;
     bool write_file_cache = true;
     bool bvar_enable = false;
 
     // 从JSON解析配置
     static JobConfig from_json(const std::string& json_str) {
         JobConfig config;
-        // 使用rapidjson解析
         rapidjson::Document d;
         d.Parse(json_str.c_str());
 
         if (d.HasParseError()) {
             throw std::runtime_error("JSON parse error json args=" + json_str);
         }
+
+        // 基本验证
         validate(d);
 
-        // 检查并设置 write_file_cache
-        if (d.HasMember("write_file_cache") && d["write_file_cache"].IsBool()) {
-            config.write_file_cache = d["write_file_cache"].GetBool();
-        } else {
-            config.write_file_cache = true; // 默认值
-        }
+        // 使用辅助函数解析各字段
+        parse_basic_fields(d, config);
+        parse_cache_settings(d, config);
+        parse_read_settings(d, config);
 
-        // 检查并设置 bvar_enable
-        if (d.HasMember("bvar_enable") && d["bvar_enable"].IsBool()) {
-            config.bvar_enable = d["bvar_enable"].GetBool();
-        } else {
-            config.bvar_enable = false; // 默认值
-        }
+        // 额外验证
+        validate_config(config);
 
-        // 检查并设置 num_files
+        return config;
+    }
+
+private:
+    // 验证JSON文档
+    static void validate(const rapidjson::Document& json_data) {
+        if (!json_data.HasMember("file_prefix") || !json_data["file_prefix"].IsString() ||
+            strlen(json_data["file_prefix"].GetString()) == 0) {
+            throw std::runtime_error("file_prefix is required and cannot be empty");
+        }
+    }
+
+    // 解析基本字段
+    static void parse_basic_fields(const rapidjson::Document& d, JobConfig& config) {
+        // 解析 file_prefix (必需字段)
+        config.file_prefix = d["file_prefix"].GetString();
+
+        // 解析可选字段
         if (d.HasMember("num_files") && d["num_files"].IsInt()) {
             config.num_files = d["num_files"].GetInt();
-        } else {
-            config.num_files = 1; // 默认值
         }
 
-        // 检查并设置 size_bytes_perfile
         if (d.HasMember("size_bytes_perfile") && d["size_bytes_perfile"].IsInt64()) {
             config.size_bytes_perfile = d["size_bytes_perfile"].GetInt64();
-            if (config.size_bytes_perfile <= 0) {
-                throw std::runtime_error("size_bytes_perfile must be positive");
-            }
-        } else {
-            config.size_bytes_perfile = 1024 * 1024; // 默认值
         }
 
-        // 检查并设置 write_iops
         if (d.HasMember("write_iops") && d["write_iops"].IsInt()) {
             config.write_iops = d["write_iops"].GetInt();
         }
 
-        // 检查并设置 read_iops
         if (d.HasMember("read_iops") && d["read_iops"].IsInt()) {
             config.read_iops = d["read_iops"].GetInt();
         }
 
-        // 检查并设置 num_threads
         if (d.HasMember("num_threads") && d["num_threads"].IsInt()) {
             config.num_threads = d["num_threads"].GetInt();
-            if (config.num_threads <= 0 || config.num_threads > 10000) {
-                throw std::runtime_error("num_threads must be between 1 and 10000");
-            }
-        } else {
-            config.num_threads = 200; // 默认值
         }
 
-        // 检查并设置 file_prefix
-        if (d.HasMember("file_prefix") && d["file_prefix"].IsString()) {
-            config.file_prefix = d["file_prefix"].GetString();
-        } else {
-            throw std::runtime_error("file_prefix is required and must be a string");
+        if (d.HasMember("repeat") && d["repeat"].IsInt64()) {
+            config.repeat = d["repeat"].GetInt64();
         }
 
-        // 检查并设置 cache_type
+        if (d.HasMember("write_batch_size") && d["write_batch_size"].IsInt64()) {
+            config.write_batch_size = d["write_batch_size"].GetInt64();
+        }
+
+        if (d.HasMember("write_file_cache") && d["write_file_cache"].IsBool()) {
+            config.write_file_cache = d["write_file_cache"].GetBool();
+        }
+
+        if (d.HasMember("bvar_enable") && d["bvar_enable"].IsBool()) {
+            config.bvar_enable = d["bvar_enable"].GetBool();
+        }
+    }
+
+    // 解析缓存相关设置
+    static void parse_cache_settings(const rapidjson::Document& d, JobConfig& config) {
         if (d.HasMember("cache_type") && d["cache_type"].IsString()) {
             config.cache_type = d["cache_type"].GetString();
-        } else {
-            config.cache_type = "NORMAL"; // 默认值
         }
 
         // 检查 TTL 类型的缓存
@@ -492,71 +603,60 @@ struct JobConfig {
                         "expiration is required and must be an integer when cache type is TTL");
             }
             config.expiration = d["expiration"].GetInt64();
-            if (config.expiration <= 0) {
-                throw std::runtime_error("expiration must be positive when cache type is TTL");
-            }
         }
+    }
 
-        // 检查并设置 repeat
-        if (d.HasMember("repeat") && d["repeat"].IsInt64()) {
-            config.repeat = d["repeat"].GetInt64();
-        }
-
-        // 检查并设置 write_batch_size
-        if (d.HasMember("write_batch_size") && d["write_batch_size"].IsInt64()) {
-            config.write_batch_size = d["write_batch_size"].GetInt64();
-        } else {
-            config.write_batch_size = doris::config::s3_write_buffer_size; // 默认值
-        }
-
-        // 检查并设置 read_offset
+    // 解析读取相关设置
+    static void parse_read_settings(const rapidjson::Document& d, JobConfig& config) {
         if (config.read_iops > 0) {
+            // 解析 read_offset
             if (d.HasMember("read_offset") && d["read_offset"].IsArray() &&
                 d["read_offset"].Size() == 2) {
                 const rapidjson::Value& read_offset_array = d["read_offset"];
                 config.read_offset_left = read_offset_array[0].GetInt64();
                 config.read_offset_right = read_offset_array[1].GetInt64();
-                if (config.read_offset_left >= config.read_offset_right) {
-                    throw std::runtime_error(
-                            "read_offset_left must be less than read_offset_right");
-                }
             } else {
                 throw std::runtime_error("Invalid read_offset format, expected array of size 2");
             }
 
-            // 检查并设置 read_length
+            // 解析 read_length
             if (d.HasMember("read_length") && d["read_length"].IsArray() &&
                 d["read_length"].Size() == 2) {
                 const rapidjson::Value& read_length_array = d["read_length"];
                 config.read_length_left = read_length_array[0].GetInt64();
                 config.read_length_right = read_length_array[1].GetInt64();
-                if (config.read_length_left >= config.read_length_right) {
-                    throw std::runtime_error(
-                            "read_length_left must be less than read_length_right");
-                }
             } else {
                 throw std::runtime_error("Invalid read_length format, expected array of size 2");
             }
         }
+    }
 
-        // 添加更多参数验证
-        if (config.num_threads > 10000) {
-            throw std::runtime_error("num_threads cannot exceed 10000");
+    // 验证配置的有效性
+    static void validate_config(const JobConfig& config) {
+        if (config.num_threads <= 0 || config.num_threads > 10000) {
+            throw std::runtime_error("num_threads must be between 1 and 10000");
         }
+
         if (config.size_bytes_perfile <= 0) {
             throw std::runtime_error("size_bytes_perfile must be positive");
         }
 
-        return config;
-    }
+        if (config.read_iops > 0) {
+            if (config.read_offset_left >= config.read_offset_right) {
+                throw std::runtime_error("read_offset_left must be less than read_offset_right");
+            }
 
-    static void validate(const rapidjson::Document& json_data) {
-        if (!json_data.HasMember("file_prefix") || !json_data["file_prefix"].IsString() ||
-            strlen(json_data["file_prefix"].GetString()) == 0) {
-            throw std::runtime_error("file_prefix is required and cannot be empty");
+            if (config.read_length_left >= config.read_length_right) {
+                throw std::runtime_error("read_length_left must be less than read_length_right");
+            }
+        }
+
+        if (config.cache_type == "TTL" && config.expiration <= 0) {
+            throw std::runtime_error("expiration must be positive when cache type is TTL");
         }
     }
 
+public:
     std::string to_string() const {
         return fmt::format(
                 "size_bytes_perfile: {}, write_iops: {}, read_iops: {}, num_threads: {}, "
@@ -620,11 +720,7 @@ struct Job {
     std::shared_ptr<bvar::Adder<int64_t>> read_rate_limit_s;
 
     // 默认构造函数
-    Job()
-            : job_id(""),
-              config(),
-              status(JobStatus::PENDING),
-              create_time(std::chrono::system_clock::now()) {
+    Job() : job_id(""), status(JobStatus::PENDING), create_time(std::chrono::system_clock::now()) {
         init_latency_recorders("");
         completion_tracker = std::make_shared<FileCompletionTracker>();
     }
@@ -636,31 +732,26 @@ struct Job {
               status(JobStatus::PENDING),
               create_time(std::chrono::system_clock::now()) {
         init_latency_recorders(id);
-        if (config.write_iops && config.read_iops) {
+        if (cfg.write_iops > 0 && cfg.read_iops > 0) {
             completion_tracker = std::make_shared<FileCompletionTracker>();
-        } else {
-            completion_tracker = nullptr;
         }
         init_limiters(cfg);
     }
 
 private:
     void init_latency_recorders(const std::string& id) {
-        if (config.write_iops > 0) {
-            if (config.bvar_enable) {
-                write_latency = std::make_shared<bvar::LatencyRecorder>(
-                        "file_cache_microbench_append_" + id);
-                write_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
-                        "file_cache_microbench_append_rate_limit_ns_" + id);
-            }
+        if (config.write_iops > 0 && config.bvar_enable) {
+            write_latency =
+                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_append_" + id);
+            write_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                    "file_cache_microbench_append_rate_limit_ns_" + id);
         }
-        if (config.read_iops > 0) {
-            if (config.bvar_enable) {
-                read_latency = std::make_shared<bvar::LatencyRecorder>(
-                        "file_cache_microbench_read_at_" + id);
-                read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
-                        "file_cache_microbench_read_rate_limit_ns_" + id);
-            }
+
+        if (config.read_iops > 0 && config.bvar_enable) {
+            read_latency =
+                    std::make_shared<bvar::LatencyRecorder>("file_cache_microbench_read_at_" + id);
+            read_rate_limit_s = std::make_shared<bvar::Adder<int64_t>>(
+                    "file_cache_microbench_read_rate_limit_ns_" + id);
         }
     }
 
@@ -672,7 +763,7 @@ private:
                     cfg.write_iops, // max_burst
                     0,              // no limit
                     [this](int64_t wait_time_ns) {
-                        if (wait_time_ns > 0) {
+                        if (wait_time_ns > 0 && write_rate_limit_s) {
                             *write_rate_limit_s << wait_time_ns / NS;
                         }
                     });
@@ -685,7 +776,7 @@ private:
                     cfg.read_iops, // max_burst
                     0,             // no limit
                     [this](int64_t wait_time_ns) {
-                        if (wait_time_ns > 0) {
+                        if (wait_time_ns > 0 && read_rate_limit_s) {
                             *read_rate_limit_s << wait_time_ns / NS;
                         }
                     });
@@ -696,7 +787,10 @@ private:
 // Job管理器
 class JobManager {
 public:
-    JobManager() : _next_job_id(0), _job_executor_pool(std::thread::hardware_concurrency()) {}
+    JobManager() : _next_job_id(0), _job_executor_pool(std::thread::hardware_concurrency()) {
+        LOG(INFO) << "Initialized JobManager with " << std::thread::hardware_concurrency()
+                  << " executor threads";
+    }
 
     ~JobManager() {
         try {
@@ -706,72 +800,68 @@ public:
         }
     }
 
+    // 提交新作业
     std::string submit_job(const JobConfig& config) {
         try {
-            std::lock_guard<std::mutex> lock(_mutex);
-            std::string job_id = "job_" + std::to_string(std::time(nullptr)) + "_" +
-                                 std::to_string(_next_job_id++);
-            _jobs[job_id] = std::make_shared<Job>(job_id, config);
+            std::string job_id = generate_job_id();
 
-            _job_executor_pool.enqueue([this, job_id]() {
-                try {
-                    {
-                        std::lock_guard<std::mutex> lock(_mutex);
-                        _jobs[job_id]->status = JobStatus::RUNNING;
-                        _jobs[job_id]->start_time = std::chrono::system_clock::now();
-                    }
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                _jobs[job_id] = std::make_shared<Job>(job_id, config);
+            }
 
-                    execute_job(job_id);
+            LOG(INFO) << "Submitting job " << job_id << " with config: " << config.to_string();
 
-                    {
-                        std::lock_guard<std::mutex> lock(_mutex);
-                        _jobs[job_id]->status = JobStatus::COMPLETED;
-                        _jobs[job_id]->end_time = std::chrono::system_clock::now();
-                    }
-                } catch (const std::exception& e) {
-                    std::lock_guard<std::mutex> lock(_mutex);
-                    _jobs[job_id]->status = JobStatus::FAILED;
-                    _jobs[job_id]->error_message = e.what();
-                    _jobs[job_id]->end_time = std::chrono::system_clock::now();
-                    LOG(ERROR) << "Job " << job_id << " failed: " << e.what();
-                }
-            });
+            // 异步执行作业
+            _job_executor_pool.enqueue(
+                    [this, job_id]() { execute_job_with_status_updates(job_id); });
 
             return job_id;
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error submitting job: " << e.what();
-            // 返回错误信息
-            return R"({"error": ")" + std::string(e.what()) + R"("})";
+            throw std::runtime_error("Failed to submit job: " + std::string(e.what()));
         }
     }
 
+    // 获取作业状态
     const Job& get_job_status(const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
         if (it != _jobs.end()) {
             return *(it->second);
         }
-        throw std::runtime_error("Job not found");
+        throw std::runtime_error("Job not found: " + job_id);
     }
 
+    std::shared_ptr<Job> get_job_ptr(const std::string& job_id) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto it = _jobs.find(job_id);
+        if (it != _jobs.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+
+    // 列出所有作业
     std::vector<std::shared_ptr<Job>> list_jobs() {
         std::lock_guard<std::mutex> lock(_mutex);
         std::vector<std::shared_ptr<Job>> job_list;
+        job_list.reserve(_jobs.size());
         for (const auto& pair : _jobs) {
             job_list.push_back(pair.second);
         }
         return job_list;
     }
 
-    void start() {
-        // 不再需要启动worker线程
-    }
+    void start() { LOG(INFO) << "JobManager started"; }
 
     void stop() {
-        // 等待所有作业完成
+        LOG(INFO) << "Stopping JobManager and waiting for all jobs to complete";
         _job_executor_pool.~ThreadPool();
+        LOG(INFO) << "JobManager stopped";
     }
 
+    // 记录文件信息
     void record_file_info(const std::string& key, size_t data_size, const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
@@ -780,65 +870,116 @@ public:
             it->second->file_records.push_back(file_info);
             s3_file_records.add_file_info(job_id, file_info);
         } else {
-            LOG(ERROR) << "Job ID not found: " << job_id;
+            LOG(ERROR) << "Job ID not found when recording file info: " << job_id;
         }
     }
 
-    void execute_job(const std::string& job_id) {
-        try {
-            std::shared_ptr<Job> job_ptr = _jobs.at(job_id);
-            if (!job_ptr) {
-                throw std::runtime_error("Job not found");
-            }
-            Job& job = *job_ptr;
-            JobConfig config = job.config;
-            LOG(INFO) << "begin to Run " << job_id << " job config: " << config.to_string();
+    // 取消作业（未实现）
+    bool cancel_job(const std::string& job_id) {
+        LOG(WARNING) << "Job cancellation not implemented yet: " << job_id;
+        return false;
+    }
 
-            // 生成多个key
-            std::vector<std::string> keys;
-            keys.reserve(config.num_files);
+private:
+    // 生成唯一的作业ID
+    std::string generate_job_id() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        std::string job_id =
+                "job_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(_next_job_id++);
+        return job_id;
+    }
 
-            std::string rewrite_job_id = job_id;
-            // Job Read the previously job uploaded files
-            if (config.read_iops != 0 && config.write_iops == 0) {
-                // 当 read_iops != 0 && write_iops == 0 时，表示读取之前写入的文件
-                std::string old_job_id =
-                        s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
-                if (old_job_id == "") {
-                    std::string err_msg =
-                            "Can't find previously job uploaded files, Please make sure read "
-                            "files exist in obj or It is also possible that you have restarted "
-                            "the file_cache_microbench program, job_id = " +
-                            job_id;
-                    LOG(WARNING) << err_msg;
-                    throw std::runtime_error(err_msg);
-                }
-                rewrite_job_id = old_job_id;
-            }
+    // 带状态更新的作业执行
+    void execute_job_with_status_updates(const std::string& job_id) {
+        std::shared_ptr<Job> job_ptr;
 
-            // 继续生成 keys
-            for (int i = 0; i < config.num_files; ++i) {
-                keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
-                               std::to_string(i));
+        // 获取作业指针并更新状态为运行中
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            auto it = _jobs.find(job_id);
+            if (it == _jobs.end()) {
+                LOG(ERROR) << "Job not found for execution: " << job_id;
+                return;
             }
-
-            if (config.write_iops) {
-                // 执行写操作
-                execute_write_tasks(keys, job, config);
-            }
-
-            if (config.read_iops) {
-                // 执行读操作
-                execute_read_tasks(keys, job, config);
-            }
-            LOG(INFO) << "finish to Run " << job_id;
-        } catch (const std::out_of_range& e) {
-            LOG(ERROR) << "Job not found: " << job_id << ": " << e.what();
-            throw;
-        } catch (const std::exception& e) {
-            LOG(ERROR) << "Error executing job " << job_id << ": " << e.what();
-            throw;
+            job_ptr = it->second;
+            job_ptr->status = JobStatus::RUNNING;
+            job_ptr->start_time = std::chrono::system_clock::now();
         }
+
+        LOG(INFO) << "Starting execution of job " << job_id;
+
+        try {
+            // 执行作业
+            execute_job(job_id);
+
+            // 更新状态为已完成
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                job_ptr->status = JobStatus::COMPLETED;
+                job_ptr->end_time = std::chrono::system_clock::now();
+            }
+
+            LOG(INFO) << "Job " << job_id << " completed successfully";
+        } catch (const std::exception& e) {
+            // 更新状态为失败
+            {
+                std::lock_guard<std::mutex> lock(_mutex);
+                job_ptr->status = JobStatus::FAILED;
+                job_ptr->error_message = e.what();
+                job_ptr->end_time = std::chrono::system_clock::now();
+            }
+
+            LOG(ERROR) << "Job " << job_id << " failed: " << e.what();
+        }
+    }
+
+    // 执行作业的核心逻辑
+    void execute_job(const std::string& job_id) {
+        std::shared_ptr<Job> job_ptr = get_job_ptr(job_id);
+        if (!job_ptr) {
+            throw std::runtime_error("Job not found");
+        }
+
+        Job& job = *job_ptr;
+        JobConfig& config = job.config;
+        LOG(INFO) << "Executing job " << job_id << " with config: " << config.to_string();
+
+        // 生成多个key
+        std::vector<std::string> keys;
+        keys.reserve(config.num_files);
+
+        std::string rewrite_job_id = job_id;
+        // 如果是只读作业，查找之前写入的文件
+        if (config.read_iops > 0 && config.write_iops == 0) {
+            std::string old_job_id =
+                    s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
+            if (old_job_id.empty()) {
+                throw std::runtime_error(
+                        "Can't find previously job uploaded files. Please make sure read "
+                        "files exist in obj or It is also possible that you have restarted "
+                        "the file_cache_microbench program, job_id = " +
+                        job_id);
+            }
+            rewrite_job_id = old_job_id;
+        }
+
+        // 生成文件键
+        for (int i = 0; i < config.num_files; ++i) {
+            keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
+                           std::to_string(i));
+        }
+
+        // 执行写操作
+        if (config.write_iops > 0) {
+            execute_write_tasks(keys, job, config);
+        }
+
+        // 执行读操作
+        if (config.read_iops > 0) {
+            execute_read_tasks(keys, job, config);
+        }
+
+        LOG(INFO) << "Job " << job_id << " execution completed";
     }
 
 private:
@@ -854,6 +995,7 @@ private:
         return s3_conf;
     }
 
+    // 执行写任务
     void execute_write_tasks(const std::vector<std::string>& keys, Job& job,
                              const JobConfig& config) {
         // 创建 S3 客户端配置
@@ -899,7 +1041,7 @@ private:
 
                     // 流式写入数据
                     while (data_generator.has_more()) {
-                        doris::Slice chunk = data_generator.next_chunk();
+                        doris::Slice chunk = data_generator.next_chunk(key);
                         slices.push_back(chunk);
                         accumulated_size += chunk.size;
 
@@ -942,6 +1084,7 @@ private:
         LOG(INFO) << "Total write time: " << job.stats.total_write_time << " seconds";
     }
 
+    // 执行读任务
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
         LOG(INFO) << "Starting read tasks for job " << job.job_id << ", num_keys=" << keys.size()
                   << ", read_iops=" << config.read_iops;
@@ -996,6 +1139,8 @@ private:
                     doris::io::FileDescription fd;
                     std::string obj_path = "s3://" + doris::config::test_s3_bucket + "/";
                     fd.path = doris::io::Path(obj_path + key);
+                    fd.file_size = exist_job_perfile_size != -1 ? exist_job_perfile_size
+                                                                : config.size_bytes_perfile;
                     doris::io::FileSystemProperties fs_props;
                     fs_props.system_type = doris::TFileType::FILE_S3;
 
@@ -1025,15 +1170,15 @@ private:
                             continue;
                         }
 
-                        auto reader = std::make_unique<MicrobenchFileReader>(
-                                status_or_reader.value(), job.read_limiter);
-                        doris::Defer defer {[&]() {
-                            if (auto status = reader->close(); !status.ok()) {
-                                LOG(ERROR) << "close file reader failed" << status.to_string();
-                            }
-                        }};
-
                         for (int i = 0; i < config.repeat; i++) {
+                            auto reader = std::make_unique<MicrobenchFileReader>(
+                                    status_or_reader.value(), job.read_limiter);
+                            doris::Defer defer {[&]() {
+                                if (auto status = reader->close(); !status.ok()) {
+                                    LOG(ERROR) << "close file reader failed" << status.to_string();
+                                }
+                            }};
+
                             size_t read_offset = 0;
                             size_t read_length = 0;
 
@@ -1086,66 +1231,57 @@ private:
                             std::string read_buffer;
                             read_buffer.resize(read_length);
 
-                            const size_t block_size = 512 * 1024;
-                            size_t num_blocks = (read_length + block_size - 1) / block_size;
+                            size_t total_bytes_read = 0;
+                            while (total_bytes_read < read_length) {
+                                size_t bytes_to_read = std::min(
+                                        read_length - total_bytes_read,
+                                        static_cast<size_t>(4 * 1024 * 1024)); // 4MB chunks
 
-                            bool read_success = true;
-                            for (size_t j = 0; j < num_blocks && read_success; ++j) {
-                                size_t block_offset = j * block_size;
-                                int64_t current_block_size =
-                                        std::min(block_size, read_length - block_offset);
-                                doris::Slice read_slice(read_buffer.data() + block_offset,
-                                                        current_block_size);
+                                doris::Slice read_slice(read_buffer.data() + total_bytes_read,
+                                                        bytes_to_read);
                                 size_t bytes_read = 0;
 
                                 doris::Status read_status =
-                                        reader->read_at(read_offset + block_offset, read_slice,
+                                        reader->read_at(read_offset + total_bytes_read, read_slice,
                                                         &bytes_read, &io_ctx, job.read_latency);
+
                                 if (!read_status.ok()) {
-                                    read_success = false;
-                                    if (++read_retry_count >= max_read_retries) {
-                                        throw std::runtime_error("Read error for segment " + key +
-                                                                 ": " + read_status.to_string());
-                                    }
-                                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                                    break;
+                                    throw std::runtime_error("Read error: " +
+                                                             read_status.to_string());
                                 }
 
-                                if (bytes_read != current_block_size) {
-                                    read_success = false;
-                                    if (++read_retry_count >= max_read_retries) {
-                                        throw std::runtime_error(
-                                                "Size mismatch for key " + key + ": expected " +
-                                                std::to_string(current_block_size) + ", got " +
-                                                std::to_string(bytes_read));
-                                    }
-                                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                                    break;
+                                if (bytes_read != bytes_to_read) {
+                                    throw std::runtime_error("Incomplete read: expected " +
+                                                             std::to_string(bytes_to_read) +
+                                                             " bytes, got " +
+                                                             std::to_string(bytes_read));
                                 }
+
+                                total_bytes_read += bytes_read;
                             }
 
-                            if (read_success) {
-                                std::string expected_data =
-                                        DataGenerator::generate_fixed_size_data(read_length);
-
-                                // 校验读取的数据是否与生成的数据匹配
-                                if (memcmp(read_buffer.data(), expected_data.data(),
-                                           std::min(static_cast<size_t>(read_length),
-                                                    expected_data.size())) != 0) {
-                                    if (++read_retry_count >= max_read_retries) {
-                                        throw std::runtime_error(
-                                                "Data verification failed for key " + key);
-                                    }
-                                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                                    continue;
-                                }
+                            size_t file_size = config.size_bytes_perfile;
+                            if (exist_job_perfile_size != -1) {
+                                file_size = exist_job_perfile_size;
                             }
+
+                            // 验证读取的数据
+                            if (!DataVerifier::verify_data(key, file_size, read_offset, read_buffer,
+                                                           read_length)) {
+                                throw std::runtime_error("Data verification failed for key: " +
+                                                         key);
+                            }
+
+                            LOG(INFO)
+                                    << "read_offset=" << read_offset
+                                    << " read_length=" << read_length << " file_size=" << file_size;
+
+                            completed_reads++;
                         }
                         break;
-                        completed_reads++;
                     }
                 } catch (const std::exception& e) {
-                    LOG(ERROR) << "Read task failed for segment " << key << ": " << e.what();
+                    LOG(ERROR) << "Read task failed for key " << key << ": " << e.what();
                 }
             }));
         }
@@ -1190,8 +1326,7 @@ private:
     std::mutex _mutex;
     std::atomic<int> _next_job_id;
     std::map<std::string, std::shared_ptr<Job>> _jobs;
-    ThreadPool _job_executor_pool; // 专门用于执行作业的线程池
-    std::shared_ptr<FileCompletionTracker> completion_tracker; // 共享的完成跟踪器
+    ThreadPool _job_executor_pool;
 };
 
 namespace microbenchService {
@@ -1200,48 +1335,104 @@ class MicrobenchServiceImpl : public microbench::MicrobenchService {
 public:
     MicrobenchServiceImpl(JobManager& job_manager) : _job_manager(job_manager) {}
     virtual ~MicrobenchServiceImpl() {}
+
+    /**
+     * 提交作业
+     * 
+     * 接收JSON格式的作业配置，创建并提交作业
+     * 返回包含作业ID的JSON响应
+     */
     void submit_job(google::protobuf::RpcController* cntl_base,
                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
                     google::protobuf::Closure* done) {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
         LOG(INFO) << "Received submit job request";
 
-        // 解析请求体JSON
-        std::string job_config = cntl->request_attachment().to_string();
         try {
+            // 解析请求体JSON
+            std::string job_config = cntl->request_attachment().to_string();
             JobConfig config = JobConfig::from_json(job_config);
 
-            LOG(INFO) << "JobConfig: " << config.to_string();
+            LOG(INFO) << "Parsed JobConfig: " << config.to_string();
 
             std::string job_id = _job_manager.submit_job(config);
-
             LOG(INFO) << "Job submitted successfully with ID: " << job_id;
 
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
             // 返回job_id
-            cntl->response_attachment().append(R"({"job_id": ")" + job_id + R"("})");
+            rapidjson::Document response_doc;
+            response_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = response_doc.GetAllocator();
+            response_doc.AddMember("job_id", rapidjson::Value(job_id.c_str(), allocator),
+                                   allocator);
+            response_doc.AddMember("status", "success", allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            response_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error submitting job: " << e.what();
-            cntl->http_response().set_status_code(400);
-            cntl->response_attachment().append(R"({"error": ")" + std::string(e.what()) + R"("})");
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
         }
     }
 
+    /**
+     * 获取作业状态
+     * 
+     * 根据作业ID返回作业的详细状态信息
+     * 可选参数 files 用于限制返回的文件记录数量
+     */
     void get_job_status(google::protobuf::RpcController* cntl_base,
                         const microbench::HttpRequest* request, microbench::HttpResponse* response,
                         google::protobuf::Closure* done) {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
         std::string job_id = cntl->http_request().unresolved_path();
         const std::string* files_value = cntl->http_request().uri().GetQuery("files");
         size_t max_files = 1000; // 设置最大文件记录数
-        if (files_value != NULL) {
-            max_files = std::stoi(*files_value);
-            LOG(INFO) << "file values = " << max_files;
+
+        if (files_value != nullptr) {
+            try {
+                max_files = std::stoi(*files_value);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Invalid files parameter: " << *files_value
+                             << ", using default, error: " << e.what();
+            }
         }
+
+        LOG(INFO) << "Received get_job_status request for job " << job_id
+                  << ", max_files=" << max_files;
 
         try {
             const Job& job = _job_manager.get_job_status(job_id);
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
 
             // 构建JSON响应
             rapidjson::Document d;
@@ -1253,75 +1444,24 @@ public:
                         rapidjson::Value(get_status_string(job.status).c_str(), allocator),
                         allocator);
 
+            // 添加时间信息
+            add_time_info(d, allocator, job);
+
+            // 添加错误信息（如果有）
             if (!job.error_message.empty()) {
                 d.AddMember("error_message", rapidjson::Value(job.error_message.c_str(), allocator),
                             allocator);
             }
 
+            // 添加配置信息
+            add_config_info(d, allocator, job.config);
+
             // 添加统计信息
-            rapidjson::Value stats(rapidjson::kObjectType);
-            stats.AddMember("total_write_time",
-                            rapidjson::Value(job.stats.total_write_time.c_str(), allocator),
-                            allocator);
-            stats.AddMember("total_read_time",
-                            rapidjson::Value(job.stats.total_read_time.c_str(), allocator),
-                            allocator);
+            add_stats_info(d, allocator, job.stats);
 
-            // struct FileCacheStatistics
-            stats.AddMember("num_local_io_total",
-                            static_cast<uint64_t>(job.stats.num_local_io_total), allocator);
-            stats.AddMember("num_remote_io_total",
-                            static_cast<uint64_t>(job.stats.num_remote_io_total), allocator);
-            stats.AddMember("num_inverted_index_remote_io_total",
-                            static_cast<uint64_t>(job.stats.num_inverted_index_remote_io_total),
-                            allocator);
-            stats.AddMember("local_io_timer", static_cast<uint64_t>(job.stats.local_io_timer),
-                            allocator);
-            stats.AddMember("bytes_read_from_local",
-                            static_cast<uint64_t>(job.stats.bytes_read_from_local), allocator);
-            stats.AddMember("bytes_read_from_remote",
-                            static_cast<uint64_t>(job.stats.bytes_read_from_remote), allocator);
-            stats.AddMember("remote_io_timer", static_cast<uint64_t>(job.stats.remote_io_timer),
-                            allocator);
-            stats.AddMember("write_cache_io_timer",
-                            static_cast<uint64_t>(job.stats.write_cache_io_timer), allocator);
-            stats.AddMember("bytes_write_into_cache",
-                            static_cast<uint64_t>(job.stats.bytes_write_into_cache), allocator);
-            stats.AddMember("num_skip_cache_io_total",
-                            static_cast<uint64_t>(job.stats.num_skip_cache_io_total), allocator);
-            stats.AddMember("read_cache_file_directly_timer",
-                            static_cast<uint64_t>(job.stats.read_cache_file_directly_timer),
-                            allocator);
-            stats.AddMember("cache_get_or_set_timer",
-                            static_cast<uint64_t>(job.stats.cache_get_or_set_timer), allocator);
-            stats.AddMember("lock_wait_timer", static_cast<uint64_t>(job.stats.lock_wait_timer),
-                            allocator);
-            stats.AddMember("get_timer", static_cast<uint64_t>(job.stats.get_timer), allocator);
-            stats.AddMember("set_timer", static_cast<uint64_t>(job.stats.set_timer), allocator);
-
-            d.AddMember("statistics", stats, allocator);
-
+            // 添加文件记录（如果请求）
             if (files_value) {
-                rapidjson::Value files_array(rapidjson::kArrayType);
-                size_t count = 0;
-
-                for (const auto& file_info : job.file_records) {
-                    if (count >= max_files) {
-                        break; // 超过最大限制，停止添加
-                    }
-                    rapidjson::Value file_obj(rapidjson::kObjectType);
-                    file_obj.AddMember("filename",
-                                       rapidjson::Value(file_info.filename.c_str(), allocator),
-                                       allocator);
-                    file_obj.AddMember("data_size", static_cast<uint64_t>(file_info.data_size),
-                                       allocator);
-                    file_obj.AddMember("job_id",
-                                       rapidjson::Value(file_info.job_id.c_str(), allocator),
-                                       allocator);
-                    files_array.PushBack(file_obj, allocator);
-                    count++;
-                }
-                d.AddMember("file_records", files_array, allocator);
+                add_file_records(d, allocator, job.file_records, max_files);
             }
 
             // 序列化为字符串
@@ -1331,38 +1471,136 @@ public:
 
             cntl->response_attachment().append(buffer.GetString());
         } catch (const std::exception& e) {
-            cntl->http_response().set_status_code(404);
-            std::string error_message = R"({"error": "Job not found", "exception": ")" +
-                                        std::string(e.what()) + R"("})";
-            cntl->response_attachment().append(error_message);
+            LOG(ERROR) << "Error getting job status: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_NOT_FOUND);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", "Job not found", allocator);
+            error_doc.AddMember("exception", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
         }
     }
 
+    /**
+     * 列出所有作业
+     * 
+     * 返回所有作业的基本信息列表
+     */
     void list_jobs(google::protobuf::RpcController* cntl_base,
                    const microbench::HttpRequest* request, microbench::HttpResponse* response,
                    google::protobuf::Closure* done) {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
-        std::vector<std::shared_ptr<Job>> jobs = _job_manager.list_jobs();
+        LOG(INFO) << "Received list_jobs request";
 
-        // 构建JSON响应
+        try {
+            std::vector<std::shared_ptr<Job>> jobs = _job_manager.list_jobs();
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建JSON响应
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+
+            rapidjson::Value jobs_array(rapidjson::kArrayType);
+            for (const auto& job : jobs) {
+                rapidjson::Value job_obj(rapidjson::kObjectType);
+                job_obj.AddMember("job_id", rapidjson::Value(job->job_id.c_str(), allocator),
+                                  allocator);
+                job_obj.AddMember(
+                        "status",
+                        rapidjson::Value(get_status_string(job->status).c_str(), allocator),
+                        allocator);
+
+                // 添加创建时间
+                auto create_time_t = std::chrono::system_clock::to_time_t(job->create_time);
+                std::string create_time_str = std::ctime(&create_time_t);
+                if (!create_time_str.empty() && create_time_str.back() == '\n') {
+                    create_time_str.pop_back(); // 移除末尾的换行符
+                }
+                job_obj.AddMember("create_time",
+                                  rapidjson::Value(create_time_str.c_str(), allocator), allocator);
+
+                // 添加文件前缀
+                job_obj.AddMember("file_prefix",
+                                  rapidjson::Value(job->config.file_prefix.c_str(), allocator),
+                                  allocator);
+
+                jobs_array.PushBack(job_obj, allocator);
+            }
+
+            d.AddMember("jobs", jobs_array, allocator);
+            d.AddMember("total", rapidjson::Value(static_cast<int>(jobs.size())), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error listing jobs: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
+    /**
+     * 取消作业
+     * 
+     * 尝试取消指定的作业（当前未实现）
+     */
+    void cancel_job(google::protobuf::RpcController* cntl_base,
+                    const microbench::HttpRequest* request, microbench::HttpResponse* response,
+                    google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
+        std::string job_id = cntl->http_request().unresolved_path();
+        LOG(INFO) << "Received cancel_job request for job " << job_id;
+
+        // 设置响应头
+        cntl->http_response().set_content_type("application/json");
+        cntl->http_response().set_status_code(brpc::HTTP_STATUS_NOT_IMPLEMENTED);
+
+        // 构建响应
         rapidjson::Document d;
         d.SetObject();
         rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
-
-        rapidjson::Value jobs_array(rapidjson::kArrayType);
-        for (const auto& job : jobs) {
-            rapidjson::Value job_obj(rapidjson::kObjectType);
-            job_obj.AddMember("job_id", rapidjson::Value(job->job_id.c_str(), allocator),
-                              allocator);
-            job_obj.AddMember("status",
-                              rapidjson::Value(get_status_string(job->status).c_str(), allocator),
-                              allocator);
-            jobs_array.PushBack(job_obj, allocator);
-        }
-
-        d.AddMember("jobs", jobs_array, allocator);
+        d.AddMember("status", "error", allocator);
+        d.AddMember("message", "Job cancellation not implemented", allocator);
 
         // 序列化为字符串
         rapidjson::StringBuffer buffer;
@@ -1372,22 +1610,18 @@ public:
         cntl->response_attachment().append(buffer.GetString());
     }
 
-    void cancel_job(google::protobuf::RpcController* cntl_base,
-                    const microbench::HttpRequest* request, microbench::HttpResponse* response,
-                    google::protobuf::Closure* done) {
-        brpc::ClosureGuard done_guard(done);
-        // TODO: 实现取消作业的功能
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-        cntl->http_response().set_status_code(501); // Not Implemented
-        cntl->response_attachment().append(R"({"error": "Not implemented"})");
-    }
-
+    /**
+     * 获取帮助信息
+     * 
+     * 返回工具的使用说明
+     */
     void get_help(google::protobuf::RpcController* cntl_base,
                   const microbench::HttpRequest* request, microbench::HttpResponse* response,
                   google::protobuf::Closure* done) {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-        LOG(INFO) << "Received get help request";
+
+        LOG(INFO) << "Received get_help request";
 
         // 获取使用帮助信息
         std::string help_info = get_usage("Doris Microbench Tool");
@@ -1396,28 +1630,85 @@ public:
         cntl->response_attachment().append(help_info);
     }
 
+    /**
+     * 清除文件缓存
+     * 
+     * 清除指定路径或所有的文件缓存
+     */
     void file_cache_clear(google::protobuf::RpcController* cntl_base,
                           const microbench::HttpRequest* request,
                           microbench::HttpResponse* response, google::protobuf::Closure* done) {
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
         const std::string* sync_str = cntl->http_request().uri().GetQuery("sync");
         const std::string* segment_path = cntl->http_request().uri().GetQuery("segment_path");
 
-        LOG(INFO) << "Received file cache clear request, sync=" << (sync_str ? *sync_str : "")
+        LOG(INFO) << "Received file_cache_clear request, sync=" << (sync_str ? *sync_str : "")
                   << ", segment_path=" << (segment_path ? *segment_path : "");
-        if (segment_path == nullptr) {
-            FileCacheFactory::instance()->clear_file_caches(doris::to_lower(*sync_str) == "true");
-        } else {
-            doris::io::UInt128Wrapper hash = doris::io::BlockFileCache::hash(*segment_path);
-            doris::io::BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
-            cache->remove_if_cached(hash);
+
+        try {
+            bool sync = sync_str ? (doris::to_lower(*sync_str) == "true") : false;
+
+            if (segment_path == nullptr) {
+                // 清除所有缓存
+                FileCacheFactory::instance()->clear_file_caches(sync);
+                LOG(INFO) << "Cleared all file caches, sync=" << sync;
+            } else {
+                // 清除特定路径的缓存
+                doris::io::UInt128Wrapper hash = doris::io::BlockFileCache::hash(*segment_path);
+                doris::io::BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
+                if (cache) {
+                    cache->remove_if_cached(hash);
+                    LOG(INFO) << "Cleared cache for path: " << *segment_path;
+                } else {
+                    LOG(WARNING) << "No cache found for path: " << *segment_path;
+                }
+            }
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建成功响应
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            d.AddMember("status", "OK", allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error clearing file cache: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
         }
 
-        cntl->response_attachment().append(R"({"status": "OK"})");
+        // 确保响应被发送
+        done->Run();
     }
 
 private:
+    // 获取作业状态的字符串表示
     std::string get_status_string(JobStatus status) {
         switch (status) {
         case JobStatus::PENDING:
@@ -1433,6 +1724,151 @@ private:
         }
     }
 
+    // 添加时间信息到JSON响应
+    void add_time_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
+                       const Job& job) {
+        // 添加创建时间
+        auto create_time_t = std::chrono::system_clock::to_time_t(job.create_time);
+        std::string create_time_str = std::ctime(&create_time_t);
+        if (!create_time_str.empty() && create_time_str.back() == '\n') {
+            create_time_str.pop_back(); // 移除末尾的换行符
+        }
+        doc.AddMember("create_time", rapidjson::Value(create_time_str.c_str(), allocator),
+                      allocator);
+
+        // 添加开始时间（如果有）
+        if (job.status != JobStatus::PENDING) {
+            auto start_time_t = std::chrono::system_clock::to_time_t(job.start_time);
+            std::string start_time_str = std::ctime(&start_time_t);
+            if (!start_time_str.empty() && start_time_str.back() == '\n') {
+                start_time_str.pop_back();
+            }
+            doc.AddMember("start_time", rapidjson::Value(start_time_str.c_str(), allocator),
+                          allocator);
+        }
+
+        // 添加结束时间（如果有）
+        if (job.status == JobStatus::COMPLETED || job.status == JobStatus::FAILED) {
+            auto end_time_t = std::chrono::system_clock::to_time_t(job.end_time);
+            std::string end_time_str = std::ctime(&end_time_t);
+            if (!end_time_str.empty() && end_time_str.back() == '\n') {
+                end_time_str.pop_back();
+            }
+            doc.AddMember("end_time", rapidjson::Value(end_time_str.c_str(), allocator), allocator);
+
+            // 计算运行时间
+            auto duration =
+                    std::chrono::duration_cast<std::chrono::seconds>(job.end_time - job.start_time)
+                            .count();
+            doc.AddMember("duration_seconds", duration, allocator);
+        }
+    }
+
+    // 添加配置信息到JSON响应
+    void add_config_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
+                         const JobConfig& config) {
+        rapidjson::Value config_obj(rapidjson::kObjectType);
+
+        config_obj.AddMember("size_bytes_perfile", config.size_bytes_perfile, allocator);
+        config_obj.AddMember("write_iops", config.write_iops, allocator);
+        config_obj.AddMember("read_iops", config.read_iops, allocator);
+        config_obj.AddMember("num_threads", config.num_threads, allocator);
+        config_obj.AddMember("num_files", config.num_files, allocator);
+        config_obj.AddMember("file_prefix", rapidjson::Value(config.file_prefix.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("cache_type", rapidjson::Value(config.cache_type.c_str(), allocator),
+                             allocator);
+        config_obj.AddMember("expiration", config.expiration, allocator);
+        config_obj.AddMember("repeat", config.repeat, allocator);
+        config_obj.AddMember("write_batch_size", config.write_batch_size, allocator);
+        config_obj.AddMember("write_file_cache", config.write_file_cache, allocator);
+        config_obj.AddMember("bvar_enable", config.bvar_enable, allocator);
+
+        // 添加读取范围（如果适用）
+        if (config.read_iops > 0) {
+            rapidjson::Value read_offset_array(rapidjson::kArrayType);
+            read_offset_array.PushBack(config.read_offset_left, allocator);
+            read_offset_array.PushBack(config.read_offset_right, allocator);
+            config_obj.AddMember("read_offset", read_offset_array, allocator);
+
+            rapidjson::Value read_length_array(rapidjson::kArrayType);
+            read_length_array.PushBack(config.read_length_left, allocator);
+            read_length_array.PushBack(config.read_length_right, allocator);
+            config_obj.AddMember("read_length", read_length_array, allocator);
+        }
+
+        doc.AddMember("config", config_obj, allocator);
+    }
+
+    // 添加统计信息到JSON响应
+    void add_stats_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
+                        const Job::Statistics& stats) {
+        rapidjson::Value stats_obj(rapidjson::kObjectType);
+
+        stats_obj.AddMember("total_write_time",
+                            rapidjson::Value(stats.total_write_time.c_str(), allocator), allocator);
+        stats_obj.AddMember("total_read_time",
+                            rapidjson::Value(stats.total_read_time.c_str(), allocator), allocator);
+
+        // struct FileCacheStatistics
+        stats_obj.AddMember("num_local_io_total", static_cast<uint64_t>(stats.num_local_io_total),
+                            allocator);
+        stats_obj.AddMember("num_remote_io_total", static_cast<uint64_t>(stats.num_remote_io_total),
+                            allocator);
+        stats_obj.AddMember("num_inverted_index_remote_io_total",
+                            static_cast<uint64_t>(stats.num_inverted_index_remote_io_total),
+                            allocator);
+        stats_obj.AddMember("local_io_timer", static_cast<uint64_t>(stats.local_io_timer),
+                            allocator);
+        stats_obj.AddMember("bytes_read_from_local",
+                            static_cast<uint64_t>(stats.bytes_read_from_local), allocator);
+        stats_obj.AddMember("bytes_read_from_remote",
+                            static_cast<uint64_t>(stats.bytes_read_from_remote), allocator);
+        stats_obj.AddMember("remote_io_timer", static_cast<uint64_t>(stats.remote_io_timer),
+                            allocator);
+        stats_obj.AddMember("write_cache_io_timer",
+                            static_cast<uint64_t>(stats.write_cache_io_timer), allocator);
+        stats_obj.AddMember("bytes_write_into_cache",
+                            static_cast<uint64_t>(stats.bytes_write_into_cache), allocator);
+        stats_obj.AddMember("num_skip_cache_io_total",
+                            static_cast<uint64_t>(stats.num_skip_cache_io_total), allocator);
+        stats_obj.AddMember("read_cache_file_directly_timer",
+                            static_cast<uint64_t>(stats.read_cache_file_directly_timer), allocator);
+        stats_obj.AddMember("cache_get_or_set_timer",
+                            static_cast<uint64_t>(stats.cache_get_or_set_timer), allocator);
+        stats_obj.AddMember("lock_wait_timer", static_cast<uint64_t>(stats.lock_wait_timer),
+                            allocator);
+        stats_obj.AddMember("get_timer", static_cast<uint64_t>(stats.get_timer), allocator);
+        stats_obj.AddMember("set_timer", static_cast<uint64_t>(stats.set_timer), allocator);
+
+        doc.AddMember("statistics", stats_obj, allocator);
+    }
+
+    // 添加文件记录到JSON响应
+    void add_file_records(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
+                          const std::vector<FileInfo>& file_records, size_t max_files) {
+        rapidjson::Value files_array(rapidjson::kArrayType);
+        size_t count = 0;
+
+        for (const auto& file_info : file_records) {
+            if (count >= max_files) {
+                break; // 超过最大限制，停止添加
+            }
+            rapidjson::Value file_obj(rapidjson::kObjectType);
+            file_obj.AddMember("filename", rapidjson::Value(file_info.filename.c_str(), allocator),
+                               allocator);
+            file_obj.AddMember("data_size", static_cast<uint64_t>(file_info.data_size), allocator);
+            file_obj.AddMember("job_id", rapidjson::Value(file_info.job_id.c_str(), allocator),
+                               allocator);
+            files_array.PushBack(file_obj, allocator);
+            count++;
+        }
+
+        doc.AddMember("file_records", files_array, allocator);
+        doc.AddMember("file_records_count", static_cast<uint64_t>(count), allocator);
+        doc.AddMember("file_records_total", static_cast<uint64_t>(file_records.size()), allocator);
+    }
+
     JobManager& _job_manager;
 };
 } // namespace microbenchService
@@ -1440,31 +1876,53 @@ private:
 // HTTP服务器处理
 class HttpServer {
 public:
-    HttpServer(JobManager& job_manager) : _job_manager(job_manager) {}
+    HttpServer(JobManager& job_manager) : _job_manager(job_manager), _server(nullptr) {}
 
     void start() {
-        brpc::Server server;
+        _server = new brpc::Server();
         microbenchService::MicrobenchServiceImpl http_svc(_job_manager);
 
         LOG(INFO) << "Starting HTTP server on port " << FLAGS_port;
 
-        if (server.AddService(&http_svc, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+        if (_server->AddService(&http_svc, brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
             LOG(ERROR) << "Failed to add http service";
             return;
         }
 
         brpc::ServerOptions options;
-        if (server.Start(FLAGS_port, &options) != 0) {
+        if (_server->Start(FLAGS_port, &options) != 0) {
             LOG(ERROR) << "Failed to start HttpServer";
             return;
         }
 
         LOG(INFO) << "HTTP server started successfully";
-        server.RunUntilAskedToQuit();
+
+        // 等待信号
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // 优雅退出
+        LOG(INFO) << "Stopping HTTP server...";
+        _server->Stop(0);
+        _server->Join();
+        delete _server;
+        _server = nullptr;
+        LOG(INFO) << "HTTP server stopped";
+    }
+
+    ~HttpServer() {
+        if (_server) {
+            LOG(INFO) << "Cleaning up HTTP server in destructor";
+            _server->Stop(0);
+            _server->Join();
+            delete _server;
+        }
     }
 
 private:
     JobManager& _job_manager;
+    brpc::Server* _server;
 };
 
 void init_exec_env() {
@@ -1492,6 +1950,12 @@ int main(int argc, char* argv[]) {
         LOG(INFO) << "日志目录已存在: " << log_dir.string();
     }
     google::InitGoogleLogging(argv[0]);
+
+    // 安装信号处理器
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGHUP, signal_handler);
+    LOG(INFO) << "Signal handlers installed for graceful shutdown";
 
     if (-1 == setenv("DORIS_HOME", ".", 0)) {
         LOG(WARNING) << "set DORIS_HOME error";
@@ -1549,8 +2013,14 @@ int main(int argc, char* argv[]) {
 
     init_exec_env();
     JobManager job_manager;
-    HttpServer http_server(job_manager);
-    http_server.start();
 
+    try {
+        HttpServer http_server(job_manager);
+        http_server.start();
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Error in HTTP server: " << e.what();
+    }
+
+    LOG(INFO) << "Program exiting normally";
     return 0;
 }
