@@ -194,6 +194,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             this.waitDeleteBitmapLockCostTimeMs = waitDeleteBitmapLockCostTimeMs;
         }
     }
+
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
