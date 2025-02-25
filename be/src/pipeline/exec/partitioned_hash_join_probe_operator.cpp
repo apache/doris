@@ -90,7 +90,6 @@ void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* ch
     UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
     UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
     UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-    UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
     UPDATE_COUNTER_FROM_INNER("MemoryUsage");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");

@@ -569,7 +569,6 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
         UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
         UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
         UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-        UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");

@@ -1400,7 +1400,6 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        UniqueId unique_id(request->query_id());
         VLOG_NOTICE << "rpc apply_filterv2 recv";
         Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
         if (!st.ok()) {
