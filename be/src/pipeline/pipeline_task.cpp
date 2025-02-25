@@ -331,6 +331,18 @@ Status PipelineTask::execute(bool* eos) {
 
     // The status must be runnable
     if (!_opened && !_fragment_context->is_canceled()) {
+        DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
+            auto required_pipeline_id =
+                    DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                            "PipelineTask::execute.open_sleep", "pipeline_id", -1);
+            auto required_task_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "PipelineTask::execute.open_sleep", "task_id", -1);
+            if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                LOG(WARNING) << "PipelineTask::execute.open_sleep sleep 5s";
+                sleep(5);
+            }
+        });
+
         if (_wake_up_early) {
             *eos = true;
             _eos = true;
@@ -506,6 +518,19 @@ Status PipelineTask::execute(bool* eos) {
             if (*eos) {
                 RETURN_IF_ERROR(close(Status::OK(), false));
             }
+
+            DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
+                auto required_pipeline_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "pipeline_id", -1);
+                auto required_task_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "task_id", -1);
+                if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                    LOG(WARNING) << "PipelineTask::execute.sink_eos_sleep sleep 10s";
+                    sleep(10);
+                }
+            });
 
             status = _sink->sink(_state, block, *eos);
 
