@@ -69,18 +69,9 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
 }
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
-#ifndef NDEBUG
-    if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "_is_cancelled: {}, _block_queue_empty: {}, "
-                               "_num_remaining_senders: {}, _debug_string_info: {}",
-                               _is_cancelled, _block_queue.empty(), _num_remaining_senders,
-                               _debug_string_info());
-    }
-#endif
     BlockItem block_item;
     {
-        std::lock_guard<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         //check and get block_item from data_queue
         if (_is_cancelled) {
             RETURN_IF_ERROR(_cancel_status);
@@ -104,9 +95,8 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     _recvr->_memory_used_counter->update(-(int64_t)block_byte_size);
-    std::lock_guard<std::mutex> l(_lock);
+    UniqueLock l(_lock);
     sub_blocks_memory_usage(block_byte_size);
-    _record_debug_info();
     if (_block_queue.empty() && _source_dependency) {
         if (!_is_cancelled && _num_remaining_senders > 0) {
             _source_dependency->block();
@@ -131,7 +121,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     return Status::OK();
 }
 
-void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
+void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() REQUIRES(_lock) {
     if (!_source_dependency) {
         return;
     }
@@ -147,7 +137,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
                                                 const int64_t wait_for_worker,
                                                 const uint64_t time_to_find_recvr) {
     {
-        std::lock_guard<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         if (_is_cancelled) {
             return Status::OK();
         }
@@ -171,7 +161,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
         }
     }
 
-    std::lock_guard<std::mutex> l(_lock);
+    UniqueLock l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
@@ -188,7 +178,6 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
 
     _block_queue.emplace_back(std::move(pblock), block_byte_size);
     COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
-    _record_debug_info();
     try_set_dep_ready_without_lock();
 
     // if done is nullptr, this function can't delay this response
@@ -209,7 +198,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         return;
     }
     {
-        std::unique_lock<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         if (_is_cancelled) {
             return;
         }
@@ -230,12 +219,11 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     auto block_mem_size = nblock->allocated_bytes();
     {
-        std::unique_lock<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         if (_is_cancelled) {
             return;
         }
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        _record_debug_info();
         try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_memory_used_counter->update(block_mem_size);
@@ -244,14 +232,13 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 }
 
 void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
-    std::lock_guard<std::mutex> l(_lock);
+    UniqueLock l(_lock);
     if (_sender_eos_set.end() != _sender_eos_set.find(be_number)) {
         return;
     }
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    _record_debug_info();
     VLOG_FILE << "decremented senders: fragment_instance_id="
               << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
               << " #senders=" << _num_remaining_senders;
@@ -262,7 +249,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
 
 void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
     {
-        std::lock_guard<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         if (_is_cancelled) {
             return;
         }
@@ -274,7 +261,7 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
                    << " node_id=" << _recvr->dest_node_id();
     }
     {
-        std::lock_guard<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
             int64_t elapse_time = closure_pair.second.elapsed_time();
@@ -291,7 +278,7 @@ void VDataStreamRecvr::SenderQueue::close() {
         // If _is_cancelled is not set to true, there may be concurrent send
         // which add batch to _block_queue. The batch added after _block_queue
         // is clear will be memory leak
-        std::lock_guard<std::mutex> l(_lock);
+        UniqueLock l(_lock);
         _is_cancelled = true;
         try_set_dep_ready_without_lock();
 
@@ -303,10 +290,9 @@ void VDataStreamRecvr::SenderQueue::close() {
             }
         }
         _pending_closures.clear();
+        // Delete any batches queued in _block_queue
+        _block_queue.clear();
     }
-
-    // Delete any batches queued in _block_queue
-    _block_queue.clear();
 }
 
 VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
@@ -435,7 +421,7 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
+void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) REQUIRES(_lock) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->consume(size);
     _queue_mem_tracker->consume(size);
@@ -444,7 +430,7 @@ void VDataStreamRecvr::SenderQueue::add_blocks_memory_usage(int64_t size) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
+void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) REQUIRES(_lock) {
     DCHECK(size >= 0);
     _recvr->_mem_tracker->release(size);
     _queue_mem_tracker->release(size);
@@ -453,7 +439,7 @@ void VDataStreamRecvr::SenderQueue::sub_blocks_memory_usage(int64_t size) {
     }
 }
 
-bool VDataStreamRecvr::SenderQueue::exceeds_limit() {
+bool VDataStreamRecvr::SenderQueue::exceeds_limit() REQUIRES(_lock) {
     const size_t queue_byte_size = _queue_mem_tracker->consumption();
     return _recvr->queue_exceeds_limit(queue_byte_size);
 }
