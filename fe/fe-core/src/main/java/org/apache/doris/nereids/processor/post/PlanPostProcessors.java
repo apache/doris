@@ -61,15 +61,16 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
         builder.add(new RemoveUselessProjectPostProcessor());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableLazyMaterialization) {
+            // LazyMaterializeTopN should run before MergeProjectPostProcessor
+            builder.add(new LazyMaterializeTopN());
+        }
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
             builder.add(new ProjectAggregateExpressionsForCse());
         }
         builder.add(new CommonSubExpressionOpt());
-        if (cascadesContext.getConnectContext().getSessionVariable().enableLazyMaterialization) {
-            builder.add(new LazyMaterializeTopN());
-        }
         // DO NOT replace PLAN NODE from here
         if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
             builder.add(new PushTopnToAgg());

@@ -111,6 +111,7 @@ import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -184,7 +185,7 @@ import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
-import org.apache.doris.planner.MaterializeNode;
+import org.apache.doris.planner.MaterializationNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
@@ -2453,10 +2454,36 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanFragment inputPlanFragment = materialize.child(0).accept(this, context);
         TupleDescriptor materializeTupleDesc = generateTupleDesc(materialize.getOutput(), null, context);
-        MaterializeNode materializeNode = new MaterializeNode(context.nextPlanNodeId(), materializeTupleDesc,
+
+        MaterializationNode materializeNode = new MaterializationNode(context.nextPlanNodeId(), materializeTupleDesc,
                 inputPlanFragment.getPlanRoot());
+
+        List<Expr> rowIds = materialize.getRowIds().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+        materializeNode.setRowIds(rowIds);
+
+        materializeNode.setColumns(materialize.getLazyColumns());
+        materializeNode.setLocations(materialize.getLazySlotLocations());
+
+        List<Boolean> rowStoreFlags = new ArrayList<>();
+        for (CatalogRelation relation : materialize.getRelations()) {
+            rowStoreFlags.add(shouldUseRowStore(relation));
+        }
+        materializeNode.setIsRowStoreFlags(rowStoreFlags);
+
+        materializeNode.setTopMaterializeNode(context.isTopMaterializeNode());
+        if (context.isTopMaterializeNode()) {
+            context.setTopMaterializeNode(false);
+        }
+
         inputPlanFragment.addPlanRoot(materializeNode);
         return inputPlanFragment;
+    }
+
+    private boolean shouldUseRowStore(CatalogRelation rel) {
+        //TODO
+        return false;
     }
 
     @Override

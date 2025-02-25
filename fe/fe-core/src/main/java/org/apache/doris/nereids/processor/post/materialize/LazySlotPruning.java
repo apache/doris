@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -52,16 +50,14 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
      * Context
      */
     public static class Context {
-        PhysicalOlapScan scan;
-        List<Slot> lazySlots;
-        SlotReference rowIdSlot;
+        private PhysicalOlapScan scan;
+        private List<Slot> lazySlots;
+        private SlotReference rowIdSlot;
 
-        public Context(PhysicalOlapScan scan, List<Slot> lazySlots) {
+        public Context(PhysicalOlapScan scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
             this.scan = scan;
             this.lazySlots = lazySlots;
-            Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL, Type.STRING, false, null, false,
-                    "", "global row_id column");
-            rowIdSlot = SlotReference.fromColumn(scan.getTable(), rowIdCol, scan.getQualifier());
+            this.rowIdSlot = rowIdSlot;
         }
 
         private Context(PhysicalOlapScan scan, List<Slot> lazySlots, SlotReference rowIdSlot) {

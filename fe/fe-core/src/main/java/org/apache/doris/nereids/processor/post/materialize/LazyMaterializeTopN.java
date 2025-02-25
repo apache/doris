@@ -17,21 +17,30 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * post rule to do lazy materialize
@@ -48,11 +57,14 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
          materializeMap: x->(T, a)
          */
         Map<Slot, MaterializeSource> materializeMap = new HashMap<>();
+        List<Slot> materializedSlots = new ArrayList<>();
         // find the slots which can be lazy materialized
         for (Slot slot : topN.getOutput()) {
             Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot);
             if (source.isPresent()) {
                 materializeMap.put(slot, source.get());
+            } else {
+                materializedSlots.add(slot);
             }
         }
         // find out the slots which are worth doing lazy materialization
@@ -61,19 +73,93 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             return topN;
         }
 
-        Map<CatalogRelation, List<Slot>> relationToSlotMap = new HashMap<>();
+        Map<CatalogRelation, List<Slot>> relationToLazySlotMap = new HashMap<>();
         for (Slot slot : lazyMaterializeSlots) {
             MaterializeSource source = materializeMap.get(slot);
-            relationToSlotMap.computeIfAbsent(source.relation, relation -> new ArrayList<>()).add(slot);
+            relationToLazySlotMap.computeIfAbsent(source.relation, relation -> new ArrayList<>()).add(slot);
         }
+
         Plan result = topN;
-        for (CatalogRelation relation : relationToSlotMap.keySet()) {
+        List<Slot> originOutput = topN.getOutput();
+        BiMap<CatalogRelation, SlotReference> relationToRowId = HashBiMap.create(relationToLazySlotMap.size());
+        HashSet<SlotReference> rowIdSet = new HashSet<>();
+        for (CatalogRelation relation : relationToLazySlotMap.keySet()) {
+            Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL, Type.STRING, false, null, false,
+                    "", "global row_id column");
+            SlotReference rowIdSlot = SlotReference.fromColumn(relation.getTable(), rowIdCol,
+                    relation.getQualifier());
             result = result.accept(new LazySlotPruning(),
-                    new LazySlotPruning.Context((PhysicalOlapScan) relation, relationToSlotMap.get(relation)));
+                    new LazySlotPruning.Context((PhysicalOlapScan) relation,
+                            rowIdSlot, relationToLazySlotMap.get(relation)));
+            relationToRowId.put(relation, rowIdSlot);
+            rowIdSet.add(rowIdSlot);
         }
-        PhysicalLazyMaterialize<? extends Plan> materialize = new PhysicalLazyMaterialize(result,
-                topN.getOutput(), materializeMap, lazyMaterializeSlots);
-        return materialize;
+
+        // materialize.child.output requires
+        // rowId only appears once.
+        // that is [a, rowId1, b rowId1] is not acceptable
+        List<SlotReference> materializeInput = moveRowIdsToTail(result.getOutput(), rowIdSet);
+
+        if (materializeInput == null) {
+            /*
+            topn
+              -->any
+            =>
+            project
+               -->materialize
+                   -->topn
+                     -->any
+             */
+            result = new PhysicalLazyMaterialize(result, result.getOutput(),
+                    materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
+                    null, ((AbstractPlan) result).getStats());
+        } else {
+            /*
+            topn
+              -->any
+            =>
+            project
+              -->materialize
+                -->project
+                  -->topn
+                     -->any
+             */
+            result = new PhysicalProject(materializeInput, null, result);
+            result = new PhysicalLazyMaterialize(result, materializeInput,
+                    materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
+                    null, ((AbstractPlan) result).getStats());
+        }
+        result = new PhysicalProject(originOutput, null, result);
+        return result;
+    }
+
+    /*
+        [a, r1, r2, b, r2] => [a, b, r1, r2]
+        move all rowIds to tail, and remove duplicated rowIds
+     */
+    private List<SlotReference> moveRowIdsToTail(List<Slot> slots, Set<SlotReference> rowIds) {
+        List<SlotReference> reArrangedSlots = new ArrayList<>();
+        List<SlotReference> reArrangedRowIds = new ArrayList<>();
+        boolean moved = false;
+        boolean meetRowId = false;
+        for (Slot slot : slots) {
+            if (rowIds.contains(slot)) {
+                if (!reArrangedRowIds.contains(slot)) {
+                    reArrangedRowIds.add((SlotReference) slot);
+                }
+                meetRowId = true;
+            } else {
+                if (meetRowId) {
+                    moved = true;
+                }
+                reArrangedSlots.add((SlotReference) slot);
+            }
+        }
+        if (!moved) {
+            return null;
+        }
+        reArrangedSlots.addAll(reArrangedRowIds);
+        return reArrangedSlots;
     }
 
     private List<Slot> filterSlotsForLazyMaterialization(Map<Slot, MaterializeSource> materializeMap) {

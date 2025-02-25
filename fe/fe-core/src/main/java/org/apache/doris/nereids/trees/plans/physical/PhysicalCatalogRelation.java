@@ -119,6 +119,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
     public List<String> getQualifier() {
         return qualifier;
     }
