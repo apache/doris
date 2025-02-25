@@ -430,13 +430,15 @@ public:
     ColumnPtr permute(const Permutation&, size_t) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override {
-        LOG(FATAL) << "should not call the method in column object";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call the method in column object");
         return 0;
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
-        LOG(FATAL) << "should not call the method in column object";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "should not call the method in column object");
         __builtin_unreachable();
     }
 
