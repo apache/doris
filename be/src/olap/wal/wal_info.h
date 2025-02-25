@@ -15,10 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
+#include "common/factory_creator.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
 class WalInfo {
+    ENABLE_FACTORY_CREATOR(WalInfo);
+
 public:
     WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms);
     ~WalInfo() = default;
