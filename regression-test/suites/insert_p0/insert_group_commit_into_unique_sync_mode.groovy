@@ -17,7 +17,7 @@
 
 import com.mysql.cj.jdbc.StatementImpl
 
-suite("insert_group_commit_into_unique_sync_mode") {
+suite("insert_group_commit_into_unique_sync_mode", "nonConcurrent") {
     def dbName = "regression_test_insert_p0"
     def tableName = "insert_group_commit_into_unique_sync"
     def dbTableName = dbName + "." + tableName
@@ -107,6 +107,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
     }
 
     for (item in ["legacy", "nereids"]) {
+        sql """ set global enable_unique_key_partial_update = false """
         // 1. table without sequence column
         try {
             tableName = "insert_group_commit_into_unique_s_" + "1_" + item
