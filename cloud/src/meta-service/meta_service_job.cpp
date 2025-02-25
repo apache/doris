@@ -46,9 +46,6 @@ static inline constexpr size_t get_file_name_offset(const T (&s)[S], size_t i = 
 
 namespace doris::cloud {
 
-static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
-static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
-
 // check compaction input_versions are valid during schema change.
 // If the schema change job doesnt have alter version, it dont need to check
 // because the schema change job is come from old version BE.
