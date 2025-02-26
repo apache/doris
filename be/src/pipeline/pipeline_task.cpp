@@ -72,18 +72,15 @@ PipelineTask::PipelineTask(
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
-          _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
+          _execution_dep(state->get_query_ctx()->get_execution_dependency()),
+          _memory_sufficient_dependency(
+                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
     _pipeline_task_watcher.start();
 
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
-
-    const auto dependency_name =
-            fmt::format("MemorySufficientDependency_{}_{}", _sink->node_id(), task_id);
-    _memory_sufficient_dependency =
-            pipeline::Dependency::create_unique(-1, -1, dependency_name, true);
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
@@ -230,7 +227,7 @@ bool PipelineTask::_wait_to_start() {
     // 2. Runtime filter dependencies are ready
     _blocked_dep = _execution_dep->is_blocked_by(this);
     if (_blocked_dep != nullptr) {
-        static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        _blocked_dep->start_watcher();
         return true;
     }
 
@@ -251,10 +248,6 @@ bool PipelineTask::_is_blocked() {
             _task_profile->add_info_string("BlockedByDependency", _blocked_dep->name());
         }
     });
-
-    if (_wake_up_early) {
-        return false;
-    }
 
     for (auto* spill_dependency : _spill_dependencies) {
         _blocked_dep = spill_dependency->is_blocked_by(this);
@@ -298,6 +291,7 @@ bool PipelineTask::_is_blocked() {
 }
 
 Status PipelineTask::execute(bool* eos) {
+    const auto query_id = _state->query_id();
     if (_eos) {
         *eos = true;
         return Status::OK();
@@ -361,7 +355,6 @@ Status PipelineTask::execute(bool* eos) {
 
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
-    const auto query_id = _state->query_id();
 
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
@@ -379,7 +372,9 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        _block->clear_column_data(_root->row_desc().num_materialized_slots());
+        if (_exec_state == State::NORMAL) {
+            _block->clear_column_data(_root->row_desc().num_materialized_slots());
+        }
         auto* block = _block.get();
 
         DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
@@ -396,78 +391,87 @@ Status PipelineTask::execute(bool* eos) {
         // `_dry_run` means sink operator need no more data
         *eos = wake_up_early() || _dry_run;
         auto workload_group = _state->get_query_ctx()->workload_group();
-        if (*eos) {
-            _pending_block.reset();
-        } else if (_pending_block) [[unlikely]] {
-            LOG(INFO) << "Query: " << print_id(query_id) << " has pending block, size: "
-                      << PrettyPrinter::print_bytes(_pending_block->allocated_bytes());
-            _block = std::move(_pending_block);
-            block = _block.get();
-            *eos = _pending_eos;
-        } else {
-            SCOPED_TIMER(_get_block_timer);
-            if (_state->low_memory_mode()) {
-                _sink->set_low_memory_mode(_state);
-                _root->set_low_memory_mode(_state);
+        if (!*eos) {
+            switch (_exec_state) {
+            case State::EOS:
+                *eos = true;
+                [[fallthrough]];
+            case State::PENDING: {
+                LOG(INFO) << "Query: " << print_id(query_id) << " has pending block, size: "
+                          << PrettyPrinter::print_bytes(_block->allocated_bytes());
+                _exec_state = State::NORMAL;
+                break;
             }
-            DEFER_RELEASE_RESERVED();
-            _get_block_counter->update(1);
-            const auto reserve_size = _root->get_reserve_mem_size(_state);
-            _root->reset_reserve_mem_size(_state);
+            case State::NORMAL: {
+                SCOPED_TIMER(_get_block_timer);
+                if (_state->low_memory_mode()) {
+                    _sink->set_low_memory_mode(_state);
+                    _root->set_low_memory_mode(_state);
+                }
+                DEFER_RELEASE_RESERVED();
+                _get_block_counter->update(1);
+                const auto reserve_size = _root->get_reserve_mem_size(_state);
+                _root->reset_reserve_mem_size(_state);
 
-            if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
-                reserve_size > 0) {
-                auto st = thread_context()->try_reserve_memory(reserve_size);
+                if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
+                    reserve_size > 0) {
+                    auto st = thread_context()->try_reserve_memory(reserve_size);
 
-                COUNTER_UPDATE(_memory_reserve_times, 1);
-                if (!st.ok() && !_state->enable_force_spill()) {
-                    COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    auto sink_revokable_mem_size = _sink->revocable_mem_size(_state);
-                    auto debug_msg = fmt::format(
-                            "Query: {} , try to reserve: {}, operator name: {}, operator id: {}, "
-                            "task id: "
-                            "{}, root revocable mem size: {}, sink revocable mem size: {}, failed: "
-                            "{}",
-                            print_id(query_id), PrettyPrinter::print_bytes(reserve_size),
-                            _root->get_name(), _root->node_id(), _state->task_id(),
-                            PrettyPrinter::print_bytes(_root->revocable_mem_size(_state)),
-                            PrettyPrinter::print_bytes(sink_revokable_mem_size), st.to_string());
-                    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
-                    if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                        debug_msg += fmt::format(", debug info: {}",
-                                                 GlobalMemoryArbitrator::process_mem_log_str());
-                    }
-                    LOG_EVERY_N(INFO, 100) << debug_msg;
-                    // If sink has enough revocable memory, trigger revoke memory
-                    if (sink_revokable_mem_size >= _state->spill_min_revocable_mem()) {
-                        LOG(INFO) << fmt::format(
-                                "Query: {} sink: {}, node id: {}, task id: "
-                                "{}, revocable mem size: {}",
-                                print_id(query_id), _sink->get_name(), _sink->node_id(),
-                                _state->task_id(),
-                                PrettyPrinter::print_bytes(sink_revokable_mem_size));
-                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                                _state->get_query_ctx()->shared_from_this(), reserve_size, st);
-                        continue;
-                    } else {
-                        // If reserve failed, not add this query to paused list, because it is very small, will not
-                        // consume a lot of memory. But need set low memory mode to indicate that the system should
-                        // not use too much memory.
-                        _state->get_query_ctx()->set_low_memory_mode();
+                    COUNTER_UPDATE(_memory_reserve_times, 1);
+                    if (!st.ok() && !_state->enable_force_spill()) {
+                        COUNTER_UPDATE(_memory_reserve_failed_times, 1);
+                        auto sink_revokable_mem_size = _sink->revocable_mem_size(_state);
+                        auto debug_msg = fmt::format(
+                                "Query: {} , try to reserve: {}, operator name: {}, operator "
+                                "id: {}, "
+                                "task id: "
+                                "{}, root revocable mem size: {}, sink revocable mem size: {}, "
+                                "failed: "
+                                "{}",
+                                print_id(query_id), PrettyPrinter::print_bytes(reserve_size),
+                                _root->get_name(), _root->node_id(), _state->task_id(),
+                                PrettyPrinter::print_bytes(_root->revocable_mem_size(_state)),
+                                PrettyPrinter::print_bytes(sink_revokable_mem_size),
+                                st.to_string());
+                        // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+                        if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+                            debug_msg += fmt::format(", debug info: {}",
+                                                     GlobalMemoryArbitrator::process_mem_log_str());
+                        }
+                        LOG_EVERY_N(INFO, 100) << debug_msg;
+                        // If sink has enough revocable memory, trigger revoke memory
+                        if (sink_revokable_mem_size >= _state->spill_min_revocable_mem()) {
+                            LOG(INFO) << fmt::format(
+                                    "Query: {} sink: {}, node id: {}, task id: "
+                                    "{}, revocable mem size: {}",
+                                    print_id(query_id), _sink->get_name(), _sink->node_id(),
+                                    _state->task_id(),
+                                    PrettyPrinter::print_bytes(sink_revokable_mem_size));
+                            ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                                    _state->get_query_ctx()->shared_from_this(), reserve_size, st);
+                            continue;
+                        } else {
+                            // If reserve failed, not add this query to paused list, because it is very small, will not
+                            // consume a lot of memory. But need set low memory mode to indicate that the system should
+                            // not use too much memory.
+                            _state->get_query_ctx()->set_low_memory_mode();
+                        }
                     }
                 }
-            }
 
-            DCHECK_EQ(_pending_block.get(), nullptr);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+                break;
+            }
+            default:
+                __builtin_unreachable();
+            }
         }
 
-        if (_block->rows() != 0 || *eos) {
+        if (!_block->empty() || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            auto workload_group = _state->get_query_ctx()->workload_group();
             if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
                 !(wake_up_early() || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
@@ -500,13 +504,11 @@ Status PipelineTask::execute(bool* eos) {
                     if (sink_revocable_mem_size >=
                         vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                         VLOG_DEBUG << debug_msg;
-                        DCHECK_EQ(_pending_block.get(), nullptr);
-                        _pending_block = std::move(_block);
-                        _block = vectorized::Block::create_unique(_pending_block->clone_empty());
+                        DCHECK(_exec_state == State::NORMAL);
+                        _exec_state = *eos ? State::EOS : State::PENDING;
                         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                                 _state->get_query_ctx()->shared_from_this(), sink_reserve_size,
                                 status);
-                        _pending_eos = *eos;
                         *eos = false;
                         continue;
                     } else {
@@ -600,7 +602,7 @@ std::string PipelineTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     auto* cur_blocked_dep = _blocked_dep;
-    auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
+    auto elapsed = _fragment_context->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
                    "{}, elapse time = {}s, _wake_up_early = {}], block dependency = {}, is "
@@ -653,7 +655,7 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    if (_finalized || _running || (_eos && !_pending_block)) {
+    if (_finalized || _running || (_eos && _exec_state == State::NORMAL)) {
         return 0;
     }
 

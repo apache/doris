@@ -81,6 +81,13 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     return ready ? nullptr : this;
 }
 
+Dependency* QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
+    if (task && task->wake_up_early()) {
+        return nullptr;
+    }
+    return Dependency::is_blocked_by(task);
+}
+
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
