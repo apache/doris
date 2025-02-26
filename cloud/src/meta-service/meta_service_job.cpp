@@ -567,7 +567,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
 
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
-                                             int64_t lock_id, int64_t lock_initiator) {
+                                             int64_t tablet_id, int64_t lock_id,
+                                             int64_t lock_initiator) {
     if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
@@ -621,7 +622,8 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         }
         if (initiators->empty()) {
             INSTANCE_LOG(INFO) << "remove delete bitmap lock, table_id=" << table_id
-                               << " lock_id=" << lock_id << " key=" << hex(lock_key);
+                               << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+                               << " initiator=" << lock_initiator << " key=" << hex(lock_key);
             txn->remove(lock_key);
             return;
         }
@@ -632,8 +634,8 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
             return;
         }
         INSTANCE_LOG(INFO) << "remove delete bitmap lock initiator, table_id=" << table_id
-                           << ", key=" << hex(lock_key) << " lock_id=" << lock_id
-                           << " initiator=" << lock_initiator
+                           << " tablet_id=" << tablet_id << " key=" << hex(lock_key)
+                           << " lock_id=" << lock_id << " initiator=" << lock_initiator
                            << " initiators_size=" << lock_info.initiators_size();
         txn->put(lock_key, lock_val);
     }
@@ -714,7 +716,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
                            << " key=" << hex(job_key);
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            remove_delete_bitmap_update_lock(txn, instance_id, table_id,
+            remove_delete_bitmap_update_lock(txn, instance_id, table_id, tablet_id,
                                              COMPACTION_DELETE_BITMAP_LOCK_ID,
                                              compaction.delete_bitmap_lock_initiator());
         }
