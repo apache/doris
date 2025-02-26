@@ -1298,11 +1298,19 @@ DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_limit, "0");
 
 DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_limit, "0");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
