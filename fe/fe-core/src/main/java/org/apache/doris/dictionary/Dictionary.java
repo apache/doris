@@ -82,6 +82,9 @@ public class Dictionary extends Table {
     @SerializedName(value = "dataLifetimeSecs")
     private long dataLifetimeSecs;
 
+    @SerializedName(value = "memoryLimit")
+    private long memoryLimit;
+
     public enum DictionaryStatus {
         NORMAL, // normal status
         LOADING, // wait load task finishs
@@ -119,6 +122,7 @@ public class Dictionary extends Table {
         this.layout = null;
         this.version = 0;
         this.skipNullKey = false;
+        this.memoryLimit = 0;
         resetDataDistributions(); // not replay by gson
         this.lastUpdateResult = new String();
     }
@@ -137,6 +141,7 @@ public class Dictionary extends Table {
         this.layout = info.getLayout();
         this.version = 1;
         this.skipNullKey = info.skipNullKey();
+        this.memoryLimit = info.getMemoryLimit();
         resetDataDistributions();
         this.lastUpdateResult = new String();
     }
@@ -240,6 +245,10 @@ public class Dictionary extends Table {
 
     public boolean skipNullKey() {
         return skipNullKey;
+    }
+
+    public long getMemoryLimit() {
+        return memoryLimit;
     }
 
     public long getLastUpdateTime() {

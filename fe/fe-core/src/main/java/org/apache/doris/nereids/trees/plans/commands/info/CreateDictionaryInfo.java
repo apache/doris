@@ -62,6 +62,8 @@ public class CreateDictionaryInfo {
     private long dataLifetime;
     private boolean skipNullKey = false;
 
+    private long memoryLimit = 2 * 1024 * 1024 * 1024L; // 2GB for default
+
     /**
      * Constructor.
      */
@@ -226,6 +228,10 @@ public class CreateDictionaryInfo {
         if (properties.containsKey("skip_null_key")) {
             skipNullKey = Boolean.parseBoolean(properties.get("skip_null_key"));
         }
+
+        if (properties.containsKey("memory_limit")) {
+            memoryLimit = Long.parseLong(properties.get("data_lifetime"));
+        }
     }
 
     // Getters
@@ -263,6 +269,10 @@ public class CreateDictionaryInfo {
 
     public boolean skipNullKey() {
         return skipNullKey;
+    }
+
+    public long getMemoryLimit() {
+        return memoryLimit;
     }
 
     public LayoutType getLayout() {

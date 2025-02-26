@@ -81,6 +81,7 @@ public class DictionarySink extends DataSink {
         tDictionarySink.setValueOutputExprSlots(valueSlotIds);
         tDictionarySink.setValueNames(valueNames);
         tDictionarySink.setSkipNullKey(dictionary.skipNullKey());
+        tDictionarySink.setMemoryLimit(dictionary.getMemoryLimit());
 
         tDataSink.setDictionarySink(tDictionarySink);
         return tDataSink;
