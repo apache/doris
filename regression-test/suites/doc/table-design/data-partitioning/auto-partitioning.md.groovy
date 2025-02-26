@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.jupiter.api.Assertions;
-
 suite("docs/table-design/data-partitioning/auto-partitioning.md") {
     sql "drop table if exists `DAILY_TRADE_VALUE`"
     sql """
@@ -164,15 +162,15 @@ suite("docs/table-design/data-partitioning/auto-partitioning.md") {
         k0 datetime(6) NOT NULL
     )
     auto partition by range (date_trunc(k0, 'year'))
-    (
-    )
+    ()
     DISTRIBUTED BY HASH(`k0`) BUCKETS 2
     properties(
         "dynamic_partition.enable" = "true",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.start" = "-50",
-        "dynamic_partition.end" = "0", --- Dynamic Partition 不创建分区
+        "dynamic_partition.end" = "123", --- 将被忽略
         "dynamic_partition.time_unit" = "year",
+        "dynamic_partition.create_method" = "AUTO",
         "replication_num" = "1"
     );
     """
