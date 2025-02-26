@@ -380,7 +380,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
-        return sum.child().accept(this, context);
+        return ColumnStatistic.UNKNOWN;
     }
 
     // TODO: return a proper estimated stat after supports histogram
