@@ -2,14 +2,14 @@
 -- !filter_through_project_1 --
 PhysicalResultSink
 --PhysicalProject[(id + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
-----filter((cast(id as BIGINT) > 899))
+----filter((t1.id > 899))
 ------PhysicalOlapScan[t1]
 
 -- !filter_through_project_2 --
 PhysicalResultSink
 --filter((t.a > 999))
 ----PhysicalProject[((id + random(1, 10)) + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
-------filter((cast(id as BIGINT) > 799))
+------filter((t1.id > 799))
 --------PhysicalOlapScan[t1]
 
 -- !filter_through_project_3 --
@@ -29,7 +29,7 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalProject[(id + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
---------filter((cast(id as BIGINT) > 899))
+--------filter((t1.id > 899))
 ----------PhysicalOlapScan[t1]
 
 -- !filter_through_project_6 --
@@ -38,7 +38,7 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------filter((t.a > 999))
 --------PhysicalProject[((id + random(1, 10)) + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
-----------filter((cast(id as BIGINT) > 799))
+----------filter((t1.id > 799))
 ------------PhysicalOlapScan[t1]
 
 -- !filter_through_project_7 --
