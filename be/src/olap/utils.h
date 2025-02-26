@@ -267,7 +267,7 @@ struct GlobalRowLoacationV2 {
     GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
             : version(ver), backend_id(bid), file_id(fid), row_id(rid) {}
     uint8_t version;
-    uint64_t backend_id;
+    int64_t backend_id;
     uint32_t file_id;
     uint32_t row_id;
 

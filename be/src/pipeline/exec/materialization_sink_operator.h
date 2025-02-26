@@ -60,9 +60,11 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
 private:
-    /// Materialized slot by this node. The i-th result expr list refers to a slot of RowId
+    // Materialized slot by this node. The i-th result expr list refers to a slot of RowId
+    TMaterializationNode _materialization_node;
     vectorized::VExprContextSPtrs _rowid_exprs;
     bool _gc_id_map = false;
+    Status _init_multi_get_request(RuntimeState* state, LocalState& local_state);
 };
 
 } // namespace pipeline

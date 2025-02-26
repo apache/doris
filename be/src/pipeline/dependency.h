@@ -892,6 +892,7 @@ public:
     Dependency* create_source_dependency(int operator_id, int node_id,
                                          const std::string& name) override;
 
+    bool rpc_struct_inited = false;
     Status rpc_status = Status::OK();
     bool last_block = false;
     vectorized::Block origin_block;
@@ -900,7 +901,7 @@ public:
     std::vector<vectorized::MutableBlock> response_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
     // Register each line in which block to ensure the order of the result.
-    std::vector<std::vector<uint64_t>> block_order_results;
+    std::vector<std::vector<int64_t>> block_order_results;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

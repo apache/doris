@@ -39,47 +39,47 @@ namespace pipeline {
 
 Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                                           doris::RuntimeState* state) {
-    auto& local_state = get_local_state(state);
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.materialization_node);
-    {
-        // Create result_expr_ctx_lists_ from thrift exprs.
-        auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
-        vectorized::VExprContextSPtrs ctxs;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(fetch_expr_lists, ctxs));
-        _rowid_exprs = ctxs;
-    }
+    _materialization_node = tnode.materialization_node;
+    _gc_id_map = tnode.materialization_node.gc_id_map;
+    // Create result_expr_ctx_lists_ from thrift exprs.
+    auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(fetch_expr_lists, _rowid_exprs));
+    return Status::OK();
+}
 
+Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state,
+                                                             LocalState& local_state) {
     PMultiGetRequestV2 multi_get_request;
     // init the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
     auto query_id = multi_get_request.mutable_query_id();
     query_id->set_hi(state->query_id().hi);
     query_id->set_lo(state->query_id().lo);
-    DCHECK_EQ(tnode.materialization_node.column_descs_lists.size(),
-              tnode.materialization_node.slot_locs_lists.size());
+    DCHECK_EQ(_materialization_node.column_descs_lists.size(),
+              _materialization_node.slot_locs_lists.size());
 
-    const auto& slots =
-            state->desc_tbl()
-                    .get_tuple_descriptor(tnode.materialization_node.intermediate_tuple_id)
-                    ->slots();
-    for (int i = 0; i < tnode.materialization_node.column_descs_lists.size(); ++i) {
+    const auto& slots = state->desc_tbl()
+                                .get_tuple_descriptor(_materialization_node.intermediate_tuple_id)
+                                ->slots();
+    for (int i = 0; i < _materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
-        request_block_desc->set_fetch_row_store(tnode.materialization_node.fetch_row_stores[i]);
+        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
         // init the column_descs and slot_locs
-        auto& column_descs = tnode.materialization_node.column_descs_lists[i];
+        auto& column_descs = _materialization_node.column_descs_lists[i];
         for (auto& column_desc_item : column_descs) {
             TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
         }
 
-        auto& slot_locs = tnode.materialization_node.slot_locs_lists[i];
+        auto& slot_locs = _materialization_node.slot_locs_lists[i];
         for (auto& slot_loc_item : slot_locs) {
             slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
         }
     }
 
     // init the stubs and requests for each BE
-    for (const auto& node_info : tnode.materialization_node.nodes_info.nodes) {
+    for (const auto& node_info : _materialization_node.nodes_info.nodes) {
         auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                 node_info.host, node_info.async_internal_port);
         if (!client) {
@@ -93,10 +93,7 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
                 FetchRpcStruct {
                         .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
-    _gc_id_map = tnode.materialization_node.gc_id_map;
-    ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
-            ->add(tnode.materialization_node.nodes_info.nodes.size());
-
+    local_state._shared_state->rpc_struct_inited = true;
     return Status::OK();
 }
 
@@ -149,6 +146,9 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    if (!local_state._shared_state->rpc_struct_inited) {
+        RETURN_IF_ERROR(_init_multi_get_request(state, local_state));
+    }
 
     if (in_block->rows() > 0 || eos) {
         // block the pipeline wait the rpc response

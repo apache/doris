@@ -1601,6 +1601,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
                 op->operator_id(), next_sink_operator_id(), pool, tnode));
         RETURN_IF_ERROR(new_pipe->set_sink(sink));
+        RETURN_IF_ERROR(new_pipe->sink()->init(tnode, _runtime_state.get()));
         cur_pipe = new_pipe;
         break;
     }
