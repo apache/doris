@@ -151,7 +151,7 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     if (other->_state == State::DISABLED) {
-        disable(other->_disabled_reason);
+        set_state(State::DISABLED, other->_disabled_reason);
     }
 
     if (other->_state == State::IGNORED || _state == State::DISABLED) {
@@ -159,6 +159,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     }
 
     DCHECK(_state != State::IGNORED);
+    DCHECK(other->_state == State::READY);
 
     set_state(State::READY);
 
@@ -168,7 +169,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert(other->_hybrid_set.get());
         if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
-            disable(fmt::format("reach max in num: {}", _max_in_num));
+            set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
         }
         break;
     }
@@ -411,6 +412,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
 
 Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
                                      butil::IOBufAsZeroCopyInputStream* data, bool contain_null) {
+    DCHECK(_bloom_filter_func);
     RETURN_IF_ERROR(_bloom_filter_func->assign(data, bloom_filter.filter_length(), contain_null));
     return Status::OK();
 }
@@ -607,12 +609,16 @@ std::string RuntimeFilterWrapper::debug_string() const {
 }
 
 void RuntimeFilterWrapper::_to_protobuf(PInFilter* filter) {
-    filter->set_column_type(to_proto(column_type()));
+    filter->set_column_type(
+            PColumnType::
+                    COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _hybrid_set->to_pb(filter);
 }
 
 void RuntimeFilterWrapper::_to_protobuf(PMinMaxFilter* filter) {
-    filter->set_column_type(to_proto(column_type()));
+    filter->set_column_type(
+            PColumnType::
+                    COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _minmax_func->to_pb(filter);
 }
 

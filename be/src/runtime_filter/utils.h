@@ -82,12 +82,6 @@ std::string filter_type_to_string(RuntimeFilterType type);
 
 RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc);
 
-// PrimitiveType-> PColumnType
-PColumnType to_proto(PrimitiveType type);
-
-// PColumnType->PrimitiveType
-PrimitiveType to_primitive_type(PColumnType type);
-
 // PFilterType -> RuntimeFilterType
 RuntimeFilterType get_type(int filter_type);
 // RuntimeFilterType -> PFilterType

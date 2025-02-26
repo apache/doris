@@ -88,8 +88,7 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
 
 Status RuntimeFilterProducerHelper::process(
         RuntimeState* state, const vectorized::Block* block,
-        std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
-        vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
+        const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
@@ -103,7 +102,7 @@ Status RuntimeFilterProducerHelper::process(
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
-            _insert(block, 1);
+            _insert(block, 1); // the first row is mocked
         }
     }
 
