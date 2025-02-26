@@ -1760,7 +1760,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
     if (_runtime_state->enable_profile() &&
         (_query_ctx->get_query_source() == QuerySource::STREAM_LOAD ||
-         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR)) {
+         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR ||
+         _query_ctx->get_query_source() == QuerySource::GROUP_COMMIT_LOAD)) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:
