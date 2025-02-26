@@ -1178,33 +1178,46 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
                                                   size_t* read_size) {
     auto* stream_load_pipe = dynamic_cast<io::StreamLoadPipe*>(_file_reader.get());
 
+    // first read: read from the pipe once.
+    RETURN_IF_ERROR(stream_load_pipe->read_one_message(file_buf, read_size));
+
+    // When the file is not chunked, the entire file has already been read.
     if (!stream_load_pipe->is_chunked_transfer()) {
-        return stream_load_pipe->read_one_message(file_buf, read_size);
+        return Status::OK();
     }
 
-    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
-    // Need to read all the data before performing JSON parsing.
-    uint64_t buffer_size = 1024 * 1024;
-    std::vector<uint8_t> buf(buffer_size);
-
+    std::vector<uint8_t> buf;
     uint64_t cur_size = 0;
+
+    // second read: continuously read data from the pipe until all data is read.
+    std::unique_ptr<uint8_t[]> read_buf;
+    size_t read_buf_size = 0;
     while (true) {
-        RETURN_IF_ERROR(stream_load_pipe->read_one_message(file_buf, read_size));
-        if (*read_size == 0) {
+        RETURN_IF_ERROR(stream_load_pipe->read_one_message(&read_buf, &read_buf_size));
+        if (read_buf_size == 0) {
             break;
         } else {
-            if (cur_size + (*read_size) > buf.size()) {
-                buffer_size = 2 * (cur_size + (*read_size));
-                buf.resize(buffer_size);
-            }
-            memcpy(buf.data() + cur_size, file_buf->get(), *read_size);
-            cur_size += *read_size;
+            buf.insert(buf.end(), read_buf.get(), read_buf.get() + read_buf_size);
+            cur_size += read_buf_size;
+            read_buf_size = 0;
+            read_buf.reset();
         }
     }
 
-    file_buf->reset(new uint8_t[cur_size]);
-    memcpy(file_buf->get(), buf.data(), cur_size);
-    *read_size = cur_size;
+    // No data is available during the second read.
+    if (cur_size == 0) {
+        return Status::OK();
+    }
+
+    std::unique_ptr<uint8_t[]> total_buf = std::make_unique<uint8_t[]>(cur_size + *read_size);
+
+    // copy the data during the first read
+    memcpy(total_buf.get(), file_buf->get(), *read_size);
+
+    // copy the data during the second read
+    memcpy(total_buf.get() + *read_size, buf.data(), cur_size);
+    *file_buf = std::move(total_buf);
+    *read_size += cur_size;
     return Status::OK();
 }
 

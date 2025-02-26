@@ -70,44 +70,50 @@ suite("test_load_with_transfer_encoding", "p0") {
 
 
     String db = context.config.getDbNameByFile(context.file)
-    String url = """${getS3Url()}/regression/load/data/test_load_with_transfer_encoding.json"""
-    String fileName
 
-    HttpClients.createDefault().withCloseable { client ->
-        def file = new File("${context.config.cacheDataPath}/test_load_with_transfer_encoding.json")
-        if (file.exists()) {
-            log.info("Found ${url} in ${file.getAbsolutePath()}");
+    def load_data = { inputFile, int count ->
+        String url = """${getS3Url()}/regression/load/data/${inputFile}.json"""
+        String fileName
+
+        HttpClients.createDefault().withCloseable { client ->
+            def file = new File("${context.config.cacheDataPath}/${inputFile}.json")
+            if (file.exists()) {
+                log.info("Found ${url} in ${file.getAbsolutePath()}");
+                fileName = file.getAbsolutePath()
+                return;
+            }
+
+            log.info("Start to down data from ${url} to $context.config.cacheDataPath}/");
+            CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+            int code = resp.getStatusLine().getStatusCode()
+
+            if (code != HttpStatus.SC_OK) {
+                String streamBody = EntityUtils.toString(resp.getEntity())
+                log.info("Fail to download data ${url}, code: ${code}, body:\n${streamBody}")
+                throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+            }
+
+            InputStream httpFileStream = resp.getEntity().getContent()
+            java.nio.file.Files.copy(httpFileStream, file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            httpFileStream.close()
             fileName = file.getAbsolutePath()
-            return;
+            log.info("File downloaded to: ${fileName}")
         }
 
-        log.info("Start to down data from ${url} to $context.config.cacheDataPath}/");
-        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
-        int code = resp.getStatusLine().getStatusCode()
-
-        if (code != HttpStatus.SC_OK) {
-            String streamBody = EntityUtils.toString(resp.getEntity())
-            log.info("Fail to download data ${url}, code: ${code}, body:\n${streamBody}")
-            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
-        }
-
-        InputStream httpFileStream = resp.getEntity().getContent()
-        java.nio.file.Files.copy(httpFileStream, file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        httpFileStream.close()
-        fileName = file.getAbsolutePath()
-        log.info("File downloaded to: ${fileName}")
+        def command = """curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H read_json_by_line:false -H Expect:100-continue -H max_filter_ratio:1 -H strict_mode:false -H strip_outer_array:true -H columns:id,created,creater,deleted,updated,card_id,card_type_id,card_type_name,cash_balance,cashier_id,client_id,cost,creater_name,details,id_name,id_number,last_client_id,login_id,operation_type,place_id,present,present_balance,remark,shift_id,source_type,online_account -H format:json -H Transfer-Encoding:chunked -T ${fileName} -XPUT http://${context.config.feHttpAddress}/api/${db}/${table_name}/_stream_load"""
+        log.info("stream load: ${command}")
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.text
+        def json = parseJson(out)
+        log.info("stream load result is:: ${out}".toString())
+        assertEquals("success", json.Status.toLowerCase())
+        assertEquals(count, json.NumberLoadedRows)
+        qt_sql """ select count() from ${table_name} """
     }
 
-    def command = """curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H read_json_by_line:false -H Expect:100-continue -H max_filter_ratio:1 -H strict_mode:false -H strip_outer_array:true -H columns:id,created,creater,deleted,updated,card_id,card_type_id,card_type_name,cash_balance,cashier_id,client_id,cost,creater_name,details,id_name,id_number,last_client_id,login_id,operation_type,place_id,present,present_balance,remark,shift_id,source_type,online_account -H format:json -H Transfer-Encoding:chunked -T ${fileName} -XPUT http://${context.config.feHttpAddress}/api/${db}/${table_name}/_stream_load"""
-    log.info("stream load: ${command}")
-    def process = command.execute()
-    def code = process.waitFor()
-    def out = process.text
-    def json = parseJson(out)
-    log.info("stream load result is:: ${out}".toString())
-    assertEquals("success", json.Status.toLowerCase())
-    assertEquals(15272, json.NumberLoadedRows)
-
-    qt_sql """ select count() from ${table_name} """
+    load_data.call("test_load_with_transfer_encoding", 15272)
+    load_data.call("test_transfer_encoding_small", 10)
+    
 }
 
