@@ -2219,7 +2219,7 @@ public class SessionVariable implements Serializable, Writable {
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
 
-    @VariableMgr.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapeNodes",
+    @VariableMgr.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapePlanNodes",
             description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
                     "the plan node type show detail in 'explain shape plan' command"})
     public String detailShapePlanNodes = "";
@@ -2230,7 +2230,7 @@ public class SessionVariable implements Serializable, Writable {
         return detailShapePlanNodesSet;
     }
 
-    public void setDetailShapePlanNodesSet(String detailShapePlanNodes) {
+    public void setDetailShapePlanNodes(String detailShapePlanNodes) {
         this.detailShapePlanNodesSet = Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*"))
                 .collect(ImmutableSet.toImmutableSet());
         this.detailShapePlanNodes = detailShapePlanNodes;

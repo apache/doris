@@ -20,7 +20,7 @@ suite('test_nonfoldable') {
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
     sql "SET ignore_shape_nodes='PhysicalDistribute'"
-    set "Set detail_shape_nodes='PhysicalProject'"
+    sql "SET detail_shape_nodes='PhysicalProject'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
     qt_filter_through_project_1 '''
