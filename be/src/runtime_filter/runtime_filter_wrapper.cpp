@@ -151,7 +151,7 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     if (other->_state == State::DISABLED) {
-        disable(other->_disabled_reason);
+        set_state(State::DISABLED, other->_disabled_reason);
     }
 
     if (other->_state == State::IGNORED || _state == State::DISABLED) {
@@ -159,6 +159,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     }
 
     DCHECK(_state != State::IGNORED);
+    DCHECK(other->_state == State::READY);
 
     set_state(State::READY);
 
@@ -168,7 +169,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert(other->_hybrid_set.get());
         if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
-            disable(fmt::format("reach max in num: {}", _max_in_num));
+            set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
         }
         break;
     }
