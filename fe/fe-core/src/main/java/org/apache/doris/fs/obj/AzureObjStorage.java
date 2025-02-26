@@ -420,14 +420,16 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     public Status multiPartPutObject(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
         Status st = Status.OK;
-        try {
-            long uploadedBytes = 0;
-            int bytesRead = 0;
-            byte[] buffer = new byte[CHUNK_SIZE];
-            List<String> blockIds = new ArrayList<>();
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        List<String> blockIds = new ArrayList<>();
+        BlockBlobClient blockBlobClient = null;
 
+
+        try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
-            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.getBucket())
+            blockBlobClient = getClient().getBlobContainerClient(uri.getBucket())
                     .getBlobClient(uri.getKey()).getBlockBlobClient();
             while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
                 String blockId = Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes());
@@ -440,6 +442,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.warn("remotePath:{}, ", remotePath, e);
             st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multiPartPutObject " + remotePath
                     + " reason: " + e.getMessage());
+
+            if (blockBlobClient != null) {
+                try {
+                    blockBlobClient.delete();
+                } catch (Exception e1) {
+                    LOG.warn("abort multiPartPutObject failed", e1);
+                }
+            }
         }
         return st;
     }
