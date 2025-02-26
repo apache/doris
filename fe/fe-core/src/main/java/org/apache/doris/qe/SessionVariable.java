@@ -2231,7 +2231,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setDetailShapePlanNodes(String detailShapePlanNodes) {
-        this.detailShapePlanNodesSet = Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*"))
+        this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
                 .collect(ImmutableSet.toImmutableSet());
         this.detailShapePlanNodes = detailShapePlanNodes;
     }
