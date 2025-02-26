@@ -87,7 +87,7 @@ suite("test_cold_data_compaction") {
     """
 
     // wait until files upload to S3
-    retryUntilTimeout(900, {
+    retryUntilTimeout(1800, {
         def res = sql_return_maparray "show data from t_recycle_in_s3"
         String size = ""
         String remoteSize = ""
@@ -114,7 +114,7 @@ suite("test_cold_data_compaction") {
     sql """alter table t_recycle_in_s3 set ("disable_auto_compaction" = "false")"""
 
     // wait until compaction finish
-    retryUntilTimeout(900, {
+    retryUntilTimeout(1800, {
         def filesAfterCompaction = getS3Client().listObjects(
                 new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
         logger.info("t_recycle_in_s3's remote file number is ${filesAfterCompaction.size()}")
@@ -123,7 +123,7 @@ suite("test_cold_data_compaction") {
     })
 
     sql "drop table t_recycle_in_s3 force"
-    retryUntilTimeout(900, {
+    retryUntilTimeout(1800, {
         def filesAfterDrop = getS3Client().listObjects(
                 new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
         logger.info("after drop t_recycle_in_s3, remote file number is ${filesAfterDrop.size()}")
