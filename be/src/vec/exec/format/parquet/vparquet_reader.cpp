@@ -293,6 +293,20 @@ void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_column
     }
 }
 
+void ParquetReader::_init_parquet_cols(std::vector<std::string>& parquet_cols,
+                                       bool* is_hive1_parquet) {
+    auto schema_desc = _file_metadata->schema();
+    bool hive1_parquet = true;
+    for (int i = 0; i < schema_desc.size(); ++i) {
+        auto name = schema_desc.get_column(i)->name;
+        parquet_cols.emplace_back(name);
+        if (hive1_parquet) {
+            hive1_parquet = _is_hive1_col_name(name);
+        }
+    }
+    *is_hive1_parquet = hive1_parquet;
+}
+
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
@@ -310,6 +324,7 @@ Status ParquetReader::init_reader(
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _colname_to_value_range = colname_to_value_range;
     _hive_use_column_names = hive_use_column_names;
+    _is_hive1_parquet_or_use_idx = !hive_use_column_names;
     if (_file_metadata == nullptr) {
         return Status::InternalError("failed to init parquet reader, please open reader first");
     }
@@ -324,59 +339,32 @@ Status ParquetReader::init_reader(
     // e.g. table added a column after this parquet file was written.
     _column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
-    if (_hive_use_column_names) {
-        std::set<std::string> required_columns(all_column_names.begin(), all_column_names.end());
-        // Currently only used in iceberg, the columns are dropped but added back
-        std::set<std::string> dropped_columns(missing_column_names.begin(),
-                                              missing_column_names.end());
-        // Make the order of read columns the same as physical order in parquet file
-        for (int i = 0; i < schema_desc.size(); ++i) {
-            auto name = schema_desc.get_column(i)->name;
-            // If the column in parquet file is included in all_column_names and not in missing_column_names,
-            // add it to _map_column, which means the reader should read the data of this column.
-            // Here to check against missing_column_names is for the 'Add a column back to the table
-            // with the same column name' case. (drop column a then add column a).
-            // Shouldn't read this column data in this case.
-            if (required_columns.find(name) != required_columns.end() &&
-                dropped_columns.find(name) == dropped_columns.end()) {
-                required_columns.erase(name);
-                _read_columns.emplace_back(name);
-            }
-        }
-        for (const std::string& name : required_columns) {
-            _missing_cols.emplace_back(name);
-        }
-    } else {
-        std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
-        const auto& table_column_idxs = _scan_params.column_idxs;
-        std::map<int, int> table_col_id_to_idx;
-        for (int i = 0; i < table_column_idxs.size(); i++) {
-            table_col_id_to_idx.insert({table_column_idxs[i], i});
-        }
-
-        for (auto [id, idx] : table_col_id_to_idx) {
-            if (id >= schema_desc.size()) {
-                _missing_cols.emplace_back(all_column_names[idx]);
-            } else {
-                auto& table_col = all_column_names[idx];
-                auto file_col = schema_desc.get_column(id)->name;
-                _read_columns.emplace_back(file_col);
-
-                if (table_col != file_col) {
-                    _table_col_to_file_col[table_col] = file_col;
-                    auto iter = _colname_to_value_range->find(table_col);
-                    if (iter != _colname_to_value_range->end()) {
-                        continue;
-                    }
-                    new_colname_to_value_range[file_col] = iter->second;
-                    _colname_to_value_range->erase(iter->first);
+    std::vector<std::string> parquet_cols;
+    bool is_hive1_parquet = false;
+    _init_parquet_cols(parquet_cols, &is_hive1_parquet);
+    _is_hive1_parquet_or_use_idx = (is_hive1_parquet || _is_hive1_parquet_or_use_idx);
+    for (size_t i = 0; i < _column_names->size(); ++i) {
+        std::string col_name = (*_column_names)[i];
+        if (_is_hive1_parquet_or_use_idx) {
+            auto iter = colname_to_slot_id->find(col_name);
+            if (iter != colname_to_slot_id->end()) {
+                int pos = iter->second;
+                if (pos < parquet_cols.size()) {
+                    col_name = parquet_cols[pos];
+                    _table_col_to_file_col[iter->first] = col_name;
                 }
             }
         }
-        for (auto it : new_colname_to_value_range) {
-            _colname_to_value_range->emplace(it.first, std::move(it.second));
+        auto iter = std::find(parquet_cols.begin(), parquet_cols.end(), col_name);
+        if (iter == parquet_cols.end()) {
+            _missing_cols.emplace_back(col_name);
+        } else {
+            int pos = std::distance(parquet_cols.begin(), iter);
+            std::string read_col = parquet_cols[pos];
+            _read_columns.emplace_back(read_col);
         }
     }
+
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
     RETURN_IF_ERROR(_init_row_groups(filter_groups));
@@ -559,9 +547,14 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    if (!_hive_use_column_names) {
-        for (auto i = 0; i < block->get_names().size(); i++) {
+    if (_is_hive1_parquet_or_use_idx) {
+        for (auto i = 0; i < block->columns(); i++) {
             auto& col = block->get_by_position(i);
+            auto iter = std::find(_missing_cols.begin(), _missing_cols.end(), col.name);
+            if (iter != _missing_cols.end()) {
+                continue;
+            }
+
             if (_table_col_to_file_col.contains(col.name)) {
                 col.name = _table_col_to_file_col[col.name];
             }
@@ -580,12 +573,21 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    if (!_hive_use_column_names) {
+    if (_is_hive1_parquet_or_use_idx) {
         for (auto i = 0; i < block->columns(); i++) {
-            block->get_by_position(i).name = (*_column_names)[i];
+            auto& col = block->get_by_position(i);
+            auto iter = std::find(_missing_cols.begin(), _missing_cols.end(), col.name);
+            if (iter != _missing_cols.end()) {
+                continue;
+            }
+
+            if (_table_col_to_file_col.contains(col.name)) {
+                col.name = _table_col_to_file_col[col.name];
+            }
         }
         block->initialize_index_by_name();
     }
+
     if (!batch_st.ok()) {
         return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
                                      batch_st.to_string());

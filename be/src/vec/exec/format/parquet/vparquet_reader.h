@@ -156,6 +156,22 @@ public:
 protected:
     void _collect_profile_before_close() override;
 
+    // check if the given name is like _col0, _col1, ...
+    static bool inline _is_hive1_col_name(const std::string& name) {
+        if (name.size() <= 4) {
+            return false;
+        }
+        if (name.substr(0, 4) != "_col") {
+            return false;
+        }
+        for (size_t i = 4; i < name.size(); ++i) {
+            if (!isdigit(name[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
@@ -223,6 +239,7 @@ private:
     void _collect_profile();
 
     static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
+    void _init_parquet_cols(std::vector<std::string>& parquet_cols, bool* is_hive1_parquet);
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -270,6 +287,10 @@ private:
     const std::vector<std::string>* _column_names = nullptr;
 
     std::vector<std::string> _missing_cols;
+    // Flag for hive engine.
+    // 1. True if the external table engine is Hive1.x with orc col name as _col1, col2, ...
+    // 2. If true, use indexes instead of column names when reading orc tables.
+    bool _is_hive1_parquet_or_use_idx = false;
     Statistics _statistics;
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
