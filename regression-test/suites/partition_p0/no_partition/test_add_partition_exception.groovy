@@ -15,32 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_add_partition_exception") {
+    sql "drop table if exists test_add_partition_exception_tbl"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_add_partition_exception_tbl (
+            k1 int NOT NULL, 
+            k2 bigint NOT NULL
+        ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
 
-#include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "io/fs/file_reader_writer_fwd.h"
-
-namespace doris {
-
-class WalReader {
-public:
-    explicit WalReader(const std::string& file_name);
-    ~WalReader();
-
-    Status init();
-    Status finalize();
-
-    Status read_block(PBlock& block);
-    Status read_header(uint32_t& version, std::string& col_ids);
-
-private:
-    Status _deserialize(PBlock& block, const std::string& buf, size_t block_len, size_t bytes_read);
-    Status _check_checksum(const char* binary, size_t size, uint32_t checksum);
-
-    std::string _file_name;
-    size_t _offset;
-    io::FileReaderSPtr file_reader;
-};
-
-} // namespace doris
+	test{
+		sql """ alter table test_add_partition_exception_tbl add partition p0 values in (("1"))"""
+		exception "Alter table [test_add_partition_exception_tbl] failed. Not a partitioned table"
+	}
+}
