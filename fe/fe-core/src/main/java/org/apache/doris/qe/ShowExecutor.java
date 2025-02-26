@@ -196,6 +196,12 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+<<<<<<< HEAD
+=======
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
+>>>>>>> e0d85882bd... [fix](auth)Privatize the authentication methods in the Auth class to avoid being called incorrectly (#48033)
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -3080,4 +3086,95 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+<<<<<<< HEAD
+=======
+    private void handleShowStage() throws AnalysisException {
+        ShowStageStmt showStmt = (ShowStageStmt) stmt;
+        try {
+            List<Cloud.StagePB> stages = ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                            .getStage(Cloud.StagePB.StageType.EXTERNAL, null, null, null);
+            if (stages == null) {
+                throw new AnalysisException("get stage err");
+            }
+            List<List<String>> results = new ArrayList<>();
+            for (Cloud.StagePB stage : stages) {
+                // todo(copy into): check priv
+                // if (!Env.getCurrentEnv().getAuth()
+                //         .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), stage.getName(),
+                //                 PrivPredicate.USAGE, ResourceTypeEnum.STAGE)) {
+                //     continue;
+                // }
+                List<String> result = new ArrayList<>();
+                result.add(stage.getName());
+                result.add(stage.getStageId());
+                result.add(stage.getObjInfo().getEndpoint());
+                result.add(stage.getObjInfo().getRegion());
+                result.add(stage.getObjInfo().getBucket());
+                result.add(stage.getObjInfo().getPrefix());
+                result.add(StringUtils.isEmpty(stage.getObjInfo().getAk()) ? "" : "**********");
+                result.add(StringUtils.isEmpty(stage.getObjInfo().getSk()) ? "" : "**********");
+                result.add(stage.getObjInfo().getProvider().name());
+                Map<String, String> propertiesMap = new HashMap<>();
+                propertiesMap.putAll(stage.getPropertiesMap());
+                result.add(new GsonBuilder().disableHtmlEscaping().create().toJson(propertiesMap));
+                result.add(stage.getComment());
+                result.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(stage.getCreateTime())));
+                result.add(stage.hasAccessType() ? stage.getAccessType().name()
+                        : (StringUtils.isEmpty(stage.getObjInfo().getSk()) ? "" : "AKSK"));
+                result.add(stage.getRoleName());
+                result.add(stage.getArn());
+                results.add(result);
+            }
+            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    private void handleShowStorageVault() throws AnalysisException {
+        ShowStorageVaultStmt showStmt = (ShowStorageVaultStmt) stmt;
+        // [vault name, vault id, vault properties, isDefault]
+        List<List<String>> rows;
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+            UserIdentity user = ctx.getCurrentUserIdentity();
+            rows = resp.getStorageVaultList().stream()
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
+                            PrivPredicate.USAGE))
+                    .map(StorageVault::convertToShowStorageVaultProperties)
+                    .collect(Collectors.toList());
+            if (resp.hasDefaultStorageVaultId()) {
+                StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
+            }
+        } catch (RpcException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void checkStmtSupported() throws AnalysisException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (stmt instanceof ShowReplicaStatusStmt
+                || stmt instanceof ShowReplicaDistributionStmt
+                || stmt instanceof ShowConfigStmt) {
+            if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
+        }
+
+        if (stmt instanceof ShowTabletStorageFormatStmt
+                || stmt instanceof DiagnoseTabletStmt
+                || stmt instanceof AdminCopyTabletStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+            throw new AnalysisException("Unsupported operation");
+        }
+    }
+>>>>>>> e0d85882bd... [fix](auth)Privatize the authentication methods in the Auth class to avoid being called incorrectly (#48033)
 }
