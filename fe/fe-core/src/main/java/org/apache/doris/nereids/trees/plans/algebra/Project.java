@@ -75,6 +75,16 @@ public interface Project {
         return projects;
     }
 
+    /** check can merge two projects */
+    default boolean canMergeProjections(Project childProject) {
+        if (ExpressionUtils.containsWindowExpression(getProjects())
+                && ExpressionUtils.containsWindowExpression(childProject.getProjects())) {
+            return false;
+        }
+
+        return PlanUtils.canReplaceWithProjections(childProject.getProjects(), getProjects());
+    }
+
     /**
      * find projects, if not found the slot, then throw AnalysisException
      */
