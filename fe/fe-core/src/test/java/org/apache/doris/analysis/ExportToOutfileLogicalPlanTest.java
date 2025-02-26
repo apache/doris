@@ -39,6 +39,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The `Export` sql finally generates the `Outfile` sql.
@@ -93,31 +94,18 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
                 + ");";
 
         List<Long> currentTablets1 = Arrays.asList(10010L, 10012L, 10014L, 10016L, 10018L, 10020L, 10022L, 10024L,
-                10026L, 10028L);
-        List<Long> currentTablets2 = Arrays.asList(10030L, 10032L, 10034L, 10036L, 10038L, 10040L, 10042L, 10044L,
-                10046L, 10048L);
-        List<Long> currentTablets3 = Arrays.asList(10050L, 10052L, 10054L, 10056L, 10058L, 10060L, 10062L, 10064L,
-                10066L, 10068L);
-        List<Long> currentTablets4 = Arrays.asList(10070L, 10072L, 10074L, 10076L, 10078L, 10080L, 10082L, 10084L,
+                10026L, 10028L, 10030L, 10032L, 10034L, 10036L, 10038L, 10040L, 10042L, 10044L,
+                10046L, 10048L, 10050L, 10052L, 10054L, 10056L, 10058L, 10060L, 10062L, 10064L,
+                10066L, 10068L, 10070L, 10072L, 10074L, 10076L, 10078L, 10080L, 10082L, 10084L,
                 10086L, 10088L);
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(1, outfileSqlPerParallel.size());
-        Assert.assertEquals(4, outfileSqlPerParallel.get(0).size());
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), Lists.newArrayList(), currentTablets1);
-
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan2, false), Lists.newArrayList(), currentTablets2);
-
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(2)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan3, false), Lists.newArrayList(), currentTablets3);
-
-        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(3)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan4, false), Lists.newArrayList(), currentTablets4);
     }
 
     /**
@@ -153,25 +141,21 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
                 10086L, 10088L);
 
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), Lists.newArrayList(), currentTablets1);
 
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
+        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), Lists.newArrayList(), currentTablets2);
 
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
+        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), Lists.newArrayList(), currentTablets3);
 
-        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get(0)).getLogicalPlan();
+        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan4, false), Lists.newArrayList(), currentTablets4);
     }
 
@@ -199,41 +183,27 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         // This export sql should generate 4 array, and there should be 1 outfile sql in per array.
         // The only difference between them is the TABLET(). They are:
         List<Long> currentTablets1 = Arrays.asList(10010L, 10012L, 10014L, 10016L, 10018L, 10020L, 10022L, 10024L,
-                10026L, 10028L);
-        List<Long> currentTablets12 = Arrays.asList(10030L, 10032L, 10034L, 10036L);
+                10026L, 10028L, 10030L, 10032L, 10034L, 10036L);
         List<Long> currentTablets2 = Arrays.asList(10038L, 10040L, 10042L, 10044L, 10046L, 10048L, 10050L, 10052L,
-                10054L, 10056L);
-        List<Long> currentTablets22 = Arrays.asList(10058L, 10060L, 10062L);
+                10054L, 10056L, 10058L, 10060L, 10062L);
         List<Long> currentTablets3 = Arrays.asList(10064L, 10066L, 10068L, 10070L, 10072L, 10074L, 10076L, 10078L,
-                10080L, 10082L);
-        List<Long> currentTablets32 = Arrays.asList(10084L, 10086L, 10088L);
+                10080L, 10082L, 10084L, 10086L, 10088L);
 
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(3, outfileSqlPerParallel.size());
-        Assert.assertEquals(2, outfileSqlPerParallel.get(0).size());
-        Assert.assertEquals(2, outfileSqlPerParallel.get(1).size());
-        Assert.assertEquals(2, outfileSqlPerParallel.get(2).size());
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), Lists.newArrayList(), currentTablets1);
 
-        LogicalPlan plan12 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan12, false), Lists.newArrayList(), currentTablets12);
-
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
+        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), Lists.newArrayList(), currentTablets2);
 
-        LogicalPlan plan22 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan22, false), Lists.newArrayList(), currentTablets22);
 
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
+        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), Lists.newArrayList(), currentTablets3);
-
-        LogicalPlan plan32 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(1)).getLogicalPlan();
-        checkPartitionsAndTablets(getUnboundRelation(plan32, false), Lists.newArrayList(), currentTablets32);
     }
 
     /**
@@ -267,26 +237,22 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         List<String> currentPartitions = Arrays.asList("p1");
 
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
 
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), currentPartitions, currentTablets1);
 
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
+        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), currentPartitions, currentTablets2);
 
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
+        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), currentPartitions, currentTablets3);
 
-        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get(0)).getLogicalPlan();
+        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan4, false), currentPartitions, currentTablets4);
     }
 
@@ -320,25 +286,21 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         List<String> currentPartitions = Arrays.asList("p1", "p4");
 
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(4, outfileSqlPerParallel.size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(0).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(1).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(2).size());
-        Assert.assertEquals(1, outfileSqlPerParallel.get(3).size());
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), currentPartitions, currentTablets1);
 
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
+        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), currentPartitions, currentTablets2);
 
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
+        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), currentPartitions, currentTablets3);
 
-        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get(0)).getLogicalPlan();
+        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan4, false), currentPartitions, currentTablets4);
     }
 
@@ -380,42 +342,39 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         List<String> currentPartitions = Arrays.asList("p1");
 
         // generate outfile
-        List<List<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
+        List<Optional<StatementBase>> outfileSqlPerParallel = getOutfileSqlPerParallel(exportSql);
 
         // check
         Assert.assertEquals(10, outfileSqlPerParallel.size());
-        for (int i = 0; i < 10; ++i) {
-            Assert.assertEquals(1, outfileSqlPerParallel.get(i).size());
-        }
 
-        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get(0)).getLogicalPlan();
+        LogicalPlan plan1 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(0).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan1, false), currentPartitions, currentTablets1);
 
-        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get(0)).getLogicalPlan();
+        LogicalPlan plan2 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(1).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan2, false), currentPartitions, currentTablets2);
 
-        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get(0)).getLogicalPlan();
+        LogicalPlan plan3 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(2).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan3, false), currentPartitions, currentTablets3);
 
-        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get(0)).getLogicalPlan();
+        LogicalPlan plan4 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(3).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan4, false), currentPartitions, currentTablets4);
 
-        LogicalPlan plan5 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(4).get(0)).getLogicalPlan();
+        LogicalPlan plan5 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(4).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan5, false), currentPartitions, currentTablets5);
 
-        LogicalPlan plan6 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(5).get(0)).getLogicalPlan();
+        LogicalPlan plan6 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(5).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan6, false), currentPartitions, currentTablets6);
 
-        LogicalPlan plan7 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(6).get(0)).getLogicalPlan();
+        LogicalPlan plan7 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(6).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan7, false), currentPartitions, currentTablets7);
 
-        LogicalPlan plan8 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(7).get(0)).getLogicalPlan();
+        LogicalPlan plan8 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(7).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan8, false), currentPartitions, currentTablets8);
 
-        LogicalPlan plan9 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(8).get(0)).getLogicalPlan();
+        LogicalPlan plan9 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(8).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan9, false), currentPartitions, currentTablets9);
 
-        LogicalPlan plan10 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(9).get(0)).getLogicalPlan();
+        LogicalPlan plan10 = ((LogicalPlanAdapter) outfileSqlPerParallel.get(9).get()).getLogicalPlan();
         checkPartitionsAndTablets(getUnboundRelation(plan10, false), currentPartitions, currentTablets10);
     }
 
@@ -425,9 +384,9 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
     }
 
     // need open EnableNereidsPlanner
-    private List<List<StatementBase>> getOutfileSqlPerParallel(String exportSql) throws UserException {
+    private List<Optional<StatementBase>> getOutfileSqlPerParallel(String exportSql) throws UserException {
         ExportCommand exportCommand = (ExportCommand) parseSql(exportSql);
-        List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
+        List<Optional<StatementBase>> selectStmtPerParallel = Lists.newArrayList();
         try {
             Method checkAllParameters = exportCommand.getClass().getDeclaredMethod("checkAllParameters",
                     ConnectContext.class, TableName.class, Map.class);
@@ -445,7 +404,7 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
 
             ExportJob job = (ExportJob) generateExportJob.invoke(
                     exportCommand, connectContext, exportCommand.getFileProperties(), tblName);
-            selectStmtListPerParallel = job.getSelectStmtListPerParallel();
+            selectStmtPerParallel = job.getSelectStmtPerParallel();
         } catch (NoSuchMethodException e) {
             throw new UserException(e);
         } catch (InvocationTargetException e) {
@@ -453,7 +412,7 @@ public class ExportToOutfileLogicalPlanTest extends TestWithFeService {
         } catch (IllegalAccessException e) {
             throw new UserException(e);
         }
-        return selectStmtListPerParallel;
+        return selectStmtPerParallel;
     }
 
     private void checkPartitionsAndTablets(UnboundRelation relation, List<String> currentPartitionNames,
