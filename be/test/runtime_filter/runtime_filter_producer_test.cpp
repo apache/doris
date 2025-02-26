@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
 
 namespace doris {
@@ -160,6 +161,11 @@ TEST_F(RuntimeFilterProducerTest, set_ignore_or_disable) {
     producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     ASSERT_EQ(producer2->_rf_state, RuntimeFilterProducer::State::READY_TO_PUBLISH);
     ASSERT_EQ(producer2->_wrapper->_state, RuntimeFilterWrapper::State::DISABLED);
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
+    ASSERT_EQ(consumer->_rf_state, RuntimeFilterConsumer::State::READY);
+    ASSERT_EQ(consumer->_wrapper->_state, RuntimeFilterWrapper::State::DISABLED);
 }
 
 } // namespace doris
