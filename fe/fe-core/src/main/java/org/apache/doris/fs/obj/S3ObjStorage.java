@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
@@ -321,8 +322,17 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     public Status multiPartPutObject(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
         Status st = Status.OK;
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int partNumber = 1;
+
+        String uploadId = null;
+        S3URI uri = null;
+        Map<Integer, String> etags = new HashMap<>();
+
         try {
-            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             CreateMultipartUploadRequest createMultipartUploadRequest = CreateMultipartUploadRequest.builder()
                     .bucket(uri.getBucket())
                     .key(uri.getKey())
@@ -330,18 +340,14 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             CreateMultipartUploadResponse createMultipartUploadResponse = getClient()
                     .createMultipartUpload(createMultipartUploadRequest);
 
-            long uploadedBytes = 0;
-            int bytesRead = 0;
-            byte[] buffer = new byte[CHUNK_SIZE];
+            uploadId = createMultipartUploadResponse.uploadId();
 
-            int partNumber = 1;
-            Map<Integer, String> etags = new HashMap<>();
             while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
                 uploadedBytes += bytesRead;
                 UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
                         .bucket(uri.getBucket())
                         .key(uri.getKey())
-                        .uploadId(createMultipartUploadResponse.uploadId())
+                        .uploadId(uploadId)
                         .partNumber(partNumber).build();
                 RequestBody body = RequestBody
                         .fromInputStream(new ByteArrayInputStream(buffer, 0, bytesRead), bytesRead);
@@ -365,7 +371,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             CompleteMultipartUploadRequest completeMultipartUploadRequest = CompleteMultipartUploadRequest.builder()
                     .bucket(uri.getBucket())
                     .key(uri.getKey())
-                    .uploadId(createMultipartUploadResponse.uploadId())
+                    .uploadId(uploadId)
                     .multipartUpload(completedMultipartUpload)
                     .build();
 
@@ -374,6 +380,19 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.warn("remotePath:{}, ", remotePath, e);
             st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multiPartPutObject " + remotePath
                     + " reason: " + e.getMessage());
+
+            if (uri != null && uploadId != null) {
+                try {
+                    AbortMultipartUploadRequest abortMultipartUploadRequest = AbortMultipartUploadRequest.builder()
+                            .bucket(uri.getBucket())
+                            .key(uri.getKey())
+                            .uploadId(uploadId)
+                            .build();
+                    getClient().abortMultipartUpload(abortMultipartUploadRequest);
+                } catch (Exception e1) {
+                    LOG.warn("Failed to abort multiPartPutObject " + remotePath, e1);
+                }
+            }
         }
         return st;
     }

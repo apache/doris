@@ -38,7 +38,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 public class AzureResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(AzureResource.class);
@@ -84,39 +83,40 @@ public class AzureResource extends Resource {
     protected static void pingAzure(String bucketName, String rootPath,
             Map<String, String> newProperties) throws DdlException {
 
-        String testFile = "azure://" + bucketName + "/" + rootPath + "/"
-                + UUID.randomUUID().toString() + "/test-object-valid.txt";
+        Long timestamp = System.currentTimeMillis();
+        String testObj = "azure://" + bucketName + "/" + rootPath
+                + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
 
         byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
         Arrays.fill(contentData, (byte) 'A');
         AzureObjStorage azureObjStorage = new AzureObjStorage(newProperties);
 
-        Status status = azureObjStorage.putObject(testFile, new ByteArrayInputStream(contentData), contentData.length);
+        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
-        status = azureObjStorage.headObject(testFile);
+        status = azureObjStorage.headObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
-        RemoteObjects remoteObjects = azureObjStorage.listObjects(testFile, null);
+        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
         LOG.info("remoteObjects: {}", remoteObjects);
         Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
 
-        status = azureObjStorage.deleteObject(testFile);
+        status = azureObjStorage.deleteObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
-        status = azureObjStorage.multiPartPutObject(testFile,
+        status = azureObjStorage.multiPartPutObject(testObj,
                 new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
@@ -124,7 +124,7 @@ public class AzureResource extends Resource {
                             newProperties, "=", true, false, true, false));
         }
 
-        status = azureObjStorage.deleteObject(testFile);
+        status = azureObjStorage.deleteObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(

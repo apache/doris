@@ -40,7 +40,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * S3 resource
@@ -119,8 +118,9 @@ public class S3Resource extends Resource {
     protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
             throws DdlException {
 
-        String prefix = "s3://" + bucketName + "/" + rootPath + "/" + UUID.randomUUID().toString();
-        String testObj = prefix + "/test-object-valid.txt";
+        Long timestamp = System.currentTimeMillis();
+        String prefix = "s3://" + bucketName + "/" + rootPath;
+        String testObj = prefix + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
 
         byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
         Arrays.fill(contentData, (byte) 'A');
@@ -140,9 +140,8 @@ public class S3Resource extends Resource {
                             newProperties, "=", true, false, true, false));
         }
 
-        RemoteObjects remoteObjects = s3ObjStorage.listObjects(prefix, null);
+        RemoteObjects remoteObjects = s3ObjStorage.listObjects(testObj, null);
         LOG.info("remoteObjects: {}", remoteObjects);
-        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
 
         status = s3ObjStorage.multiPartPutObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
