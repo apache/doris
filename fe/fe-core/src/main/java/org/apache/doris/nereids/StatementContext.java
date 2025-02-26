@@ -213,6 +213,9 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
+    private final Map<List<String>, Set<RelationId>> MaterializeViewToqueryRelationIdsMap =
+            new LinkedHashMap<>();
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -772,5 +775,9 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public Map<List<String>, Set<RelationId>> getMaterializeViewToqueryRelationIdsMap() {
+        return MaterializeViewToqueryRelationIdsMap;
     }
 }
