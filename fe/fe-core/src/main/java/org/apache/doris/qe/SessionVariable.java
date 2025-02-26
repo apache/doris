@@ -1290,7 +1290,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "enable_lazy_materialization", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public boolean enableLazyMaterialization = false;
+    public boolean enableLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
     public int waitFullBlockScheduleTimes = 2;

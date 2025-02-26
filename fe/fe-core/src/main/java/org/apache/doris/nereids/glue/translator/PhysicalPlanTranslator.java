@@ -2493,6 +2493,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
         olapScanNode.setDesc(outputTuple);
+        olapScanNode.setIsTopnLazyMaterialize(true);
+        olapScanNode.setGlobalRowIdColumn(lazyScan.getRowId().getColumn().get());
+        for (Slot slot : lazyScan.getOutput()) {
+            if (((SlotReference) slot).getColumn().isPresent()) {
+                olapScanNode.addTopnLazyMaterializeOutputColumns(((SlotReference) slot).getColumn().get());
+            }
+        }
         planFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(outputTuple.getId()));
         return planFragment;
     }
