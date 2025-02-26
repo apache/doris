@@ -827,11 +827,11 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb) {
-    VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
+    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
+    VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -851,7 +851,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                          prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
-            query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }
     }

@@ -81,6 +81,13 @@ Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     return ready ? nullptr : this;
 }
 
+Dependency* QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
+    if (task && task->wake_up_early()) {
+        return nullptr;
+    }
+    return Dependency::is_blocked_by(task);
+}
+
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
@@ -307,13 +314,25 @@ Status AggSharedState::reset_hash_table() {
             agg_data->method_variant);
 }
 
-void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_bits) {
-    partition_count_bits = spill_partition_count_bits;
-    partition_count = (1 << spill_partition_count_bits);
+void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
+    partition_count = spill_partition_count;
     max_partition_index = partition_count - 1;
 
     for (int i = 0; i < partition_count; ++i) {
         spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
+    }
+}
+
+void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& partition : spill_partitions) {
+        if (partition->spilling_stream_) {
+            partition->spilling_stream_->update_shared_profiles(source_profile);
+        }
+        for (auto& stream : partition->spill_streams_) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
     }
 }
 
@@ -355,6 +374,14 @@ void PartitionedAggSharedState::close() {
     spill_partitions.clear();
 }
 
+void SpillSortSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& stream : sorted_streams) {
+        if (stream) {
+            stream->update_shared_profiles(source_profile);
+        }
+    }
+}
+
 void SpillSortSharedState::close() {
     // need to use CAS instead of only `if (!is_closed)` statement,
     // to avoid concurrent entry of close() both pass the if statement
@@ -369,9 +396,11 @@ void SpillSortSharedState::close() {
     sorted_streams.clear();
 }
 
-MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count)
-        : multi_cast_data_streamer(
-                  std::make_unique<pipeline::MultiCastDataStreamer>(pool, cast_sender_count)) {}
+MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
+        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
+                  this, pool, cast_sender_count, node_id)) {}
+
+void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();

@@ -264,9 +264,6 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
     // 6 refresh additional tracker printed when memory exceeds limit.
-    COUNTER_SET(
-            _load_all_memtables_usage_counter,
-            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->peak_consumption());
     COUNTER_SET(_load_all_memtables_usage_counter,
                 ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
 
@@ -334,15 +331,19 @@ int64_t MemoryProfile::other_current_usage() {
     return memory_other_trackers_sum_bytes.get_value();
 }
 
+std::string MemoryProfile::process_memory_detail_str() const {
+    return fmt::format("Process Memory Summary: {}\n, {}\n, {}\n, {}\n, {}\n, {}\n",
+                       GlobalMemoryArbitrator::process_mem_log_str(),
+                       print_memory_overview_profile(), print_global_memory_profile(),
+                       print_metadata_memory_profile(), print_cache_memory_profile(),
+                       print_top_memory_tasks_profile());
+}
+
 void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
-        LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
-        LOG(WARNING) << "\n" << print_memory_overview_profile();
-        LOG(WARNING) << "\n" << print_global_memory_profile();
-        LOG(WARNING) << "\n" << print_metadata_memory_profile();
-        LOG(WARNING) << "\n" << print_cache_memory_profile();
-        LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
+        auto log_str = process_memory_detail_str();
+        LOG_LONG_STRING(WARNING, log_str);
     }
 }
 
