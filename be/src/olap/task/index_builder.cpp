@@ -448,14 +448,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
-            if (return_columns.empty()) {
-                // no columns to read
-                break;
-            }
-
+            // DO NOT forget inverted_index_file_writer for the segment, otherwise, original inverted index will be deleted.
             _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                  std::move(inverted_index_file_writer));
-
+            if (return_columns.empty()) {
+                // no columns to read
+                continue;
+            }
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
