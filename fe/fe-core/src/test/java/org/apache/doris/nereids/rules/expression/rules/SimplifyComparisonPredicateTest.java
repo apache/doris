@@ -58,6 +58,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -119,6 +120,30 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2AtZeroClock),
                 new EqualTo(dv2, dv2));
 
+    }
+
+    @Test
+    void testIntCompIntLiteral() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        SimplifyCastRule.INSTANCE,
+                        SimplifyComparisonPredicate.INSTANCE
+                )
+        ));
+
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
+        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
+        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
+        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
+
+        assertRewrite(new LessThan(new Cast(bigIntSlot, LargeIntType.INSTANCE), new LargeIntLiteral(new BigInteger("10"))),
+                new LessThan(bigIntSlot, new BigIntLiteral(10L)));
+        assertRewrite(new LessThan(new Cast(intSlot, BigIntType.INSTANCE), new BigIntLiteral(10L)),
+                new LessThan(intSlot, new IntegerLiteral(10)));
+        assertRewrite(new LessThan(new Cast(smallIntSlot, BigIntType.INSTANCE), new BigIntLiteral(10L)),
+                new LessThan(smallIntSlot, new SmallIntLiteral((short) 10)));
+        assertRewrite(new LessThan(new Cast(tinyIntSlot, BigIntType.INSTANCE), new BigIntLiteral(10L)),
+                new LessThan(tinyIntSlot, new TinyIntLiteral((byte) 10)));
     }
 
     @Test
@@ -861,8 +886,8 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                         Pair.of(new DoubleLiteral(-128.1), new DecimalV3Literal(new BigDecimal("-128.1")))),
                 ImmutableList.of(
                         Pair.of(new TinyIntLiteral((byte) -128), null),
-                        Pair.of(new SmallIntLiteral((short) -128), null),
-                        Pair.of(new IntegerLiteral(-128), null),
+                        Pair.of(new SmallIntLiteral((short) -128), new TinyIntLiteral((byte) -128)),
+                        Pair.of(new IntegerLiteral(-128), new TinyIntLiteral((byte) -128)),
                         Pair.of(new DecimalV3Literal(new BigDecimal("-128")), new TinyIntLiteral((byte) -128)),
                         Pair.of(new DoubleLiteral(-128.0), new TinyIntLiteral((byte) -128))),
                 ImmutableList.of(
