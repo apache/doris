@@ -18,8 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ModifyColumnClause;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
@@ -28,6 +32,7 @@ import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 class InternalSchemaInitializerTest {
@@ -69,7 +74,88 @@ class InternalSchemaInitializerTest {
         Assertions.assertEquals("key2", clause2.getColumn().getName());
         Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause2.getColumn().getType().getLength());
         Assertions.assertTrue(clause2.getColumn().isAllowNull());
-
     }
 
+    @Test
+    public void testAuditLogSchemaContainsStorageFields() {
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (ColumnDef columnDef : InternalSchema.AUDIT_SCHEMA) {
+            if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+
+            if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField, "scan_bytes_from_local_storage field is missing from AUDIT_SCHEMA");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from AUDIT_SCHEMA");
+    }
+
+    @Test
+    public void testAuditLogTableCreationWithStorageFields() throws Exception {
+        Method buildAuditTblStmtMethod = InternalSchemaInitializer.class.getDeclaredMethod("buildAuditTblStmt");
+        buildAuditTblStmtMethod.setAccessible(true);
+
+        CreateTableStmt createTableStmt = (CreateTableStmt) buildAuditTblStmtMethod.invoke(null);
+
+        List<Column> columns = createTableStmt.getColumns();
+
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (Column column : columns) {
+            if (column.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
+                Assertions.assertTrue(column.isAllowNull());
+            }
+
+            if (column.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
+                Assertions.assertTrue(column.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField,
+                "scan_bytes_from_local_storage field is missing from the created audit log table");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from the created audit log table");
+    }
+
+    @Test
+    public void testGetCopiedSchemaForAuditLog() throws UserException {
+        List<ColumnDef> copiedSchema = InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE);
+
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (ColumnDef columnDef : copiedSchema) {
+            if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+
+            if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField,
+                "scan_bytes_from_local_storage field is missing from the copied schema");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from the copied schema");
+    }
 }
