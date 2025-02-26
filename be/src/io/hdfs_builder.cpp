@@ -167,7 +167,8 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
 Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
                            HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
-    hdfsBuilderSetNameNode(builder->get(), fs_name.c_str());
+    builder->fs_name = fs_name;
+    hdfsBuilderSetNameNode(builder->get(), builder->fs_name.c_str());
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->kerberos_login = true;
@@ -182,7 +183,8 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
         hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
     } else if (hdfsParams.__isset.user) {
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
+        builder->hadoop_user = hdfsParams.user;
+        hdfsBuilderSetUserName(builder->get(), builder->hadoop_user.c_str());
 #ifdef USE_HADOOP_HDFS
         hdfsBuilderSetKerb5Conf(builder->get(), nullptr);
         hdfsBuilderSetKeyTabFile(builder->get(), nullptr);
