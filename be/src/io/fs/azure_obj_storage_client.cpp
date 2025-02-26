@@ -387,7 +387,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
         return response;
     }
 
-    while (!resp.NextPageToken->empty()) {
+    while (resp.NextPageToken.HasValue()) {
         list_opts.ContinuationToken = resp.NextPageToken;
         resp = s3_get_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_list_latency);
