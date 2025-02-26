@@ -403,8 +403,13 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted,
+        public boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted,
                 ResourceTypeEnum type) {
+            return true;
+        }
+
+        @Override
+        public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
             return true;
         }
 
