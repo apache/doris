@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_p2", "p0,external,tvf,external_docker,hive") {
+suite("test_tvf_p0", "p0,external,tvf,external_docker,hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")
@@ -46,7 +46,7 @@ suite("test_tvf_p2", "p0,external,tvf,external_docker,hive") {
             "format" = "orc");
         """
 
-        // a row of complex type may be stored across more pages
+        // (1): a row of complex type may be stored across more pages
         qt_row_cross_pages """select count(id), count(m1), count(m2)
             from hdfs(
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages.parquet",
@@ -73,5 +73,25 @@ suite("test_tvf_p2", "p0,external,tvf,external_docker,hive") {
             "format" = "parquet",
             "fs.viewfs.mounttable.my-cluster.link./ns1" = "hdfs://${nameNodeHost}:${hdfsPort}/",
             "fs.viewfs.mounttable.my-cluster.homedir" = "/ns1")"""
+    
+        // (2): a row of complex type may be stored across more pages 
+        qt_row_cross_pages_2  """select count(id), count(experiment)
+            from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages_2.parquet",
+            "format" = "parquet");
+        """ //149923
+
+        qt_row_cross_pages_3  """select count(id), count(experiment)
+            from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages_2.parquet",
+            "format" = "parquet") where id > 49923 ;
+        """  // 74815 
+
+        qt_row_cross_pages_4  """select count(id), count(experiment)
+            from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/row_cross_pages_2.parquet",
+            "format" = "parquet")  where id < 300 ;
+        """ //457 
+    
     }
 }

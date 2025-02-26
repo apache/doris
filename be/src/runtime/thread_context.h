@@ -92,7 +92,8 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 #else
-#define SCOPED_PEAK_MEM() auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
+#define SCOPED_PEAK_MEM(peak_mem) \
+    auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
 #endif
@@ -223,6 +224,19 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
+
+    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> thread_mem_tracker() const {
+        return thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
+
+    doris::Status try_reserve_process_memory(const int64_t size) const {
+        return thread_mem_tracker_mgr->try_reserve(size, true);
+    }
+
+    doris::Status try_reserve_memory(const int64_t size) const {
+        return thread_mem_tracker_mgr->try_reserve(size, false);
+    }
+
     int thread_local_handle_count = 0;
 
 private:
