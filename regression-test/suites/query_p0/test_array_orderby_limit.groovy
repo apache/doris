@@ -33,7 +33,7 @@ suite("test_array_orderby_limit", "query") {
             "in_memory" = "false",
             "storage_format" = "V2",
             "disable_auto_compaction" = "false"
-            )；
+            );
             """
     // prepare data
     sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
