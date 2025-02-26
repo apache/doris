@@ -606,6 +606,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
@@ -794,6 +795,8 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -5275,6 +5278,53 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new ShowWarningErrorsCommand(isWarning, limit);
+    }
+
+    @Override
+    public LogicalPlan visitShowLoadWarings(DorisParser.ShowLoadWaringsContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        long limit = 100;
+        URL url = null;
+
+        if (ctx.limitClause() != null) {
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
+        }
+
+        if (ctx.url != null) {
+            String originUrl = stripQuotes(ctx.url.getText());
+            if (originUrl.isEmpty()) {
+                throw new ParseException("Error load url is missing");
+            }
+
+            if (ctx.database != null || ctx.wildWhere() != null || ctx.limitClause() != null) {
+                throw new AnalysisException(
+                    "Can not set database, where or limit clause if getting error log from url");
+            }
+            // url should like:
+            // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
+            try {
+                url = new URL(originUrl);
+            } catch (MalformedURLException e) {
+                throw new AnalysisException("Invalid url: " + e.getMessage());
+            }
+        } else {
+            if (ctx.database != null) {
+                List<String> nameParts = visitMultipartIdentifier(ctx.database);
+                dbName = nameParts.get(0); // only one entry possible
+            }
+
+            if (ctx.wildWhere() == null) {
+                throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
+                    + " or LOAD_JOB_ID = $job_id");
+            }
+
+            if (ctx.wildWhere() != null) {
+                wildWhere = getWildWhere(ctx.wildWhere());
+            }
+        }
+
+        return new ShowLoadWarningsCommand(dbName, wildWhere, limit, url);
     }
 
     @Override
