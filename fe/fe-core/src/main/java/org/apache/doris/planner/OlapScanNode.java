@@ -1408,7 +1408,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("rewrittenProjectList: ").append(
                     getExplainString(rewrittenProjectList)).append("\n");
         }
-
+        output.append(prefix).append("desc: ").append(desc.getId().asInt()).append("\n");
         return output.toString();
     }
 

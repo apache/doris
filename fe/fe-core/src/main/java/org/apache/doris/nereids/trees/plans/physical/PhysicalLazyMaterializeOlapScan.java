@@ -109,4 +109,8 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
             Statistics statistics) {
         return new PhysicalLazyMaterializeOlapScan(scan, rowId, lazySlots);
     }
+
+    public SlotReference getRowId() {
+        return rowId;
+    }
 }
