@@ -997,6 +997,16 @@ message PDeleteDictionaryResponse {
     optional PStatus status = 1;
 }
 
+message PCommitDictionaryRefreshRequest {
+    optional int64 dictionary_id = 1;
+    optional int64 version_id = 2;
+}
+
+message PAbortDictionaryRefreshRequest {
+    optional int64 dictionary_id = 1;
+    optional int64 version_id = 2;
+}
+
 service PBackendService {
     // If #fragments of a query is < 3, use exec_plan_fragment directly.
     // If #fragments of a query is >=3, use exec_plan_fragment_prepare + exec_plan_fragment_start
@@ -1048,5 +1058,7 @@ service PBackendService {
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
+    rpc commit_dictionary_refresh(PCommitDictionaryRefreshRequest) returns (PStatus);
+    rpc abort_dictionary_refresh(PAbortDictionaryRefreshRequest) returns (PStatus);
 };
 
