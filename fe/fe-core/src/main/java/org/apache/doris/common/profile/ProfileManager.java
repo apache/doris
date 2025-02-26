@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;
@@ -71,7 +70,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ProfileManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ProfileManager.class);
     private static volatile ProfileManager INSTANCE = null;
-    private static final String PROFILE_STORAGE_PATH = Config.spilled_profile_storage_path;
+    static String PROFILE_STORAGE_PATH = Config.spilled_profile_storage_path;
 
     public enum ProfileType {
         QUERY,
@@ -131,10 +130,10 @@ public class ProfileManager extends MasterDaemon {
 
     // profile id is long string for broker load
     // is TUniqueId for others.
-    private Map<String, ProfileElement> queryIdToProfileMap;
+    final Map<String, ProfileElement> queryIdToProfileMap;
     // Sometimes one Profile is related with multiple execution profiles(Broker-load), so that
     // execution profile's query id is not related with Profile's query id.
-    private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
+    final Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
     private final ExecutorService fetchRealTimeProfileExecutor;
     private final ExecutorService profileIOExecutor;
@@ -168,9 +167,9 @@ public class ProfileManager extends MasterDaemon {
     private ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
         element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
-        // Not init builder any more, we will not maintain it since 2.1.0, because the structure
+        // Not init builder anymore, we will not maintain it since 2.1.0, because the structure
         // assume that the execution profiles structure is already known before execution. But in
-        // PipelineX Engine, it will changed during execution.
+        // PipelineX Engine, it will be changed during execution.
         return element;
     }
 
@@ -421,10 +420,6 @@ public class ProfileManager extends MasterDaemon {
 
     /**
      * Check if the query with specific query id is queried by specific user.
-     *
-     * @param user
-     * @param queryId
-     * @throws DdlException
      */
     public void checkAuthByUserAndQueryId(String user, String queryId) throws AuthenticationException {
         readLock.lock();
@@ -484,7 +479,7 @@ public class ProfileManager extends MasterDaemon {
 
     // List PROFILE_STORAGE_PATH and return all dir names
     // string will contain profile id and its storage timestamp
-    private List<String> getOnStorageProfileInfos() {
+    List<String> getOnStorageProfileInfos() {
         List<String> res = Lists.newArrayList();
         try {
             File profileDir = new File(PROFILE_STORAGE_PATH);
@@ -509,7 +504,7 @@ public class ProfileManager extends MasterDaemon {
     // read profile file on storage
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
-    private void loadProfilesFromStorageIfFirstTime() {
+    void loadProfilesFromStorageIfFirstTime() {
         if (this.isProfileLoaded) {
             return;
         }
@@ -556,7 +551,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private void createProfileStorageDirIfNecessary() {
+    void createProfileStorageDirIfNecessary() {
         File profileDir = new File(PROFILE_STORAGE_PATH);
         if (profileDir.exists()) {
             return;
@@ -570,7 +565,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private List<ProfileElement> getProfilesNeedStore() {
+    List<ProfileElement> getProfilesNeedStore() {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
@@ -585,7 +580,7 @@ public class ProfileManager extends MasterDaemon {
     // Collect profiles that need to be stored to storage
     // Store them to storage
     // Release the memory
-    private void writeProfileToStorage() {
+    void writeProfileToStorage() {
         try {
             if (Strings.isNullOrEmpty(PROFILE_STORAGE_PATH)) {
                 LOG.error("Logical error, PROFILE_STORAGE_PATH is empty");
@@ -639,7 +634,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private List<ProfileElement> getProfilesToBeRemoved() {
+    List<ProfileElement> getProfilesToBeRemoved() {
         // By order of query finish timestamp
         // The profile with the least storage timestamp will be on the top of heap
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
@@ -671,7 +666,7 @@ public class ProfileManager extends MasterDaemon {
 
     // We can not store all profiles on storage, because the storage space is limited
     // So we need to remove the outdated profiles
-    private void deleteOutdatedProfilesFromStorage() {
+    void deleteOutdatedProfilesFromStorage() {
         try {
             List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
             readLock.lock();
@@ -723,7 +718,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    private List<String> getBrokenProfiles() {
+    List<String> getBrokenProfiles() {
         List<String> profilesOnStorage = getOnStorageProfileInfos();
         List<String> brokenProfiles = Lists.newArrayList();
 
@@ -767,7 +762,7 @@ public class ProfileManager extends MasterDaemon {
         return brokenProfiles;
     }
 
-    private void deleteBrokenProfiles() {
+    void deleteBrokenProfiles() {
         List<String> brokenProfiles = getBrokenProfiles();
         List<Future<?>> profileDeleteFutures = Lists.newArrayList();
 
