@@ -119,7 +119,6 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
             [this, task_ctx, state]() {
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
-                    _scanner_status.update(Status::InternalError("Task context not exists!"));
                     return;
                 }
                 DCHECK(_async_thread_running == false);
