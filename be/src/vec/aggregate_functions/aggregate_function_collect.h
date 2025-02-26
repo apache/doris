@@ -355,7 +355,6 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
 
         for (size_t i = 0; i < size; i++) {
             tmp_str->clear();
-            tmp_str->reserve(1);
             if (Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt); !st) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                        "Failed to serialize data for " + column_data->get_name() +
