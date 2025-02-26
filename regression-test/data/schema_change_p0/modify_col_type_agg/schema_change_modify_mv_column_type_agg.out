@@ -27,5 +27,3 @@ mv_tbl_scalar_types_agg_1	AGG_KEYS	mv_k2	bigint	bigint	Yes	true	\N		true	`k2`
 -- !sql --
 
 -- !sql --
-
-
