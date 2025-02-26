@@ -459,6 +459,8 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     if (max_version >= start_calc_delete_bitmap_version) {
         RETURN_IF_ERROR(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {start_calc_delete_bitmap_version, max_version}, &incremental_rowsets));
+        DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
+                        DBUG_BLOCK);
         for (auto rowset : incremental_rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
