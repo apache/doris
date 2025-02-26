@@ -388,10 +388,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
             std::set<DeltaWriter*>::iterator it;
             for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
                 bool is_done = (*it)->check_slave_replicas_done(success_slave_tablet_node_ids);
-                LOG(INFO) << "TabletsChannel::close: check_slave_replicas_done "
-                          << ", txn_id " << (*it)->txn_id() << ", partition_id "
-                          << (*it)->partition_id() << ", tablet_id " << (*it)->tablet_id()
-                          << ", is_done " << is_done;
                 if (is_done) {
                     need_wait_writers.erase(it++);
                 } else {

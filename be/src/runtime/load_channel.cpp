@@ -215,7 +215,6 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
 
     // for init node, we close waiting(hang on) all close request and let them return together.
     if (request.has_hang_wait() && request.hang_wait()) {
-        LOG(INFO) << "txn " << _txn_id << " hang wait " << index_id;
         DCHECK(!channel->is_incremental_channel());
         VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
                                   request.index_id(), request.sender_id());
@@ -224,7 +223,6 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
             bthread_usleep(1000);
             count++;
         }
-        LOG(INFO) << "txn " << _txn_id << " index " << index_id << " hang wait finished!";
         // now maybe finished or cancelled.
         VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
         if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
