@@ -42,7 +42,6 @@ import (
 
 type client struct {
 	urlPrefix  string
-	db         string
 	httpClient *http.Client
 	headers    map[string]string
 	beat       beat.Info
@@ -64,7 +63,6 @@ var _ outputs.NetworkClient = (*client)(nil)
 
 type clientSettings struct {
 	URLPrefix string
-	DB        string
 	Timeout   time.Duration
 	Headers   map[string]string
 
@@ -83,7 +81,7 @@ type clientSettings struct {
 }
 
 func (s clientSettings) String() string {
-	str := fmt.Sprintf("clientSettings{%s/%s/{table}/_stream_load, %s, %s, %s}", s.URLPrefix, s.DB, s.Timeout, s.LabelPrefix, s.Headers)
+	str := fmt.Sprintf("clientSettings{%s/%s/{table}/_stream_load, %s, %s, %s}", s.URLPrefix, s.Database, s.Timeout, s.LabelPrefix, s.Headers)
 	if _, ok := s.Headers["Authorization"]; ok {
 		return strings.Replace(str, "Authorization:"+s.Headers["Authorization"], "Authorization:Basic ******", 1)
 	}
@@ -164,7 +162,6 @@ func NewDorisClient(s clientSettings) (*client, error) {
 
 	client := &client{
 		urlPrefix: s.URLPrefix,
-		db:        s.DB,
 		httpClient: &http.Client{
 			Timeout: s.Timeout,
 		},
@@ -202,7 +199,7 @@ func (client *client) String() string {
 }
 
 func (client *client) url(table string) string {
-	return fmt.Sprintf("%s/%s/%s/_stream_load", client.urlPrefix, client.db, table)
+	return fmt.Sprintf("%s/%s/%s/_stream_load", client.urlPrefix, client.database, table)
 }
 
 func (client *client) label(table string) string {
@@ -255,8 +252,8 @@ func (client *client) makeTableEventsMap(_ context.Context, events []publisher.E
 		return tableEventsMap
 	}
 
-	_, err := getBarrierFromEvent(&events[0])
-	if err != nil { // first time
+	barrier, _ := getBarrierFromEvent(&events[0])
+	if barrier == nil { // first time
 		if client.tableSelector.Sel.IsConst() { // table is const
 			table, _ := client.tableSelector.Sel.Select(&events[0].Content)
 			label := client.label(table)

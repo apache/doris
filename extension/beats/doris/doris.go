@@ -94,7 +94,6 @@ func makeDoris(
 		var client outputs.NetworkClient
 		client, err = NewDorisClient(clientSettings{
 			URLPrefix:     urlPrefix,
-			DB:            config.Database,
 			Timeout:       config.Timeout,
 			Observer:      observer,
 			Headers:       config.createHeaders(),
