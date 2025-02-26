@@ -91,7 +91,7 @@ protected:
         DCHECK_NE(desc->has_remote_targets, _has_local_target);
     }
 
-    Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
+    virtual Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
 
     template <typename T>
     void _to_protobuf(T* filter) {

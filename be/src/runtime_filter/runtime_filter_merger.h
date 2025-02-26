@@ -19,6 +19,7 @@
 
 #include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_definitions.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 // The merger is divided into local merger and global merger
@@ -27,6 +28,11 @@ namespace doris {
 // Merger will merge multipe predicate into one predicate
 class RuntimeFilterMerger : public RuntimeFilter {
 public:
+    enum class State {
+        WAITING_FOR_PRODUCT, // Still waiting to collect the status of the product
+        READY // Collecting all products(_received_producer_num == _expected_producer_num) will transfer to this state, and filter is already available
+    };
+
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterMerger>* res,
                          RuntimeProfile* parent_profile) {
@@ -90,11 +96,6 @@ public:
 
     uint64_t get_received_sum_size() const { return _received_sum_size; }
 
-    enum class State {
-        WAITING_FOR_PRODUCT, // Still waiting to collect the status of the product
-        READY // Collecting all products(_received_producer_num == _expected_producer_num) will transfer to this state, and filter is already available
-    };
-
     bool ready() const { return _rf_state == State::READY; }
 
 private:
@@ -119,6 +120,7 @@ private:
     }
 
     std::atomic<State> _rf_state;
+
     int _expected_producer_num = 0;
     int _received_producer_num = 0;
 

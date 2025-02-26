@@ -36,6 +36,7 @@ public:
         TIMEOUT, // After a consumer has not been ready for a long time(_rf_wait_time_ms), it will be transferred to this state
         APPLIED, // The consumer will switch to this state after the expression is acquired
     };
+
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
                          RuntimeProfile* parent_profile) {
@@ -91,7 +92,8 @@ private:
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-        _profile->add_info_string("timeout_limit", std::to_string(_rf_wait_time_ms));
+        _profile->add_info_string("TimeoutLimit", std::to_string(_rf_wait_time_ms) + "ms");
+
         parent_profile->add_child(_profile.get(), true, nullptr);
         _profile->add_child(_storage_profile.get(), true, nullptr);
         _profile->add_child(_execution_profile.get(), true, nullptr);
@@ -99,8 +101,10 @@ private:
     }
 
     Status _apply_ready_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+
     Status _get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
                            const TExpr& probe_expr);
+
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

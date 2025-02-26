@@ -34,12 +34,12 @@ Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
     return merger_filter->_push_to_remote(state, &addr);
 };
 
-Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filter, bool global) {
+Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* source, bool global) {
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
             global ? _state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id())
                    : _state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id());
     for (auto filter : filters) {
-        filter->signal(merger_filter);
+        filter->signal(source);
     }
     return Status::OK();
 };
@@ -47,7 +47,6 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* merger_filte
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table) {
     _check_state({State::READY_TO_PUBLISH});
 
-    // TODO: do we still need this if wrapper is disabled / ignored?
     auto do_merge = [&]() {
         // two case we need do local merge:
         // 1. has remote target
@@ -58,16 +57,16 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
-        LocalMergeContext* local_merge_filters = nullptr;
+        LocalMergeContext* context = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->filter_id(), &local_merge_filters));
-        std::lock_guard l(local_merge_filters->mtx);
-        RETURN_IF_ERROR(local_merge_filters->merger->merge_from(this));
-        if (local_merge_filters->merger->ready()) {
+                _wrapper->filter_id(), &context));
+        std::lock_guard l(context->mtx);
+        RETURN_IF_ERROR(context->merger->merge_from(this));
+        if (context->merger->ready()) {
             if (_has_local_target) {
-                RETURN_IF_ERROR(_send_to_local_targets(local_merge_filters->merger.get(), true));
+                RETURN_IF_ERROR(_send_to_local_targets(context->merger.get(), true));
             } else {
-                RETURN_IF_ERROR(_send_to_remote_targets(state, local_merge_filters->merger.get()));
+                RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
             }
         }
         return Status::OK();
@@ -159,18 +158,18 @@ Status RuntimeFilterProducer::send_size(
     // 2. has local target and has global consumer (means target scan has local shuffle)
     if (!_has_local_target ||
         !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
-        LocalMergeContext* local_merge_filters = nullptr;
+        LocalMergeContext* merger_context = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
-                _wrapper->filter_id(), &local_merge_filters));
-        std::lock_guard l(local_merge_filters->mtx);
-        if (local_merge_filters->merger->add_rf_size(local_filter_size)) {
+                _wrapper->filter_id(), &merger_context));
+        std::lock_guard l(merger_context->mtx);
+        if (merger_context->merger->add_rf_size(local_filter_size)) {
             if (_has_local_target) {
-                for (auto filter : local_merge_filters->producers) {
-                    filter->set_synced_size(local_merge_filters->merger->get_received_sum_size());
+                for (auto filter : merger_context->producers) {
+                    filter->set_synced_size(merger_context->merger->get_received_sum_size());
                 }
                 return Status::OK();
             } else {
-                local_filter_size = local_merge_filters->merger->get_received_sum_size();
+                local_filter_size = merger_context->merger->get_received_sum_size();
             }
         } else {
             return Status::OK();

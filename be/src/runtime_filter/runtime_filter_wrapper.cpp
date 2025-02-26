@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter_wrapper.h"
 
 #include "exprs/create_predicate_function.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
 
@@ -577,10 +578,12 @@ bool RuntimeFilterWrapper::contain_null() const {
 }
 
 std::string RuntimeFilterWrapper::debug_string() const {
-    auto result = fmt::format("[id: {}, state: {}, type: {}({}), column_type: {}", _filter_id,
-                              to_string(_state), filter_type_to_string(_filter_type),
-                              filter_type_to_string(get_real_type()),
-                              type_to_string(_column_return_type));
+    auto type_string = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER
+                               ? fmt::format("{}({})", filter_type_to_string(_filter_type),
+                                             filter_type_to_string(get_real_type()))
+                               : filter_type_to_string(_filter_type);
+    auto result = fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
+                              to_string(_state), type_string, type_to_string(_column_return_type));
 
     if (_state == State::READY) {
         if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {

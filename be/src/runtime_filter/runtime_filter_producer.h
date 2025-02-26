@@ -38,28 +38,26 @@ public:
         WAITING_FOR_SYNCED_SIZE =
                 1, // The rf in the WAITING_FOR_SEND_SIZE state will be set to this state after the rf size is sent.
         WAITING_FOR_DATA =
-                2, // Rfs that do not need to be synchronized in the global rf size will be initialized to this state, or WAITING_FOR_SYNCED_SIZE will also be converted to this state after receiving the global rf size.
+                2, // rf that do not need to be synchronized in the global rf size will be initialized to this state, or WAITING_FOR_SYNCED_SIZE will also be converted to this state after receiving the global rf size.
         READY_TO_PUBLISH =
                 3, // rf will be converted to this state when there are actually available filters after an insert, or it will be converted directly to this state when it is disabled/ignore for some reason during the process.
         PUBLISHED = 4 // Publish is complete, entering the final state of rf
     };
+
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res,
                          RuntimeProfile* parent_profile) {
         *res = std::shared_ptr<RuntimeFilterProducer>(
                 new RuntimeFilterProducer(state, desc, parent_profile));
         RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
-        bool need_sync_filter_size =
-                (*res)->_wrapper->build_bf_by_runtime_size() && !(*res)->_is_broadcast_join;
-        (*res)->_rf_state =
-                need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
-        (*res)->_profile->add_info_string("Info", ((*res)->debug_string()));
         return Status::OK();
     }
 
     Status init(size_t local_size);
+
     Status send_size(RuntimeState* state, uint64_t local_filter_size,
                      const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
+
     // insert data to build filter
     void insert(vectorized::ColumnPtr column, size_t start) {
         if (_rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED) {
@@ -70,14 +68,19 @@ public:
         _wrapper->insert(column, start);
     }
     Status publish(RuntimeState* state, bool build_hash_table);
+
     std::string debug_string() const override {
-        return fmt::format("Producer: ({}, state: {}, dependency: {}, synced_size: {})",
-                           _debug_string(), to_string(_rf_state),
-                           _dependency ? _dependency->debug_string() : "none", _synced_size);
+        auto result =
+                fmt::format("Producer: ({}, state: {}", _debug_string(), to_string(_rf_state));
+        if (_need_sync_filter_size) {
+            result += fmt::format(", dependency: {}, synced_size: {}",
+                                  _dependency ? _dependency->debug_string() : "none", _synced_size);
+        }
+        return result + ")";
     }
 
-    int expr_order() const { return _expr_order; }
     void set_synced_size(uint64_t global_size);
+
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
         if (set_state(State::READY_TO_PUBLISH)) {
@@ -126,7 +129,6 @@ private:
                           RuntimeProfile* parent_profile)
             : RuntimeFilter(state, desc),
               _is_broadcast_join(desc->is_broadcast_join),
-              _expr_order(desc->expr_order),
               _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
         if (parent_profile) { //tmp filter for mgr has no profile
             parent_profile->add_child(_profile.get(), true, nullptr);
@@ -144,8 +146,16 @@ private:
         }
     }
 
+    Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options) override {
+        RETURN_IF_ERROR(RuntimeFilter::_init_with_desc(desc, options));
+        bool need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
+        _rf_state = need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
+        _profile->add_info_string("Info", debug_string());
+        return Status::OK();
+    }
+
     const bool _is_broadcast_join;
-    const int _expr_order;
+    const bool _need_sync_filter_size = false;
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;

@@ -55,8 +55,8 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
-        _check_state({State::NOT_READY});
         _set_state(State::TIMEOUT);
+        _profile->add_info_string("ReachTimeoutLimit", "true");
     }
     return Status::OK();
 }
