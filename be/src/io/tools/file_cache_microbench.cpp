@@ -72,6 +72,8 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <gen_cpp/cloud_version.h>
+
 #include "util/bvar_helper.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
@@ -103,6 +105,25 @@ const size_t BUFFER_SIZE = 1024 * 1024;
 static constexpr auto NS = 1000000000UL;
 
 DEFINE_int32(port, 8888, "Http Port of this server");
+
+static std::string build_info() {
+    std::stringstream ss;
+    ss << R"(
+    Version: {)";
+    ss << DORIS_CLOUD_BUILD_VERSION;
+
+#if defined(NDEBUG)
+    ss << R"(-release})";
+#else
+    ss << R"(-debug})";
+#endif
+
+    ss << R"(
+    Code_version: {commit=)" DORIS_CLOUD_BUILD_HASH R"( time=)" DORIS_CLOUD_BUILD_VERSION_TIME R"(
+    Build_info: {initiator=)" DORIS_CLOUD_BUILD_INITIATOR R"( build_at=)" DORIS_CLOUD_BUILD_TIME R"(
+    Build_on: )" DORIS_CLOUD_BUILD_OS_VERSION R"(})";
+    return ss.str();
+}
 
 // 修改 DataGenerator 类，使其生成更规范的数据块
 class DataGenerator {
@@ -446,7 +467,7 @@ std::string get_usage(const std::string& progname) {
     Usage:
       Start the server:
         )" + progname + R"( --port=<port_number>
-
+        
     API Endpoints:
       POST /submit_job
         Submit a job with the following JSON body:
@@ -486,11 +507,36 @@ std::string get_usage(const std::string& progname) {
         }
         If "segment_path" is not provided, all caches will be cleared based on the "sync" parameter.
 
+      GET /file_cache_reset
+        Reset the file cache with the following query parameters:
+        {
+          "capacity": <new_capacity>,          // New capacity for the specified path
+          "path": "<path>"                     // Path of the segment to reset
+        }
+
+      GET /file_cache_release
+        Release the file cache with the following query parameters:
+        {
+          "base_path": "<base_path>"           // Optional base path to release specific caches
+        }
+
+      GET /update_config
+        Update the configuration with the following JSON body:
+        {
+          "config_key": "<key>",               // The configuration key to update
+          "config_value": "<value>",            // The new value for the configuration key
+          "persist": <true|false>              // Whether to persist the configuration change
+        }
+
+      GET /show_config
+        Retrieve the current configuration settings.
+
     Notes:
       - Ensure that the S3 configuration is set correctly in the environment.
       - The program will create and read files in the specified S3 bucket.
       - Monitor the logs for detailed execution information and errors.
-    )";
+    )" + build_info();
+
     return usage;
 }
 
@@ -1685,7 +1731,7 @@ public:
             LOG(ERROR) << "Error clearing file cache: " << e.what();
 
             // 设置错误状态码和响应
-            cntl->http_response().set_status_code(brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
             // 构建错误响应
@@ -1702,9 +1748,291 @@ public:
 
             cntl->response_attachment().append(buffer.GetString());
         }
+    }
 
-        // 确保响应被发送
-        done->Run();
+    /**
+     * 重置文件缓存
+     * 
+     * 重置指定路径或所有的文件缓存
+     */
+    void file_cache_reset(google::protobuf::RpcController* cntl_base,
+                          const microbench::HttpRequest* request,
+                          microbench::HttpResponse* response, google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        LOG(INFO) << "Received file_cache_reset request";
+
+        try {
+            const std::string* capacity_str = cntl->http_request().uri().GetQuery("capacity");
+            int64_t new_capacity = 0;
+            new_capacity = std::stoll(*capacity_str);
+            if (new_capacity <= 0) {
+                LOG(ERROR) << "Invalid capacity: " << (capacity_str ? *capacity_str : "null");
+                throw std::runtime_error("Invalid capacity");
+            }
+            const std::string* path_str = cntl->http_request().uri().GetQuery("path");
+            if (path_str == nullptr) {
+                LOG(ERROR) << "Path is empty";
+                throw std::runtime_error("Path is empty");
+            }
+            std::string path = *path_str;
+            auto ret = FileCacheFactory::instance()->reset_capacity(path, new_capacity);
+            LOG(INFO) << "Reset capacity for path: " << path << ", new capacity: " << new_capacity
+                      << ", result: " << ret;
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建成功响应
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            d.AddMember("status", "OK", allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error resetting file cache: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
+    /**
+     * 释放文件缓存
+     * 
+     * 释放指定路径或所有的文件缓存
+     */
+    void file_cache_release(google::protobuf::RpcController* cntl_base,
+                            const microbench::HttpRequest* request,
+                            microbench::HttpResponse* response, google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        LOG(INFO) << "Received file_cache_release request";
+
+        try {
+            const std::string* base_path_str = cntl->http_request().uri().GetQuery("base_path");
+            size_t released = 0;
+            if (base_path_str == nullptr) {
+                released = FileCacheFactory::instance()->try_release();
+            } else {
+                released = FileCacheFactory::instance()->try_release(*base_path_str);
+            }
+            LOG(INFO) << "Released file caches: " << released
+                      << " path: " << (base_path_str ? *base_path_str : "null");
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建成功响应
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            d.AddMember("status", "OK", allocator);
+            d.AddMember("released_elements", released, allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error releasing file cache: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
+    /**
+     * 更新配置
+     * 
+     * 更新配置
+     */
+    void update_config(google::protobuf::RpcController* cntl_base,
+                       const microbench::HttpRequest* request, microbench::HttpResponse* response,
+                       google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        LOG(INFO) << "Received update_config request";
+
+        try {
+            bool need_persist = false;
+            const std::string* persist_str = cntl->http_request().uri().GetQuery("persist");
+            if (persist_str && *persist_str == "true") {
+                need_persist = true;
+            }
+            cntl->http_request().uri().RemoveQuery("persist");
+            std::string key = "";
+            std::string value = "";
+            for (brpc::URI::QueryIterator it = cntl->http_request().uri().QueryBegin();
+                 it != cntl->http_request().uri().QueryEnd(); ++it) {
+                key = it->first;
+                value = it->second;
+                auto s = doris::config::set_config(key, value, need_persist);
+                if (s.ok()) {
+                    LOG(INFO) << "set_config " << key << "=" << value
+                              << " success. persist: " << need_persist;
+                } else {
+                    LOG(WARNING) << "set_config " << key << "=" << value << " failed";
+                }
+                // just support update one config
+                break;
+            }
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建成功响应
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            d.AddMember("status", "OK", allocator);
+            d.AddMember(rapidjson::Value(key.c_str(), allocator),
+                        rapidjson::Value(value.c_str(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error updating config: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
+    }
+
+    /**
+     * 显示配置
+     * 
+     * 显示配置
+     */
+    void show_config(google::protobuf::RpcController* cntl_base,
+                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
+                     google::protobuf::Closure* done) {
+        brpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+        LOG(INFO) << "Received show_config request";
+
+        try {
+            std::vector<std::vector<std::string>> config_info = doris::config::get_config_info();
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+            // 写入配置数组
+            writer.StartArray();
+            const std::string* conf_item_str = cntl->http_request().uri().GetQuery("conf_item");
+            std::string conf_item = conf_item_str ? *conf_item_str : "";
+            for (const auto& _config : config_info) {
+                if (!conf_item.empty()) {
+                    if (_config[0] == conf_item) {
+                        writer.StartArray();
+                        for (const std::string& config_filed : _config) {
+                            writer.String(config_filed.c_str());
+                        }
+                        writer.EndArray();
+                        break;
+                    }
+                } else {
+                    writer.StartArray();
+                    for (const std::string& config_filed : _config) {
+                        writer.String(config_filed.c_str());
+                    }
+                    writer.EndArray();
+                }
+            }
+            writer.EndArray();
+
+            // 设置响应头
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建成功响应
+            d.AddMember("status", "OK", allocator);
+            d.AddMember("config", rapidjson::Value(buffer.GetString(), allocator), allocator);
+
+            buffer.Clear();
+            d.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Error showing config: " << e.what();
+
+            // 设置错误状态码和响应
+            cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
+            cntl->http_response().set_content_type("application/json");
+
+            // 构建错误响应
+            rapidjson::Document error_doc;
+            error_doc.SetObject();
+            rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
+            error_doc.AddMember("status", "error", allocator);
+            error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
+
+            // 序列化为字符串
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            error_doc.Accept(writer);
+
+            cntl->response_attachment().append(buffer.GetString());
+        }
     }
 
 private:
@@ -1968,6 +2296,11 @@ int main(int argc, char* argv[]) {
     std::string conffile = std::string(doris_home) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), true, true, true)) {
         LOG(ERROR) << "读取配置文件错误";
+        return -1;
+    }
+    std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+    if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+        LOG(ERROR) << "读取自定义配置文件错误";
         return -1;
     }
 
