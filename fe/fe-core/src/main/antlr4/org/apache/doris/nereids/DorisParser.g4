@@ -322,7 +322,7 @@ supportedShowStatement
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarnings
     ;
 
 supportedLoadStatement

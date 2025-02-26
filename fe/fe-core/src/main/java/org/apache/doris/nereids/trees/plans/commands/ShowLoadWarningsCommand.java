@@ -35,10 +35,10 @@ import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -74,10 +74,10 @@ public class ShowLoadWarningsCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowLoadWarningsCommand.class);
 
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
-        .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
-        .addColumn(new Column("Label", ScalarType.createVarchar(15)))
-        .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
-        .build();
+            .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
+            .addColumn(new Column("Label", ScalarType.createVarchar(15)))
+            .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
+            .build();
 
     private String dbName;
     private Expression wildWhere;
@@ -153,7 +153,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         return ((IntegerLikeLiteral) right).getNumber().longValue();
     }
 
-    private void checkAuth(Database db, String label) throws Exception{
+    private void checkAuth(Database db, String label) throws Exception {
         Load load = Env.getCurrentEnv().getLoadInstance();
         long jobId = 0;
         jobId = load.getLatestJobIdByLabel(db.getId(), label);
@@ -163,19 +163,20 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             if (tableNames.isEmpty()) {
                 // forward compatibility
                 if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                        .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
                         PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), db.getFullName());
+                            ConnectContext.get().getQualifiedUser(), db.getFullName());
                 }
             } else {
                 for (String tblName : tableNames) {
                     if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
                             tblName, PrivPredicate.SHOW)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNINGS",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            db.getFullName() + ": " + tblName);
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                "SHOW LOAD WARNINGS",
+                                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                                db.getFullName() + ": " + tblName);
                     }
                 }
             }
@@ -281,7 +282,6 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         } else if (isFindByJobId()) {
             rows = showLoadWarningsFromJobId(db, right);
         }
-
 
         return rows;
     }

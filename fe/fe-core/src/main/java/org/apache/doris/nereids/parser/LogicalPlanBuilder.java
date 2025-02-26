@@ -312,6 +312,7 @@ import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
+import org.apache.doris.nereids.DorisParser.ShowLoadWarningsContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
@@ -5281,7 +5282,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitShowLoadWarnings(DorisParser.ShowLoadWaringsContext ctx) {
+    public LogicalPlan visitShowLoadWarnings(ShowLoadWarningsContext ctx) {
         String dbName = null;
         Expression wildWhere = null;
         long limit = 100;
