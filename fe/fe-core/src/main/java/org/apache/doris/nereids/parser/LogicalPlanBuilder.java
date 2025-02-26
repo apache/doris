@@ -5281,7 +5281,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitShowLoadWarings(DorisParser.ShowLoadWaringsContext ctx) {
+    public LogicalPlan visitShowLoadWarnings(DorisParser.ShowLoadWaringsContext ctx) {
         String dbName = null;
         Expression wildWhere = null;
         long limit = 100;
