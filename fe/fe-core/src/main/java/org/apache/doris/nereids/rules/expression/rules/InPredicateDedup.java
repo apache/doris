@@ -25,11 +25,9 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Deduplicate InPredicate, For example:
@@ -54,8 +52,12 @@ public class InPredicateDedup implements ExpressionPatternRuleFactory {
 
     /** dedup */
     public static Expression dedup(InPredicate inPredicate) {
-        Set<Expression> newOptions = inPredicate.getOptions().stream().collect(
-                Collectors.toCollection(() -> Sets.newLinkedHashSetWithExpectedSize(inPredicate.getOptions().size())));
+        ImmutableSet.Builder<Expression> newOptionsBuilder = ImmutableSet.builderWithExpectedSize(inPredicate.arity());
+        for (Expression option : inPredicate.getOptions()) {
+            newOptionsBuilder.add(option);
+        }
+
+        Set<Expression> newOptions = newOptionsBuilder.build();
         if (newOptions.size() == inPredicate.getOptions().size()) {
             return inPredicate;
         }

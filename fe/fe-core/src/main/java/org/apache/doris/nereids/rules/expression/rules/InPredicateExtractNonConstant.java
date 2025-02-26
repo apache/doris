@@ -43,13 +43,10 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        // If compare expr contains non-foldable expressions, don't extract it.
-        // For example: `a + random() in (x, x + 10)`, if extracted, `a + random() = x or a + random() = x + 10`,
-        // then the expression will contain RANDOM two times.
         return ImmutableList.of(
                 matchesType(InPredicate.class)
-                        .when(inPredicate -> !inPredicate.getCompareExpr().containsNonfoldable()
-                                && inPredicate.getOptions().size() <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE)
+                        .when(inPredicate -> inPredicate.getOptions().size()
+                                <= InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE)
                         .then(this::rewrite)
                         .toRule(ExpressionRuleType.IN_PREDICATE_EXTRACT_NON_CONSTANT)
         );
