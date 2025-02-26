@@ -30,16 +30,19 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "runtime/descriptors.h"
+#include "runtime/result_block_buffer.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
-class BufferControlBlock;
+class ResultBlockBufferBase;
 class RuntimeState;
 
 namespace vectorized {
+class GetResultBatchCtx;
+using NormalResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 class VExprContext;
 } // namespace vectorized
 namespace pipeline {
@@ -56,7 +59,7 @@ public:
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
                       const VExprContextSPtrs& _output_vexpr_ctxs,
-                      std::shared_ptr<BufferControlBlock> sinker, Block* output_block,
+                      std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block,
                       bool output_object_data, const RowDescriptor& output_row_descriptor,
                       std::shared_ptr<pipeline::Dependency> dep,
                       std::shared_ptr<pipeline::Dependency> fin_dep);
@@ -137,7 +140,7 @@ private:
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
     // _sinker and _output_batch are not owned by FileResultWriter
-    std::shared_ptr<BufferControlBlock> _sinker = nullptr;
+    std::shared_ptr<NormalResultBlockBuffer> _sinker = nullptr;
     Block* _output_block = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;
