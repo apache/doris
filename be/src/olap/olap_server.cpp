@@ -1477,6 +1477,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                             LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
                                          << t->tablet_id();
                         }
+                        if (t->get_cumulative_compaction_policy() == nullptr ||
+                            t->get_cumulative_compaction_policy()->name() !=
+                                    t->tablet_meta()->compaction_policy()) {
+                            t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
+                                    t->tablet_meta()->compaction_policy()));
+                        }
                         auto st = compaction->compact();
                         {
                             std::lock_guard lock(tablet_submitted_mtx);
