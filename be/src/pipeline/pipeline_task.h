@@ -226,7 +226,6 @@ public:
 
     void stop_if_finished() {
         if (_sink->is_finished(_state)) {
-            set_wake_up_early();
             clear_blocking_state();
         }
     }
