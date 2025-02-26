@@ -113,7 +113,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
             return;
         }
 
-        wrapper->disable(cntl_->ErrorText());
+        wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, cntl_->ErrorText());
         Base::_process_if_rpc_failed();
     }
 
@@ -128,7 +128,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
             return;
         }
 
-        wrapper->disable(status.to_string());
+        wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, status.to_string());
     }
 
 public:

@@ -20,6 +20,7 @@
 #include "runtime_filter/runtime_filter.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 // The merger is divided into local merger and global merger
@@ -77,17 +78,18 @@ public:
     }
 
     void set_expected_producer_num(int num) {
+        DCHECK_EQ(_received_producer_num, 0);
+        DCHECK_EQ(_received_rf_size_num, 0);
         _expected_producer_num = num;
         _profile->add_info_string("Info", debug_string());
     }
 
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
-        _received_sum_size += size;
         if (_expected_producer_num < _received_rf_size_num) {
-            return Status::InternalError(
-                    "runtime filter merger input product size more than expected, {}",
-                    debug_string());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "runtime filter merger input product size more than expected, {}",
+                            debug_string());
         }
         _received_sum_size += size;
         _profile->add_info_string("Info", debug_string());

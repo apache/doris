@@ -27,7 +27,7 @@ namespace doris {
 // Work on (hash/corss) join build sink node, RuntimeFilterProducerHelper will manage all RuntimeFilterProducer
 // Used to generate specific predicate and publish it to consumer/merger
 /**
- * init -> send_size -> insert -> publish
+ * send_size -> init -> insert -> publish
  */
 class RuntimeFilterProducer : public RuntimeFilter {
 public:
@@ -148,14 +148,14 @@ private:
 
     Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options) override {
         RETURN_IF_ERROR(RuntimeFilter::_init_with_desc(desc, options));
-        bool need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
-        _rf_state = need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
+        _need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
+        _rf_state = _need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
         _profile->add_info_string("Info", debug_string());
         return Status::OK();
     }
 
     const bool _is_broadcast_join;
-    const bool _need_sync_filter_size = false;
+    bool _need_sync_filter_size = false;
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;

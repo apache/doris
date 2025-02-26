@@ -30,6 +30,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
+#include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime_filter/runtime_filter_definitions.h"
@@ -772,33 +773,10 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                     .set_slot_ref(TSlotRefBuilder(1, 1).build())
                                                     .build())
                                     .build())
-                    .append_runtime_filters(
-                            TRuntimeFilterDescBuilder(
-                                    0,
-                                    TExprBuilder()
-                                            .append_nodes(
-                                                    TExprNodeBuilder(
-                                                            TExprNodeType::SLOT_REF,
-                                                            TTypeDescBuilder()
-                                                                    .set_types(
-                                                                            TTypeNodeBuilder()
-                                                                                    .set_type(
-                                                                                            TTypeNodeType::
-                                                                                                    SCALAR)
-                                                                                    .set_scalar_type(
-                                                                                            TPrimitiveType::
-                                                                                                    INT)
-                                                                                    .build())
-                                                                    .build(),
-                                                            0)
-                                                            .set_slot_ref(
-                                                                    TSlotRefBuilder(1, 1).build())
-                                                            .build())
-                                            .build(),
-                                    0, std::map<TPlanNodeId, TExpr> {})
-                                    .set_bloom_filter_size_bytes(1048576)
-                                    .set_build_bf_by_runtime_size(false)
-                                    .build())
+                    .append_runtime_filters(TRuntimeFilterDescBuilder()
+                                                    .set_bloom_filter_size_bytes(1048576)
+                                                    .set_build_bf_by_runtime_size(false)
+                                                    .build())
                     .build();
 
     {

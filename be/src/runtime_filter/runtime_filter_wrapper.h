@@ -57,12 +57,12 @@ public:
         PFilterType filter_type = request.filter_type();
 
         if (request.has_disabled() && request.disabled()) {
-            disable("get disabled from remote");
+            set_state(State::DISABLED, "get disabled from remote");
             return Status::OK();
         }
 
         if (request.has_ignored() && request.ignored()) {
-            set_state(State::IGNORED);
+            set_state(State::IGNORED, "get ignored from remote");
             return Status::OK();
         }
 
@@ -122,7 +122,6 @@ public:
         }
         _state = state;
     }
-    void disable(std::string reason) { set_state(State::DISABLED, reason); }
     State get_state() const { return _state; }
     void check_state(std::vector<State> assumed_states) const {
         if (!check_state_impl<RuntimeFilterWrapper>(_state, assumed_states)) {
