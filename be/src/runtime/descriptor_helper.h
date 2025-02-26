@@ -41,6 +41,21 @@ public:
 
     TDescriptorTable desc_tbl() { return _desc_tbl; }
 
+    TDescriptorTableBuilder& append_slotDescriptors(TSlotDescriptor& desc) {
+        _desc_tbl.slotDescriptors.push_back(desc);
+        return *this;
+    }
+    TDescriptorTableBuilder& append_tupleDescriptors(TTupleDescriptor& desc) {
+        _desc_tbl.tupleDescriptors.push_back(desc);
+        return *this;
+    }
+    TDescriptorTableBuilder& append_tableDescriptors(TTableDescriptor& desc) {
+        _desc_tbl.tableDescriptors.push_back(desc);
+        return *this;
+    }
+
+    TDescriptorTable& build() { return _desc_tbl; }
+
 private:
     TSlotId _next_slot_id = 0;
     TTupleId _next_tuple_id = 0;
@@ -96,6 +111,39 @@ public:
     }
     TSlotDescriptor build() { return _slot_desc; }
 
+    TSlotDescriptorBuilder& set_id(TTupleId id) {
+        _slot_desc.id = id;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_parent(TTupleDescriptor& parent) {
+        _slot_desc.parent = parent.id;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_slotType(TTypeDesc& slotType) {
+        _slot_desc.slotType = slotType;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_nullIndicatorBit(int nullIndicatorBit) {
+        _slot_desc.nullIndicatorBit = nullIndicatorBit;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_byteOffset(int byteOffset) {
+        _slot_desc.byteOffset = byteOffset;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_slotIdx(int slotIdx) {
+        _slot_desc.slotIdx = slotIdx;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_isMaterialized(bool isMaterialized) {
+        _slot_desc.isMaterialized = isMaterialized;
+        return *this;
+    }
+    TSlotDescriptorBuilder& set_colName(std::string colName) {
+        _slot_desc.colName = colName;
+        return *this;
+    }
+
 private:
     friend TTupleDescriptorBuilder;
     TSlotDescriptor _slot_desc;
@@ -135,6 +183,13 @@ public:
         tb->add_slots(_slot_descs);
         tb->add_tuple(_tuple_desc);
     }
+
+    TTupleDescriptorBuilder& set_id(TTupleId id) {
+        _tuple_desc.id = id;
+        return *this;
+    }
+
+    TTupleDescriptor& build() { return _tuple_desc; }
 
 private:
     TTupleId _tuple_id;
