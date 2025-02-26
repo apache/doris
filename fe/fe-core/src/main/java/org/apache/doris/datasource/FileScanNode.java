@@ -61,6 +61,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
+    // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
@@ -108,9 +109,9 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append("(approximate)");
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
-            .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
+                .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
-            .append("\n");
+                .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
             output.append(prefix).append("backends:").append("\n");
@@ -135,25 +136,25 @@ public abstract class FileScanNode extends ExternalScanNode {
                 if (size <= 4) {
                     for (TFileRangeDesc file : fileRangeDescs) {
                         output.append(prefix).append("    ").append(file.getPath())
-                            .append(" start: ").append(file.getStartOffset())
-                            .append(" length: ").append(file.getSize())
-                            .append("\n");
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getSize())
+                                .append("\n");
                     }
                 } else {
                     for (int i = 0; i < 3; i++) {
                         TFileRangeDesc file = fileRangeDescs.get(i);
                         output.append(prefix).append("    ").append(file.getPath())
-                            .append(" start: ").append(file.getStartOffset())
-                            .append(" length: ").append(file.getSize())
-                            .append("\n");
+                                .append(" start: ").append(file.getStartOffset())
+                                .append(" length: ").append(file.getSize())
+                                .append("\n");
                     }
                     int other = size - 4;
                     output.append(prefix).append("    ... other ").append(other).append(" files ...\n");
                     TFileRangeDesc file = fileRangeDescs.get(size - 1);
                     output.append(prefix).append("    ").append(file.getPath())
-                        .append(" start: ").append(file.getStartOffset())
-                        .append(" length: ").append(file.getSize())
-                        .append("\n");
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getSize())
+                            .append("\n");
                 }
             }
         }
@@ -184,10 +185,10 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     protected void setDefaultValueExprs(TableIf tbl,
-                                        Map<String, SlotDescriptor> slotDescByName,
-                                        Map<String, Expr> exprByName,
-                                        TFileScanRangeParams params,
-                                        boolean useVarcharAsNull) throws UserException {
+            Map<String, SlotDescriptor> slotDescByName,
+            Map<String, Expr> exprByName,
+            TFileScanRangeParams params,
+            boolean useVarcharAsNull) throws UserException {
         Preconditions.checkNotNull(tbl);
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
@@ -224,7 +225,8 @@ public abstract class FileScanNode extends ExternalScanNode {
             // if slot desc is null, which mean it is an unrelated slot, just skip.
             // eg:
             // (a, b, c) set (x=a, y=b, z=c)
-            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // c does not exist in file, the z will be filled with null, even if z has
+            // default value.
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
                 if (expr != null) {

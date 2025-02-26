@@ -198,9 +198,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setDeletionFile(tDeletionFile);
         }
         if (paimonSplit.getRowCount().isPresent()) {
-            fileDesc.setRowCount(paimonSplit.getRowCount().get());
-        }
-        if (paimonSplit.getRowCount().isPresent()) {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
@@ -209,7 +206,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     public static Optional<Long> calcuteTableLevelCount(List<org.apache.paimon.table.source.Split> paimonSplits) {
-        // check if all splits dont't have deletion vector or cardinality of every
+        // check if all splits don't have deletion vector or cardinality of every
         // deletion vector is not null
         boolean applyTableCountPushdown = true;
         long totalCount = 0;
