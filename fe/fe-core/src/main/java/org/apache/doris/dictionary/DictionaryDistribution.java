@@ -34,6 +34,10 @@ public class DictionaryDistribution {
         return backend.getId();
     }
 
+    public long getVersion() {
+        return version;
+    }
+
     @Override
     public String toString() {
         return backend.getHost() + ":" + backend.getBePort() + " ver=" + version + " memory=" + memoryBytes;

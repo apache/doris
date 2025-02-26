@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -362,10 +363,16 @@ public class Dictionary extends Table {
             return false;
         }
         // if only there's alive BE not find in dataDistributions, return false
-        Set<Long> dataSet = dataDistributions.stream().mapToLong(DictionaryDistribution::getBackendId).boxed()
-                .collect(Collectors.toSet());
+        // TODO: BE selectivity for load.
+        Set<Long> beIdsHasData = Sets.newHashSet();
+        for (DictionaryDistribution distribution : dataDistributions) {
+            if (distribution.getVersion() < version) {
+                return false;
+            }
+            beIdsHasData.add(distribution.getBackendId());
+        }
         for (Long backendId : aliveBEs) {
-            if (!dataSet.contains(backendId)) {
+            if (!beIdsHasData.contains(backendId)) {
                 // some of BE does not have data
                 return false;
             }

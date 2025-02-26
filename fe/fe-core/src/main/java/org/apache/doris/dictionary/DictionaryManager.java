@@ -343,6 +343,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockRead(); // lock to protect with DROP and LOAD_BY_CREATE
         try {
             for (Map<String, Long> dbDictIds : dictionaryIds.values()) {
+                // ATTN: there shouldn't be any Exception in this loop. will block irrelated dictionary refresh.
                 for (Long id : dbDictIds.values()) {
                     Dictionary dictionary = idToDictionary.get(id);
                     Pair<Boolean, Long> updateVersion = dictionary.hasNewerSourceVersion();
