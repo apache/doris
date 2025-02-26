@@ -33,7 +33,7 @@ suite("test_export_kerberos", "p0,external,kerberos,external_docker,external_doc
 
     sql """ switch ${hms_catalog_name} """
     sql """ show databases """
-    sql """ drop database test_export_out_file if exist"""
+    sql """ drop database  if exists test_export_out_file"""
     sql """ create database test_export_out_file """
     sql """ use test_export_out_file """
     sql """
