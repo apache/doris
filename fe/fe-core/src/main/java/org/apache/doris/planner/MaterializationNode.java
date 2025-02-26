@@ -79,9 +79,7 @@ public class MaterializationNode extends PlanNode {
 
     private List<List<Integer>> locations;
 
-    private List<Boolean> slotRowStoreFlags;
-
-    private List<Boolean> isRowStoreFlags;
+    private List<Boolean> rowStoreFlags;
 
     private boolean isTopMaterializeNode;
 
@@ -150,7 +148,8 @@ public class MaterializationNode extends PlanNode {
 
         msg.materialization_node.setSlotLocsLists(locations);
 
-        msg.materialization_node.setFetchRowStores(slotRowStoreFlags);
+        msg.materialization_node.setFetchRowStores(rowStoreFlags);
+        msg.materialization_node.setGcIdMap(isTopMaterializeNode);
     }
 
     public void setRowIds(List<Expr> rowIds) {
@@ -165,8 +164,8 @@ public class MaterializationNode extends PlanNode {
         this.locations = locations;
     }
 
-    public void setIsRowStoreFlags(List<Boolean> isRowStoreFlags) {
-        this.isRowStoreFlags = isRowStoreFlags;
+    public void setRowStoreFlags(List<Boolean> rowStoreFlags) {
+        this.rowStoreFlags = rowStoreFlags;
     }
 
     public void setTopMaterializeNode(boolean topMaterializeNode) {

@@ -2470,7 +2470,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (CatalogRelation relation : materialize.getRelations()) {
             rowStoreFlags.add(shouldUseRowStore(relation));
         }
-        materializeNode.setIsRowStoreFlags(rowStoreFlags);
+        materializeNode.setRowStoreFlags(rowStoreFlags);
 
         materializeNode.setTopMaterializeNode(context.isTopMaterializeNode());
         if (context.isTopMaterializeNode()) {
