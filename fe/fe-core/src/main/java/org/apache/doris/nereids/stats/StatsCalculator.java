@@ -561,7 +561,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         if (!isRegisteredRowCount(olapScan)
-                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
+                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()
+                && ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
