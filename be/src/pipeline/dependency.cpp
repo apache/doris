@@ -503,12 +503,10 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
         if (i < rowid_to_block_loc) {
             block->insert(origin_block.get_by_position(i));
         } else {
-            bool need_convert_null = origin_block.get_by_position(i).column->is_nullable();
-            const auto& src_null_map = assert_cast<const vectorized::ColumnNullable*>(
-                                               origin_block.get_by_position(i).column.get())
-                                               ->get_null_map_data();
+            auto& column = origin_block.get_by_position(i).column;
+            bool need_convert_null = column->is_nullable();
 
-            auto response_block = response_blocks[rowid_to_block_loc].to_block();
+            auto response_block = response_blocks[j].to_block();
             for (auto& data : response_block) {
                 if (need_convert_null) {
                     data.type = make_nullable(data.type);
@@ -517,7 +515,9 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
                             assert_cast<const vectorized::ColumnNullable*>(data.column.get())
                                     ->get_null_map_data();
                     vectorized::VectorizedUtils::update_null_map(
-                            const_cast<NullMap&>(dest_null_map), src_null_map);
+                            const_cast<NullMap&>(dest_null_map),
+                            assert_cast<const vectorized::ColumnNullable*>(column.get())
+                                    ->get_null_map_data());
                 }
                 block->insert(data);
             }
@@ -537,7 +537,8 @@ Dependency* MaterializationSharedState::create_source_dependency(int operator_id
     auto dep =
             std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY");
     dep->set_shared_state(this);
-    dep->add(static_cast<int>(rpc_struct_map.size()));
+    // just block source wait for add the counter in sink
+    dep->add(0);
 
     source_deps.push_back(dep);
     return source_deps.back().get();
@@ -575,7 +576,7 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
                     row_location.row_id);
             rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
                     row_location.file_id);
-            block_order[j++] = row_location.backend_id;
+            block_order[j] = row_location.backend_id;
         }
     }
 

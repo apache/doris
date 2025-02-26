@@ -36,6 +36,7 @@
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/ref_count_closure.h"
 #include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -879,6 +880,7 @@ struct FetchRpcStruct {
     std::shared_ptr<PBackendService_Stub> stub;
     PMultiGetRequestV2 request;
     PMultiGetResponseV2 response;
+    std::shared_ptr<doris::DummyBrpcCallback<int>> callback;
 };
 
 struct MaterializationSharedState : public BasicSharedState {

@@ -27,7 +27,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
@@ -65,7 +64,8 @@ Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state
                                 ->slots();
     for (int i = 0; i < _materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
-        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
+        //        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
+        request_block_desc->set_fetch_row_store(false);
         // init the column_descs and slot_locs
         auto& column_descs = _materialization_node.column_descs_lists[i];
         for (auto& column_desc_item : column_descs) {
@@ -94,6 +94,8 @@ Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state
                         .stub = std::move(client), .request = multi_get_request, .response = {}});
     }
     local_state._shared_state->rpc_struct_inited = true;
+    ((CountedFinishDependency*)local_state._shared_state->source_deps.back().get())
+            ->add(local_state._shared_state->rpc_struct_map.size());
     return Status::OK();
 }
 
@@ -172,13 +174,13 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             auto callback = MaterializationCallback<int>::create_shared(
                     state->get_task_execution_context(), local_state._shared_state);
-            auto send_closure =
-                    AutoReleaseClosure<int, MaterializationCallback<int>>::create_unique(
-                            std::make_shared<int>(), callback, state->get_query_ctx_weak());
+            rpc_struct.callback = callback;
+            auto closure = AutoReleaseClosure<int, ::doris::DummyBrpcCallback<int>>::create_unique(
+                    std::make_shared<int>(), callback, state->get_query_ctx_weak());
 
             callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
             rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request,
-                                              &rpc_struct.response, send_closure.get());
+                                              &rpc_struct.response, closure.release());
         }
     }
 

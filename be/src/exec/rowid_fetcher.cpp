@@ -536,7 +536,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                             file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
                             row_store_read_struct, request_block_desc.row_id_size(), stats,
                             &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
-                            &lookup_row_data_ms, iterator_map, result_block, ret_block));
+                            &lookup_row_data_ms, iterator_map, result_block));
                 }
             }
 
@@ -584,7 +584,7 @@ Status RowIdStorageReader::read_doris_format_row(
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-        vectorized::Block& result_block, PMultiGetBlockV2* ret_block) {
+        vectorized::Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
     BaseTabletSPtr tablet = scope_timer_run(
             [&]() {

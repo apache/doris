@@ -96,7 +96,7 @@ private:
             OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
             int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-            vectorized::Block& result_block, PMultiGetBlockV2* ret_block);
+            vectorized::Block& result_block);
 };
 
 } // namespace doris
