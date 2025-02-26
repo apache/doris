@@ -46,6 +46,7 @@ namespace doris {
 namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
+[[maybe_unused]] std::once_flag g_jvm_conf_once;
 
 const std::string GetDorisJNIDefaultClasspath() {
     const auto* doris_home = getenv("DORIS_HOME");
@@ -265,7 +266,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
-    SetEnvIfNecessary();
+    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;
