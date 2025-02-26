@@ -174,7 +174,7 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
 #ifdef USE_HADOOP_HDFS
         hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
-        hdfsBuilderSetKeyTabFile(builder->get(),  builder->hdfs_kerberos_keytab.c_str());
+        hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
 #endif
     }
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
