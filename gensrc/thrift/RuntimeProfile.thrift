@@ -54,7 +54,8 @@ struct TRuntimeProfileNode {
 
   9: required i64 timestamp
 
-  10: optional bool is_sink
+  // Deprecated.
+  10: optional bool deprecated_is_sink 
 }
 
 // A flattened tree of runtime profiles, obtained by an

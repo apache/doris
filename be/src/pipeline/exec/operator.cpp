@@ -464,7 +464,6 @@ template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
-    _runtime_profile->set_is_sink(false);
     // indent is false so that source operator will have same
     // indentation_level with its parent operator.
     info.parent_profile->add_child(_runtime_profile.get(), /*indent=*/false, nullptr);
@@ -540,7 +539,6 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _profile->set_metadata(_parent->node_id());
-    _profile->set_is_sink(true);
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {

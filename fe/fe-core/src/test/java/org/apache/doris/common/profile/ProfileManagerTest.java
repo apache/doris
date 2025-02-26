@@ -17,6 +17,14 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Lists;
+import mockit.Expectations;
+import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
@@ -24,12 +32,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 class ProfileManagerTest {
@@ -272,6 +284,431 @@ class ProfileManagerTest {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
+        }
+    }
+
+    @Test
+    void cleanProfileTest() {
+        // Create and push profile
+        final int normalProfiles = 100;
+        for (int i = 0; i < normalProfiles; i++) {
+            Profile profile = constructProfile(String.valueOf(i));
+            Random random = new Random();
+            profile.setQueryFinishTimestamp(random.nextInt(200 - 101) + 101);
+            // set query start time in range of [0, 1000)
+            profile.getSummaryProfile().setQueryBeginTime(random.nextInt(100));
+            profileManager.pushProfile(profile);
+        }
+        // Clean profile
+        profileManager.cleanProfile();
+        // Make sure map is cleaned.
+        Assertions.assertTrue(profileManager.queryIdToProfileMap.isEmpty());
+        Assertions.assertTrue(profileManager.queryIdToExecutionProfiles.isEmpty());
+    }
+
+    @Test
+    void addExecutionProfileTest() {
+        final int normalProfiles = 100;
+        for (int i = 0; i < normalProfiles; i++) {
+            Profile profile = constructProfile(String.valueOf(i));
+            Random random = new Random();
+            profile.setQueryFinishTimestamp(random.nextInt(200 - 101) + 101);
+            profile.getSummaryProfile().setQueryBeginTime(random.nextInt(100));
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            List<Integer> fragments = new ArrayList<>();
+            ExecutionProfile executionProfile = new ExecutionProfile(queryId, fragments);
+            profile.addExecutionProfile(executionProfile);
+            if (i == normalProfiles - 1) {
+                profileManager.addExecutionProfile(null);
+            } else {
+                for (ExecutionProfile executionProfileTemp : profile.getExecutionProfiles()) {
+                    profileManager.addExecutionProfile(executionProfileTemp);
+                }
+            }
+        }
+
+        Assertions.assertEquals(normalProfiles - 1, profileManager.queryIdToExecutionProfiles.size());
+    }
+
+    @Test
+    void getOnStorageProfileInfosTest() throws Exception {
+        // Create a temporary directory for profile storage
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        try {
+            // Override config path to use temp dir
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create some test profile files
+            for (int i = 0; i < 3; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                File profileFile = new File(tempDir, System.currentTimeMillis() + '_' + DebugUtil.printId(queryId));
+                profileFile.createNewFile();
+            }
+
+            // Get profiles from storage
+            List<String> profiles = profileManager.getOnStorageProfileInfos();
+
+            // Verify result
+            Assertions.assertEquals(3, profiles.size());
+            for (String profile : profiles) {
+                Assertions.assertTrue(profile.startsWith(tempDir.getAbsolutePath()));
+            }
+        } finally {
+            // Restore original path
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            // Cleanup temp files
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testLoadProfile() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        try {
+            profileManager.isProfileLoaded = false;
+            // Override config path to use temp dir
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create some test profile files
+            for (int i = 0; i < 30; i++) {
+                // Sleep 200 ms, so that query finish time is different.
+                Thread.sleep(200);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.writeToStorage(ProfileManager.PROFILE_STORAGE_PATH);
+            }
+
+            // Get profiles from storage
+            profileManager.loadProfilesFromStorageIfFirstTime();
+            Assertions.assertTrue(profileManager.isProfileLoaded);
+            // Verify result
+            Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            // Restore original path
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            // Cleanup temp files
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testGetProfilesNeedStore() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        try {
+            profileManager.isProfileLoaded = false;
+            // Override config path to use temp dir
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create some test profile files
+            for (int i = 0; i < 30; i++) {
+                // Sleep 200 ms, so that query finish time is different.
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                List<Integer> fragments = new ArrayList<>();
+                profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
+                if (i % 2 == 0) {
+                    new Expectations(profile) {
+                        {
+                            profile.shouldStoreToStorage();
+                            result = true;
+                        }
+                    };
+                } else {
+                    new Expectations(profile) {
+                        {
+                            profile.shouldStoreToStorage();
+                            result = false;
+                        }
+                    };
+                }
+                profileManager.pushProfile(profile);
+            }
+
+            List<ProfileElement> profiles = profileManager.getProfilesNeedStore();
+
+            // Verify result
+            Assertions.assertEquals(30 / 2, profiles.size());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            // Restore original path
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            // Cleanup temp files
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testWriteProfileToStorage() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        try {
+            profileManager.isProfileLoaded = false;
+            // Override config path to use temp dir
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create some test profile files
+            for (int i = 0; i < 30; i++) {
+                // Sleep 200 ms, so that query finish time is different.
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                List<Integer> fragments = new ArrayList<>();
+                profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
+                for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
+                    profileManager.addExecutionProfile(executionProfile);
+                }
+
+                // Make sure all profile is released
+                new Expectations(profile) {
+                    {
+                        profile.shouldStoreToStorage();
+                        result = true;
+                        profile.releaseMemory();
+                        times = 1;
+                    }
+                };
+
+                profileManager.pushProfile(profile);
+            }
+
+            profileManager.writeProfileToStorage();
+
+            // Verify result
+            File[] files = tempDir.listFiles();
+            assert files != null;
+            Assertions.assertEquals(30, files.length);
+            Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            // Restore original path
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            // Cleanup temp files
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testGetProfilesToBeRemoved() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        int originMaxSpilledProfileNum = Config.max_spilled_profile_num;
+
+        try {
+            Config.max_spilled_profile_num = 10;
+            // Override config path to use temp dir
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create some test profile files
+            for (int i = 0; i < 30; i++) {
+                // Sleep 200 ms, so that query finish time is different.
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                List<Integer> fragments = new ArrayList<>();
+                profile.addExecutionProfile(new ExecutionProfile(queryId, fragments));
+                for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
+                    profileManager.addExecutionProfile(executionProfile);
+                }
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                    }
+                };
+
+                profileManager.pushProfile(profile);
+            }
+
+            List<ProfileElement> remove = profileManager.getProfilesToBeRemoved();
+
+            // Verify result
+            Assertions.assertEquals(remove.size(), 30 - Config.max_spilled_profile_num);
+            PriorityQueue<ProfileElement> notRemove = profileManager.getProfileOrderByQueryFinishTimeDesc();
+            List<ProfileElement> notRemove2 = Lists.newArrayList();
+            for (int i = 0; i < Config.max_spilled_profile_num; i++) {
+                notRemove2.add(notRemove.poll());
+            }
+
+            for (ProfileElement profileElement : notRemove2) {
+                long timestamp = profileElement.profile.getQueryFinishTimestamp();
+                for (ProfileElement removeProfile : remove) {
+                    // Make sure timestamp is larger than all removed profile.
+                    Assertions.assertTrue(timestamp > removeProfile.profile.getQueryFinishTimestamp());
+                }
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            // Restore original path
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            // Cleanup temp files
+            FileUtils.deleteDirectory(tempDir);
+            Config.max_spilled_profile_num = originMaxSpilledProfileNum;
+        }
+    }
+
+
+    @Test
+    void testDeleteOutdatedProfilesFromStorage() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+        int originMaxSpilledProfileNum = Config.max_spilled_profile_num;
+
+        try {
+            Config.max_spilled_profile_num = 10;
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create test profiles
+            for (int i = 0; i < 30; i++) {
+                Thread.sleep(100);
+                Profile profile = ProfilePersistentTest.constructRandomProfile(1);
+                profile.isQueryFinished = true;
+                profile.setQueryFinishTimestamp(System.currentTimeMillis());
+                int finalI = i;
+                new Expectations(profile) {
+                    {
+                        profile.profileHasBeenStored();
+                        result = true;
+                        profile.deleteFromStorage();
+                        times = finalI < 20 ? 1 : 0; // First 20 should be deleted
+                    }
+                };
+
+                profileManager.pushProfile(profile);
+            }
+
+            // Execute deletion
+            profileManager.deleteOutdatedProfilesFromStorage();
+
+            // Verify correct profiles were deleted
+            Assertions.assertEquals(10, profileManager.queryIdToProfileMap.size());
+
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            Config.max_spilled_profile_num = originMaxSpilledProfileNum;
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testGetBrokenProfiles() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+
+        try {
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create normal profiles
+            for (int i = 0; i < 3; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                String profileId = DebugUtil.printId(queryId);
+
+                // Create profile in memory
+                Profile profile = constructProfile(profileId);
+                profileManager.pushProfile(profile);
+
+                // Create profile file
+                File profileFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
+                profileFile.createNewFile();
+            }
+
+            // Create broken profiles (no corresponding memory entry)
+            for (int i = 0; i < 2; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + DebugUtil.printId(queryId));
+                brokenFile.createNewFile();
+            }
+
+            // Get broken profiles
+            List<String> brokenProfiles = profileManager.getBrokenProfiles();
+
+            // Verify result - should find 2 broken profiles
+            Assertions.assertEquals(2, brokenProfiles.size());
+            for (String profile : brokenProfiles) {
+                Assertions.assertTrue(profile.startsWith(tempDir.getAbsolutePath()));
+            }
+
+        } finally {
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            FileUtils.deleteDirectory(tempDir);
+        }
+    }
+
+    @Test
+    void testDeleteBrokenProfiles() throws IOException {
+        File tempDir = Files.createTempDirectory("profile_test").toFile();
+        String originalPath = ProfileManager.PROFILE_STORAGE_PATH;
+
+        try {
+            ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
+
+            // Create normal and broken profile files
+            List<File> normalFiles = new ArrayList<>();
+            List<File> brokenFiles = new ArrayList<>();
+
+            // Create normal profiles with memory entries
+            for (int i = 0; i < 3; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                String profileId = DebugUtil.printId(queryId);
+
+                Profile profile = constructProfile(profileId);
+                profileManager.pushProfile(profile);
+
+                File normalFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
+                normalFile.createNewFile();
+                normalFiles.add(normalFile);
+            }
+
+            // Create broken profiles (no memory entries)
+            for (int i = 0; i < 2; i++) {
+                UUID taskId = UUID.randomUUID();
+                TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+                File brokenFile = new File(tempDir, System.currentTimeMillis() + "_" + DebugUtil.printId(queryId));
+                brokenFile.createNewFile();
+                brokenFiles.add(brokenFile);
+            }
+
+            // Delete broken profiles
+            profileManager.deleteBrokenProfiles();
+
+            // Verify normal files still exist
+            for (File file : normalFiles) {
+                Assertions.assertTrue(file.exists());
+            }
+
+            // Verify broken files were deleted
+            for (File file : brokenFiles) {
+                Assertions.assertFalse(file.exists());
+            }
+
+        } finally {
+            ProfileManager.PROFILE_STORAGE_PATH = originalPath;
+            FileUtils.deleteDirectory(tempDir);
         }
     }
 }
