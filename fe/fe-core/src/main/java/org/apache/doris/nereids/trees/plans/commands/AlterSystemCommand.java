@@ -58,6 +58,11 @@ public class AlterSystemCommand extends AlterCommand {
         return alterSystemOp;
     }
 
+    @Override
+    public PlanType getType() {
+        return type;
+    }
+
     /**
      * validate
      */

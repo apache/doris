@@ -2186,7 +2186,7 @@ public class SchemaChangeHandler extends AlterHandler {
     @Override
     public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
                                OlapTable olapTable) throws UserException {
-        // TODO: conver alterClauses to alterSystemCommands for schema change
+        // TODO: convert alterClauses to alterSystemCommands for schema change
     }
 
 
