@@ -1619,6 +1619,9 @@ class Suite implements GroovyInterceptable {
             logger.info("status is not success")
         }
         Assert.assertEquals("FINISHED", status)
+        // even when job states change to "FINISHED", the table state may not be changed from rollup when creating mv.
+        // so sleep here.
+        sleep(1000)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
