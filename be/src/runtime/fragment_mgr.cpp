@@ -851,7 +851,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                          prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
-            query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }
     }

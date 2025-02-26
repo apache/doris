@@ -865,5 +865,12 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
 private:
     std::atomic_int64_t _each_queue_limit;
 };
+
+class QueryGlobalDependency final : public Dependency {
+    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
+    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
+    ~QueryGlobalDependency() override = default;
+    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
+};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

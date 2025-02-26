@@ -1886,19 +1886,6 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     return revocable_tasks;
 }
 
-void PipelineFragmentContext::set_memory_sufficient(bool sufficient) {
-    for (const auto& task_instances : _tasks) {
-        for (const auto& task : task_instances) {
-            auto* dependency = task->get_memory_sufficient_dependency();
-            if (sufficient) {
-                dependency->set_ready();
-            } else {
-                dependency->block();
-            }
-        }
-    }
-}
-
 std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info:\n");

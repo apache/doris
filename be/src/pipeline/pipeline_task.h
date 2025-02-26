@@ -135,12 +135,9 @@ public:
     void set_wake_up_early() { _wake_up_early = true; }
 
     void clear_blocking_state() {
-        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {
-            _execution_dep->set_always_ready();
-            _memory_sufficient_dependency->set_always_ready();
             for (auto* dep : _spill_dependencies) {
                 dep->set_always_ready();
             }
@@ -243,10 +240,6 @@ public:
 
     bool wake_up_early() const { return _wake_up_early; }
 
-    Dependency* get_memory_sufficient_dependency() const {
-        return _memory_sufficient_dependency.get();
-    }
-
     void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
 
 private:
@@ -267,8 +260,6 @@ private:
     int _core_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
-    std::unique_ptr<vectorized::Block> _pending_block;
-    bool _pending_eos = false;
 
     PipelineFragmentContext* _fragment_context = nullptr;
     MultiCoreTaskQueue* _task_queue = nullptr;
@@ -328,8 +319,7 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _execution_dep = nullptr;
-
-    std::unique_ptr<Dependency> _memory_sufficient_dependency;
+    Dependency* _memory_sufficient_dependency;
 
     std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;
@@ -337,6 +327,20 @@ private:
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
     std::atomic<bool> _wake_up_early {false};
+
+    /**
+     * State of this pipeline task.
+     * `NORMAL` means a task executes normally without spilling.
+     * `PENDING` means the last execute round is blocked by poor free memory.
+     * `EOS` means the last execute round is blocked by poor free memory and it is the last block.
+     */
+    enum class State : int {
+        NORMAL,
+        PENDING,
+        EOS,
+    };
+
+    State _exec_state = State::NORMAL;
 };
 
 } // namespace doris::pipeline
