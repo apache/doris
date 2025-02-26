@@ -143,12 +143,12 @@ public class ResultFileSink extends DataSink {
 
     /**
      * Construct a tuple for file status, the tuple schema as following:
-     * | FileNumber | Int     |
-     * | TotalRows  | Bigint  |
-     * | FileSize   | Bigint  |
-     * | URL        | Varchar |
-     * | WriteTime  | Varchar |
-     * | WriteSpeed | Varchar |
+     * | FileNumber    | Int     |
+     * | TotalRows     | Bigint  |
+     * | FileSize      | Bigint  |
+     * | URL           | Varchar |
+     * | WriteTimeSec  | Varchar |
+     * | WriteSpeedKB  | Varchar |
      */
     public static TupleDescriptor constructFileStatusTupleDesc(DescriptorTable descriptorTable) {
         TupleDescriptor resultFileStatusTupleDesc =

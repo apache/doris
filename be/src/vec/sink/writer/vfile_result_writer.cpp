@@ -275,12 +275,12 @@ Status VFileResultWriter::_send_result() {
     _is_result_sent = true;
 
     // The final stat result include:
-    // | FileNumber | Int     |
-    // | TotalRows  | Bigint  |
-    // | FileSize   | Bigint  |
-    // | URL        | Varchar |
-    // | WriteTime  | Varchar |
-    // | WriteSpeed | Varchar |
+    // | FileNumber      | Int     |
+    // | TotalRows       | Bigint  |
+    // | FileSize        | Bigint  |
+    // | URL             | Varchar |
+    // | WriteTimeSec    | Varchar |
+    // | WriteSpeedKB    | Varchar |
     // The type of these field should be consistent with types defined in OutFileClause.java of FE.
     MysqlRowBuffer<> row_buffer;
     row_buffer.push_int(_file_idx);                         // FileNumber
@@ -295,12 +295,12 @@ Status VFileResultWriter::_send_result() {
     double write_time = _file_write_timer->value() / nons_to_second;
     std::string formatted_write_time = fmt::format("{:.3f}", write_time);
     row_buffer.push_string(formatted_write_time.c_str(),
-                           formatted_write_time.length()); // WriteTime
+                           formatted_write_time.length()); // WriteTimeSec
 
     double write_speed = _get_write_speed(_written_data_bytes->value(), _file_write_timer->value());
     std::string formatted_write_speed = fmt::format("{:.2f}", write_speed);
     row_buffer.push_string(formatted_write_speed.c_str(),
-                           formatted_write_speed.length()); // WriteSpeed
+                           formatted_write_speed.length()); // WriteSpeedKB
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
@@ -312,8 +312,8 @@ Status VFileResultWriter::_send_result() {
             std::make_pair("TotalRows", std::to_string(_written_rows_counter->value())));
     attach_infos.insert(std::make_pair("FileSize", std::to_string(_written_data_bytes->value())));
     attach_infos.insert(std::make_pair("URL", file_url));
-    attach_infos.insert(std::make_pair("WriteTime", formatted_write_time));
-    attach_infos.insert(std::make_pair("WriteSpeed", formatted_write_speed));
+    attach_infos.insert(std::make_pair("WriteTimeSec", formatted_write_time));
+    attach_infos.insert(std::make_pair("WriteSpeedKB", formatted_write_speed));
 
     result->result_batch.__set_attached_infos(attach_infos);
     RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
