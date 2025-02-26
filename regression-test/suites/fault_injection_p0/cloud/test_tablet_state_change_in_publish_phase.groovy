@@ -17,17 +17,22 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_tablet_state_change_in_publish_phase", "nonConcurrent") {
-    if (!isCloudMode()) {
-        return
-    }
+suite("test_tablet_state_change_in_publish_phase", "docker") {
     def options = new ClusterOptions()
     options.setFeNum(1)
     options.setBeNum(2)
     options.cloudMode = true
+    options.feConfigs += [
+        'cloud_cluster_check_interval_second=1',
+        'sys_log_verbose_modules=org',
+        'heartbeat_interval_second=1'
+    ]
     options.enableDebugPoints()
 
     docker(options) {
+        GetDebugPoint().clearDebugPointsForAllFEs()
+        GetDebugPoint().clearDebugPointsForAllBEs()
+
         def table1 = "test_tablet_state_change_in_publish_phase"
         sql "DROP TABLE IF EXISTS ${table1} FORCE;"
         sql """ CREATE TABLE IF NOT EXISTS ${table1} (
@@ -47,19 +52,59 @@ suite("test_tablet_state_change_in_publish_phase", "nonConcurrent") {
         sql "sync;"
         qt_sql "select * from ${table1} order by k1;"
 
-
+        def beNodes = sql_return_maparray("show backends;")
+        def tabletStat = sql_return_maparray("show tablets from ${table1};").get(0)
+        def tabletBackendId = tabletStat.BackendId
+        def tabletId = tabletStat.TabletId
+        def be1
+        def be2
+        for (def be : beNodes) {
+            if (be.BackendId == tabletBackendId) {
+                be1 = be
+            } else {
+                be2 = be
+            }
+        }
+        logger.info("tablet ${tabletId} on backend ${be1.Host} with backendId=${be1.BackendId}");
 
         try {
-            GetDebugPoint().clearDebugPointsForAllFEs()
-            GetDebugPoint().clearDebugPointsForAllBEs()
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+            sql "alter table ${table1} modify column c1 varchar(100);"
+            Thread.sleep(1500)
 
+            cluster.stopBackends(1)
 
+            Thread.sleep(2000)
 
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+
+            // these load will be executed on be2 and skip to calculate delete bitmaps in publish phase
+            def t1 = Thread.start{ sql "insert into ${table1} values(1,99,99);" }
+            Thread.sleep(300)
+            def t2 = Thread.start{ sql "insert into ${table1} values(1,88,88);" }
+
+            cluster.startBackends(1)
+
+            waitForSchemaChangeDone {
+                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
+                time 1000
+            }
+
+            // tablet state has changed to NORMAL in MS
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+
+            t1.join()
+            t2.join()
+
+            qt_sql "select * from ${table1} order by k1;"
 
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e
         } finally {
+            GetDebugPoint().clearDebugPointsForAllFEs()
             GetDebugPoint().clearDebugPointsForAllBEs()
         }
     }
