@@ -17,28 +17,21 @@
 
 #pragma once
 
-#include <memory>
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_matcher.h"
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+namespace doris::segment_v2::inverted_index {
 
-namespace doris::segment_v2::idx_query_v2 {
-
-class TermQuery : public Query {
+class ExactPhraseMatcher : public PhraseMatcherBase<ExactPhraseMatcher> {
 public:
-    TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-              const TQueryOptions& query_options, QueryInfo query_info);
-    ~TermQuery() override;
+    ExactPhraseMatcher(std::vector<PostingsAndPosition> postings);
 
-    void execute(const std::shared_ptr<roaring::Roaring>& result) {}
-
-    int32_t doc_id() const { return _iter.doc_id(); }
-    int32_t next_doc() const { return _iter.next_doc(); }
-    int32_t advance(int32_t target) const { return _iter.advance(target); }
-    int64_t cost() const { return _iter.doc_freq(); }
+    void reset(int32_t doc);
+    bool next_match();
 
 private:
-    TermDocs* _term_docs = nullptr;
-    TermIterator _iter;
+    bool advance_position(PostingsAndPosition& posting, int32_t target);
+
+    std::vector<PostingsAndPosition> _postings;
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index

@@ -17,28 +17,27 @@
 
 #pragma once
 
-#include <memory>
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query/phrase_positions.h"
+#include "olap/rowset/segment_v2/inverted_index/util/priority_queue.h"
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+namespace doris::segment_v2::inverted_index {
 
-namespace doris::segment_v2::idx_query_v2 {
-
-class TermQuery : public Query {
+class PhraseQueue : public PriorityQueue<PhrasePositions*> {
 public:
-    TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-              const TQueryOptions& query_options, QueryInfo query_info);
-    ~TermQuery() override;
+    PhraseQueue(size_t size) : PriorityQueue<PhrasePositions*>(size) {}
+    ~PhraseQueue() override = default;
 
-    void execute(const std::shared_ptr<roaring::Roaring>& result) {}
-
-    int32_t doc_id() const { return _iter.doc_id(); }
-    int32_t next_doc() const { return _iter.next_doc(); }
-    int32_t advance(int32_t target) const { return _iter.advance(target); }
-    int64_t cost() const { return _iter.doc_freq(); }
-
-private:
-    TermDocs* _term_docs = nullptr;
-    TermIterator _iter;
+    bool less_than(PhrasePositions* pp1, PhrasePositions* pp2) const override {
+        if (pp1->_position == pp2->_position) {
+            if (pp1->_offset == pp2->_offset) {
+                return pp1->_ord < pp2->_ord;
+            } else {
+                return pp1->_offset < pp2->_offset;
+            }
+        } else {
+            return pp1->_position < pp2->_position;
+        }
+    }
 };
 
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index
