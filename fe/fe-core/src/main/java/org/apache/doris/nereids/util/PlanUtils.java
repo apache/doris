@@ -139,7 +139,7 @@ public class PlanUtils {
      * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
      * it will calculate random two times, this is error.
      */
-    public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
+    public static boolean canReplaceWithProjections(List<NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
         Set<Slot> nonfoldableSlots = ExpressionUtils.generateReplaceMap(childProjects).entrySet().stream()
                 .filter(entry -> entry.getValue().containsNonfoldable())
