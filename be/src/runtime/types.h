@@ -48,6 +48,7 @@ struct TypeDescriptor {
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
+    /// Only set if type == TYPE_DECIMAL or type = TYPE_DATETIMEV2
     int scale;
 
     std::vector<TypeDescriptor> children;
@@ -68,15 +69,7 @@ struct TypeDescriptor {
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
-        if (type == TYPE_DECIMALV2) {
-            precision = 27;
-            scale = 9;
-        } else if (type == TYPE_DATETIMEV2) {
-            precision = 18;
-            scale = 6;
-        }
-    }
+    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {}
 
     static TypeDescriptor create_char_type(int len) {
         DCHECK_GE(len, 1);
