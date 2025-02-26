@@ -962,6 +962,17 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
+            Map<String, String> backendId_to_backendHeartbeatPort) {
+        List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHeartbeatPort.put(String.valueOf(backend[0]), String.valueOf(backend[2]));
+        }
+        return;
+    }
+
     String cmd(String cmd, int timeoutSecond = 0) {
         var processBuilder = new ProcessBuilder()
         processBuilder.command("/bin/bash", "-c", cmd)
