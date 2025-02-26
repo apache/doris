@@ -142,7 +142,8 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
-    RuntimeProfile::Counter* _segment_generate_row_range_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_keys_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_column_conditions_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
