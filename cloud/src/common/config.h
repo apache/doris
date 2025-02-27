@@ -231,6 +231,11 @@ CONF_mInt64(max_num_aborted_txn, "100");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+// Used for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats, "true");
+CONF_mInt32(max_mow_tablet_stat_num_per_batch, "1000");
 
 // Max byte txn commit when updating delete bitmap, default is 7MB.
 // Because the size of one fdb transaction can't exceed 10MB, and

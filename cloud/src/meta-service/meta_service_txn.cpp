@@ -1192,6 +1192,9 @@ void commit_txn_immediately(
         std::vector<std::optional<std::string>> lock_values;
         err = txn->batch_get(&lock_values, lock_keys);
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_get_conflict_counter << 1;
+            }
             ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
                << " err=" << err;
             msg = ss.str();
@@ -1379,6 +1382,9 @@ void commit_txn_immediately(
         // Finally we are done...
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -1831,6 +1837,9 @@ void commit_txn_eventually(
         std::vector<std::optional<std::string>> lock_values;
         err = txn->batch_get(&lock_values, lock_keys);
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_get_conflict_counter << 1;
+            }
             ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
                << " err=" << err;
             msg = ss.str();
@@ -1893,6 +1902,9 @@ void commit_txn_eventually(
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -2482,6 +2494,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+        }
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
             size_t max_size = 0, max_num_segments = 0,
                    min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;

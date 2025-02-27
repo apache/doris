@@ -1454,6 +1454,10 @@ message DeleteBitmapUpdateLockPB {
     repeated int64 initiators = 3;
 }
 
+message MowTabletCompactionPB {
+    optional int64 expiration = 1;
+}
+
 message GetDeleteBitmapUpdateLockRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 table_id = 2;
