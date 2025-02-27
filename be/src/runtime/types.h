@@ -69,7 +69,15 @@ struct TypeDescriptor {
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {}
+    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
+        // TODO, should not initialize default values, force initialization by parameters or external.
+        if (type == TYPE_DECIMALV2) {
+            precision = 27;
+            scale = 9;
+        } else if (type == TYPE_DATETIMEV2) {
+            scale = 6;
+        }
+    }
 
     static TypeDescriptor create_char_type(int len) {
         DCHECK_GE(len, 1);
