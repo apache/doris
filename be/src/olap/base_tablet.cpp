@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <iterator>
+#include <random>
 
 #include "common/cast_set.h"
 #include "common/logging.h"
@@ -412,9 +413,8 @@ std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
 }
 
 Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                                   RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
-                                   OlapReaderStatistics& stats, std::string& values,
-                                   bool write_to_cache) {
+                                   RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
+                                   std::string& values, bool write_to_cache) {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -541,10 +541,7 @@ Status BaseTablet::calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetShared
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer,
                                       DeleteBitmapPtr tablet_delete_bitmap) {
-    auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
-        LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet->tablet_id()
-                  << " rowset: " << rowset_id;
         return Status::OK();
     }
 
@@ -682,6 +679,18 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
 
+            DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.inject_err", {
+                auto p = dp->param("percent", 0.01);
+                std::mt19937 gen {std::random_device {}()};
+                std::bernoulli_distribution inject_fault {p};
+                if (inject_fault(gen)) {
+                    return Status::InternalError(
+                            "injection error in calc_segment_delete_bitmap, "
+                            "tablet_id={}, rowset_id={}",
+                            tablet_id(), rowset_id.to_string());
+                }
+            });
+
             RowsetSharedPtr rowset_find;
             Status st = Status::OK();
             if (tablet_delete_bitmap == nullptr) {
@@ -724,6 +733,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
                 continue;
+                // NOTE: for partial update which doesn't specify the sequence column, we can't use the sequence column value filled in flush phase
+                // as its final value. Otherwise it may cause inconsistency between replicas.
             }
             if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
@@ -808,22 +819,29 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     partial_update_info->partial_update_mode_str(), new_generated_rows,
                     rowset_writer->num_rows(), rids_be_overwritten.size(), tablet_id());
         }
-        LOG(INFO) << "calc segment delete bitmap for "
-                  << partial_update_info->partial_update_mode_str() << ", tablet: " << tablet_id()
+        auto cost_us = watch.get_elapse_time_us();
+        if (cost_us > 10 * 1000) {
+            LOG(INFO) << "calc segment delete bitmap for "
+                      << partial_update_info->partial_update_mode_str()
+                      << ", tablet: " << tablet_id() << " rowset: " << rowset_id
+                      << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1
+                      << " rows: " << seg->num_rows() << " conflict rows: " << conflict_rows
+                      << " filtered rows: " << rids_be_overwritten.size()
+                      << " new generated rows: " << new_generated_rows
+                      << " bimap num: " << delete_bitmap->delete_bitmap.size()
+                      << " cost: " << cost_us << "(us)";
+        }
+        return Status::OK();
+    }
+    auto cost_us = watch.get_elapse_time_us();
+    if (cost_us > 10 * 1000) {
+        LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
-                  << " filtered rows: " << rids_be_overwritten.size()
-                  << " new generated rows: " << new_generated_rows
-                  << " bimap num: " << delete_bitmap->delete_bitmap.size()
-                  << " cost: " << watch.get_elapse_time_us() << "(us)";
-        return Status::OK();
+                  << " bitmap num: " << delete_bitmap->delete_bitmap.size() << " cost: " << cost_us
+                  << "(us)";
     }
-    LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
-              << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1
-              << " rows: " << seg->num_rows() << " conflict rows: " << conflict_rows
-              << " bitmap num: " << delete_bitmap->delete_bitmap.size()
-              << " cost: " << watch.get_elapse_time_us() << "(us)";
     return Status::OK();
 }
 

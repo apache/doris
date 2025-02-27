@@ -266,6 +266,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         return Lists.newArrayList(idToDb.keySet());
     }
 
+    public int getDbNum() {
+        return idToDb.size();
+    }
+
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
@@ -877,11 +881,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
+                stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
+                          boolean ifExists, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
-        LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+        LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, force);
 
         // check database
         Database db = getDbOrDdlException(dbName);
@@ -895,7 +906,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Table table = db.getTableNullable(tableName);
             if (table == null) {
-                if (stmt.isSetIfExists()) {
+                if (ifExists) {
                     LOG.info("drop table[{}] which does not exist", tableName);
                     return;
                 } else {
@@ -903,7 +914,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             // Check if a view
-            if (stmt.isView()) {
+            if (isView) {
                 if (!(table instanceof View)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "VIEW",
                             genDropHint(dbName, table));
@@ -915,43 +926,43 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
-            if (!stmt.isMaterializedView() && table instanceof MTMV) {
+            if (!isMtmv && table instanceof MTMV) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE",
                         genDropHint(dbName, table));
-            } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
+            } else if (isMtmv && !(table instanceof MTMV)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV",
                         genDropHint(dbName, table));
             }
 
-            if (!stmt.isForceDrop()) {
+            if (!force) {
                 if (Env.getCurrentGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(
-                            "There are still some transactions in the COMMITTED state waiting to be completed. "
-                                    + "The table [" + tableName
-                                    + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
-                                    + " please use \"DROP table FORCE\".");
+                        "There are still some transactions in the COMMITTED state waiting to be completed. "
+                            + "The table [" + tableName
+                            + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
                 }
                 watch.split();
                 costTimes.put("2:existCommittedTxns", watch.getSplitTime());
             }
 
-            if (table instanceof OlapTable && !stmt.isForceDrop()) {
+            if (table instanceof OlapTable && !force) {
                 OlapTable olapTable = (OlapTable) table;
                 if ((olapTable.getState() != OlapTableState.NORMAL)) {
                     throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                            + ", cannot be dropped. please cancel the operation on olap table firstly."
-                            + " If you want to forcibly drop(cannot be recovered),"
-                            + " please use \"DROP table FORCE\".");
+                        + ", cannot be dropped. please cancel the operation on olap table firstly."
+                        + " If you want to forcibly drop(cannot be recovered),"
+                        + " please use \"DROP table FORCE\".");
                 }
                 if (olapTable.isInAtomicRestore()) {
                     throw new DdlException("The table [" + tableName + "]'s state is in atomic restore"
-                            + ", cannot be dropped. please cancel the restore operation on olap table"
-                            + " firstly. If you want to forcibly drop(cannot be recovered),"
-                            + " please use \"DROP table FORCE\".");
+                        + ", cannot be dropped. please cancel the restore operation on olap table"
+                        + " firstly. If you want to forcibly drop(cannot be recovered),"
+                        + " please use \"DROP table FORCE\".");
                 }
             }
 
-            dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop(), watch, costTimes);
+            dropTableInternal(db, table, isView, force, watch, costTimes);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
@@ -960,7 +971,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         watch.stop();
         costTimes.put("6:total", watch.getTime());
         LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}, cost: {}",
-                tableName, dbName, stmt.isView(), stmt.isForceDrop(), costTimes);
+                tableName, dbName, isView, force, costTimes);
     }
 
     // drop table without any check.
@@ -1595,6 +1606,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
                 }
+            }
+
+            if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST
+                    && !isTempPartition) {
+                throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
             }
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
@@ -2738,7 +2754,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Pair<String, String> storageVaultInfoPair = PropertyAnalyzer.analyzeStorageVault(properties);
 
             // Check if user has storage vault usage privilege
-            if (ConnectContext.get() != null && !env.getAuth()
+            if (ConnectContext.get() != null && !env.getAccessManager()
                     .checkStorageVaultPriv(ctx.getCurrentUserIdentity(),
                             storageVaultInfoPair.first, PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -2746,7 +2762,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         + "' for storage vault '" + storageVaultInfoPair.first + "'");
             }
             Preconditions.checkArgument(StringUtils.isNumeric(storageVaultInfoPair.second),
-                    "Invaild storage vault id :%s", storageVaultInfoPair.second);
+                    "Invalid storage vault id :%s", storageVaultInfoPair.second);
             olapTable.setStorageVaultId(storageVaultInfoPair.second);
         }
 
@@ -2808,7 +2824,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIsBeingSynced(isBeingSynced);
         if (isBeingSynced) {
             // erase colocate table, storage policy
-            olapTable.ignoreInvaildPropertiesWhenSynced(properties);
+            olapTable.ignoreInvalidPropertiesWhenSynced(properties);
             // remark auto bucket
             if (isAutoBucket) {
                 olapTable.markAutoBucket();
@@ -2905,6 +2921,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setIsInMemory(partitionId, isInMemory);
             partitionInfo.setTabletType(partitionId, tabletType);
             partitionInfo.setIsMutable(partitionId, isMutable);
+            if (isBeingSynced) {
+                partitionInfo.refreshTableStoragePolicy("");
+            }
         }
         // check colocation properties
         try {
@@ -3163,10 +3182,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
-                }
-                // storage policy is invalid for table/partition when table is being synced
-                if (isBeingSynced) {
-                    olapTable.setStoragePolicy("");
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);

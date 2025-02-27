@@ -291,4 +291,6 @@ suite("eliminate_gby_key") {
 	sql "create table eli_gbk_t(a int, b int) distributed by hash(a) properties('replication_num'='1');"
 	sql "insert into eli_gbk_t values(1,1),(2,1),(3,1);"
 	qt_grouping """select count(1) from (select b as k, a k3, sum(b) as sum_k1 from  eli_gbk_t where b=1 group by cube(k,a)) t group by k,k3 order by 1"""
+	qt_grouping_equalset """select count(1) from (select a,b from eli_gbk_t where a=b group by cube(a,b)) t group by a,b;"""
+	qt_grouping_equalset_can_eliminate """select count(1) from (select a,b from eli_gbk_t where a=b group by grouping sets((a,b),(b,a))) t group by a,b;"""
 }

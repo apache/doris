@@ -70,7 +70,10 @@ Status OlapScanLocalState::_init_profile() {
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
-    _segment_generate_row_range_timer = ADD_TIMER(_segment_profile, "GenerateRowRangeTime");
+    _segment_generate_row_range_by_keys_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByKeysTime");
+    _segment_generate_row_range_by_column_conditions_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByColumnConditionsTime");
     _segment_generate_row_range_by_bf_timer =
             ADD_TIMER(_segment_profile, "GenerateRowRangeByBloomFilterIndexTime");
     _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
@@ -196,6 +199,10 @@ Status OlapScanLocalState::_init_profile() {
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
     _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+
+    _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
+    _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+
     return Status::OK();
 }
 
@@ -383,6 +390,10 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             }
 
             COUNTER_UPDATE(_key_range_counter, scanner_ranges.size());
+            // `rs_reader` should not be shared by different scanners
+            for (auto& split : _read_sources[scan_range_idx].rs_splits) {
+                split.rs_reader = split.rs_reader->clone();
+            }
             auto scanner = vectorized::NewOlapScanner::create_shared(
                     this, vectorized::NewOlapScanner::Params {
                                   state(),
@@ -452,7 +463,7 @@ Status OlapScanLocalState::hold_tablets() {
     }
     timer.stop();
     double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
-    if (cost_secs > 5) {
+    if (cost_secs > 1) {
         LOG_WARNING(
                 "Try to hold tablets costs {} seconds, it costs too much. (Query-ID={}, NodeId={}, "
                 "ScanRangeNum={})",

@@ -127,7 +127,7 @@ Status InvertedIndexReader::read_null_bitmap(const io::IOContext* io_ctx,
                 LOG(WARNING) << st;
                 return st;
             }
-            auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
+            auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta, io_ctx));
             dir = directory.release();
             owned_dir = true;
         }
@@ -218,7 +218,25 @@ Status InvertedIndexReader::handle_searcher_cache(
             LOG(WARNING) << st;
             return st;
         }
-        auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
+        auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta, io_ctx));
+
+        DBUG_EXECUTE_IF("InvertedIndexReader.handle_searcher_cache.io_ctx", ({
+                            if (dir) {
+                                auto* stream = dir->getDorisIndexInput();
+                                const auto* cur_io_ctx =
+                                        (const io::IOContext*)stream->getIoContext();
+                                if (cur_io_ctx->file_cache_stats) {
+                                    if (cur_io_ctx->file_cache_stats != &stats->file_cache_stats) {
+                                        LOG(FATAL) << "io context file cache stats is not equal to "
+                                                      "stats file cache "
+                                                      "stats: "
+                                                   << cur_io_ctx->file_cache_stats << ", "
+                                                   << &stats->file_cache_stats;
+                                    }
+                                }
+                            }
+                        }));
+
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
         // TODO: handle null bitmap procedure in new format.
@@ -1153,14 +1171,31 @@ Status InvertedIndexIterator::read_from_inverted_index(
                     try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
             if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+                        "hit count: {}, bkd inverted reached limit {}% , segment num "
+                        "rows:{}", // add blackspace after % to avoid log4j format bug
                         hit_count, query_bkd_limit_percent, segment_num_rows);
             }
         }
     }
 
-    RETURN_IF_ERROR(_reader->query(&_io_ctx, _stats, _runtime_state, column_name, query_value,
-                                   query_type, bit_map));
+    auto execute_query = [&]() {
+        return _reader->query(&_io_ctx, _stats, _runtime_state, column_name, query_value,
+                              query_type, bit_map);
+    };
+
+    if (_runtime_state->query_options().enable_profile) {
+        InvertedIndexQueryStatistics query_stats;
+        {
+            SCOPED_RAW_TIMER(&query_stats.exec_time);
+            RETURN_IF_ERROR(execute_query());
+        }
+        query_stats.column_name = column_name;
+        query_stats.hit_rows = bit_map->cardinality();
+        _stats->inverted_index_stats.stats.emplace_back(query_stats);
+    } else {
+        RETURN_IF_ERROR(execute_query());
+    }
+
     return Status::OK();
 }
 

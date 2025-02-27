@@ -345,7 +345,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getSlots()
+        List<Slot> slots = getScope().getAsteriskSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
@@ -920,7 +920,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByName(String name, Scope scope) {
         int namePartSize = 1;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, false)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -933,7 +933,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByTable(String table, String name, Scope scope) {
         int namePartSize = 2;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -951,7 +951,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByDb(String db, String table, String name, Scope scope) {
         int namePartSize = 3;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -970,7 +970,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByCatalog(String catalog, String db, String table, String name, Scope scope) {
         int namePartSize = 4;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }

@@ -71,9 +71,7 @@ SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnod
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
           _tuple_idx(0),
-          _slot_num(0) {
-    Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _slot_num(0) {}
 
 Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
@@ -254,8 +252,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
+                                                     _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
     } while (block->rows() == 0 && !*eos);

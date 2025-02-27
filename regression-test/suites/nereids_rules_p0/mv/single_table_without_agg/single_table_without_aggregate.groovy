@@ -21,6 +21,9 @@ suite("single_table_without_aggregate") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set enable_materialized_view_rewrite=true"
+    // TODO remove this variable after mv rewrite support defer materialized nodes
+    sql 'set enable_two_phase_read_opt = false'
+
 
     sql """
     drop table if exists orders

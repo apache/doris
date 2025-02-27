@@ -68,6 +68,8 @@ suite("test_update_rows_mv", "p0") {
 
     sql """SET enable_fallback_to_original_planner=false;"""
 
+    def desc = sql """desc ${tbl}"""
+    log.info("desc result: " + desc);
     sql """analyze table ${tbl} with sync;"""
 
     Thread.sleep(1000 * 3)
