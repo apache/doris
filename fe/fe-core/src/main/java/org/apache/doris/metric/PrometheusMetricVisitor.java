@@ -196,6 +196,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         }
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
+        sb.append(fullName).append("{quantile=\"0.50\"").append(delimiter).append(fullTag).append("} ")
+                .append(snapshot.getMedian()).append("\n");
         sb.append(fullName).append("{quantile=\"0.75\"").append(delimiter).append(fullTag).append("} ")
             .append(snapshot.get75thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.95\"").append(delimiter).append(fullTag).append("} ")
@@ -210,6 +212,8 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 .append(histogram.getCount() * snapshot.getMean()).append("\n");
         sb.append(fullName).append("_count {").append(fullTag).append("} ")
                 .append(histogram.getCount()).append("\n");
+        sb.append(fullName).append("_avg {").append(fullTag).append("} ")
+                .append(snapshot.getMean()).append("\n");
     }
 
     @Override
