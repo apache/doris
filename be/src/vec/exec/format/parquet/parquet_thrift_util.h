@@ -58,35 +58,27 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     std::vector<uint8_t> footer;
     size_t bytes_read = 0;
     RETURN_IF_ERROR(read_thrift_footer(file, footer, bytes_read, io_ctx));
-    size_t before_file_size = file->size();
     if (!validate_magic_number(footer, bytes_read)) {
+        size_t before_file_size = file->size();
         // try to get file length from filesystem and validate magic again
         Status st = file->update_size();
+        Status error_status = Status::Corruption(
+                "Invalid magic number in parquet file, bytes read: {}, file size: {}, path: "
+                "{}, read magic: {}",
+                bytes_read, file->size(), file->path().native(),
+                std::string((char*)footer.data() + bytes_read - 4, sizeof(PARQUET_VERSION_NUMBER)));
         if (st.ok()) {
-            size_t file_size = file->size();
-            LOG(WARNING) << "File length changed before reading footer, path: "
+            LOG(WARNING) << "File length updated before reading footer, path: "
                          << file->path().native() << ", before: " << before_file_size
-                         << ", after: " << file_size;
-            bytes_read = std::min(file_size, INIT_META_SIZE);
-            RETURN_IF_ERROR(file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read),
-                                          &bytes_read, io_ctx));
+                         << ", after: " << file->size();
+            RETURN_IF_ERROR(read_thrift_footer(file, footer, bytes_read, io_ctx));
             if (!validate_magic_number(footer, bytes_read)) {
-                return Status::Corruption(
-                        "Invalid magic number in parquet file, bytes read: {}, file size: {}, "
-                        "path: {}, read magic: {}",
-                        bytes_read, file_size, file->path().native(),
-                        std::string((char*)footer.data() + bytes_read - 4,
-                                    sizeof(PARQUET_VERSION_NUMBER)));
+                return error_status;
             }
         } else {
             LOG(WARNING) << "Failed to update file size before reading footer, path: "
                          << file->path().native() << ", error: " << st.msg();
-            return Status::Corruption(
-                    "Invalid magic number in parquet file, bytes read: {}, file size: {}, path: "
-                    "{}, read magic: {}",
-                    bytes_read, file->size(), file->path().native(),
-                    std::string((char*)footer.data() + bytes_read - 4,
-                                sizeof(PARQUET_VERSION_NUMBER)));
+            return error_status;
         }
     }
 

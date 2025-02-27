@@ -88,7 +88,7 @@ public:
 
     virtual const std::string& get_data_dir_path() { return VIRTUAL_REMOTE_DATA_DIR; }
 
-    virtual Status update_size() { return Status::NotSupported("update_size is not supported"); }
+    virtual Status update_size() { return Status::OK(); }
 
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
