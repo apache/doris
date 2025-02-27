@@ -159,7 +159,19 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                _ms_cumulative_point > tablet->cumulative_layer_point();
     };
     if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
+        // delete me later!
+        LOG_INFO(
+                "[xxx] before sync_rowset, tablet_id={}, txn_id={}, max_version={}, version={}, "
+                "tablet_state={}",
+                _tablet_id, _transaction_id, tablet->max_version_unlocked(), _version,
+                tablet_state_name(tablet->tablet_state()));
         auto sync_st = tablet->sync_rowsets();
+        LOG_INFO(
+                "[xxx] after sync_rowset, tablet_id={}, txn_id={}, max_version={}, version={}, "
+                "tablet_state={}",
+                _tablet_id, _transaction_id, tablet->max_version_unlocked(), _version,
+                tablet_state_name(tablet->tablet_state()));
+
         if (!sync_st.ok()) {
             LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", status=" << sync_st;
