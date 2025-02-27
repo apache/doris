@@ -33,9 +33,12 @@ namespace doris {
 template <clockid_t Clock>
 class CustomStopWatch {
 public:
-    CustomStopWatch() {
+    CustomStopWatch(bool auto_start = false) {
         _total_time = 0;
         _running = false;
+        if (auto_start) {
+            start();
+        }
     }
 
     timespec start_time() const { return _start; }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore") {
+suite("test_backup_restore_ccr") {
 
     def syncer = getSyncer()
     if (!syncer.checkEnableFeatureBinlog()) {
@@ -61,6 +61,13 @@ suite("test_backup_restore") {
         """
     syncer.waitSnapshotFinish()
     assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot(true))
+    syncer.waitTargetRestoreFinish()
+    target_sql " sync "
+    res = target_sql "SELECT * FROM ${tableName}"
+    assertEquals(res.size(), insert_num)
+
+    logger.info("=== Test 2: restore again ===")
     assertTrue(syncer.restoreSnapshot(true))
     syncer.waitTargetRestoreFinish()
     target_sql " sync "
