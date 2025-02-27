@@ -216,11 +216,14 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                 }
             }
             MergeSortCursorImpl::reset();
+        } else {
+            pos = 0;
+            rows = block->rows();
         }
     }
 
     Block* block_ptr() override { return block.get(); }
-    bool eof() const override { return is_last() && _is_eof; }
+    bool eof() const override { return is_last(0) && _is_eof; }
 
     VExprContextSPtrs _ordering_expr;
     BlockSupplier _block_supplier {};
