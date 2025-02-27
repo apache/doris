@@ -139,7 +139,8 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, std::string id,
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string id,
                                const std::string& fs_name, RuntimeProfile* profile,
                                std::string root_path)
-        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HDFS),
+        : RemoteFileSystem(config::enable_root_path_of_hdfs_resource ? std::move(root_path) : "",
+                           std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_handle(nullptr),
           _profile(profile) {

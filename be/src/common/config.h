@@ -1432,6 +1432,11 @@ DECLARE_mInt32(compaction_num_per_round);
 // Enable sleep 5s between delete cumulative compaction.
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
+// Because the root_path for the HDFS resource was previously passed an empty string,
+// which was incorrect, this configuration has been added to ensure compatibility
+// and guarantee that the root_path works as expected.
+DECLARE_mBool(enable_root_path_of_hdfs_resource);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
