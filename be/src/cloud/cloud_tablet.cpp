@@ -452,27 +452,15 @@ void CloudTablet::clear_cache() {
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    for (auto& rs : rowsets) {
+    for (const auto& rs : rowsets) {
         // Clear cached opened segments and inverted index cache in memory
         rs->clear_cache();
-    }
-
-    if (config::enable_file_cache) {
-        for (const auto& rs : rowsets) {
-            // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
-            if (rs.use_count() > 2) {
-                LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
-                             << rs.use_count()
-                             << " references. File Cache won't be recycled when query is using it.";
-                continue;
-            }
-            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                // TODO: Segment::file_cache_key
-                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached_async(file_key);
-            }
+        if (rs.use_count() > 2) {
+            LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
+                         << " references. File Cache won't be recycled when query is using it.";
+            continue;
         }
+        rs->clear_file_cache();
     }
 }
 

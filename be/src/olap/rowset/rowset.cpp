@@ -19,6 +19,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/config.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
@@ -117,6 +119,18 @@ void Rowset::clear_cache() {
     {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
         clear_inverted_index_cache();
+    }
+}
+
+void Rowset::clear_file_cache() const {
+    if (!config::enable_file_cache) {
+        return;
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        // TODO: Segment::file_cache_key
+        auto file_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+        auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+        file_cache->remove_if_cached_async(file_key);
     }
 }
 
