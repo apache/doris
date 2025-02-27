@@ -230,9 +230,7 @@ suite("query_with_limit") {
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
             limit 2;
             """
-    order_qt_query1_2_before "${query1_2}"
     async_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
-    order_qt_query1_2_before "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
     // 1_3 test limit offset in from subquery, and query is the same with mv
@@ -976,8 +974,8 @@ suite("query_with_limit") {
                 group by l_orderkey 
                   limit 2 offset 0;
             """
-    // todo because aggregate is pushed down when push down topN, support later
-    async_mv_rewrite_fail(db, mv4_1, query4_1, "mv4_1")
+    // aggregate is not pushed down when push down topN, shuold success now
+    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
     // 4_2 query is union all + topN
@@ -1010,7 +1008,7 @@ suite("query_with_limit") {
                 order by l_orderkey 
                   limit 2 offset 5;
             """
-    // todo because aggregate is pushed down when push down topN, support later
+    // aggregate is not pushed down when push down topN, should success now
     async_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_2"""
 
