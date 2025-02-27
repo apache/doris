@@ -140,6 +140,11 @@ public class Config extends ConfigBase {
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"PreparedStatement stmtId 起始位置，仅用于测试",
+                    "PreparedStatement stmtId starting position, used for testing onl"})
+    public static long prepared_stmt_start_id = -1;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
@@ -2630,11 +2635,6 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
-
-    @ConfField(mutable = true, description = {
-            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
-            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
-    public static int maximum_tablets_of_outfile_in_export = 10;
 
     @ConfField(mutable = true, description = {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",

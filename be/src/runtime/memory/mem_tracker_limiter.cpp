@@ -81,6 +81,11 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
                                                                     const std::string& label,
                                                                     int64_t byte_limit) {
     auto tracker = std::make_shared<MemTrackerLimiter>(type, label, byte_limit);
+    // Write tracker is only used to tracker the size, so limit == -1
+    auto write_tracker = std::make_shared<MemTrackerLimiter>(type, "Memtable#" + label, -1);
+    // Memtable has a separate logic to deal with memory flush, so that should not check the limit in memtracker.
+    write_tracker->set_enable_reserve_memory(true);
+    tracker->_write_tracker.swap(write_tracker);
 #ifndef BE_TEST
     DCHECK(ExecEnv::tracking_memory());
     std::lock_guard<std::mutex> l(
@@ -132,7 +137,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
-    DCHECK(reserved_consumption() == 0);
+    DCHECK_EQ(reserved_consumption(), 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 
@@ -374,7 +379,8 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
             "{}, peak used {}, current used {}. backend {}, {}.",
             label(), type_string(_type), MemCounter::print_bytes(limit()),
             MemCounter::print_bytes(peak_consumption()), MemCounter::print_bytes(consumption()),
-            BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
+            BackendOptions::get_localhost(),
+            GlobalMemoryArbitrator::process_memory_used_details_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit=8G` to change limit, details see "
@@ -423,7 +429,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
     COUNTER_SET(seek_tasks_counter, (int64_t)0);
     COUNTER_SET(previously_canceling_tasks_counter, (int64_t)0);
 
-    std::string log_prefix = fmt::format("[MemoryGC] GC free {} top memory used {}, ",
+    std::string log_prefix = fmt::format("[MemoryGC] GC free {} top memory used {}",
                                          gc_type_string(GCtype), type_string(type));
     LOG(INFO) << fmt::format("{}, start seek all {}, running query and load num: {}", log_prefix,
                              type_string(type),
@@ -474,9 +480,9 @@ int64_t MemTrackerLimiter::free_top_memory_query(
     COUNTER_UPDATE(previously_canceling_tasks_counter, canceling_task.size());
 
     LOG(INFO) << log_prefix << "seek finished, seek " << seek_num << " tasks. among them, "
-              << min_pq.size() << " tasks will be canceled, " << prepare_free_mem
-              << " memory size prepare free; " << canceling_task.size()
-              << " tasks is being canceled and has not been completed yet;"
+              << min_pq.size() << " tasks will be canceled, "
+              << PrettyPrinter::print_bytes(prepare_free_mem) << " memory size prepare free; "
+              << canceling_task.size() << " tasks is being canceled and has not been completed yet;"
               << (!canceling_task.empty() ? " consist of: " + join(canceling_task, ",") : "");
 
     std::vector<std::string> usage_strings;
@@ -539,7 +545,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     COUNTER_SET(seek_tasks_counter, (int64_t)0);
     COUNTER_SET(previously_canceling_tasks_counter, (int64_t)0);
 
-    std::string log_prefix = fmt::format("[MemoryGC] GC free {} top memory overcommit {}, ",
+    std::string log_prefix = fmt::format("[MemoryGC] GC free {} top memory overcommit {}",
                                          gc_type_string(GCtype), type_string(type));
     LOG(INFO) << fmt::format("{}, start seek all {}, running query and load num: {}", log_prefix,
                              type_string(type),
@@ -558,7 +564,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                     seek_num++;
                     // 32M small query does not cancel
                     if (tracker->consumption() <= 33554432 ||
-                        tracker->consumption() < tracker->limit()) {
+                        tracker->consumption() < tracker->_limit) {
                         small_num++;
                         continue;
                     }
@@ -568,7 +574,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                         continue;
                     }
                     auto overcommit_ratio = int64_t(
-                            (static_cast<double>(tracker->consumption()) / tracker->limit()) *
+                            (static_cast<double>(tracker->consumption()) / tracker->_limit) *
                             10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();
@@ -580,7 +586,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     COUNTER_UPDATE(seek_tasks_counter, seek_num);
     COUNTER_UPDATE(previously_canceling_tasks_counter, canceling_task.size());
 
-    LOG(INFO) << log_prefix << "seek finished, seek " << seek_num << " tasks. among them, "
+    LOG(INFO) << log_prefix << " seek finished, seek " << seek_num << " tasks. among them, "
               << query_consumption.size() << " tasks can be canceled; " << small_num
               << " small tasks that were skipped; " << canceling_task.size()
               << " tasks is being canceled and has not been completed yet;"
@@ -588,13 +594,14 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
 
     // Minor gc does not cancel when there is only one query.
     if (query_consumption.empty()) {
-        LOG(INFO) << log_prefix << "finished, no task need be canceled.";
+        LOG(INFO) << log_prefix << " finished, no task need be canceled.";
         return 0;
     }
     if (small_num == 0 && canceling_task.empty() && query_consumption.size() == 1) {
         auto iter = query_consumption.begin();
-        LOG(INFO) << log_prefix << "finished, only one overcommit task: " << iter->first
-                  << ", memory consumption: " << iter->second << ", no other tasks, so no cancel.";
+        LOG(INFO) << log_prefix << " finished, only one overcommit task: " << iter->first
+                  << ", memory consumption: " << PrettyPrinter::print_bytes(iter->second)
+                  << ", no other tasks, so no cancel.";
         return 0;
     }
 
@@ -625,7 +632,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     }
 
     profile->merge(free_top_memory_task_profile.get());
-    LOG(INFO) << log_prefix << "cancel finished, " << cancel_tasks_counter->value()
+    LOG(INFO) << log_prefix << " cancel finished, " << cancel_tasks_counter->value()
               << " tasks canceled, memory size being freed: " << freed_memory_counter->value()
               << ", consist of: " << join(usage_strings, ",");
     return freed_memory_counter->value();

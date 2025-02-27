@@ -29,6 +29,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TWgSlotMemoryPolicy;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
@@ -62,6 +63,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
+    public static final String WRITE_BUFFER_RATIO = "write_buffer_ratio";
+
     public static final String MAX_CONCURRENCY = "max_concurrency";
 
     public static final String MAX_QUEUE_SIZE = "max_queue_size";
@@ -77,6 +80,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     public static final String MEMORY_LOW_WATERMARK = "memory_low_watermark";
 
     public static final String MEMORY_HIGH_WATERMARK = "memory_high_watermark";
+
+    public static final String SLOT_MEMORY_POLICY = "slot_memory_policy";
 
     public static final String TAG = "tag";
 
@@ -96,15 +101,17 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
-            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).build();
+            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
+            .add(WRITE_BUFFER_RATIO).add(SLOT_MEMORY_POLICY).build();
+
 
     private static final ImmutableMap<String, String> DEPRECATED_PROPERTIES_NAME =
             new ImmutableMap.Builder<String, String>()
                     .put(SPILL_THRESHOLD_LOW_WATERMARK, MEMORY_LOW_WATERMARK)
                     .put(SPILL_THRESHOLD_HIGH_WATERMARK, MEMORY_HIGH_WATERMARK).build();
 
-    public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
-    public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+    public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 75;
+    public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 85;
 
     private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
 
@@ -119,12 +126,20 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_REMOTE_SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MIN_REMOTE_SCAN_THREAD_NUM, "-1");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LOW_WATERMARK, "50%");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_HIGH_WATERMARK, "80%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LOW_WATERMARK, "75%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_HIGH_WATERMARK, "85%");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(TAG, "");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(READ_BYTES_PER_SECOND, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
     }
+
+    public static final int WRITE_BUFFER_RATIO_DEFAULT_VALUE = 20;
+    public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "none";
+    public static final HashSet<String> AVAILABLE_SLOT_MEMORY_POLICY_VALUES = new HashSet<String>() {{
+            add("none");
+            add("fixed");
+            add("dynamic");
+        }};
 
     @SerializedName(value = "id")
     private long id;
@@ -158,6 +173,24 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (properties.containsKey(MEMORY_LIMIT)) {
             setMemLimitPercent(properties);
         }
+
+        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
+            String loadBufLimitStr = properties.get(WRITE_BUFFER_RATIO);
+            if (loadBufLimitStr.endsWith("%")) {
+                loadBufLimitStr = loadBufLimitStr.substring(0, loadBufLimitStr.length() - 1);
+            }
+            this.properties.put(WRITE_BUFFER_RATIO, loadBufLimitStr);
+        } else {
+            this.properties.put(WRITE_BUFFER_RATIO, WRITE_BUFFER_RATIO_DEFAULT_VALUE + "");
+        }
+
+        if (properties.containsKey(SLOT_MEMORY_POLICY)) {
+            String slotPolicy = properties.get(SLOT_MEMORY_POLICY);
+            this.properties.put(SLOT_MEMORY_POLICY, slotPolicy);
+        } else {
+            this.properties.put(SLOT_MEMORY_POLICY, SLOT_MEMORY_POLICY_DEFAULT_VALUE);
+        }
+
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
         }
@@ -298,6 +331,25 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
+        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
+            String writeBufSizeStr = properties.get(WRITE_BUFFER_RATIO);
+            String memLimitErr = WRITE_BUFFER_RATIO + " " + writeBufSizeStr
+                    + " requires a positive int number.";
+            if (writeBufSizeStr.endsWith("%")) {
+                writeBufSizeStr = writeBufSizeStr.substring(0, writeBufSizeStr.length() - 1);
+            }
+            try {
+                if (Integer.parseInt(writeBufSizeStr) < 0) {
+                    throw new DdlException(memLimitErr);
+                }
+            } catch (NumberFormatException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(memLimitErr, e);
+                }
+                throw new DdlException(memLimitErr);
+            }
+        }
+
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             String inputValue = properties.get(ENABLE_MEMORY_OVERCOMMIT);
             String value = inputValue.toLowerCase();
@@ -305,6 +357,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 throw new DdlException(
                         "The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false. but input value is "
                                 + inputValue);
+            }
+        }
+
+        if (properties.containsKey(SLOT_MEMORY_POLICY)) {
+            String value = properties.get(SLOT_MEMORY_POLICY).toLowerCase();
+            if (!AVAILABLE_SLOT_MEMORY_POLICY_VALUES.contains(value)) {
+                throw new DdlException("The value of '" + SLOT_MEMORY_POLICY
+                        + "' must be one of none, fixed, dynamic.");
             }
         }
 
@@ -580,6 +640,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return new TPipelineWorkloadGroup().setId(id);
     }
 
+    public static TWgSlotMemoryPolicy findSlotPolicyValueByString(String slotPolicy) {
+        if (slotPolicy.equalsIgnoreCase("none")) {
+            return TWgSlotMemoryPolicy.NONE;
+        } else if (slotPolicy.equalsIgnoreCase("fixed")) {
+            return TWgSlotMemoryPolicy.FIXED;
+        } else if (slotPolicy.equalsIgnoreCase("dynamic")) {
+            return TWgSlotMemoryPolicy.DYNAMIC;
+        } else {
+            throw new RuntimeException("Could not find policy using " + slotPolicy);
+        }
+    }
+
     public TopicInfo toTopicInfo() {
         TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
         tWorkloadGroupInfo.setId(this.id);
@@ -600,6 +672,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String memLimitStr = properties.get(MEMORY_LIMIT);
         if (memLimitStr != null) {
             tWorkloadGroupInfo.setMemLimit(memLimitStr);
+        }
+        String writeBufferRatioStr = properties.get(WRITE_BUFFER_RATIO);
+        if (writeBufferRatioStr != null) {
+            tWorkloadGroupInfo.setWriteBufferRatio(Integer.parseInt(writeBufferRatioStr));
+        }
+        String slotMemoryPolicyStr = properties.get(SLOT_MEMORY_POLICY);
+        if (slotMemoryPolicyStr != null) {
+            tWorkloadGroupInfo.setSlotMemoryPolicy(findSlotPolicyValueByString(slotMemoryPolicyStr));
         }
         String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
         if (memOvercommitStr != null) {
@@ -652,6 +732,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String tagStr = properties.get(TAG);
         if (!StringUtils.isEmpty(tagStr)) {
             tWorkloadGroupInfo.setTag(tagStr);
+        }
+
+        String totalQuerySlotCountStr = properties.get(MAX_CONCURRENCY);
+        if (totalQuerySlotCountStr != null) {
+            tWorkloadGroupInfo.setTotalQuerySlotCount(Integer.parseInt(totalQuerySlotCountStr));
         }
 
         TopicInfo topicInfo = new TopicInfo();

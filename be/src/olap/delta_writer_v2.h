@@ -71,7 +71,7 @@ public:
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

@@ -29,12 +29,42 @@ class CgroupCpuCtl;
 
 namespace vectorized {
 class Block;
+class QueryContext;
 } // namespace vectorized
 
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
+
+class PausedQuery {
+public:
+    // Use weak ptr to save query ctx, to make sure if the query is cancelled
+    // the resource will be released
+    std::weak_ptr<QueryContext> query_ctx_;
+    std::chrono::system_clock::time_point enqueue_at;
+    size_t last_mem_usage {0};
+    double cache_ratio_ {0.0};
+    bool any_wg_exceed_limit_ {false};
+    int64_t reserve_size_ {0};
+
+    PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_ratio,
+                bool any_wg_exceed_limit, int64_t reserve_size);
+
+    int64_t elapsed_time() const {
+        auto now = std::chrono::system_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
+    }
+
+    std::string query_id() const { return query_id_; }
+
+    bool operator<(const PausedQuery& other) const { return query_id_ < other.query_id_; }
+
+    bool operator==(const PausedQuery& other) const { return query_id_ == other.query_id_; }
+
+private:
+    std::string query_id_;
+};
 
 class WorkloadGroupMgr {
 public:
@@ -66,11 +96,34 @@ public:
 
     void refresh_workload_group_metrics();
 
+    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
+                          const Status& status);
+
+    void handle_paused_queries();
+
 private:
+    int64_t cancel_top_query_in_overcommit_group_(int64_t need_free_mem, int64_t lower_bound,
+                                                  RuntimeProfile* profile);
+    int64_t flush_memtable_from_current_group_(WorkloadGroupPtr wg, int64_t need_free_mem);
+    bool handle_single_query_(const std::shared_ptr<QueryContext>& query_ctx,
+                              size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
+    int64_t revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,
+                                            bool hard_limit, int64_t need_free_mem);
+    int64_t revoke_overcommited_memory_(std::shared_ptr<QueryContext> requestor,
+                                        int64_t need_free_mem, RuntimeProfile* profile);
+    int64_t revoke_memtable_from_overcommited_groups_(int64_t need_free_mem,
+                                                      RuntimeProfile* profile);
+    void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
+
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
     std::shared_mutex _clear_cgroup_lock;
+
+    // Save per group paused query list, it should be a global structure, not per
+    // workload group, because we need do some coordinate work globally.
+    std::mutex _paused_queries_lock;
+    std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
 };
 
 } // namespace doris

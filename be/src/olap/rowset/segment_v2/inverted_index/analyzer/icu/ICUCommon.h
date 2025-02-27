@@ -15,32 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+#pragma once
 
-import org.apache.paimon.types.DataField;
+#include <memory>
 
-import java.util.List;
+#include "CLucene.h"
+#include "CLucene/debug/error.h"
+#include "unicode/brkiter.h"
+#include "unicode/rbbi.h"
+#include "unicode/ubrk.h"
+#include "unicode/uchar.h"
+#include "unicode/uniset.h"
+#include "unicode/unistr.h"
+#include "unicode/uscript.h"
+#include "unicode/utext.h"
+#include "unicode/utf8.h"
 
-public class PaimonSchema {
-    private final long schemaId;
-    private final List<DataField> fields;
-    private final List<String> partitionKeys;
+namespace doris::segment_v2 {
 
-    public PaimonSchema(long schemaId, List<DataField> fields, List<String> partitionKeys) {
-        this.schemaId = schemaId;
-        this.fields = fields;
-        this.partitionKeys = partitionKeys;
+using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
+
+struct UTextDeleter {
+    void operator()(UText* utext) const {
+        if (utext != nullptr) {
+            utext_close(utext);
+        }
     }
+};
 
-    public long getSchemaId() {
-        return schemaId;
-    }
+using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
 
-    public List<DataField> getFields() {
-        return fields;
-    }
-
-    public List<String> getPartitionKeys() {
-        return partitionKeys;
-    }
-}
+} // namespace doris::segment_v2

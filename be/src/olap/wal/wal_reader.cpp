@@ -31,9 +31,13 @@ WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _off
 
 WalReader::~WalReader() = default;
 
-static Status _deserialize(PBlock& block, const std::string& buf) {
+Status WalReader::_deserialize(PBlock& block, const std::string& buf, size_t block_len,
+                               size_t bytes_read) {
     if (UNLIKELY(!block.ParseFromString(buf))) {
-        return Status::InternalError("failed to deserialize row");
+        return Status::InternalError(
+                "failed to deserialize row, file_size=" + std::to_string(file_reader->size()) +
+                ", read_offset=" + std::to_string(_offset) + +", block_bytes=" +
+                std::to_string(block_len) + ", read_block_bytes=" + std::to_string(bytes_read));
     }
     return Status::OK();
 }
@@ -69,12 +73,18 @@ Status WalReader::read_block(PBlock& block) {
     if (block_len == 0) {
         return Status::DataQualityError("fail to read wal {} ,block is empty", _file_name);
     }
+    if (_offset == file_reader->size()) {
+        LOG(WARNING) << "need read block with length=" << block_len << ", but offset=" << _offset
+                     << " reached end of WAL (path=" << _file_name
+                     << ", size=" << file_reader->size() << ")";
+        return Status::EndOfFile("end of wal file");
+    }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);
     RETURN_IF_ERROR(file_reader->read_at(_offset, {block_buf.c_str(), block_len}, &bytes_read));
+    RETURN_IF_ERROR(_deserialize(block, block_buf, block_len, bytes_read));
     _offset += block_len;
-    RETURN_IF_ERROR(_deserialize(block, block_buf));
     // checksum
     uint8_t checksum_len_buf[WalWriter::CHECKSUM_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {checksum_len_buf, WalWriter::CHECKSUM_SIZE},
