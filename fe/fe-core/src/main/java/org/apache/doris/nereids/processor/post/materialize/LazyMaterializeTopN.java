@@ -124,9 +124,16 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                   -->topn
                      -->any
              */
+            List<Slot> reOrderedMaterializedSlots = new ArrayList<>();
+            for (Slot slot : materializeInput) {
+                if (rowIdSet.contains(slot)) {
+                    break;
+                }
+                reOrderedMaterializedSlots.add(slot);
+            }
             result = new PhysicalProject(materializeInput, null, result);
             result = new PhysicalLazyMaterialize(result, materializeInput,
-                    materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
+                    reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
         }
         result = new PhysicalProject(originOutput, null, result);
