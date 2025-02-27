@@ -558,7 +558,9 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
 
     auto max_count = _state->rpc_verbose_profile_max_instance_count();
-    if (_state->enable_verbose_profile() && max_count > 0) {
+    // This counter will lead to performance degradation.
+    // So only collect this information when the profile level is greater than 3.
+    if (_state->profile_level() > 3 && max_count > 0) {
         std::vector<RpcInstanceStatistics> tmp_rpc_stats_vec;
         for (const auto& stats : _instance_to_rpc_stats_vec) {
             tmp_rpc_stats_vec.emplace_back(*stats);

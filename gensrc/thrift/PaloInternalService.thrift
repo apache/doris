@@ -339,7 +339,7 @@ struct TQueryOptions {
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
   127: optional i32 in_list_value_count_threshold = 10;
   // We need this two fields to make sure thrift id on master is compatible with other branch.
-  128: optional bool enable_verbose_profile = false;
+  128: optional bool enable_verbose_profile = false;  // deprecated
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 
   130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
