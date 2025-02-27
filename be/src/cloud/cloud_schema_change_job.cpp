@@ -22,6 +22,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -422,13 +423,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -470,6 +464,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block",
+                    DBUG_BLOCK);
+
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
@@ -490,6 +487,18 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
     }
+
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}, sc job_id={}", sleep_time,
+                     _new_tablet->tablet_id(), _job_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
 
     auto& delete_bitmap = tmp_tablet->tablet_meta()->delete_bitmap();
 

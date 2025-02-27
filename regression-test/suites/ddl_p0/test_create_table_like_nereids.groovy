@@ -20,21 +20,20 @@ suite("test_create_table_like_nereids") {
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10
     properties('replication_num' = '1');"""
     sql """insert into mal_test_create_table_like values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
+
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    waitForSchemaChangeDone {
-        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
-        time 600
-    }
+    waitingMVTaskFinishedByMvName(db, "mal_test_create_table_like", "ru1")
+
     sql "alter table mal_test_create_table_like add rollup ru2(b,pk)"
-    waitForSchemaChangeDone {
-        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
-        time 600
-    }
+    waitingMVTaskFinishedByMvName(db, "mal_test_create_table_like", "ru2")
 
     // no rollup
     sql "drop table if exists table_like"

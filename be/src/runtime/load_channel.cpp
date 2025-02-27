@@ -48,7 +48,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
 
     if (query_context != nullptr) {
-        _resource_ctx = query_context->resource_ctx;
+        _resource_ctx = query_context->resource_ctx();
     } else {
         _resource_ctx = ResourceContext::create_shared();
         _resource_ctx->task_controller()->set_task_id(_load_id.to_thrift());
@@ -62,7 +62,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
             if (wg_ptr != nullptr) {
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
-                _resource_ctx->workload_group_context()->set_workload_group(wg_ptr);
+                _resource_ctx->set_workload_group(wg_ptr);
             }
         }
     }
@@ -174,7 +174,6 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
-    SCOPED_ATTACH_TASK(_resource_ctx);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;

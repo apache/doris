@@ -62,13 +62,13 @@ public:
 
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
-    void static check_chars_length(size_t total_length, size_t element_number) {
+    void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
             throw Exception(
                     ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                     "string column length is too large: total_length={}, element_number={}, "
-                    "you can set batch_size a number smaller than {} to avoid this error",
-                    total_length, element_number, element_number);
+                    "you can set batch_size a number smaller than {} to avoid this error. rows:{}",
+                    total_length, element_number, element_number, rows);
         }
     }
 
@@ -116,6 +116,8 @@ public:
     size_t size() const override { return offsets.size(); }
 
     size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
+
+    bool has_enough_capacity(const IColumn& src) const override;
 
     size_t allocated_bytes() const override {
         return chars.allocated_bytes() + offsets.allocated_bytes();
@@ -377,17 +379,16 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override;
 
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,

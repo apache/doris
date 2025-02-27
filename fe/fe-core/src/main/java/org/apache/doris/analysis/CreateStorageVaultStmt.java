@@ -31,6 +31,8 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 // CREATE STORAGE VAULT vault_name
@@ -119,10 +121,17 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Storage Vault properties can't be null");
         }
-        String type = properties.get(TYPE);
-        if (type == null) {
+
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(TYPE)) {
+                type = property.getValue();
+            }
+        }
+        if (Strings.isNullOrEmpty(type)) {
             throw new AnalysisException("Storage Vault type can't be null");
         }
+
         final String pathVersionString = properties.get(PATH_VERSION);
         if (pathVersionString != null) {
             this.pathVersion = Integer.parseInt(pathVersionString);

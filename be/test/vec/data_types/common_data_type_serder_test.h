@@ -24,14 +24,17 @@
 #include <fstream>
 #include <iostream>
 
+#include "arrow/array/array_base.h"
 #include "arrow/type.h"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 // this test is gonna to be a data type serialize and deserialize functions
@@ -44,9 +47,9 @@
 //  serialize_one_cell_to_json (const IColumn &column, int row_num, BufferWritable &bw, FormatOptions &options) const =0
 //  serialize_column_to_json (const IColumn &column, int start_idx, int end_idx, BufferWritable &bw, FormatOptions &options) const =0
 //  deserialize_one_cell_from_json (IColumn &column, Slice &slice, const FormatOptions &options) const =0
-//  deserialize_column_from_json_vector (IColumn &column, std::vector< Slice > &slices, int *num_deserialized, const FormatOptions &options) const =0
-//  deserialize_column_from_fixed_json (IColumn &column, Slice &slice, int rows, int *num_deserialized, const FormatOptions &options) const
-//  insert_column_last_value_multiple_times (IColumn &column, int times) const
+//  deserialize_column_from_json_vector (IColumn &column, std::vector< Slice > &slices, uint64_t *num_deserialized, const FormatOptions &options) const =0
+//  deserialize_column_from_fixed_json (IColumn &column, Slice &slice, uint64_t rows, uint64_t *num_deserialized, const FormatOptions &options) const
+//  insert_column_last_value_multiple_times (IColumn &column, uint64_t times) const
 // 3. fe|be protobuffer ser-deserialize
 //  write_column_to_pb (const IColumn &column, PValues &result, int start, int end) const =0
 //  read_column_from_pb (IColumn &column, const PValues &arg) const =0
@@ -357,12 +360,16 @@ public:
         Status stt = convert_to_arrow_batch(*block, block_arrow_schema,
                                             arrow::default_memory_pool(), &result, _timezone_obj);
         EXPECT_EQ(Status::OK(), stt) << "convert block to arrow failed" << stt.to_string();
+
         // deserialize arrow to block
         auto assert_block = block->clone_empty();
         auto rows = block->rows();
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto array = result->column(i);
+            std::cout << array.get()->ToString() << std::endl;
             auto& column_with_type_and_name = assert_block.get_by_position(i);
+            std::cout << "now we are testing column: "
+                      << column_with_type_and_name.column->get_name() << std::endl;
             auto ret = arrow_column_to_doris_column(
                     array.get(), 0, column_with_type_and_name.column,
                     column_with_type_and_name.type, rows, _timezone_obj);
@@ -371,12 +378,13 @@ public:
                       << column_with_type_and_name.column->get_name()
                       << " with column size: " << column_with_type_and_name.column->size()
                       << std::endl;
-            std::cout << assert_block.dump_structure() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             auto& col = block->get_by_position(i).column;
             auto& assert_col = column_with_type_and_name.column;
+            std::cout << "column: " << col->get_name() << " size: " << col->size()
+                      << " assert size: " << assert_col->size() << std::endl;
             EXPECT_EQ(assert_col->size(), col->size());
-            for (size_t j = 0; j < col->size(); ++j) {
+            for (size_t j = 0; j < assert_col->size(); ++j) {
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;

@@ -277,7 +277,7 @@ public class OlapTableTest {
         Set<Tag> tagSet = new HashSet<>();
         tagSet.add(taga);
 
-        connectContext.setResourceTags(tagSet, false);
+        connectContext.setResourceTags(tagSet);
         TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
         Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
         ConnectContext.remove();
