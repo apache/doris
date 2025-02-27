@@ -238,7 +238,9 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
-    if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
+    // If under low memory mode, should not return the freeblock, it will occupy too much memory.
+    if (!_local_state->low_memory_mode() && block->mem_reuse() &&
+        _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
@@ -258,6 +260,10 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
     // see ScannerScheduler::_scanner_scan.
     _num_scheduled_scanners++;
     return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
+}
+
+void ScannerContext::clear_free_blocks() {
+    clear_blocks(_free_blocks);
 }
 
 void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -483,6 +489,12 @@ int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
 
     int32_t margin = std::max(margin_1, margin_2);
 
+    if (low_memory_mode()) {
+        // In low memory mode, we will limit the number of running scanners to `low_memory_mode_scanners()`.
+        // So that we will not submit too many scan tasks to scheduler.
+        margin = std::min(low_memory_mode_scanners() - _num_scheduled_scanners, margin);
+    }
+
     VLOG_DEBUG << fmt::format(
             "[{}|{}] schedule scan task, margin_1: {} = {} - ({} + {}), margin_2: {} = {} - "
             "({} + {}), margin: {}",
@@ -618,6 +630,10 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     } else {
         return nullptr;
     }
+}
+
+bool ScannerContext::low_memory_mode() const {
+    return _local_state->low_memory_mode();
 }
 
 } // namespace doris::vectorized

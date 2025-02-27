@@ -293,6 +293,20 @@ suite("array_agg") {
     order_qt_sql_group_array_map_limit """ SELECT group_array(km, 7) FROM test_array_agg_complex GROUP BY id ORDER BY id"""
     order_qt_sql_group_array_struct_limit """ SELECT group_array(ks, 7) FROM test_array_agg_complex GROUP BY id ORDER BY id"""
 
+    // for session variable "set ENABLE_LOCAL_EXCHANGE = 0
+    order_qt_sql_collect_list_array1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_map1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_struct1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_array1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(kastr) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_map1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(km) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_struct1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(ks) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    // add limit for param
+    order_qt_sql_collect_list_array_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(kastr, 2) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_map_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(km, 2) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_collect_list_struct_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ id, collect_list(ks, 3) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_array_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(kastr, 3) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_map_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(km, 7) FROM test_array_agg_complex GROUP BY id ORDER BY id """
+    order_qt_sql_group_array_struct_limit1 """ SELECT /*+ SET ENABLE_LOCAL_EXCHANGE = 0 */ group_array(ks, 7) FROM test_array_agg_complex GROUP BY id ORDER BY id """
 
  sql """ DROP TABLE IF EXISTS test_array_agg_ip;"""
     sql """

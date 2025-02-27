@@ -17,6 +17,8 @@
 
 #include "exchange_source_operator.h"
 
+#include <fmt/core.h>
+
 #include <cstdint>
 #include <memory>
 
@@ -63,8 +65,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, _memory_used_counter, p.input_row_desc(), state->fragment_instance_id(),
-            p.node_id(), p.num_senders(), profile(), p.is_merging(),
+            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
+            p.num_senders(), profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
     const auto& queues = stream_recvr->sender_queues();
@@ -74,7 +76,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                            "SHUFFLE_DATA_DEPENDENCY");
+                                            fmt::format("SHUFFLE_DATA_DEPENDENCY_{}", i));
         queues[i]->set_dependency(deps[i]);
         metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
@@ -126,8 +128,8 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::open(state));
+Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::prepare(state));
     DCHECK_GT(_num_senders, 0);
 
     if (_is_merging) {
@@ -163,6 +165,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(),
                                                                       block, block->columns()));
     }
+
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {

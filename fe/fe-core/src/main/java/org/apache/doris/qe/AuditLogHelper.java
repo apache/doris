@@ -204,6 +204,10 @@ public class AuditLogHelper {
                 .setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setSpillWriteBytesToLocalStorage(statistics == null ? 0 :
+                        statistics.getSpillWriteBytesToLocalStorage())
+                .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
+                        statistics.getSpillReadBytesFromLocalStorage())
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setReturnRows(ctx.getReturnRows())

@@ -209,16 +209,21 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         THROW_IF_ERROR(_block_supplier(block.get(), &_is_eof));
         DCHECK(!block->empty() or _is_eof);
         if (!block->empty()) {
-            DCHECK_EQ(_ordering_expr.size(), desc.size());
-            for (int i = 0; i < desc.size(); ++i) {
-                THROW_IF_ERROR(_ordering_expr[i]->execute(block.get(), &desc[i].column_number));
+            if (!_ordering_expr.empty()) {
+                DCHECK_EQ(_ordering_expr.size(), desc.size());
+                for (int i = 0; i < desc.size(); ++i) {
+                    THROW_IF_ERROR(_ordering_expr[i]->execute(block.get(), &desc[i].column_number));
+                }
             }
             MergeSortCursorImpl::reset();
+        } else {
+            pos = 0;
+            rows = block->rows();
         }
     }
 
     Block* block_ptr() override { return block.get(); }
-    bool eof() const override { return is_last() && _is_eof; }
+    bool eof() const override { return is_last(0) && _is_eof; }
 
     VExprContextSPtrs _ordering_expr;
     BlockSupplier _block_supplier {};
