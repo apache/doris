@@ -77,7 +77,7 @@ auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
 
     std::shared_ptr<MockExchangeSinkOperatorX> op =
             std::make_shared<MockExchangeSinkOperatorX>(*ctx);
-    EXPECT_TRUE(op->open(&ctx->state));
+    EXPECT_TRUE(op->prepare(&ctx->state));
 
     auto local_state = std::make_unique<MockExchangeLocalState>(op.get(), &ctx->state);
 

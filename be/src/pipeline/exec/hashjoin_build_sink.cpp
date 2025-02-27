@@ -574,8 +574,8 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::open(state));
+Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::prepare(state));
     if (_is_broadcast_join) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _shared_hashtable_controller =
