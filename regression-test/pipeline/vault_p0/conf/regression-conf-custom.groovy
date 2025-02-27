@@ -44,4 +44,5 @@ extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
 extMinioBucket = "test-bucket"
 
-s3Source = "aliyun-internal"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
