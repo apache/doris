@@ -581,7 +581,6 @@ FE_MODULES="$(
     IFS=','
     echo "${modules[*]}"
 )"
-FE_MODULES=''
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then

@@ -682,7 +682,6 @@ void ExecEnv::set_wal_mgr(std::unique_ptr<WalManager>&& wm) {
 void ExecEnv::clear_wal_mgr() {
     this->_wal_manager.reset();
 }
-
 #endif
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
