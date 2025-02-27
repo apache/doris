@@ -429,7 +429,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {
+    def sql_return_maparray_impl(String sqlStr, Connection conn = null) {        
         logger.info("Execute sql: ${sqlStr}".toString())
         if (conn == null) {
             conn = context.getConnection()
@@ -447,7 +447,7 @@ class Suite implements GroovyInterceptable {
         // which cannot be handled by maps and will result in an error directly.
         Set<String> uniqueSet = new HashSet<>()
         Set<String> duplicates = new HashSet<>()
-
+    
         for (String str : columnNames) {
             if (uniqueSet.contains(str)) {
                 duplicates.add(str)
@@ -456,7 +456,7 @@ class Suite implements GroovyInterceptable {
             }
         }
         if (!duplicates.isEmpty()) {
-            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"
+            def errorMessage = "${sqlStr} returns duplicates headers: ${duplicates}"   
             throw new Exception(errorMessage)
         }
 
@@ -615,7 +615,7 @@ class Suite implements GroovyInterceptable {
     }
 
     long getTableVersion(long dbId, String tableName) {
-        def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
+       def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
         for (def res : result) {
             if(res.TableName.equals(tableName)) {
                 log.info(res.toString())
@@ -647,31 +647,31 @@ class Suite implements GroovyInterceptable {
         }
         AtomicBoolean isFirst = new AtomicBoolean(true)
         String sql = list.stream()
-                .map({ row ->
-                    StringBuilder sb = new StringBuilder("SELECT ")
-                    if (row instanceof List) {
-                        if (isFirst.get()) {
-                            String columns = row.withIndex().collect({ column, index ->
-                                "${toSelectString(column)} AS c${index + 1}"
-                            }).join(", ")
-                            sb.append(columns)
-                            isFirst.set(false)
-                        } else {
-                            String columns = row.collect({ column ->
-                                "${toSelectString(column)}"
-                            }).join(", ")
-                            sb.append(columns)
-                        }
+            .map({ row ->
+                StringBuilder sb = new StringBuilder("SELECT ")
+                if (row instanceof List) {
+                    if (isFirst.get()) {
+                        String columns = row.withIndex().collect({ column, index ->
+                            "${toSelectString(column)} AS c${index + 1}"
+                        }).join(", ")
+                        sb.append(columns)
+                        isFirst.set(false)
                     } else {
-                        if (isFirst.get()) {
-                            sb.append(toSelectString(row)).append(" AS c1")
-                            isFirst.set(false)
-                        } else {
-                            sb.append(toSelectString(row))
-                        }
+                        String columns = row.collect({ column ->
+                            "${toSelectString(column)}"
+                        }).join(", ")
+                        sb.append(columns)
                     }
-                    return sb.toString()
-                }).collect(Collectors.joining("\nUNION ALL\n"))
+                } else {
+                    if (isFirst.get()) {
+                        sb.append(toSelectString(row)).append(" AS c1")
+                        isFirst.set(false)
+                    } else {
+                        sb.append(toSelectString(row))
+                    }
+                }
+                return sb.toString()
+            }).collect(Collectors.joining("\nUNION ALL\n"))
         return sql
     }
 
@@ -1001,7 +1001,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
-                                   Map<String, String> backendId_to_backendHeartbeatPort) {
+            Map<String, String> backendId_to_backendHeartbeatPort) {
         List<List<Object>> backends = sql("show backends");
         logger.info("Content of backends: ${backends}")
         for (List<Object> backend : backends) {
@@ -1079,7 +1079,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void getBackendIpHttpAndBrpcPort(Map<String, String> backendId_to_backendIP,
-                                     Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
+        Map<String, String> backendId_to_backendHttpPort, Map<String, String> backendId_to_backendBrpcPort) {
 
         List<List<Object>> backends = sql("show backends");
         for (List<Object> backend : backends) {
@@ -1300,16 +1300,16 @@ class Suite implements GroovyInterceptable {
             String errorMsg = null
             try {
                 errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),
-                        { row -> OutputUtils.toCsvString(row as List<Object>) },
-                        { row ->  OutputUtils.toCsvString(row) },
-                        "Check tag '${tag}' failed", meta)
+                    { row -> OutputUtils.toCsvString(row as List<Object>) },
+                    { row ->  OutputUtils.toCsvString(row) },
+                    "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
                 String csvRealResult = realResults.stream()
-                        .map {row -> OutputUtils.toCsvString(row)}
-                        .collect(Collectors.joining("\n"))
+                    .map {row -> OutputUtils.toCsvString(row)}
+                    .collect(Collectors.joining("\n"))
                 def outputFilePath = context.outputFile.getCanonicalPath().substring(context.config.dataPath.length() + 1)
                 def line = expectCsvResults.currentLine()
                 logger.warn("expect results in file: ${outputFilePath}, line: ${line}\nrealResults:\n" + csvRealResult)
@@ -1604,14 +1604,14 @@ class Suite implements GroovyInterceptable {
         logger.info("result expected: " + resultExpected.toString())
 
         String errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
-                { row -> OutputUtils.toCsvString(row as List<Object>) },
-                { row ->  OutputUtils.toCsvString(row) },
-                "check output failed", meta)
+                    { row -> OutputUtils.toCsvString(row as List<Object>) },
+                    { row ->  OutputUtils.toCsvString(row) },
+                    "check output failed", meta)
     }
 
     String getJobName(String dbName, String mtmvName) {
         String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
-        logger.info(showMTMV)
+	    logger.info(showMTMV)
         List<List<Object>> result = sql(showMTMV)
         logger.info("result: " + result.toString())
         if (result.isEmpty()) {
@@ -1866,7 +1866,7 @@ class Suite implements GroovyInterceptable {
             sql(" memo plan ${query_sql}")
             check { result ->
                 boolean success = !result.contains("${mv_name} chose") && !result.contains("${mv_name} not chose")
-                        && !result.contains("${mv_name} fail")
+                && !result.contains("${mv_name} fail")
                 Assert.assertEquals(true, success)
             }
         }
@@ -1905,7 +1905,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                            is_partition_statistics_ready = true) {
+                               is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -1931,7 +1931,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_all_success( query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                 is_partition_statistics_ready = true) {
+                                   is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -1975,7 +1975,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_any_success(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                is_partition_statistics_ready = true) {
+                                   is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -2017,7 +2017,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
-                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
+                                                        sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         if (!sync_cbo_rewrite) {
             explain {
