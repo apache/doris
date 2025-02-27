@@ -49,6 +49,7 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.hadoop.fs.FileSystem
 import org.junit.jupiter.api.Assertions
 
 import org.slf4j.Logger
@@ -92,6 +93,7 @@ class Suite implements GroovyInterceptable {
     final List<Future> lazyCheckFutures = new Vector<>()
 
     private AmazonS3 s3Client = null
+    private FileSystem fs = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -841,6 +843,16 @@ class Suite implements GroovyInterceptable {
     boolean enableHdfs() {
         String enableHdfs = context.config.otherConfigs.get("enableHdfs");
         return enableHdfs.equals("true");
+    }
+
+    synchronized FileSystem getHdfs() {
+        if (fs == null) {
+            String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+            String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+            Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, context.config.dataPath + "/")
+            fs = hdfs.fs
+        }
+        return fs
     }
 
     String uploadToHdfs(String localFile) {
