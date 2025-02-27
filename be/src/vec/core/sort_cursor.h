@@ -215,8 +215,11 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                     THROW_IF_ERROR(_ordering_expr[i]->execute(block.get(), &desc[i].column_number));
                 }
             }
+            MergeSortCursorImpl::reset();
+        } else {
+            pos = 0;
+            rows = block->rows();
         }
-        MergeSortCursorImpl::reset();
     }
 
     Block* block_ptr() override { return block.get(); }
