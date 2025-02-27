@@ -839,10 +839,12 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 
+#ifndef BE_TEST
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+#endif
     return Status::OK();
 }
 
