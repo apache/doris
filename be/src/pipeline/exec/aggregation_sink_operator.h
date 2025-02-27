@@ -21,6 +21,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
+#include "util/runtime_profile.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -96,6 +97,8 @@ protected:
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
+
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
@@ -107,6 +110,8 @@ protected:
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _memory_usage_container = nullptr;
+    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
     bool _should_limit_output = false;
 
@@ -120,6 +125,8 @@ protected:
     std::unique_ptr<vectorized::Arena> _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
+
+    int64_t _memory_usage_last_executing = 0;
 };
 
 class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {
@@ -166,6 +173,8 @@ public:
     }
 
     Status reset_hash_table(RuntimeState* state);
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;

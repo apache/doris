@@ -251,6 +251,14 @@ void PipelineXLocalStateBase::clear_origin_block() {
     _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
 
+Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
+                                             vectorized::Block* block, size_t column_to_keep) {
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, column_to_keep));
+
+    _estimate_memory_usage += vectorized::VExprContext::get_memory_usage(expr_contexts);
+    return Status::OK();
+}
+
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
     auto* local_state = state->get_local_state(operator_id());
@@ -263,11 +271,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     vectorized::Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
+    size_t bytes_usage = 0;
     for (const auto& projections : local_state->_intermediate_projections) {
         result_column_ids.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
         }
+
+        bytes_usage += input_block.allocated_bytes();
         input_block.shuffle_columns(result_column_ids);
     }
 
@@ -278,12 +289,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
                 auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+                bytes_usage += null_column.allocated_bytes();
             } else {
                 to = make_nullable(from, false)->assume_mutable();
             }
         } else {
             if (_keep_origin || !from->is_exclusive()) {
                 to->insert_range_from(*from, 0, rows);
+                bytes_usage += from->allocated_bytes();
             } else {
                 to = from->assume_mutable();
             }
@@ -296,17 +309,23 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
                                                                        *_output_row_descriptor);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
+        const size_t origin_columns_count = input_block.columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
             auto column_ptr = input_block.get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
+            if (result_column_id >= origin_columns_count) {
+                bytes_usage += column_ptr->allocated_bytes();
+            }
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
         output_block->set_columns(std::move(mutable_columns));
     }
+
+    local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();
 }
@@ -382,7 +401,7 @@ std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indenta
 
 Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
     std::string op_name = "UNKNOWN_SINK";
-    std::map<int, const char*>::const_iterator it = _TDataSinkType_VALUES_TO_NAMES.find(tsink.type);
+    auto it = _TDataSinkType_VALUES_TO_NAMES.find(tsink.type);
 
     if (it != _TDataSinkType_VALUES_TO_NAMES.end()) {
         op_name = it->second;

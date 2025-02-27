@@ -87,7 +87,7 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-
+        // the offsets size should be num + 1
         for (size_t i = 0; i != num; ++i) {
             insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
         }

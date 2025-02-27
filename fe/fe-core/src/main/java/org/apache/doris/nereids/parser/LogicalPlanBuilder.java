@@ -55,6 +55,7 @@ import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddBackendClauseContext;
+import org.apache.doris.nereids.DorisParser.AddBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.AddColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.AddColumnsClauseContext;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
@@ -142,6 +143,8 @@ import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
+import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
@@ -659,6 +662,7 @@ import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuota
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
@@ -690,7 +694,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropDatabaseInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
@@ -710,10 +716,13 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp.ModifyOpType;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -782,7 +791,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -3600,8 +3609,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         last,
                         plan(join.relationPrimary()), null);
             } else {
-                last = new UsingJoin<>(joinType, last,
-                        plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
+                last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids, distributeHint);
 
             }
             if (distributeHint.distributeType != DistributeType.NONE
@@ -5737,6 +5745,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitDropAllBrokerClause(DropAllBrokerClauseContext ctx) {
+        String brokerName = stripQuotes(ctx.name.getText());
+        AlterSystemOp alterSystemOp = new DropAllBrokerOp(brokerName);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitAddBrokerClause(AddBrokerClauseContext ctx) {
+        String brokerName = stripQuotes(ctx.name.getText());
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        AlterSystemOp alterSystemOp = new AddBrokerOp(brokerName, hostPorts);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitDropBrokerClause(DropBrokerClauseContext ctx) {
+        String brokerName = stripQuotes(ctx.name.getText());
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        AlterSystemOp alterSystemOp = new DropBrokerOp(brokerName, hostPorts);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
     public LogicalPlan visitAddBackendClause(AddBackendClauseContext ctx) {
         List<String> hostPorts = ctx.hostPorts.stream()
                 .map(e -> stripQuotes(e.getText()))
@@ -5793,6 +5828,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropObserverClause(DorisParser.DropObserverClauseContext ctx) {
         String hostPort = stripQuotes(ctx.hostPort.getText());
         AlterSystemOp alterSystemOp = new DropObserverOp(hostPort);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitModifyBackendClause(DorisParser.ModifyBackendClauseContext ctx) {
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        AlterSystemOp alterSystemOp = new ModifyBackendOp(hostPorts, properties);
+        return new AlterSystemCommand(alterSystemOp);
+    }
+
+    @Override
+    public LogicalPlan visitModifyFrontendOrBackendHostNameClause(
+            DorisParser.ModifyFrontendOrBackendHostNameClauseContext ctx) {
+        String hostPort = stripQuotes(ctx.hostPort.getText());
+        String hostName = stripQuotes(ctx.hostName.getText());
+        AlterSystemOp alterSystemOp = null;
+        if (ctx.FRONTEND() != null) {
+            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Frontend);
+        } else if (ctx.BACKEND() != null) {
+            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Backend);
+        }
         return new AlterSystemCommand(alterSystemOp);
     }
 
