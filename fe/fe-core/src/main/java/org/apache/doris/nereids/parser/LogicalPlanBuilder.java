@@ -5753,6 +5753,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitAlterSystem(DorisParser.AlterSystemContext ctx) {
+        return plan(ctx.alterSystemClause());
+    }
+
+    @Override
     public LogicalPlan visitAddBrokerClause(AddBrokerClauseContext ctx) {
         String brokerName = stripQuotes(ctx.name.getText());
         List<String> hostPorts = ctx.hostPorts.stream()
