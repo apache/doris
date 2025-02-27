@@ -27,12 +27,14 @@ import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
@@ -524,6 +526,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -677,6 +680,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
@@ -6001,6 +6005,85 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException(e.getDetailMessage());
         }
         return new DescribeCommand(tableValuedFunctionRef);
+    }
+
+    @Override
+    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
+        UserIdentity userIdentity = (UserIdentity) visit(ctx.userIdentify());
+        if (ctx.IDENTIFIED() == null) {
+            return new UserDesc(userIdentity);
+        }
+        String password = stripQuotes(ctx.STRING_LITERAL().getText());
+        boolean isPlain = ctx.PASSWORD() == null;
+        return new UserDesc(userIdentity, new PassVar(password, isPlain));
+    }
+
+    @Override
+    public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
+        long expirePolicySecond = -2;
+        int historyPolicy = -2;
+        int reusePolicy = -2;
+        int loginAttempts = -2;
+        long passwordLockSecond = -2;
+        int accountUnlocked = -2;
+
+        if (ctx.expireDefault != null) {
+            expirePolicySecond = -1;
+        } else if (ctx.expireNever != null) {
+            expirePolicySecond = 0;
+        } else if (ctx.expireValue != null) {
+            long value = Long.parseLong(ctx.expireValue.getText());
+            expirePolicySecond = ParserUtils.convertSecond(value, ctx.expireTimeUnit.getText());
+        }
+
+        if (ctx.historyDefault != null) {
+            historyPolicy = -1;
+        } else if (ctx.historyValue != null) {
+            historyPolicy = Integer.parseInt(ctx.historyValue.getText());
+        }
+
+        if (ctx.reuseValue != null) {
+            reusePolicy = Integer.parseInt(ctx.reuseValue.getText());
+        }
+
+        if (ctx.attemptsValue != null) {
+            loginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
+        }
+
+        if (ctx.lockUnbounded != null) {
+            passwordLockSecond = -1;
+        } else if (ctx.lockValue != null) {
+            long value = Long.parseLong(ctx.lockValue.getText());
+            passwordLockSecond = ParserUtils.convertSecond(value, ctx.lockTimeUint.getText());
+        }
+
+        if (ctx.ACCOUNT_LOCK() != null) {
+            accountUnlocked = -1;
+        } else if (ctx.ACCOUNT_UNLOCK() != null) {
+            accountUnlocked = 1;
+        }
+
+        if (expirePolicySecond == -2 && historyPolicy == -2 && reusePolicy == -2
+                && loginAttempts == -2 && passwordLockSecond == -2 && accountUnlocked == -2) {
+            return PasswordOptions.UNSET_OPTION;
+        }
+
+        return new PasswordOptions(expirePolicySecond,
+            historyPolicy,
+            reusePolicy,
+            loginAttempts,
+            passwordLockSecond,
+            accountUnlocked);
+    }
+
+    @Override
+    public LogicalPlan visitAlterUser(DorisParser.AlterUserContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        UserDesc userDesc = (UserDesc) visit(ctx.grantUserIdentify());
+        PasswordOptions passwordOptions = (PasswordOptions) visit(ctx.passwordOption());
+        String comment = ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null;
+        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment);
+        return new AlterUserCommand(alterUserInfo);
     }
 }
 

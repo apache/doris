@@ -266,6 +266,8 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #modifyBackendClause
     | ALTER SYSTEM MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
         HOSTNAME hostName=STRING_LITERAL                                                    #modifyFrontendOrBackendHostNameClause
+    | ALTER USER (IF EXISTS)? grantUserIdentify
+        passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
     ;
 
 supportedDropStatement
@@ -648,8 +650,6 @@ unsupportedAlterStatement
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                   #alterStoragePlicy
-    | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
     ;
 
 alterSystemClause

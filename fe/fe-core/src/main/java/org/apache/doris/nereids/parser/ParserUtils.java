@@ -40,4 +40,18 @@ public class ParserUtils {
     public static Origin position(Token token) {
         return new Origin(token.getLine(), token.getCharPositionInLine());
     }
+
+    /**
+     * convertSecond
+     */
+    public static long convertSecond(long value, String s) {
+        switch (s) {
+            case "DAY":
+                return value * 24 * 60 * 60;
+            case "HOUR":
+                return value * 60 * 60;
+            default:
+                return value;
+        }
+    }
 }
