@@ -406,9 +406,10 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), 2);
     ASSERT_EQ(column_hll_verify->clone()->filter(filter), 2);
     ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), 2);
-    auto column_filter_res_bitmap = column_bitmap->filter(filter, 0);
-    auto column_filter_res_hll = column_hll->filter(filter, 0);
-    auto column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+    auto column_filter_res_bitmap = column_bitmap->filter(filter, column_bitmap->size());
+    auto column_filter_res_hll = column_hll->filter(filter, column_hll->size());
+    auto column_filter_res_quantile_state =
+            column_quantile_state->filter(filter, column_quantile_state->size());
 
     ASSERT_EQ(column_filter_res_bitmap->size(), 2);
     ASSERT_EQ(column_filter_res_hll->size(), 2);
@@ -429,9 +430,10 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), rows);
     ASSERT_EQ(column_hll_verify->clone()->filter(filter), rows);
     ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), rows);
-    column_filter_res_bitmap = column_bitmap->filter(filter, 0);
-    column_filter_res_hll = column_hll->filter(filter, 0);
-    column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+    column_filter_res_bitmap = column_bitmap->filter(filter, column_bitmap->size());
+    column_filter_res_hll = column_hll->filter(filter, column_hll->size());
+    column_filter_res_quantile_state =
+            column_quantile_state->filter(filter, column_quantile_state->size());
     ASSERT_EQ(column_filter_res_bitmap->size(), rows);
     ASSERT_EQ(column_filter_res_hll->size(), rows);
     ASSERT_EQ(column_filter_res_quantile_state->size(), rows);
@@ -451,9 +453,10 @@ TEST(ColumnComplexTest, GetDataAtTest) {
     ASSERT_EQ(column_bitmap_verify->clone()->filter(filter), 0);
     ASSERT_EQ(column_hll_verify->clone()->filter(filter), 0);
     ASSERT_EQ(column_quantile_state_verify->clone()->filter(filter), 0);
-    column_filter_res_bitmap = column_bitmap->filter(filter, 0);
-    column_filter_res_hll = column_hll->filter(filter, 0);
-    column_filter_res_quantile_state = column_quantile_state->filter(filter, 0);
+    column_filter_res_bitmap = column_bitmap->filter(filter, column_bitmap->size());
+    column_filter_res_hll = column_hll->filter(filter, column_hll->size());
+    column_filter_res_quantile_state =
+            column_quantile_state->filter(filter, column_quantile_state->size());
     ASSERT_EQ(column_filter_res_bitmap->size(), 0);
     ASSERT_EQ(column_filter_res_hll->size(), 0);
     ASSERT_EQ(column_filter_res_quantile_state->size(), 0);
