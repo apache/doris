@@ -138,7 +138,7 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Source="aliyun"
+s3Source = "aliyun-internal"
 
 // for multi cloud test case, eg. paimon_base_filesystem
 aliYunAk="***********"

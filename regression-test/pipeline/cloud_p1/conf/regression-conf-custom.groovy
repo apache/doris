@@ -23,4 +23,4 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 max_failure_num = 50
 
-s3Source = "aliyun"
+s3Source = "aliyun-internal"

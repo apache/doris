@@ -75,4 +75,4 @@ enableKafkaTest=true
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 
-s3Source = "aliyun"
+s3Source = "aliyun-internal"

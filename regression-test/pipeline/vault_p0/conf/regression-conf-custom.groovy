@@ -43,3 +43,5 @@ extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
 extMinioBucket = "test-bucket"
+
+s3Source = "aliyun-internal"
