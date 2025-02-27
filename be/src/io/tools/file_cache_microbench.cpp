@@ -1023,10 +1023,13 @@ private:
         s3_conf.max_connections = std::max(256, config.num_threads * 4);
         s3_conf.request_timeout_ms = 60000;
         s3_conf.connect_timeout_ms = 3000;
+// due to config.cpp
+#ifdef BE_TEST
         s3_conf.ak = doris::config::test_s3_ak;
         s3_conf.sk = doris::config::test_s3_sk;
         s3_conf.region = doris::config::test_s3_region;
         s3_conf.endpoint = doris::config::test_s3_endpoint;
+#endif
         return s3_conf;
     }
 
@@ -1061,9 +1064,12 @@ private:
                         options.file_cache_expiration = config.expiration;
                     }
                     options.write_file_cache = config.write_file_cache;
+                    std::string test_s3_bucket = "";
+#ifdef BE_TEST
+                    test_s3_bucket = doris::config::test_s3_bucket;
+#endif
                     auto writer = std::make_unique<MircobenchS3FileWriter>(
-                            client, doris::config::test_s3_bucket, key, &options,
-                            job.write_limiter);
+                            client, test_s3_bucket, key, &options, job.write_limiter);
                     doris::Defer defer {[&]() {
                         if (auto status = writer->close(); !status.ok()) {
                             LOG(ERROR) << "close file writer failed" << status.to_string();
@@ -1174,7 +1180,11 @@ private:
                     reader_opts.is_doris_table = true;
 
                     doris::io::FileDescription fd;
-                    std::string obj_path = "s3://" + doris::config::test_s3_bucket + "/";
+                    std::string test_s3_bucket = "";
+#ifdef BE_TEST
+                    test_s3_bucket = doris::config::test_s3_bucket;
+#endif
+                    std::string obj_path = "s3://" + test_s3_bucket + "/";
                     fd.path = doris::io::Path(obj_path + key);
                     fd.file_size = exist_job_perfile_size != -1 ? exist_job_perfile_size
                                                                 : config.size_bytes_perfile;
@@ -2274,11 +2284,22 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "Error reading custom config file";
         return -1;
     }
+    std::string test_s3_bucket = "";
+    std::string test_s3_ak = "";
+    std::string test_s3_sk = "";
+    std::string test_s3_region = "";
+    std::string test_s3_endpoint = "";
+#ifdef BE_TEST
+    test_s3_bucket = doris::config::test_s3_bucket;
+    test_s3_ak = doris::config::test_s3_ak;
+    test_s3_sk = doris::config::test_s3_sk;
+    test_s3_region = doris::config::test_s3_region;
+    test_s3_endpoint = doris::config::test_s3_endpoint;
+#endif
 
-    LOG(INFO) << "Obj config. ak=" << doris::config::test_s3_ak
-              << " sk=" << doris::config::test_s3_sk << " region=" << doris::config::test_s3_region
-              << " endpoint=" << doris::config::test_s3_endpoint
-              << " bucket=" << doris::config::test_s3_bucket;
+    LOG(INFO) << "Obj config. ak=" << test_s3_ak << " sk=" << test_s3_sk
+              << " region=" << test_s3_region << " endpoint=" << test_s3_endpoint
+              << " bucket=" << test_s3_bucket;
     LOG(INFO) << "File cache config. enable_file_cache=" << doris::config::enable_file_cache
               << " file_cache_path=" << doris::config::file_cache_path
               << " file_cache_each_block_size=" << doris::config::file_cache_each_block_size
