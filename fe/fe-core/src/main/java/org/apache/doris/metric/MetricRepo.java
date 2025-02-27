@@ -155,7 +155,12 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
 
+    public static GaugeMetric<Integer> COMMIT_QUEUE_LENGTH;
+
     public static Histogram HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY;
+    public static Histogram HISTO_GET_COMMIT_LOCK_LATENCY;
+    public static Histogram HISTO_CALCULATE_DELETE_BITMAP_LATENCY;
+    public static Histogram HISTO_COMMIT_TO_MS_LATENCY;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -596,8 +601,23 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
 
+        COMMIT_QUEUE_LENGTH = new GaugeMetric<Integer>("commit_queue_length",
+                MetricUnit.NOUNIT, "commit queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getGlobalTransactionMgr().getQueueLength();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(COMMIT_QUEUE_LENGTH);
+
         HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("get_delete_bitmap_update_lock", "latency", "ms"));
+        HISTO_GET_COMMIT_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_commit_lock", "latency", "ms"));
+        HISTO_CALCULATE_DELETE_BITMAP_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("calculate_delete_bitmap", "latency", "ms"));
+        HISTO_COMMIT_TO_MS_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("commit_to_ms", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();
