@@ -904,7 +904,7 @@ Status CloudTablet::sync_meta() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            // TODO(Lchangliang): recycle_resources_by_self();
+            clear_cache();
         }
         return st;
     }
