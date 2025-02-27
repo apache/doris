@@ -82,29 +82,53 @@ suite("test_tablet_state_change_in_publish_phase", "docker") {
 
             Thread.sleep(1000)
 
+            // block FE's task report handler to avoid alter task re-sended to BE before we enable debug points for SC
+            GetDebugPoint().enableDebugPointForAllFEs("ReportHandler.block")
+            cluster.startBackends(beIndex)
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
+            GetDebugPoint().disableDebugPointForAllFEs("ReportHandler.block")
+
             def newThreadInDocker = { Closure actionSupplier ->
                 def connInfo = context.threadLocalConn.get()
                 return Thread.start {
                     connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
                 }
             }
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "token1"])
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "-1"])
+
+            // let load 1 block before publish
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
             def t1 = newThreadInDocker {
                 // load 1 will not see any historical data when flush
-                sql "insert into ${table1} values(2,88,88);"
+                // and will skip to calculate delete bitmaps in later phase becase the tablet's state is NOT_READY
+                sql "insert into ${table1} values(1,88,88);"
             }
             Thread.sleep(800)
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "token2"])
+
+            // let sc finish converting historical data
+            GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+            Thread.sleep(1000)
+
+            // let load 1 publish
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            t1.join()
+
+            // load 2
+            sql "insert into ${table1} values(1,77,77);"
+
+
+            // let load 3 block before publish
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
             def t2 = newThreadInDocker {
-                // load 2 will not see any historical data when flush
-                // load 2 will see version 2,3,4,5 when publish
                 sql "insert into ${table1} values(1,99,99);"
             }
+            Thread.sleep(1000)
 
-            cluster.startBackends(beIndex)
-            GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
-            // GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+            // let sc finish
+            GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
 
             dockerAwaitUntil(30) {
                 def res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
@@ -113,12 +137,7 @@ suite("test_tablet_state_change_in_publish_phase", "docker") {
             }
             // tablet state has changed to NORMAL in MS
 
-            Thread.sleep(1200)
-            // let load 1 publish
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "token1"])
-            t1.join()
-
-            // let load 2 publish
+            // let load 3 publish
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
             t2.join()
