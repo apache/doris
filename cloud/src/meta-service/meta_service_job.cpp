@@ -1129,13 +1129,15 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             txn->put(job_key, job_val);
             if (!new_tablet_job_val.empty()) {
                 auto& compactions = *new_recorded_job.mutable_compaction();
-                compactions.erase(std::remove_if(compactions.begin(), compactions.end(),
-                                                 [&](auto& c) {
-                                                     return c.has_initiator() &&
-                                                            c.initiator() ==
-                                                                    schema_change.initiator();
-                                                 }),
-                                  compactions.end());
+                compactions.erase(
+                        std::remove_if(
+                                compactions.begin(), compactions.end(),
+                                [&](auto& c) {
+                                    return c.has_delete_bitmap_lock_initiator() &&
+                                           c.delete_bitmap_lock_initiator() ==
+                                                   schema_change.delete_bitmap_lock_initiator();
+                                }),
+                        compactions.end());
                 new_recorded_job.clear_schema_change();
                 new_tablet_job_val = new_recorded_job.SerializeAsString();
                 txn->put(new_tablet_job_key, new_tablet_job_val);
@@ -1313,12 +1315,14 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     txn->put(job_key, job_val);
     if (!new_tablet_job_val.empty()) {
         auto& compactions = *new_recorded_job.mutable_compaction();
-        compactions.erase(std::remove_if(compactions.begin(), compactions.end(),
-                                         [&](auto& c) {
-                                             return c.has_initiator() &&
-                                                    c.initiator() == schema_change.initiator();
-                                         }),
-                          compactions.end());
+        compactions.erase(
+                std::remove_if(compactions.begin(), compactions.end(),
+                               [&](auto& c) {
+                                   return c.has_delete_bitmap_lock_initiator() &&
+                                          c.delete_bitmap_lock_initiator() ==
+                                                  schema_change.delete_bitmap_lock_initiator();
+                               }),
+                compactions.end());
         new_recorded_job.clear_schema_change();
         new_tablet_job_val = new_recorded_job.SerializeAsString();
         txn->put(new_tablet_job_key, new_tablet_job_val);
