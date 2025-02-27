@@ -306,7 +306,9 @@ void serialize_and_deserialize_arrow_test() {
             //                auto& datetimev2_data = column_vector_datetimev2->get_data();
             DateV2Value<DateTimeV2ValueType> value;
             string date_literal = "2022-01-01 11-11-11.111";
-            EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), 3));
+            cctz::time_zone ctz;
+            TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+            EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
