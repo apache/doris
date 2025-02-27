@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -167,6 +168,9 @@ protected:
     int _disk_num {-1};
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
 };
 
 class CompactionSubmitRegistry {
@@ -429,6 +433,8 @@ private:
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
+    void _check_tablet_delete_bitmap_score_callback();
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -535,6 +541,9 @@ private:
     std::unique_ptr<CreateTabletRRIdxCache> _create_tablet_idx_lru_cache;
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
+
+    // thread to check tablet delete bitmap count tasks
+    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 };
 
 // lru cache for create tabelt round robin in disks

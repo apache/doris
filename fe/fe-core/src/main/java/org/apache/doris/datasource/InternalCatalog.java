@@ -267,6 +267,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         return Lists.newArrayList(idToDb.keySet());
     }
 
+    public int getDbNum() {
+        return idToDb.size();
+    }
+
     @Nullable
     @Override
     public Database getDbNullable(String dbName) {
@@ -1600,6 +1604,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
+            if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST
+                    && !isTempPartition) {
+                throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
+            }
+
             Map<String, String> properties = singlePartitionDesc.getProperties();
 
             /*
@@ -2802,7 +2811,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setIsBeingSynced(isBeingSynced);
         if (isBeingSynced) {
             // erase colocate table, storage policy
-            olapTable.ignoreInvaildPropertiesWhenSynced(properties);
+            olapTable.ignoreInvalidPropertiesWhenSynced(properties);
             // remark auto bucket
             if (isAutoBucket) {
                 olapTable.markAutoBucket();
@@ -3157,6 +3166,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
+                }
+                // storage policy is invalid for table/partition when table is being synced
+                if (isBeingSynced) {
+                    olapTable.setStoragePolicy("");
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);

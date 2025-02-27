@@ -282,8 +282,8 @@ void Recycler::recycle_callback() {
             recycling_instance_map_.erase(instance_id);
         }
         auto elpased_ms =
-                ctime_ms -
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
+                ctime_ms;
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
@@ -545,7 +545,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init hdfs accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name()
+                      << " hdfs_vault=" << vault.hdfs_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         } else if (vault.has_obj_info()) {
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
@@ -564,7 +566,9 @@ int InstanceRecycler::init_storage_vault_accessors() {
                              << " s3_vault=" << vault.obj_info().ShortDebugString();
                 continue;
             }
-
+            LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
+                      << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
+                      << " s3_vault=" << vault.obj_info().ShortDebugString();
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
@@ -1464,7 +1468,8 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     return accessor->delete_files(file_paths);
 }
 
-int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets) {
+int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
+                                         RowsetRecyclingState type) {
     int ret = 0;
     // resource_id -> file_paths
     std::map<std::string, std::vector<std::string>> resource_file_paths;
@@ -1472,7 +1477,9 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
     std::vector<std::tuple<std::string, int64_t, std::string>> rowsets_delete_by_prefix;
 
     for (const auto& rs : rowsets) {
-        {
+        // we have to treat tmp rowset as "orphans" that may not related to any existing tablets
+        // due to aborted schema change.
+        if (type == RowsetRecyclingState::FORMAL_ROWSET) {
             std::lock_guard lock(recycled_tablets_mtx_);
             if (recycled_tablets_.count(rs.tablet_id())) {
                 continue; // Rowset data has already been deleted
@@ -1499,7 +1506,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
         std::vector<std::pair<int64_t, std::string>> index_ids;
         // default format as v1.
         InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
-
+        int inverted_index_get_ret = 0;
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {
                 if (index.has_index_type() && index.index_type() == IndexType::INVERTED) {
@@ -1519,12 +1526,14 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 continue;
             }
             InvertedIndexInfo index_info;
-            int get_ret =
+            inverted_index_get_ret =
                     inverted_index_id_cache_->get(rs.index_id(), rs.schema_version(), index_info);
-            if (get_ret == 0) {
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.tmp_rowset",
+                                     &inverted_index_get_ret);
+            if (inverted_index_get_ret == 0) {
                 index_format = index_info.first;
                 index_ids = index_info.second;
-            } else if (get_ret == 1) {
+            } else if (inverted_index_get_ret == 1) {
                 // 1. Schema kv not found means tablet has been recycled
                 // Maybe some tablet recycle failed by some bugs
                 // We need to delete again to double check
@@ -1541,6 +1550,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                 // Currently index_ids is guaranteed to be empty,
                 // but we clear it again here as a safeguard against future code changes
                 // that might cause index_ids to no longer be empty
+                index_format = InvertedIndexStorageFormatPB::V2;
                 index_ids.clear();
             } else {
                 LOG(WARNING) << "failed to get schema kv for rowset, instance_id=" << instance_id_
@@ -1562,7 +1572,16 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
                     file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
                                                                 index_id.first, index_id.second));
                 }
-            } else if (!index_ids.empty()) {
+            } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
+                // try to recycle inverted index v2 when get_ret == 1
+                // we treat schema not found as if it has a v2 format inverted index
+                // to reduce chance of data leakage
+                if (inverted_index_get_ret == 1) {
+                    LOG_INFO("delete rowset data schema kv not found, try to delete index file")
+                            .tag("instance_id", instance_id_)
+                            .tag("inverted index v2 path",
+                                 inverted_index_path_v2(tablet_id, rowset_id, i));
+                }
                 file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
             }
         }
@@ -1576,6 +1595,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
             DCHECK(accessor_map_.count(*rid))
                     << "uninitilized accessor, instance_id=" << instance_id_
                     << " resource_id=" << resource_id << " path[0]=" << (*paths)[0];
+            TEST_SYNC_POINT_CALLBACK("InstanceRecycler::delete_rowset_data.no_resource_id",
+                                     &accessor_map_);
             if (!accessor_map_.contains(*rid)) {
                 LOG_WARNING("delete rowset data accessor_map_ does not contains resouce id")
                         .tag("resource_id", resource_id)
@@ -2028,7 +2049,7 @@ int InstanceRecycler::recycle_rowsets() {
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
                              rowsets_to_delete = std::move(rowsets_to_delete)]() {
-            if (delete_rowset_data(rowsets_to_delete) != 0) {
+            if (delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
                 return;
             }
@@ -2225,7 +2246,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
         });
-        if (delete_rowset_data(tmp_rowsets) != 0) {
+        if (delete_rowset_data(tmp_rowsets, RowsetRecyclingState::TMP_ROWSET) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
             return -1;
         }

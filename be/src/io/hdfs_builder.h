@@ -59,11 +59,18 @@ public:
     bool is_kerberos() const { return kerberos_login; }
     Status check_krb_params();
 
+    void set_hdfs_conf(const std::string& key, const std::string& val);
+    void set_hdfs_conf_to_hdfs_builder();
+
 private:
     hdfsBuilder* hdfs_builder = nullptr;
     bool kerberos_login {false};
+    std::string fs_name;
+    std::string hadoop_user;
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
+    std::string krb5_conf_path;
+    std::unordered_map<std::string, std::string> hdfs_conf;
 };
 
 THdfsParams parse_properties(const std::map<std::string, std::string>& properties);

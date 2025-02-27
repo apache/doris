@@ -828,6 +828,11 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             continue;
         }
         auto col_unique_id = col_unique_ids[0];
+        if (!_cur_tablet_schema->has_column_unique_id(col_unique_id)) {
+            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
+                         << col_unique_id << "] not found, will skip index compaction";
+            continue;
+        }
         // Avoid doing inverted index compaction on non-slice type columns
         if (!field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
             continue;
@@ -1261,7 +1266,12 @@ int64_t CloudCompactionMixin::get_compaction_permits() {
 
 CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabletSPtr tablet,
                                            const std::string& label)
-        : Compaction(tablet, label), _engine(engine) {}
+        : Compaction(tablet, label), _engine(engine) {
+    auto uuid = UUIDGenerator::instance()->next_uuid();
+    std::stringstream ss;
+    ss << uuid;
+    _uuid = ss.str();
+}
 
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
@@ -1293,11 +1303,26 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     return Status::OK();
 }
 
+int64_t CloudCompactionMixin::initiator() const {
+    return HashUtil::hash64(_uuid.data(), _uuid.size(), 0) & std::numeric_limits<int64_t>::max();
+}
+
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits),
-                                        [&](const doris::Exception& ex) { garbage_collection(); });
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
+            execute_compact_impl(permits), [&](const doris::Exception& ex) {
+                auto st = garbage_collection();
+                if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+                    // if compaction fail, be will try to abort compaction, and delete bitmap lock
+                    // will release if abort job successfully, but if abort failed, delete bitmap
+                    // lock will not release, in this situation, be need to send this rpc to ms
+                    // to try to release delete bitmap lock.
+                    _engine.meta_mgr().remove_delete_bitmap_update_lock(
+                            _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
+                            _tablet->tablet_id());
+                }
+            });
     _load_segment_to_cache();
     return Status::OK();
 }
@@ -1347,9 +1372,9 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     return Status::OK();
 }
 
-void CloudCompactionMixin::garbage_collection() {
+Status CloudCompactionMixin::garbage_collection() {
     if (!config::enable_file_cache) {
-        return;
+        return Status::OK();
     }
     if (_output_rs_writer) {
         auto* beta_rowset_writer = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get());
@@ -1360,6 +1385,7 @@ void CloudCompactionMixin::garbage_collection() {
             file_cache->remove_if_cached_async(file_key);
         }
     }
+    return Status::OK();
 }
 
 } // namespace doris
