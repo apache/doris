@@ -154,7 +154,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
 
-    auto should_sync_rowsets_produced_by_compaction = [&]() {
+    auto should_sync_rowsets = [&]() {
+        if (_version != max_version + 1) {
+            return true;
+        }
         if (_ms_base_compaction_cnt == -1) {
             return true;
         }
@@ -166,10 +169,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                _ms_cumulative_compaction_cnt > tablet->cumulative_compaction_cnt() ||
                _ms_cumulative_point > tablet->cumulative_layer_point() ||
                (_ms_tablet_state.has_value() &&
-                _ms_tablet_state.value() !=
+                _ms_tablet_state.value() != // an SC job finished on other BEs during this load job
                         static_cast<std::underlying_type_t<TabletState>>(tablet->tablet_state()));
     };
-    if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
+    if (should_sync_rowsets()) {
         auto sync_st = tablet->sync_rowsets();
         if (!sync_st.ok()) {
             LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
