@@ -444,8 +444,10 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> insert_into_sql(String sqlStr, int num) {
         if (context.useArrowFlightSql()) {
+            logger.info("Use arrow flight sql")
             return arrow_flight_insert_into_sql(sqlStr, num)
         } else {
+            logger.info("Use jdbc insert into")
             return jdbc_insert_into_sql(sqlStr, num)
         }
     }
