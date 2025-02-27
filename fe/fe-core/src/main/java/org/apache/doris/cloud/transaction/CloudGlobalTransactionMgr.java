@@ -1297,7 +1297,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         } finally {
             stopWatch1.stop();
             String detailMsg = "";
-            if (!commitCostTimeStatisticMap.containsKey(transactionId)) {
+            if (commitCostTimeStatisticMap.containsKey(transactionId)) {
                 StringBuilder sb = new StringBuilder();
                 CommitCostTimeStatistic statistic = commitCostTimeStatisticMap.get(transactionId);
                 sb.append("get commit lock cost ").append(statistic.getWaitCommitLockCostTimeMs())
