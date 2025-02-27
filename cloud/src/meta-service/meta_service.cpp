@@ -87,9 +87,7 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    {
-        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
-    }
+    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -286,9 +284,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        {
-            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
-        }
+        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
