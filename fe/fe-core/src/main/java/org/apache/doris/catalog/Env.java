@@ -804,7 +804,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
-        this.extMetaCacheMgr = new ExternalMetaCacheMgr();
+        this.extMetaCacheMgr = new ExternalMetaCacheMgr(!isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
