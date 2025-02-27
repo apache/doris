@@ -40,6 +40,7 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
                 .whenNot(join -> join.isMarkJoin())
                 .then(EliminateConstHashJoinCondition::eliminateConstHashJoinCondition)
                 .toRule(RuleType.ELIMINATE_CONST_JOIN_CONDITION);
