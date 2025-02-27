@@ -83,32 +83,49 @@ update_conf_from_configmap()
     done
 }
 
-
-kerberos_config()
+mount_kerberos_config()
 {
-   if [[ -n "$KRB5_MOUNT_PATH" ]]; then
-        if [[ -f "$KRB5_MOUNT_PATH/krb5.conf" ]]; then
-            KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
-            if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
-                log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
-                mkdir -p "$KRB5_CONFIG_DIR"
-            fi
-            log_stderr "[info] Creating krb5 symlink from $KRB5_MOUNT_PATH/krb5.conf to $KRB5_CONFIG"
-            ln -sfT "$KRB5_MOUNT_PATH/krb5.conf" "$KRB5_CONFIG"
-        else
-            log_stderr "[warning] krb5.conf not found in $KRB5_MOUNT_PATH"
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
         fi
-   fi
+    done
 
-   if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
-       log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlink"
-       return
-   fi
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
 
-   if [[ -n "$KEYTAB_MOUNT_PATH" ]]; then
-        log_stderr "[info] Creating keytab symlink from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
-        ln -sfT "$KEYTAB_MOUNT_PATH/" "$KEYTAB_FINAL_USED_PATH"
-   fi
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
 }
 
 # resolve password for root
@@ -306,7 +323,7 @@ fi
 
 update_conf_from_configmap
 add_default_conf
-kerberos_config
+mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
