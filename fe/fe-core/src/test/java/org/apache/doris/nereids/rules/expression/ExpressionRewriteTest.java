@@ -82,6 +82,17 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testSimplifyConflictPredicate() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyConflictCompound.INSTANCE)
+        ));
+
+        // random is non-foldable expression, the two RANDOM are not equals
+        assertRewriteAfterTypeCoercion("a + random(1, 10) > 20 and a + random(1, 10) < 10",
+                "a + random(1, 10) > 20 and a + random(1, 10) < 10");
+    }
+
+    @Test
     void testNormalizeExpressionRewrite() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 ExpressionRewrite.bottomUp(NormalizeBinaryPredicatesRule.INSTANCE)
