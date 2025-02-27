@@ -440,6 +440,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             .tag("out_rowset_size", _output_rowsets.size())
             .tag("start_calc_delete_bitmap_version", start_calc_delete_bitmap_version)
             .tag("alter_version", alter_version);
+    RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
+    Defer defer {[&]() {
+        static_cast<void>(_cloud_storage_engine.unregister_compaction_stop_token(_new_tablet));
+    }};
+
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     std::shared_ptr<CloudTablet> tmp_tablet =
