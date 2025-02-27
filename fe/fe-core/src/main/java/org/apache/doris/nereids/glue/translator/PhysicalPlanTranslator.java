@@ -2482,8 +2482,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private boolean shouldUseRowStore(CatalogRelation rel) {
-        //TODO
-        return false;
+        boolean useRowStore = false;
+        if (rel instanceof PhysicalOlapScan) {
+            OlapTable olapTable = ((PhysicalOlapScan) rel).getTable();
+            useRowStore = olapTable.storeRowColumn()
+                    && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
+        }
+        return useRowStore;
     }
 
     @Override
