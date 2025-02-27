@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
@@ -58,6 +59,12 @@ public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
                 (LogicalPlan) sink.child(0));
         setLogicalQuery(newSink);
         setOriginLogicalQuery(newSink);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // must run by master
+        return RedirectStatus.FORWARD_WITH_SYNC;
     }
 
     @Override

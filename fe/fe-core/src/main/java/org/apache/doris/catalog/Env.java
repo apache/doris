@@ -836,7 +836,7 @@ public class Env {
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
-        this.dictionaryManager = new DictionaryManager(); // dictionaryManager must after jobManager
+        this.dictionaryManager = new DictionaryManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1884,7 +1884,7 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
-        dictionaryManager.start(); // must after jobManager.start()
+        dictionaryManager.start();
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
