@@ -17,6 +17,12 @@
 
 package org.apache.doris.regression.suite
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+
 import static java.util.concurrent.TimeUnit.SECONDS
 
 import com.google.common.base.Strings
@@ -96,6 +102,8 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
     static Boolean isTrinoConnectorDownloaded = false
+
+    private AmazonS3 s3Client = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -987,6 +995,16 @@ class Suite implements GroovyInterceptable {
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
+    }
+
+    synchronized AmazonS3 getS3Client() {
+        if (s3Client == null) {
+            def credentials = new BasicAWSCredentials(getS3AK(), getS3SK())
+            def endpointConfiguration = new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region())
+            s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+        }
+        return s3Client
     }
 
     String getJdbcPassword() {
