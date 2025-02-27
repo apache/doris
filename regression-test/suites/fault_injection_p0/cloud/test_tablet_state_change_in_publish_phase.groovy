@@ -82,6 +82,11 @@ suite("test_tablet_state_change_in_publish_phase", "docker") {
 
             Thread.sleep(1000)
 
+            // let tablet be on another BE
+            sql "insert into ${table1} values(10,88,88);"
+            qt_sql "select * from ${table1} order by k1;"
+            assert sql_return_maparray("show tablets from ${table1};").get(0).BackendId as String != tabletBackendId
+
             // block FE's task report handler to avoid alter task re-sended to BE before we enable debug points for SC
             GetDebugPoint().enableDebugPointForAllFEs("ReportHandler.block")
             cluster.startBackends(beIndex)
