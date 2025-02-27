@@ -997,14 +997,22 @@ message PDeleteDictionaryResponse {
     optional PStatus status = 1;
 }
 
-message PCommitDictionaryRefreshRequest {
+message PCommitRefreshDictionaryRequest {
     optional int64 dictionary_id = 1;
     optional int64 version_id = 2;
 }
 
-message PAbortDictionaryRefreshRequest {
+message PCommitRefreshDictionaryResponse {
+    optional PStatus status = 1;
+}
+
+message PAbortRefreshDictionaryRequest {
     optional int64 dictionary_id = 1;
     optional int64 version_id = 2;
+}
+
+message PAbortRefreshDictionaryResponse {
+    optional PStatus status = 1;
 }
 
 service PBackendService {
@@ -1058,7 +1066,7 @@ service PBackendService {
     rpc alter_vault_sync(PAlterVaultSyncRequest) returns (PAlterVaultSyncResponse);
     rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
     rpc delete_dictionary(PDeleteDictionaryRequest) returns (PDeleteDictionaryResponse);
-    rpc commit_dictionary_refresh(PCommitDictionaryRefreshRequest) returns (PStatus);
-    rpc abort_dictionary_refresh(PAbortDictionaryRefreshRequest) returns (PStatus);
+    rpc commit_refresh_dictionary(PCommitRefreshDictionaryRequest) returns (PCommitRefreshDictionaryResponse);
+    rpc abort_refresh_dictionary(PAbortRefreshDictionaryRequest) returns (PAbortRefreshDictionaryResponse);
 };
 
