@@ -69,6 +69,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.netty.util.concurrent.FastThreadLocal;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -1033,15 +1034,74 @@ public class ConnectContext {
      */
     public int getExecTimeout() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
-            // particular for insert stmt, we can expand other type of timeout in the same
-            // way
-            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+            // particular for insert stmt, we can expand other type of timeout in the same way
+            return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
         } else if (executor != null && executor.isAnalyzeStmt()) {
             return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
-            return sessionVariable.getQueryTimeoutS();
+            return getQueryTimeoutS();
         }
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return insertTimeoutS
+     */
+    public int getInsertTimeoutS() {
+        int userInsertTimeout = getInsertTimeoutSFromProperty();
+        if (userInsertTimeout > 0) {
+            return userInsertTimeout;
+        }
+        return sessionVariable.getInsertTimeoutS();
+    }
+
+    private int getInsertTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getInsertTimeout(getQualifiedUser());
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return queryTimeoutS
+     */
+    public int getQueryTimeoutS() {
+        int userQueryTimeout = getQueryTimeoutSFromProperty();
+        if (userQueryTimeout > 0) {
+            return userQueryTimeout;
+        }
+        return sessionVariable.getQueryTimeoutS();
+    }
+
+    private int getQueryTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getQueryTimeout(getQualifiedUser());
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return maxExecMemByte
+     */
+    public long getMaxExecMemByte() {
+        long userLimit = getMaxExecMemByteFromProperty();
+        if (userLimit > 0) {
+            return userLimit;
+        }
+        return sessionVariable.getMaxExecMemByte();
+    }
+
+    private long getMaxExecMemByteFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0L;
+        }
+        return env.getAuth().getExecMemLimit(getQualifiedUser());
     }
 
     public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
