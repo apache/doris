@@ -467,13 +467,14 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
-            RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block()));
+            RETURN_IF_ERROR(
+                    partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
 
             if (!partial_block.is_empty_column()) {
                 if (!response_blocks[i].columns()) {
                     response_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
                 }
-                _block_maps.emplace(backend_id, std::make_pair(std::move(partial_block), 0));
+                _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
             }
         }
 
@@ -495,7 +496,6 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
             rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
             rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
         }
-        rpc_struct.response.clear_blocks();
     }
 
     block->clear();

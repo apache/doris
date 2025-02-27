@@ -64,8 +64,7 @@ Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state
                                 ->slots();
     for (int i = 0; i < _materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
-        //        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
-        request_block_desc->set_fetch_row_store(false);
+        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
         // init the column_descs and slot_locs
         auto& column_descs = _materialization_node.column_descs_lists[i];
         for (auto& column_desc_item : column_descs) {
@@ -90,10 +89,10 @@ Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state
         }
         local_state._shared_state->rpc_struct_map.emplace(
                 node_info.id,
-                FetchRpcStruct {
-                        .stub = std::move(client), .request = multi_get_request, .response = {}});
+                FetchRpcStruct {.stub = std::move(client), .request = multi_get_request});
     }
     local_state._shared_state->rpc_struct_inited = true;
+    // Need each BE to send the request, so we need to add BE count to the source_deps
     ((CountedFinishDependency*)local_state._shared_state->source_deps.back().get())
             ->add(local_state._shared_state->rpc_struct_map.size());
     return Status::OK();
@@ -134,6 +133,9 @@ public:
                     BackendOptions::get_localhost(),
                     ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
             _shared_state->rpc_status = Status::InternalError(err);
+        } else {
+            _shared_state->rpc_status =
+                    Status::create(doris::DummyBrpcCallback<Response>::response_->status());
         }
         ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
     }
@@ -172,15 +174,17 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
                 local_state._shared_state->create_muiltget_result(columns, eos, _gc_id_map));
 
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
-            auto callback = MaterializationCallback<int>::create_shared(
+            auto callback = MaterializationCallback<PMultiGetResponseV2>::create_shared(
                     state->get_task_execution_context(), local_state._shared_state);
             rpc_struct.callback = callback;
-            auto closure = AutoReleaseClosure<int, ::doris::DummyBrpcCallback<int>>::create_unique(
-                    std::make_shared<int>(), callback, state->get_query_ctx_weak());
+            auto closure =
+                    AutoReleaseClosure<int, ::doris::DummyBrpcCallback<PMultiGetResponseV2>>::
+                            create_unique(std::make_shared<int>(), callback,
+                                          state->get_query_ctx_weak());
 
-            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
+            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * -+1000);
             rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request,
-                                              &rpc_struct.response, closure.release());
+                                              callback->response_.get(), closure.release());
         }
     }
 

@@ -46,7 +46,6 @@
 #include "common/consts.h"
 #include "common/exception.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/id_manager.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -533,10 +532,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
                 if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
                     RETURN_IF_ERROR(read_doris_format_row(
-                            file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
-                            row_store_read_struct, request_block_desc.row_id_size(), stats,
-                            &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
-                            &lookup_row_data_ms, iterator_map, result_block));
+                            id_file_map, file_mapping, request_block_desc.row_id(j), slots,
+                            full_read_schema, row_store_read_struct,
+                            request_block_desc.row_id_size(), stats, &acquire_tablet_ms,
+                            &acquire_rowsets_ms, &acquire_segments_ms, &lookup_row_data_ms,
+                            iterator_map, result_block));
                 }
             }
 
@@ -578,6 +578,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 }
 
 Status RowIdStorageReader::read_doris_format_row(
+        const std::shared_ptr<IdFileMap>& id_file_map,
         const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
         std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
         RowStoreReadStruct& row_store_read_struct, size_t total_rows, OlapReaderStatistics& stats,
@@ -602,10 +603,7 @@ Status RowIdStorageReader::read_doris_format_row(
     }
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-            [&]() {
-                return ExecEnv::GetInstance()->storage_engine().get_quering_rowset(rowset_id);
-            },
-            acquire_rowsets_ms));
+            [&]() { return id_file_map->get_temp_rowset(rowset_id); }, acquire_rowsets_ms));
     if (!rowset) {
         return Status::InternalError(
                 "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
@@ -638,6 +636,7 @@ Status RowIdStorageReader::read_doris_format_row(
     if (result_block.is_empty_column()) {
         result_block = vectorized::Block(slots, total_rows);
     }
+    // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
         RowLocation loc(rowset_id, segment->id(), row_id);

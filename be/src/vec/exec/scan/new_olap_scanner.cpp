@@ -41,6 +41,7 @@
 #include "exprs/function_filter.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
+#include "olap/id_manager.h"
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
@@ -397,8 +398,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0 ||
-        tablet_schema->field_index(BeConsts::GLOBAL_ROWID_COL) >= 0) {
+    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
         constexpr static int delayed_s = 60;
         for (auto rs_reader : _tablet_reader_params.rs_splits) {
             uint64_t delayed_expired_timestamp =
@@ -408,6 +408,13 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     delayed_expired_timestamp);
             ExecEnv::GetInstance()->storage_engine().add_quering_rowset(
                     rs_reader.rs_reader->rowset());
+        }
+    }
+
+    if (tablet_schema->field_index(BeConsts::GLOBAL_ROWID_COL) >= 0) {
+        auto& id_file_map = _state->get_id_file_map();
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            id_file_map->add_temp_rowset(rs_reader.rs_reader->rowset());
         }
     }
 

@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
+#include "olap/id_manager.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -90,6 +91,7 @@ public:
 
 private:
     static Status read_doris_format_row(
+            const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
             std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
             RowStoreReadStruct& row_store_read_struct, size_t total_rows,

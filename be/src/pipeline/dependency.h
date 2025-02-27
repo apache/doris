@@ -879,8 +879,7 @@ class QueryGlobalDependency final : public Dependency {
 struct FetchRpcStruct {
     std::shared_ptr<PBackendService_Stub> stub;
     PMultiGetRequestV2 request;
-    PMultiGetResponseV2 response;
-    std::shared_ptr<doris::DummyBrpcCallback<int>> callback;
+    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
 };
 
 struct MaterializationSharedState : public BasicSharedState {

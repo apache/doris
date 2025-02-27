@@ -113,7 +113,16 @@ public:
 
     void add_temp_rowset(const RowsetSharedPtr& rowset) {
         std::unique_lock lock(_mtx);
-        _temp_rowsets.insert(rowset);
+        _temp_rowset_maps[rowset->rowset_id()] = rowset;
+    }
+
+    RowsetSharedPtr get_temp_rowset(const RowsetId& rowset_id) {
+        std::shared_lock lock(_mtx);
+        auto it = _temp_rowset_maps.find(rowset_id);
+        if (it == _temp_rowset_maps.end()) {
+            return nullptr;
+        }
+        return it->second;
     }
 
     int64_t get_delayed_expired_timestamp() { return delayed_expired_timestamp; }
@@ -125,7 +134,7 @@ private:
     std::unordered_map<uint32_t, std::shared_ptr<FileMapping>> _id_map;
 
     // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction
-    std::set<RowsetSharedPtr> _temp_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _temp_rowset_maps;
     uint64_t delayed_expired_timestamp = 0;
 };
 
