@@ -87,7 +87,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    {
+        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+    }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -284,7 +286,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        {
+            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -2310,6 +2314,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     }
 
     for (const auto& tablet_idx : request->tablet_indexes()) {
+        // 1. get compaction cnts
         TabletStatsPB tablet_stat;
         std::string stats_key =
                 stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
@@ -2343,16 +2348,43 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
         response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
         response->add_cumulative_points(tablet_stat.cumulative_point());
+
+        // 2. get tablet states
+        std::string tablet_meta_key =
+                meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                 tablet_idx.partition_id(), tablet_idx.tablet_id()});
+        std::string tablet_meta_val;
+        err = txn->get(tablet_meta_key, &tablet_meta_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            ss << "failed to get tablet meta"
+               << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+               << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+               << " key=" << hex(tablet_meta_key) << " err=" << err;
+            msg = ss.str();
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            return;
+        }
+        doris::TabletMetaCloudPB tablet_meta;
+        if (!tablet_meta.ParseFromString(tablet_meta_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "malformed tablet meta";
+            return;
+        }
+        response->add_tablet_states(
+                static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
     }
 
     read_stats_sw.pause();
-    LOG(INFO) << fmt::format("tablet_idxes.size()={}, read tablet compaction cnts cost={} ms",
-                             request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
+    LOG(INFO) << fmt::format(
+            "tablet_idxes.size()={}, read tablet compaction cnts and tablet states cost={} ms",
+            request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
 
     DeleteBitmapUpdateLockPB lock_info_tmp;
     if (!check_delete_bitmap_lock(code, msg, ss, txn, table_id, request->lock_id(),
                                   request->initiator(), lock_key, lock_info_tmp)) {
-        LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats, table_id="
+        LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats and tablet "
+                        "states, table_id="
                      << table_id << " request lock_id=" << request->lock_id()
                      << " request initiator=" << request->initiator() << " code=" << code
                      << " msg=" << msg;

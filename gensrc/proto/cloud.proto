@@ -1472,6 +1472,7 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+    repeated int64 tablet_states = 5;
 }
 
 message RemoveDeleteBitmapUpdateLockRequest {

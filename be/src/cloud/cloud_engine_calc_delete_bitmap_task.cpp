@@ -22,6 +22,7 @@
 #include <memory>
 #include <random>
 #include <thread>
+#include <type_traits>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
@@ -75,6 +76,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
         bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
                                     partition.__isset.cumulative_compaction_cnts &&
                                     partition.__isset.cumulative_points;
+        bool has_tablet_states = partition.__isset.tablet_states;
         for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
             auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
@@ -83,6 +85,9 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                 tablet_calc_delete_bitmap_ptr->set_compaction_stats(
                         partition.base_compaction_cnts[i], partition.cumulative_compaction_cnts[i],
                         partition.cumulative_points[i]);
+            }
+            if (has_tablet_states) {
+                tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
             auto submit_st = token->submit_func([=]() {
                 auto st = tablet_calc_delete_bitmap_ptr->handle();
@@ -128,6 +133,9 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
     _ms_cumulative_compaction_cnt = ms_cumulative_compaction_cnt;
     _ms_cumulative_point = ms_cumulative_point;
 }
+void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
+    _ms_tablet_state = tablet_state;
+}
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
@@ -156,7 +164,10 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         std::shared_lock rlock(tablet->get_header_lock());
         return _ms_base_compaction_cnt > tablet->base_compaction_cnt() ||
                _ms_cumulative_compaction_cnt > tablet->cumulative_compaction_cnt() ||
-               _ms_cumulative_point > tablet->cumulative_layer_point();
+               _ms_cumulative_point > tablet->cumulative_layer_point() ||
+               (_ms_tablet_state.has_value() &&
+                _ms_tablet_state.value() !=
+                        static_cast<std::underlying_type_t<TabletState>>(tablet->tablet_state()));
     };
     if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
         // delete me later!
