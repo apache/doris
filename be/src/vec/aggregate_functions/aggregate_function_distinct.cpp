@@ -56,7 +56,7 @@ public:
     AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
             const bool result_is_nullable) const override {
-        DCHECK(nested_function != nullptr);
+        DORIS_CHECK(nested_function != nullptr);
         if (nested_function == nullptr) {
             return nullptr;
         }

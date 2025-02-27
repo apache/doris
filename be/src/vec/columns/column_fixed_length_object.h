@@ -58,7 +58,7 @@ public:
     Container& get_data() { return _data; }
 
     void resize(size_t n) override {
-        DCHECK_GT(_item_size, 0) << "_item_size should be greater than 0";
+        DORIS_CHECK_GT(_item_size, 0, "_item_size should be greater than 0");
         _data.resize(n * _item_size);
         _item_count = n;
     }
@@ -90,7 +90,8 @@ public:
         if (_item_size == 0) {
             _item_size = src_vec._item_size;
         }
-        DCHECK_EQ(_item_size, src_vec._item_size) << "dst and src should have the same _item_size";
+        DORIS_CHECK_EQ(_item_size, src_vec._item_size,
+                       "dst and src should have the same _item_size");
         resize(origin_size + new_size);
 
         for (uint32_t i = 0; i < new_size; ++i) {
@@ -146,8 +147,9 @@ public:
 
     void insert_from(const IColumn& src, size_t n) override {
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
-        DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
-                                                 << _item_size << " " << src_col._item_size;
+        DORIS_CHECK(_item_size == src_col._item_size,
+                    "dst and src should have the same _item_size  {} {}", _item_size,
+                    src_col.item_size());
         insert_data((const char*)(&src_col._data[n * _item_size]), _item_size);
     }
 
@@ -164,7 +166,7 @@ public:
     }
 
     void pop_back(size_t n) override {
-        DCHECK_GE(_item_count, n);
+        DORIS_CHECK_GE(_item_count, n);
         resize(_item_count - n);
     }
 
@@ -260,8 +262,8 @@ public:
     size_t item_size() const { return _item_size; }
 
     void set_item_size(size_t size) {
-        DCHECK(_item_count == 0 || size == _item_size)
-                << "cannot reset _item_size of ColumnFixedLengthObject";
+        DORIS_CHECK(_item_count == 0 || size == _item_size,
+                    "cannot reset _item_size of ColumnFixedLengthObject");
         _item_size = size;
     }
 
@@ -275,9 +277,9 @@ public:
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        DCHECK(_item_size == assert_cast<const Self&>(rhs)._item_size)
-                << _item_size << " " << assert_cast<const Self&>(rhs)._item_size;
+        DORIS_CHECK(size() > self_row);
+        DORIS_CHECK(_item_size == assert_cast<const Self&>(rhs)._item_size, "_item_size ;{}",
+                    assert_cast<const Self&>(rhs)._item_size);
         auto obj = assert_cast<const Self&>(rhs).get_data_at(row);
         memcpy(&_data[self_row * _item_size], obj.data, _item_size);
     }
