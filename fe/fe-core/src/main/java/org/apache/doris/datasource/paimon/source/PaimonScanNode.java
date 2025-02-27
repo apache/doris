@@ -57,6 +57,7 @@ import org.apache.paimon.utils.InstantiationUtil;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +107,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
@@ -208,7 +210,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     public static Optional<Long> calcuteTableLevelCount(List<org.apache.paimon.table.source.Split> paimonSplits) {
         // check if all splits don't have deletion vector or cardinality of every
         // deletion vector is not null
-        boolean applyTableCountPushdown = true;
         long totalCount = 0;
         long deletionVectorCount = 0;
 
@@ -221,25 +222,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                     if (dv != null) {
                         Long cardinality = dv.cardinality();
                         if (cardinality == null) {
-                            applyTableCountPushdown = false;
-                            break;
+                            // if there is a null deletion vector, we can't calculate the table level count
+                            return Optional.empty();
                         } else {
                             deletionVectorCount += cardinality;
                         }
                     }
                 }
             }
-
-            if (!applyTableCountPushdown) {
-                break;
-            }
         }
-
-        if (applyTableCountPushdown) {
-            return Optional.of(totalCount - deletionVectorCount);
-        } else {
-            return Optional.empty();
-        }
+        return Optional.of(totalCount - deletionVectorCount);
     }
 
     @Override
@@ -333,16 +325,27 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
+            // we can create a special empty split and skip the plan process
+            if (splits.isEmpty()) {
+                return splits;
+            }
             Optional<Long> optTableLevelCount = calcuteTableLevelCount(paimonSplits);
             if (optTableLevelCount.isPresent()) {
                 long tableLevelRowCount = optTableLevelCount.get();
+                List<Split> pushDownCountSplits;
+                if (tableLevelRowCount > COUNT_WITH_PARALLEL_SPLITS) {
+                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
+                } else {
+                    pushDownCountSplits = Collections.singletonList(splits.get(0));
+                }
                 setPushDownCount(tableLevelRowCount);
-                assignCountToSplits(splits, tableLevelRowCount);
+                assignCountToSplits(pushDownCountSplits, tableLevelRowCount);
+                return pushDownCountSplits;
             }
         }
 
         this.selectedPartitionNum = selectedPartitionValues.size();
-        // TODO: get total partition number
         return splits;
     }
 
