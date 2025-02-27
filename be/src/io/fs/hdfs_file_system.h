@@ -97,7 +97,8 @@ class HdfsFileHandleCache;
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const THdfsParams& hdfs_params, std::string id, const std::string& path,
-                         RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs);
+                         RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs,
+                         std::string root_path = "");
 
     ~HdfsFileSystem() override;
 
@@ -130,7 +131,7 @@ private:
 private:
     friend class HdfsFileWriter;
     HdfsFileSystem(const THdfsParams& hdfs_params, std::string id, const std::string& path,
-                   RuntimeProfile* profile);
+                   RuntimeProfile* profile, std::string root_path);
     const THdfsParams& _hdfs_params;
     std::string _fs_name;
     std::shared_ptr<HdfsFileSystemHandle> _fs_handle = nullptr;
