@@ -590,8 +590,11 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
 
     T current_new_offset = 0;
     for (size_t i = 0; i < col_size; ++i) {
-        T size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
+        size_t size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
         T string_size = offsets[i] - offsets[i - 1];
+
+        check_chars_length(res_chars.size() + size_to_replicate * string_size,
+                           res_offsets.size() + size_to_replicate, col_size);
 
         res_chars.resize(res_chars.size() + size_to_replicate * string_size);
         for (size_t j = 0; j < size_to_replicate; ++j) {
