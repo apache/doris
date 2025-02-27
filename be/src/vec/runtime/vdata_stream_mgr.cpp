@@ -44,12 +44,15 @@ VDataStreamMgr::~VDataStreamMgr() {
     // Has to call close here, because receiver will check if the receiver is closed.
     // It will core during graceful stop.
     auto receivers = std::vector<std::shared_ptr<VDataStreamRecvr>>();
-    auto receiver_iterator = _receiver_map.begin();
-    while (receiver_iterator != _receiver_map.end()) {
-        // Could not call close directly, because during close method, it will remove itself
-        // from the map, and modify the map, it will core.
-        receivers.push_back(receiver_iterator->second);
-        receiver_iterator++;
+    {
+        std::shared_lock l(_lock);
+        auto receiver_iterator = _receiver_map.begin();
+        while (receiver_iterator != _receiver_map.end()) {
+            // Could not call close directly, because during close method, it will remove itself
+            // from the map, and modify the map, it will core.
+            receivers.push_back(receiver_iterator->second);
+            receiver_iterator++;
+        }
     }
     for (auto iter = receivers.begin(); iter != receivers.end(); ++iter) {
         (*iter)->close();
