@@ -63,12 +63,29 @@ public:
 
     template <typename DataType>
     void agg_collect_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place,
-                                  size_t input_nums) {
+                                  size_t input_nums, bool support_complex = false) {
         using FieldType = typename DataType::FieldType;
-        auto type = std::make_shared<DataType>();
-        auto input_col = type->create_column();
+        MutableColumnPtr input_col;
+        if (support_complex) {
+            auto type =
+                    std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataType>()));
+            input_col = type->create_column();
+        } else {
+            auto type = std::make_shared<DataType>();
+            input_col = type->create_column();
+        }
         for (size_t i = 0; i < input_nums; ++i) {
             for (size_t j = 0; j < _repeated_times; ++j) {
+                if (support_complex) {
+                    if constexpr (std::is_same_v<DataType, DataTypeString>) {
+                        Array vec1 = {Field(String("item0" + std::to_string(i))),
+                                      Field(String("item1" + std::to_string(i)))};
+                        input_col->insert(vec1);
+                    } else {
+                        input_col->insert_default();
+                    }
+                    continue;
+                }
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(i);
                     input_col->insert_data(item.c_str(), item.size());
@@ -87,8 +104,13 @@ public:
     }
 
     template <typename DataType>
-    void test_agg_collect(const std::string& fn_name, size_t input_nums = 0) {
+    void test_agg_collect(const std::string& fn_name, size_t input_nums = 0,
+                          bool support_complex = false) {
         DataTypes data_types = {(DataTypePtr)std::make_shared<DataType>()};
+        if (support_complex) {
+            data_types = {
+                    (DataTypePtr)std::make_shared<DataTypeArray>(make_nullable(data_types[0]))};
+        }
         LOG(INFO) << "test_agg_collect for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         auto agg_function = factory.get(fn_name, data_types, false, -1);
@@ -98,7 +120,7 @@ public:
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
 
-        agg_collect_add_elements<DataType>(agg_function, place, input_nums);
+        agg_collect_add_elements<DataType>(agg_function, place, input_nums, support_complex);
 
         ColumnString buf;
         VectorBufferWriter buf_writer(buf);
@@ -111,7 +133,7 @@ public:
         AggregateDataPtr place2 = memory2.get();
         agg_function->create(place2);
 
-        agg_collect_add_elements<DataType>(agg_function, place2, input_nums);
+        agg_collect_add_elements<DataType>(agg_function, place2, input_nums, support_complex);
 
         agg_function->merge(place, place2, &_agg_arena_pool);
         auto column_result = ColumnArray::create(data_types[0]->create_column());
@@ -171,6 +193,17 @@ TEST_F(VAggCollectTest, test_with_data) {
 
     test_agg_collect<DataTypeString>("collect_list", 10);
     test_agg_collect<DataTypeString>("collect_set", 5);
+}
+
+TEST_F(VAggCollectTest, test_complex_data_type) {
+    test_agg_collect<DataTypeInt8>("collect_list", 7, true);
+    test_agg_collect<DataTypeInt128>("array_agg", 9, true);
+
+    test_agg_collect<DataTypeDateTime>("collect_list", 5, true);
+    test_agg_collect<DataTypeDateTime>("array_agg", 6, true);
+
+    test_agg_collect<DataTypeString>("collect_list", 10, true);
+    test_agg_collect<DataTypeString>("array_agg", 5, true);
 }
 
 } // namespace doris::vectorized

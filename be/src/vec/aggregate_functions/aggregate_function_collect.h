@@ -313,6 +313,7 @@ template <typename HasLimit>
 struct AggregateFunctionCollectListData<void, HasLimit> {
     using ElementType = StringRef;
     using Self = AggregateFunctionCollectListData<void, HasLimit>;
+    DataTypeSerDeSPtr serde; // for complex serialize && deserialize from multi BE
     MutableColumnPtr column_data;
     Int64 max_size = -1;
 
@@ -320,6 +321,7 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
     AggregateFunctionCollectListData(const DataTypes& argument_types) {
         DataTypePtr column_type = argument_types[0];
         column_data = column_type->create_column();
+        serde = column_type->get_serde();
     }
 
     size_t size() const { return column_data->size(); }
@@ -346,21 +348,41 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
     void write(BufferWritable& buf) const {
         const size_t size = column_data->size();
         write_binary(size, buf);
+
+        DataTypeSerDe::FormatOptions opt;
+        auto tmp_str = ColumnString::create();
+        VectorBufferWriter tmp_buf(*tmp_str.get());
+
         for (size_t i = 0; i < size; i++) {
-            write_string_binary(column_data->get_data_at(i), buf);
+            tmp_str->clear();
+            if (Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt); !st) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to serialize data for " + column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
+            tmp_buf.commit();
+            write_string_binary(tmp_str->get_data_at(0), buf);
         }
+
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
         size_t size = 0;
         read_binary(size, buf);
+        column_data->clear();
         column_data->reserve(size);
 
         StringRef s;
+        DataTypeSerDe::FormatOptions opt;
         for (size_t i = 0; i < size; i++) {
             read_string_binary(s, buf);
-            column_data->insert_data(s.data, s.size);
+            Slice slice(s.data, s.size);
+            if (Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt); !st) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to deserialize data for " + column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
         }
         read_var_int(max_size, buf);
     }
@@ -630,7 +652,6 @@ struct AggregateFunctionArrayAggData<void> {
         size_t size = 0;
         read_binary(size, buf);
         column_data->reserve(size);
-
         StringRef s;
         for (size_t i = 0; i < size; i++) {
             read_string_binary(s, buf);
