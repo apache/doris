@@ -18,6 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 public class RangerDataMaskPolicy implements DataMaskPolicy {
     private UserIdentity userIdentity;
@@ -84,6 +87,11 @@ public class RangerDataMaskPolicy implements DataMaskPolicy {
     @Override
     public String getPolicyIdent() {
         return getPolicyId() + ":" + getPolicyVersion();
+    }
+
+    @Override
+    public Expression parseMaskTypeDef(NereidsParser parser, Slot slot) {
+        return parser.parseExpression(getMaskTypeDef());
     }
 
     @Override

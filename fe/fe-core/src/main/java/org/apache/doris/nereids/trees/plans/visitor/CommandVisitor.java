@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -128,6 +129,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
@@ -189,6 +191,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
         return visitCommand(createPolicy, context);
+    }
+
+    default R visitDropPolicyCommand(DropPolicyCommand dropPolicyCommand, C context) {
+        return visitCommand(dropPolicyCommand, context);
+    }
+
+    default R visitShowPolicyCommand(ShowPolicyCommand showPolicyCommand, C context) {
+        return visitCommand(showPolicyCommand, context);
     }
 
     default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoTableCommand,

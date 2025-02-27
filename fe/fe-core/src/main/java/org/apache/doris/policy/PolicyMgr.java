@@ -38,6 +38,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.PushStoragePolicyTask;
@@ -79,6 +80,10 @@ public class PolicyMgr implements Writable {
 
     // ctlName -> dbName -> tableName -> List<RowPolicy>
     private Map<String, Map<String, Map<String, List<RowPolicy>>>> tablePolicies = Maps.newConcurrentMap();
+
+    // ctlName -> dbName -> tableName -> colName -> List<DataMaskPolicy>
+    private final Map<String, Map<String, Map<String, Map<String, List<DorisDataMaskPolicy>>>>> dataMaskPolicies
+            = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -139,6 +144,10 @@ public class PolicyMgr implements Writable {
             if (storagePolicyExists || existPolicy(policy)) {
                 if (isIfNotExists) {
                     return;
+                }
+                if (policy instanceof DorisDataMaskPolicy) {
+                    throw new DdlException("The policy name already exists or a policy of the same type already "
+                        + "exists");
                 }
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");
             }
@@ -323,6 +332,10 @@ public class PolicyMgr implements Writable {
         if (PolicyTypeEnum.ROW == policy.getType()) {
             addTablePolicies((RowPolicy) policy);
         }
+        if (PolicyTypeEnum.DATA_MASK == policy.getType()) {
+            assert policy instanceof DorisDataMaskPolicy;
+            addDataMaskPolicy((DorisDataMaskPolicy) policy);
+        }
 
     }
 
@@ -368,6 +381,9 @@ public class PolicyMgr implements Writable {
                 if (policy instanceof RowPolicy) {
                     dropTablePolicies((RowPolicy) policy);
                 }
+                if (policy instanceof DorisDataMaskPolicy) {
+                    dropDataMaskPolicy((DorisDataMaskPolicy) policy);
+                }
                 return true;
             }
             return false;
@@ -384,6 +400,41 @@ public class PolicyMgr implements Writable {
             return null;
         }
         return mergeRowPolicies(res);
+    }
+
+    public DorisDataMaskPolicy getDataMaskPolicy(String ctlName, String dbName, String tableName, String colName,
+                                                 UserIdentity user) {
+        if (!hasDataMaskPolicy(ctlName, dbName, tableName, colName)) {
+            return null;
+        }
+        readLock();
+        try {
+            if (!hasDataMaskPolicy(ctlName, dbName, tableName, colName)) {
+                return null;
+            }
+            List<DorisDataMaskPolicy> dorisDataMaskPolicies = dataMaskPolicies.get(ctlName).get(dbName).get(tableName)
+                    .get(colName);
+            Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth().getRolesByUserWithLdap(user).stream()
+                    .map(role -> ClusterNamespace.getNameFromFullName(role.getRoleName())).collect(Collectors.toSet());
+
+            for (DorisDataMaskPolicy dataMaskPolicy : dorisDataMaskPolicies) {
+                if ((dataMaskPolicy.getUser() != null && dataMaskPolicy.getUser().getQualifiedUser()
+                        .equals(user.getQualifiedUser()))
+                         || !StringUtils.isEmpty(dataMaskPolicy.getRoleName())
+                        && roles.contains(dataMaskPolicy.getRoleName())) {
+                    return dataMaskPolicy;
+                }
+            }
+            return null;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private boolean hasDataMaskPolicy(String ctlName, String dbName, String tableName, String colName) {
+        return dataMaskPolicies.containsKey(ctlName) && dataMaskPolicies.get(ctlName).containsKey(dbName)
+            && dataMaskPolicies.get(ctlName).get(dbName).containsKey(tableName)
+            && dataMaskPolicies.get(ctlName).get(dbName).get(tableName).containsKey(colName);
     }
 
     public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {
@@ -455,28 +506,27 @@ public class PolicyMgr implements Writable {
      * Show policy through stmt.
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
+        return showPolicy(showStmt.getUser(), showStmt.getRoleName(), showStmt.getType());
+    }
+
+    public ShowResultSet showPolicy(UserIdentity user, String roleName, PolicyTypeEnum type) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        Policy checkedPolicy = null;
-        switch (showStmt.getType()) {
+        Policy checkedPolicy;
+        switch (type) {
             case STORAGE:
                 checkedPolicy = new StoragePolicy();
                 break;
             case ROW:
+                checkedPolicy = new RowPolicy(user, roleName);
+                break;
+            case DATA_MASK:
             default:
-                RowPolicy rowPolicy = new RowPolicy();
-                if (showStmt.getUser() != null) {
-                    rowPolicy.setUser(showStmt.getUser());
-                }
-                if (!StringUtils.isEmpty(showStmt.getRoleName())) {
-                    rowPolicy.setRoleName(showStmt.getRoleName());
-                }
-                checkedPolicy = rowPolicy;
+                checkedPolicy = new DorisDataMaskPolicy(user, roleName);
         }
-        final Policy finalCheckedPolicy = checkedPolicy;
         readLock();
         try {
-            List<Policy> policies = getPoliciesByType(showStmt.getType()).stream()
-                    .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
+            List<Policy> policies = getPoliciesByType(type).stream()
+                    .filter(p -> p.matchPolicy(checkedPolicy)).collect(Collectors.toList());
             for (Policy policy : policies) {
                 if (policy.isInvalid()) {
                     continue;
@@ -489,16 +539,28 @@ public class PolicyMgr implements Writable {
 
                 rows.add(policy.getShowInfo());
             }
-            return new ShowResultSet(showStmt.getMetaData(), rows);
+            return new ShowResultSet(getMetaData(type), rows);
         } finally {
             readUnlock();
+        }
+    }
+
+    private ShowResultSetMetaData getMetaData(PolicyTypeEnum type) {
+        switch (type) {
+            case STORAGE:
+                return StoragePolicy.STORAGE_META_DATA;
+            case ROW:
+                return RowPolicy.ROW_META_DATA;
+            case DATA_MASK:
+            default:
+                return DorisDataMaskPolicy.DATA_MASK_META_DATA;
         }
     }
 
     /**
      * Show objects which is using the storage policy
      **/
-    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) {
         List<List<String>> rows = Lists.newArrayList();
         String targetPolicyName = showStmt.getPolicyName();
 
@@ -607,10 +669,33 @@ public class PolicyMgr implements Writable {
         policys.add(policy);
     }
 
+    private void addDataMaskPolicy(DorisDataMaskPolicy policy) {
+        if (policy.getUser() != null) {
+            policy.getUser().setIsAnalyzed();
+        }
+        Map<String, Map<String, Map<String, List<DorisDataMaskPolicy>>>> ctlPolicies = dataMaskPolicies
+                .computeIfAbsent(policy.getCtlName(), key -> Maps.newConcurrentMap());
+        Map<String, Map<String, List<DorisDataMaskPolicy>>> dbPolicies = ctlPolicies
+                .computeIfAbsent(policy.getDbName(), key -> Maps.newConcurrentMap());
+        Map<String, List<DorisDataMaskPolicy>> tblPolicies = dbPolicies
+                .computeIfAbsent(policy.getTableName(), key -> Maps.newConcurrentMap());
+        List<DorisDataMaskPolicy> dataMaskPolicies = tblPolicies
+                .computeIfAbsent(policy.getColName(), key -> Lists.newArrayList());
+        dataMaskPolicies.add(policy);
+    }
+
     private void dropTablePolicies(RowPolicy policy) {
         List<RowPolicy> policys = getOrCreateTblPolicies(policy.getCtlName(), policy.getDbName(),
                 policy.getTableName());
         policys.removeIf(p -> p.matchPolicy(policy));
+    }
+
+    private void dropDataMaskPolicy(DorisDataMaskPolicy policy) {
+        List<DorisDataMaskPolicy> policies = dataMaskPolicies.getOrDefault(policy.getCtlName(), Maps.newConcurrentMap())
+                .getOrDefault(policy.getDbName(), Maps.newConcurrentMap())
+                .getOrDefault(policy.getTableName(), Maps.newConcurrentMap())
+                .getOrDefault(policy.getColName(), Lists.newArrayList());
+        policies.removeIf(p -> p.matchPolicy(policy));
     }
 
     private List<RowPolicy> getOrCreateTblPolicies(String ctlName, String dbName, String tableName) {
@@ -688,6 +773,22 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    private void updateDataMaskPolicies() {
+        readLock();
+        try {
+            if (!typeToPolicyMap.containsKey(PolicyTypeEnum.DATA_MASK)) {
+                return;
+            }
+            List<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.DATA_MASK);
+            for (Policy policy : allPolicies) {
+                addDataMaskPolicy((DorisDataMaskPolicy) policy);
+            }
+
+        } finally {
+            readUnlock();
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -703,6 +804,7 @@ public class PolicyMgr implements Writable {
         policyMgr.compatible();
         // update merge policy cache and userPolicySet
         policyMgr.updateTablePolicies();
+        policyMgr.updateDataMaskPolicies();
         return policyMgr;
     }
 
