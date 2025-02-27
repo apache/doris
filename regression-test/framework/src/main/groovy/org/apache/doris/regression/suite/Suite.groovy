@@ -74,6 +74,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
@@ -904,6 +905,73 @@ class Suite implements GroovyInterceptable {
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    void mkdirRemotePathOnAllBE(String username, String path) {
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                        Assert.assertEquals(0, exitcode)
+                    }
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        ipList.each { beid, ip ->
+            String cmd = "ssh -o StrictHostKeyChecking=no ${username}@${ip} \"mkdir -p ${path}\""
+            logger.info("Execute: ${cmd}".toString())
+            executeCommand(cmd, false)
+        }
+    }
+
+    void deleteRemotePathOnAllBE(String username, String path) {
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                        Assert.assertEquals(0, exitcode)
+                    }
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        ipList.each { beid, ip ->
+            String cmd = "ssh -o StrictHostKeyChecking=no ${username}@${ip} \"rm -r ${path}\""
+            logger.info("Execute: ${cmd}".toString())
+            executeCommand(cmd, false)
+        }
+    }
+
+    void getBackendIpHeartbeatPort(Map<String, String> backendId_to_backendIP,
+            Map<String, String> backendId_to_backendHeartbeatPort) {
+        List<List<Object>> backends = sql("show backends");
+        logger.info("Content of backends: ${backends}")
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHeartbeatPort.put(String.valueOf(backend[0]), String.valueOf(backend[2]));
+        }
+        return;
     }
 
     String cmd(String cmd, int timeoutSecond = 0) {
