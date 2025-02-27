@@ -74,6 +74,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
