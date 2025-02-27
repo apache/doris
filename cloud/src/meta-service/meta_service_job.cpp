@@ -20,6 +20,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <sstream>
@@ -192,10 +193,26 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }), compactions.end());
         // clang-format on
         // Check conflict job
+        if (std::ranges::any_of(compactions, [](const auto& c) {
+                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
+            })) {
+            auto it = std::ranges::find_if(compactions, [](const auto& c) {
+                return c.type() == TabletCompactionJobPB::STOP_TOKEN;
+            });
+            msg = fmt::format(
+                    "compactions are not allowed on tablet_id={} currently, blocked by schema "
+                    "change job initiator={}",
+                    tablet_id, it->initiator());
+            code = MetaServiceCode::JOB_TABLET_BUSY;
+            return;
+        }
         if (compaction.type() == TabletCompactionJobPB::FULL) {
             // Full compaction is generally used for data correctness repair
             // for MOW table, so priority should be given to performing full
             // compaction operations and canceling other types of compaction.
+            compactions.Clear();
+        } else if (compaction.type() == TabletCompactionJobPB::STOP_TOKEN) {
+            // fail all existing compactions
             compactions.Clear();
         } else if ((!compaction.has_check_input_versions_range() &&
                     compaction.input_versions().empty()) ||
@@ -1111,6 +1128,14 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             auto job_val = recorded_job.SerializeAsString();
             txn->put(job_key, job_val);
             if (!new_tablet_job_val.empty()) {
+                auto& compactions = *new_recorded_job.mutable_compaction();
+                compactions.erase(std::remove_if(compactions.begin(), compactions.end(),
+                                                 [&](auto& c) {
+                                                     return c.has_initiator() &&
+                                                            c.initiator() ==
+                                                                    schema_change.initiator();
+                                                 }),
+                                  compactions.end());
                 new_recorded_job.clear_schema_change();
                 new_tablet_job_val = new_recorded_job.SerializeAsString();
                 txn->put(new_tablet_job_key, new_tablet_job_val);
@@ -1287,6 +1312,13 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     auto job_val = recorded_job.SerializeAsString();
     txn->put(job_key, job_val);
     if (!new_tablet_job_val.empty()) {
+        auto& compactions = *new_recorded_job.mutable_compaction();
+        compactions.erase(std::remove_if(compactions.begin(), compactions.end(),
+                                         [&](auto& c) {
+                                             return c.has_initiator() &&
+                                                    c.initiator() == schema_change.initiator();
+                                         }),
+                          compactions.end());
         new_recorded_job.clear_schema_change();
         new_tablet_job_val = new_recorded_job.SerializeAsString();
         txn->put(new_tablet_job_key, new_tablet_job_val);
