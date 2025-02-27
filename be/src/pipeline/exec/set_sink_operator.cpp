@@ -233,8 +233,8 @@ size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state,
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }

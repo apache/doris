@@ -125,8 +125,8 @@ Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status FileScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::open(state));
+Status FileScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
         TFileScanRangeParams& params =

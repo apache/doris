@@ -644,8 +644,8 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::open(state));
+Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::prepare(state));
     for (const auto& ctx : _agg_expr_ctxs) {
         RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child->row_desc()));
     }

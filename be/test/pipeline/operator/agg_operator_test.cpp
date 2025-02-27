@@ -96,7 +96,7 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
     op->_aggregate_evaluators.push_back(
             vectorized::create_mock_agg_fn_evaluator(ctx.pool, is_merge, without_key));
     op->_pool = &ctx.pool;
-    EXPECT_TRUE(op->open(&ctx.state).ok());
+    EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
 }
 
@@ -107,7 +107,7 @@ std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, b
             new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &ctx.pool});
     op->_without_key = without_key;
     op->_needs_finalize = needs_finalize;
-    EXPECT_TRUE(op->open(&ctx.state).ok());
+    EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
 }
 
@@ -231,7 +231,7 @@ TEST(AggOperatorTestWithOutGroupBy, test_multi_input) {
             ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<const DataTypeInt64>()),
             false, true));
     sink_op->_pool = &ctx.pool;
-    EXPECT_TRUE(sink_op->open(&ctx.state).ok());
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(
@@ -240,7 +240,7 @@ TEST(AggOperatorTestWithOutGroupBy, test_multi_input) {
                                    &ctx.pool});
     source_op->_without_key = true;
     source_op->_needs_finalize = true;
-    EXPECT_TRUE(source_op->open(&ctx.state).ok());
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
@@ -297,7 +297,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_only_key) {
     sink_op->_aggregate_evaluators.push_back(
             vectorized::create_mock_agg_fn_evaluator(ctx.pool, false, false));
     sink_op->_pool = &ctx.pool;
-    EXPECT_TRUE(sink_op->open(&ctx.state).ok());
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
     sink_op->_probe_expr_ctxs =
             MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
@@ -308,7 +308,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_only_key) {
                                    &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
-    EXPECT_TRUE(source_op->open(&ctx.state).ok());
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
@@ -359,7 +359,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
             ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
             false, false));
     sink_op->_pool = &ctx.pool;
-    EXPECT_TRUE(sink_op->open(&ctx.state).ok());
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
     sink_op->_probe_expr_ctxs =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
@@ -370,7 +370,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
                                    &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
-    EXPECT_TRUE(source_op->open(&ctx.state).ok());
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
@@ -425,7 +425,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 false, false));
         sink_op->_pool = &ctx.pool;
-        EXPECT_TRUE(sink_op->open(&ctx.state).ok());
+        EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
         sink_op->_probe_expr_ctxs =
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
@@ -436,7 +436,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
                                        &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = false;
-        EXPECT_TRUE(source_op->open(&ctx.state).ok());
+        EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
         auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
@@ -466,7 +466,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 true, false));
         sink_op->_pool = &ctx.pool;
-        EXPECT_TRUE(sink_op->open(&ctx.state).ok());
+        EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
         sink_op->_probe_expr_ctxs =
                 MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
@@ -477,7 +477,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
                                        &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = true;
-        EXPECT_TRUE(source_op->open(&ctx.state).ok());
+        EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
 
         auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 

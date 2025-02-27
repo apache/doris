@@ -128,8 +128,8 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::open(state));
+Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::prepare(state));
     DCHECK_GT(_num_senders, 0);
 
     if (_is_merging) {

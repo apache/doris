@@ -135,8 +135,8 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     return _agg_sink_operator->init(tnode, state);
 }
 
-Status PartitionedAggSinkOperatorX::open(RuntimeState* state) {
-    return _agg_sink_operator->open(state);
+Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
+    return _agg_sink_operator->prepare(state);
 }
 
 Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,

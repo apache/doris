@@ -247,7 +247,7 @@ void VfileScannerExceptionTest::init() {
             std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
-    WARN_IF_ERROR(_scan_node->open(&_runtime_state), "fail to open scan_node");
+    WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to open scan_node");
 
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
