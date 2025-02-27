@@ -131,7 +131,8 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, std::string id,
                 "true.");
     }
 #endif
-    (*fs).reset(new HdfsFileSystem(hdfs_params, std::move(id), fs_name, profile, std::move(root_path)));
+    (*fs).reset(
+            new HdfsFileSystem(hdfs_params, std::move(id), fs_name, profile, std::move(root_path)));
     return (*fs)->connect();
 }
 
