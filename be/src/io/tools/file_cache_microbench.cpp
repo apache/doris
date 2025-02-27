@@ -27,7 +27,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
-#include <filesystem> // 添加这个头文件
+#include <filesystem> // Add this header file
 #include <future>
 #include <iomanip>
 #include <iostream>
@@ -80,18 +80,6 @@
 #include "util/string_util.h"
 #include "util/threadpool.h"
 
-// 添加信号处理
-#include <signal.h>
-
-// 全局变量，用于优雅退出
-volatile sig_atomic_t g_running = 1;
-
-// 信号处理函数
-void signal_handler(int sig) {
-    LOG(INFO) << "Received signal " << sig << ", shutting down gracefully...";
-    g_running = 0;
-}
-
 using doris::io::FileCacheFactory;
 using doris::io::BlockFileCache;
 
@@ -125,33 +113,34 @@ static std::string build_info() {
     return ss.str();
 }
 
-// 修改 DataGenerator 类，使其生成更规范的数据块
+// Modify DataGenerator class to generate more standard data blocks
 class DataGenerator {
 public:
     DataGenerator(size_t total_size) : _total_size(total_size), _generated_size(0) {
         _buffer.resize(BUFFER_SIZE);
     }
 
-    // 获取下一块数据
+    // Get the next chunk of data
     doris::Slice next_chunk(const std::string& key) {
         if (_generated_size >= _total_size) {
-            return doris::Slice(); // 返回空slice表示结束
+            // Return an empty slice to indicate the end
+            return doris::Slice();
         }
 
         size_t remaining = _total_size - _generated_size;
         size_t chunk_size = std::min(remaining, BUFFER_SIZE);
 
-        // 生成这个块的tag
+        // Generate the tag for this block
         std::string tag = fmt::format("key={},offset={}\n", key, _generated_size);
         size_t tag_size = tag.size();
 
-        // 确保 chunk_size 不小于 tag_size
+        // Ensure chunk_size is not less than tag_size
         if (chunk_size < tag_size) {
             std::memcpy(_buffer.data(), tag.data(), chunk_size);
         } else {
-            // 将 key:offset 填充到缓冲区
+            // Fill the buffer with key:offset
             std::memcpy(_buffer.data(), tag.data(), tag_size);
-            // 填充剩余部分
+            // Fill the remaining part
             std::fill(_buffer.data() + tag_size, _buffer.data() + chunk_size, PAD_CHAR);
         }
 
@@ -175,24 +164,24 @@ public:
         size_t data_pos = 0;
 
         while (data_pos < data_size) {
-            // 计算当前块中的偏移量
+            // Calculate the offset in the current block
             size_t block_offset = read_offset + data_pos - current_block_start;
 
-            // 检查是否超出文件总大小
+            // Check if it exceeds the total file size
             if (current_block_start >= file_size) {
                 break;
             }
 
-            // 生成预期的tag
+            // Generate the expected tag
             std::string expected_tag = fmt::format("key={},offset={}\n", key, current_block_start);
 
-            // 如果在tag范围内，需要验证tag
+            // If within the tag range, need to verify the tag
             if (block_offset < expected_tag.size()) {
-                // 计算在当前数据中可以读取的tag长度
+                // Calculate the length of the tag that can be read in the current data
                 size_t available_tag_len =
                         std::min(expected_tag.size() - block_offset, data_size - data_pos);
 
-                // 如果已经到达文件末尾，只验证实际存在的数据
+                // If already at the end of the file, only verify the actual existing data
                 if (read_offset + data_pos + available_tag_len > file_size) {
                     available_tag_len = file_size - (read_offset + data_pos);
                 }
@@ -219,7 +208,7 @@ public:
                 data_pos++;
             }
 
-            // 如果到达块末尾，移动到下一个块
+            // If reaching the end of the block, move to the next block
             if ((read_offset + data_pos) % BUFFER_SIZE == 0) {
                 current_block_start += BUFFER_SIZE;
             }
@@ -229,11 +218,11 @@ public:
     }
 };
 
-// 定义一个结构体来存储文件信息
+// Define a struct to store file information
 struct FileInfo {
-    std::string filename; // 文件名
-    size_t data_size;     // 数据大小
-    std::string job_id;   // 关联的作业ID
+    std::string filename; // File name
+    size_t data_size;     // Data size
+    std::string job_id;   // Associated job ID
 };
 
 class S3FileRecords {
@@ -292,7 +281,7 @@ private:
     std::map<std::string, std::vector<FileInfo>> records_;
 };
 
-// 创建一个全局的 S3FileRecords 实例
+// Create a global S3FileRecords instance
 S3FileRecords s3_file_records;
 
 class MircobenchS3FileWriter {
@@ -306,7 +295,7 @@ public:
     doris::Status appendv(const doris::Slice* slices, size_t slices_size,
                           const std::shared_ptr<bvar::LatencyRecorder>& write_bvar) {
         if (_rate_limiter) {
-            _rate_limiter->add(1);
+            _rate_limiter->add(1); // Consume a token
         }
         using namespace doris;
         if (write_bvar) {
@@ -333,7 +322,7 @@ public:
                           const doris::io::IOContext* io_ctx,
                           std::shared_ptr<bvar::LatencyRecorder> read_bvar) {
         if (_rate_limiter) {
-            _rate_limiter->add(1); // 消耗一个令牌
+            _rate_limiter->add(1); // Consume a token
         }
         using namespace doris;
         if (read_bvar) {
@@ -380,7 +369,7 @@ public:
                 });
             }
         } catch (...) {
-            // 确保在构造函数中出现异常时也能正确清理
+            // Ensure proper cleanup in case of exception during construction
             stop = true;
             condition.notify_all();
             throw;
@@ -417,7 +406,7 @@ public:
         }
         condition.notify_all();
 
-        // 安全地等待所有线程完成
+        // Safely wait for all threads to complete
         for (auto& worker : workers) {
             try {
                 if (worker.joinable()) {
@@ -442,7 +431,7 @@ public:
     void mark_completed(const std::string& key) {
         std::lock_guard<std::mutex> lock(_mutex);
         _completed_files.insert(key);
-        _cv.notify_all(); // 通知所有等待的线程
+        _cv.notify_all(); // Notify all waiting threads
     }
 
     bool is_completed(const std::string& key) {
@@ -540,9 +529,9 @@ std::string get_usage(const std::string& progname) {
     return usage;
 }
 
-// Job配置结构
+// Job configuration structure
 struct JobConfig {
-    // 默认值初始化
+    // Default value initialization
     int64_t size_bytes_perfile = 1024 * 1024;
     int32_t write_iops = 0;
     int32_t read_iops = 0;
@@ -560,7 +549,7 @@ struct JobConfig {
     bool write_file_cache = true;
     bool bvar_enable = false;
 
-    // 从JSON解析配置
+    // Parse configuration from JSON
     static JobConfig from_json(const std::string& json_str) {
         JobConfig config;
         rapidjson::Document d;
@@ -570,22 +559,22 @@ struct JobConfig {
             throw std::runtime_error("JSON parse error json args=" + json_str);
         }
 
-        // 基本验证
+        // Basic validation
         validate(d);
 
-        // 使用辅助函数解析各字段
+        // Use helper functions to parse each field
         parse_basic_fields(d, config);
         parse_cache_settings(d, config);
         parse_read_settings(d, config);
 
-        // 额外验证
+        // Additional validation
         validate_config(config);
 
         return config;
     }
 
 private:
-    // 验证JSON文档
+    // Validate the JSON document
     static void validate(const rapidjson::Document& json_data) {
         if (!json_data.HasMember("file_prefix") || !json_data["file_prefix"].IsString() ||
             strlen(json_data["file_prefix"].GetString()) == 0) {
@@ -593,12 +582,12 @@ private:
         }
     }
 
-    // 解析基本字段
+    // Parse basic fields
     static void parse_basic_fields(const rapidjson::Document& d, JobConfig& config) {
-        // 解析 file_prefix (必需字段)
+        // Parse file_prefix (required field)
         config.file_prefix = d["file_prefix"].GetString();
 
-        // 解析可选字段
+        // Parse optional fields
         if (d.HasMember("num_files") && d["num_files"].IsInt()) {
             config.num_files = d["num_files"].GetInt();
         }
@@ -636,13 +625,13 @@ private:
         }
     }
 
-    // 解析缓存相关设置
+    // Parse cache-related settings
     static void parse_cache_settings(const rapidjson::Document& d, JobConfig& config) {
         if (d.HasMember("cache_type") && d["cache_type"].IsString()) {
             config.cache_type = d["cache_type"].GetString();
         }
 
-        // 检查 TTL 类型的缓存
+        // Check for TTL cache type
         if (config.cache_type == "TTL") {
             if (!d.HasMember("expiration") || !d["expiration"].IsInt64()) {
                 throw std::runtime_error(
@@ -652,10 +641,10 @@ private:
         }
     }
 
-    // 解析读取相关设置
+    // Parse read-related settings
     static void parse_read_settings(const rapidjson::Document& d, JobConfig& config) {
         if (config.read_iops > 0) {
-            // 解析 read_offset
+            // Parse read_offset
             if (d.HasMember("read_offset") && d["read_offset"].IsArray() &&
                 d["read_offset"].Size() == 2) {
                 const rapidjson::Value& read_offset_array = d["read_offset"];
@@ -665,7 +654,7 @@ private:
                 throw std::runtime_error("Invalid read_offset format, expected array of size 2");
             }
 
-            // 解析 read_length
+            // Parse read_length
             if (d.HasMember("read_length") && d["read_length"].IsArray() &&
                 d["read_length"].Size() == 2) {
                 const rapidjson::Value& read_length_array = d["read_length"];
@@ -677,7 +666,7 @@ private:
         }
     }
 
-    // 验证配置的有效性
+    // Validate the validity of the configuration
     static void validate_config(const JobConfig& config) {
         if (config.num_threads <= 0 || config.num_threads > 10000) {
             throw std::runtime_error("num_threads must be between 1 and 10000");
@@ -716,10 +705,10 @@ public:
     }
 };
 
-// Job状态
+// Job status
 enum class JobStatus { PENDING, RUNNING, COMPLETED, FAILED };
 
-// Job结构
+// Job structure
 struct Job {
     std::string job_id;
     JobConfig config;
@@ -732,7 +721,7 @@ struct Job {
     std::shared_ptr<doris::S3RateLimiterHolder> write_limiter;
     std::shared_ptr<doris::S3RateLimiterHolder> read_limiter;
 
-    // Job执行结果统计
+    // Job execution result statistics
     struct Statistics {
         std::string total_write_time;
         std::string total_read_time;
@@ -754,10 +743,10 @@ struct Job {
         int64_t set_timer = 0;
     } stats;
 
-    // 记录与作业相关的文件信息
+    // Record associated file information for the job
     std::vector<FileInfo> file_records;
 
-    // 添加 completion_tracker
+    // Add completion_tracker
     std::shared_ptr<FileCompletionTracker> completion_tracker;
 
     std::shared_ptr<bvar::LatencyRecorder> write_latency;
@@ -765,13 +754,13 @@ struct Job {
     std::shared_ptr<bvar::LatencyRecorder> read_latency;
     std::shared_ptr<bvar::Adder<int64_t>> read_rate_limit_s;
 
-    // 默认构造函数
+    // Default constructor
     Job() : job_id(""), status(JobStatus::PENDING), create_time(std::chrono::system_clock::now()) {
         init_latency_recorders("");
         completion_tracker = std::make_shared<FileCompletionTracker>();
     }
 
-    // 带参数的构造函数
+    // Constructor with parameters
     Job(const std::string& id, const JobConfig& cfg)
             : job_id(id),
               config(cfg),
@@ -830,7 +819,7 @@ private:
     }
 };
 
-// Job管理器
+// Job manager
 class JobManager {
 public:
     JobManager() : _next_job_id(0), _job_executor_pool(std::thread::hardware_concurrency()) {
@@ -846,7 +835,7 @@ public:
         }
     }
 
-    // 提交新作业
+    // Submit a new job
     std::string submit_job(const JobConfig& config) {
         try {
             std::string job_id = generate_job_id();
@@ -858,7 +847,7 @@ public:
 
             LOG(INFO) << "Submitting job " << job_id << " with config: " << config.to_string();
 
-            // 异步执行作业
+            // Execute the job asynchronously
             _job_executor_pool.enqueue(
                     [this, job_id]() { execute_job_with_status_updates(job_id); });
 
@@ -869,7 +858,7 @@ public:
         }
     }
 
-    // 获取作业状态
+    // Get job status
     const Job& get_job_status(const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
@@ -888,7 +877,7 @@ public:
         return nullptr;
     }
 
-    // 列出所有作业
+    // List all jobs
     std::vector<std::shared_ptr<Job>> list_jobs() {
         std::lock_guard<std::mutex> lock(_mutex);
         std::vector<std::shared_ptr<Job>> job_list;
@@ -907,7 +896,7 @@ public:
         LOG(INFO) << "JobManager stopped";
     }
 
-    // 记录文件信息
+    // Record file information
     void record_file_info(const std::string& key, size_t data_size, const std::string& job_id) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto it = _jobs.find(job_id);
@@ -920,14 +909,14 @@ public:
         }
     }
 
-    // 取消作业（未实现）
+    // Cancel job (not implemented yet)
     bool cancel_job(const std::string& job_id) {
         LOG(WARNING) << "Job cancellation not implemented yet: " << job_id;
         return false;
     }
 
 private:
-    // 生成唯一的作业ID
+    // Generate a unique job ID
     std::string generate_job_id() {
         std::lock_guard<std::mutex> lock(_mutex);
         std::string job_id =
@@ -935,11 +924,11 @@ private:
         return job_id;
     }
 
-    // 带状态更新的作业执行
+    // Execute job with status updates
     void execute_job_with_status_updates(const std::string& job_id) {
         std::shared_ptr<Job> job_ptr;
 
-        // 获取作业指针并更新状态为运行中
+        // Get job pointer and update status to RUNNING
         {
             std::lock_guard<std::mutex> lock(_mutex);
             auto it = _jobs.find(job_id);
@@ -955,10 +944,10 @@ private:
         LOG(INFO) << "Starting execution of job " << job_id;
 
         try {
-            // 执行作业
+            // Execute job
             execute_job(job_id);
 
-            // 更新状态为已完成
+            // Update status to COMPLETED
             {
                 std::lock_guard<std::mutex> lock(_mutex);
                 job_ptr->status = JobStatus::COMPLETED;
@@ -967,7 +956,7 @@ private:
 
             LOG(INFO) << "Job " << job_id << " completed successfully";
         } catch (const std::exception& e) {
-            // 更新状态为失败
+            // Update status to FAILED
             {
                 std::lock_guard<std::mutex> lock(_mutex);
                 job_ptr->status = JobStatus::FAILED;
@@ -979,7 +968,7 @@ private:
         }
     }
 
-    // 执行作业的核心逻辑
+    // Core logic for executing a job
     void execute_job(const std::string& job_id) {
         std::shared_ptr<Job> job_ptr = get_job_ptr(job_id);
         if (!job_ptr) {
@@ -990,12 +979,12 @@ private:
         JobConfig& config = job.config;
         LOG(INFO) << "Executing job " << job_id << " with config: " << config.to_string();
 
-        // 生成多个key
+        // Generate multiple keys
         std::vector<std::string> keys;
         keys.reserve(config.num_files);
 
         std::string rewrite_job_id = job_id;
-        // 如果是只读作业，查找之前写入的文件
+        // If it's a read-only job, find the previously written files
         if (config.read_iops > 0 && config.write_iops == 0) {
             std::string old_job_id =
                     s3_file_records.find_job_id_by_prefix(HIDDEN_PREFIX + config.file_prefix);
@@ -1009,18 +998,18 @@ private:
             rewrite_job_id = old_job_id;
         }
 
-        // 生成文件键
+        // Generate file keys
         for (int i = 0; i < config.num_files; ++i) {
             keys.push_back(HIDDEN_PREFIX + config.file_prefix + "/" + rewrite_job_id + "_" +
                            std::to_string(i));
         }
 
-        // 执行写操作
+        // Execute write tasks
         if (config.write_iops > 0) {
             execute_write_tasks(keys, job, config);
         }
 
-        // 执行读操作
+        // Execute read tasks
         if (config.read_iops > 0) {
             execute_read_tasks(keys, job, config);
         }
@@ -1041,13 +1030,13 @@ private:
         return s3_conf;
     }
 
-    // 执行写任务
+    // Execute write tasks
     void execute_write_tasks(const std::vector<std::string>& keys, Job& job,
                              const JobConfig& config) {
-        // 创建 S3 客户端配置
+        // Create S3 client configuration
         doris::S3ClientConf s3_conf = create_s3_client_conf(config);
 
-        // 初始化 S3 客户端
+        // Initialize S3 client
         auto client = std::make_shared<doris::io::ObjClientHolder>(s3_conf);
         doris::Status init_status = client->init();
         if (!init_status.ok()) {
@@ -1059,7 +1048,7 @@ private:
         write_futures.reserve(keys.size());
         ThreadPool write_pool(config.num_threads);
 
-        // 启动写入任务
+        // Start write tasks
         doris::MonotonicStopWatch write_stopwatch;
         write_stopwatch.start();
         for (int i = 0; i < keys.size(); ++i) {
@@ -1085,7 +1074,7 @@ private:
                     slices.reserve(4);
                     size_t accumulated_size = 0;
 
-                    // 流式写入数据
+                    // Stream data writing
                     while (data_generator.has_more()) {
                         doris::Slice chunk = data_generator.next_chunk(key);
                         slices.push_back(chunk);
@@ -1107,7 +1096,7 @@ private:
                         job.completion_tracker->mark_completed(key);
                     }
 
-                    // 记录成功写入的文件信息
+                    // Record successful file information
                     size_t data_size = config.size_bytes_perfile;
                     record_file_info(key, data_size, job.job_id);
                     completed_writes++;
@@ -1117,20 +1106,21 @@ private:
             }));
         }
 
-        // 等待所有写入任务完成
+        // Wait for all write tasks to complete
         for (auto& future : write_futures) {
             future.get();
         }
-        write_stopwatch.stop(); // 停止计时
+        write_stopwatch.stop();
 
-        // 将写入时间从纳秒转换为秒并格式化为字符串
-        double total_write_time_seconds = write_stopwatch.elapsed_time() / 1e9; // 纳秒转秒
+        // Convert write time from nanoseconds to seconds and format as string
+        double total_write_time_seconds =
+                write_stopwatch.elapsed_time() / 1e9; // nanoseconds to seconds
         job.stats.total_write_time =
-                std::to_string(total_write_time_seconds) + " seconds"; // 保存为字符串
+                std::to_string(total_write_time_seconds) + " seconds"; // Save as string
         LOG(INFO) << "Total write time: " << job.stats.total_write_time << " seconds";
     }
 
-    // 执行读任务
+    // Execute read tasks
     void execute_read_tasks(const std::vector<std::string>& keys, Job& job, JobConfig& config) {
         LOG(INFO) << "Starting read tasks for job " << job.job_id << ", num_keys=" << keys.size()
                   << ", read_iops=" << config.read_iops;
@@ -1153,9 +1143,9 @@ private:
         }
         ThreadPool read_pool(config.num_threads);
         std::atomic<int> completed_reads(0);
-        doris::MonotonicStopWatch read_stopwatch; // 添加读取任务计时器
+        doris::MonotonicStopWatch read_stopwatch; // Add read task timer
 
-        // 创建 S3 客户端配置
+        // Create S3 client configuration
         doris::S3ClientConf s3_conf = create_s3_client_conf(config);
         std::vector<std::string> read_files;
         if (exist_job_perfile_size != -1) {
@@ -1176,7 +1166,8 @@ private:
             read_futures.push_back(read_pool.enqueue([&, key]() {
                 try {
                     if (job.completion_tracker) {
-                        job.completion_tracker->wait_for_completion(key); // 等待文件完成
+                        job.completion_tracker->wait_for_completion(
+                                key); // Wait for file completion
                     }
                     doris::io::FileReaderOptions reader_opts;
                     reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
@@ -1244,13 +1235,13 @@ private:
                                 if (use_random) {
                                     std::random_device rd;
                                     std::mt19937 gen(rd());
-                                    // 在 read_offset_left 和 read_offset_right 之间生成随机 read_offset
+                                    // Generate random read_offset between read_offset_left and read_offset_right - 1
                                     std::uniform_int_distribution<size_t> dis_offset(
                                             config.read_offset_left, config.read_offset_right - 1);
-                                    read_offset = dis_offset(gen); // 生成随机的 read_offset
+                                    read_offset = dis_offset(gen); // Generate random read_offset
                                     std::uniform_int_distribution<size_t> dis_length(
                                             config.read_length_left, config.read_length_right - 1);
-                                    read_length = dis_length(gen); // 生成随机的 read_length
+                                    read_length = dis_length(gen); // Generate random read_length
                                     if (read_offset + read_length > exist_job_perfile_size) {
                                         read_length = exist_job_perfile_size - read_offset;
                                     }
@@ -1311,7 +1302,7 @@ private:
                                 file_size = exist_job_perfile_size;
                             }
 
-                            // 验证读取的数据
+                            // Verify read data
                             if (!DataVerifier::verify_data(key, file_size, read_offset, read_buffer,
                                                            read_length)) {
                                 throw std::runtime_error("Data verification failed for key: " +
@@ -1332,19 +1323,20 @@ private:
             }));
         }
 
-        // 等待所有读取任务完成
+        // Wait for all read tasks to complete
         for (auto& future : read_futures) {
             future.get();
         }
-        read_stopwatch.stop(); // 停止计时
+        read_stopwatch.stop(); // Stop timer
 
-        // 将读取时间从纳秒转换为秒并格式化为字符串
-        double total_read_time_seconds = read_stopwatch.elapsed_time() / 1e9; // 纳秒转秒
+        // Convert read time from nanoseconds to seconds and format as string
+        double total_read_time_seconds =
+                read_stopwatch.elapsed_time() / 1e9; // nanoseconds to seconds
         job.stats.total_read_time =
-                std::to_string(total_read_time_seconds) + " seconds"; // 保存为字符串
+                std::to_string(total_read_time_seconds) + " seconds"; // Save as string
         LOG(INFO) << "Total read time: " << job.stats.total_read_time << " seconds";
 
-        // 更新作业统计信息
+        // Update job statistics
         job.stats.num_local_io_total = total_stats.num_local_io_total;
         job.stats.num_remote_io_total = total_stats.num_remote_io_total;
         job.stats.num_inverted_index_remote_io_total =
@@ -1383,10 +1375,10 @@ public:
     virtual ~MicrobenchServiceImpl() {}
 
     /**
-     * 提交作业
+     * Submit a job
      * 
-     * 接收JSON格式的作业配置，创建并提交作业
-     * 返回包含作业ID的JSON响应
+     * Receive JSON-formatted job configuration, create and submit the job
+     * Return a JSON response containing the job ID
      */
     void submit_job(google::protobuf::RpcController* cntl_base,
                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1397,7 +1389,7 @@ public:
         LOG(INFO) << "Received submit job request";
 
         try {
-            // 解析请求体JSON
+            // Parse request body JSON
             std::string job_config = cntl->request_attachment().to_string();
             JobConfig config = JobConfig::from_json(job_config);
 
@@ -1406,10 +1398,10 @@ public:
             std::string job_id = _job_manager.submit_job(config);
             LOG(INFO) << "Job submitted successfully with ID: " << job_id;
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 返回job_id
+            // Return job_id
             rapidjson::Document response_doc;
             response_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = response_doc.GetAllocator();
@@ -1417,7 +1409,7 @@ public:
                                    allocator);
             response_doc.AddMember("status", "success", allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             response_doc.Accept(writer);
@@ -1426,18 +1418,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error submitting job: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1447,10 +1439,10 @@ public:
     }
 
     /**
-     * 获取作业状态
+     * Get job status
      * 
-     * 根据作业ID返回作业的详细状态信息
-     * 可选参数 files 用于限制返回的文件记录数量
+     * Return detailed job status information based on job ID
+     * Optional parameter 'files' is used to limit the number of file records returned
      */
     void get_job_status(google::protobuf::RpcController* cntl_base,
                         const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1460,7 +1452,7 @@ public:
 
         std::string job_id = cntl->http_request().unresolved_path();
         const std::string* files_value = cntl->http_request().uri().GetQuery("files");
-        size_t max_files = 1000; // 设置最大文件记录数
+        size_t max_files = 1000; // Set maximum file record limit
 
         if (files_value != nullptr) {
             try {
@@ -1477,10 +1469,10 @@ public:
         try {
             const Job& job = _job_manager.get_job_status(job_id);
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建JSON响应
+            // Build JSON response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
@@ -1490,27 +1482,27 @@ public:
                         rapidjson::Value(get_status_string(job.status).c_str(), allocator),
                         allocator);
 
-            // 添加时间信息
+            // Add time information
             add_time_info(d, allocator, job);
 
-            // 添加错误信息（如果有）
+            // Add error information (if any)
             if (!job.error_message.empty()) {
                 d.AddMember("error_message", rapidjson::Value(job.error_message.c_str(), allocator),
                             allocator);
             }
 
-            // 添加配置信息
+            // Add configuration information
             add_config_info(d, allocator, job.config);
 
-            // 添加统计信息
+            // Add statistics information
             add_stats_info(d, allocator, job.stats);
 
-            // 添加文件记录（如果请求）
+            // Add file records (if requested)
             if (files_value) {
                 add_file_records(d, allocator, job.file_records, max_files);
             }
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1519,11 +1511,11 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error getting job status: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_NOT_FOUND);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
@@ -1531,7 +1523,7 @@ public:
             error_doc.AddMember("message", "Job not found", allocator);
             error_doc.AddMember("exception", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1541,9 +1533,9 @@ public:
     }
 
     /**
-     * 列出所有作业
+     * List all jobs
      * 
-     * 返回所有作业的基本信息列表
+     * Return a list of basic information for all jobs
      */
     void list_jobs(google::protobuf::RpcController* cntl_base,
                    const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1556,10 +1548,10 @@ public:
         try {
             std::vector<std::shared_ptr<Job>> jobs = _job_manager.list_jobs();
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建JSON响应
+            // Build JSON response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
@@ -1574,16 +1566,16 @@ public:
                         rapidjson::Value(get_status_string(job->status).c_str(), allocator),
                         allocator);
 
-                // 添加创建时间
+                // Add creation time
                 auto create_time_t = std::chrono::system_clock::to_time_t(job->create_time);
                 std::string create_time_str = std::ctime(&create_time_t);
                 if (!create_time_str.empty() && create_time_str.back() == '\n') {
-                    create_time_str.pop_back(); // 移除末尾的换行符
+                    create_time_str.pop_back(); // Remove trailing newline character
                 }
                 job_obj.AddMember("create_time",
                                   rapidjson::Value(create_time_str.c_str(), allocator), allocator);
 
-                // 添加文件前缀
+                // Add file prefix
                 job_obj.AddMember("file_prefix",
                                   rapidjson::Value(job->config.file_prefix.c_str(), allocator),
                                   allocator);
@@ -1594,7 +1586,7 @@ public:
             d.AddMember("jobs", jobs_array, allocator);
             d.AddMember("total", rapidjson::Value(static_cast<int>(jobs.size())), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1603,18 +1595,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error listing jobs: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_INTERNAL_SERVER_ERROR);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1624,9 +1616,9 @@ public:
     }
 
     /**
-     * 取消作业
+     * Cancel a job
      * 
-     * 尝试取消指定的作业（当前未实现）
+     * Attempt to cancel the specified job (currently not implemented)
      */
     void cancel_job(google::protobuf::RpcController* cntl_base,
                     const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1637,18 +1629,18 @@ public:
         std::string job_id = cntl->http_request().unresolved_path();
         LOG(INFO) << "Received cancel_job request for job " << job_id;
 
-        // 设置响应头
+        // Set response headers
         cntl->http_response().set_content_type("application/json");
         cntl->http_response().set_status_code(brpc::HTTP_STATUS_NOT_IMPLEMENTED);
 
-        // 构建响应
+        // Build response
         rapidjson::Document d;
         d.SetObject();
         rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
         d.AddMember("status", "error", allocator);
         d.AddMember("message", "Job cancellation not implemented", allocator);
 
-        // 序列化为字符串
+        // Serialize to string
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         d.Accept(writer);
@@ -1657,9 +1649,9 @@ public:
     }
 
     /**
-     * 获取帮助信息
+     * Get help information
      * 
-     * 返回工具的使用说明
+     * Return usage instructions for the tool
      */
     void get_help(google::protobuf::RpcController* cntl_base,
                   const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1669,17 +1661,17 @@ public:
 
         LOG(INFO) << "Received get_help request";
 
-        // 获取使用帮助信息
+        // Get usage help information
         std::string help_info = get_usage("Doris Microbench Tool");
 
-        // 返回帮助信息
+        // Return help information
         cntl->response_attachment().append(help_info);
     }
 
     /**
-     * 清除文件缓存
+     * Clear file cache
      * 
-     * 清除指定路径或所有的文件缓存
+     * Clear file cache for the specified path or all caches
      */
     void file_cache_clear(google::protobuf::RpcController* cntl_base,
                           const microbench::HttpRequest* request,
@@ -1697,11 +1689,11 @@ public:
             bool sync = sync_str ? (doris::to_lower(*sync_str) == "true") : false;
 
             if (segment_path == nullptr) {
-                // 清除所有缓存
+                // Clear all caches
                 FileCacheFactory::instance()->clear_file_caches(sync);
                 LOG(INFO) << "Cleared all file caches, sync=" << sync;
             } else {
-                // 清除特定路径的缓存
+                // Clear cache for specific path
                 doris::io::UInt128Wrapper hash = doris::io::BlockFileCache::hash(*segment_path);
                 doris::io::BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
                 if (cache) {
@@ -1712,16 +1704,16 @@ public:
                 }
             }
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建成功响应
+            // Build success response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
             d.AddMember("status", "OK", allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1730,18 +1722,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error clearing file cache: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1751,9 +1743,9 @@ public:
     }
 
     /**
-     * 重置文件缓存
+     * Reset file cache
      * 
-     * 重置指定路径或所有的文件缓存
+     * Reset file cache for the specified path or all caches
      */
     void file_cache_reset(google::protobuf::RpcController* cntl_base,
                           const microbench::HttpRequest* request,
@@ -1780,16 +1772,16 @@ public:
             LOG(INFO) << "Reset capacity for path: " << path << ", new capacity: " << new_capacity
                       << ", result: " << ret;
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建成功响应
+            // Build success response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
             d.AddMember("status", "OK", allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1798,18 +1790,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error resetting file cache: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1819,9 +1811,9 @@ public:
     }
 
     /**
-     * 释放文件缓存
+     * Release file cache
      * 
-     * 释放指定路径或所有的文件缓存
+     * Release file cache for the specified path or all caches
      */
     void file_cache_release(google::protobuf::RpcController* cntl_base,
                             const microbench::HttpRequest* request,
@@ -1841,17 +1833,17 @@ public:
             LOG(INFO) << "Released file caches: " << released
                       << " path: " << (base_path_str ? *base_path_str : "null");
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建成功响应
+            // Build success response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
             d.AddMember("status", "OK", allocator);
             d.AddMember("released_elements", released, allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1860,18 +1852,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error releasing file cache: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1881,9 +1873,7 @@ public:
     }
 
     /**
-     * 更新配置
-     * 
-     * 更新配置
+     * Update configuration
      */
     void update_config(google::protobuf::RpcController* cntl_base,
                        const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1916,10 +1906,10 @@ public:
                 break;
             }
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建成功响应
+            // Build success response
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
@@ -1927,7 +1917,7 @@ public:
             d.AddMember(rapidjson::Value(key.c_str(), allocator),
                         rapidjson::Value(value.c_str(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             d.Accept(writer);
@@ -1936,18 +1926,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error updating config: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -1957,9 +1947,7 @@ public:
     }
 
     /**
-     * 显示配置
-     * 
-     * 显示配置
+     * Show configuration
      */
     void show_config(google::protobuf::RpcController* cntl_base,
                      const microbench::HttpRequest* request, microbench::HttpResponse* response,
@@ -1977,7 +1965,7 @@ public:
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 
-            // 写入配置数组
+            // Write config array
             writer.StartArray();
             const std::string* conf_item_str = cntl->http_request().uri().GetQuery("conf_item");
             std::string conf_item = conf_item_str ? *conf_item_str : "";
@@ -2001,10 +1989,10 @@ public:
             }
             writer.EndArray();
 
-            // 设置响应头
+            // Set response headers
             cntl->http_response().set_content_type("application/json");
 
-            // 构建成功响应
+            // Build success response
             d.AddMember("status", "OK", allocator);
             d.AddMember("config", rapidjson::Value(buffer.GetString(), allocator), allocator);
 
@@ -2015,18 +2003,18 @@ public:
         } catch (const std::exception& e) {
             LOG(ERROR) << "Error showing config: " << e.what();
 
-            // 设置错误状态码和响应
+            // Set error status code and response
             cntl->http_response().set_status_code(brpc::HTTP_STATUS_BAD_REQUEST);
             cntl->http_response().set_content_type("application/json");
 
-            // 构建错误响应
+            // Build error response
             rapidjson::Document error_doc;
             error_doc.SetObject();
             rapidjson::Document::AllocatorType& allocator = error_doc.GetAllocator();
             error_doc.AddMember("status", "error", allocator);
             error_doc.AddMember("message", rapidjson::Value(e.what(), allocator), allocator);
 
-            // 序列化为字符串
+            // Serialize to string
             rapidjson::StringBuffer buffer;
             rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
             error_doc.Accept(writer);
@@ -2036,7 +2024,7 @@ public:
     }
 
 private:
-    // 获取作业状态的字符串表示
+    // Get string representation of job status
     std::string get_status_string(JobStatus status) {
         switch (status) {
         case JobStatus::PENDING:
@@ -2052,19 +2040,19 @@ private:
         }
     }
 
-    // 添加时间信息到JSON响应
+    // Add time information to JSON response
     void add_time_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
                        const Job& job) {
-        // 添加创建时间
+        // Add creation time
         auto create_time_t = std::chrono::system_clock::to_time_t(job.create_time);
         std::string create_time_str = std::ctime(&create_time_t);
         if (!create_time_str.empty() && create_time_str.back() == '\n') {
-            create_time_str.pop_back(); // 移除末尾的换行符
+            create_time_str.pop_back(); // Remove trailing newline character
         }
         doc.AddMember("create_time", rapidjson::Value(create_time_str.c_str(), allocator),
                       allocator);
 
-        // 添加开始时间（如果有）
+        // Add start time (if available)
         if (job.status != JobStatus::PENDING) {
             auto start_time_t = std::chrono::system_clock::to_time_t(job.start_time);
             std::string start_time_str = std::ctime(&start_time_t);
@@ -2075,7 +2063,7 @@ private:
                           allocator);
         }
 
-        // 添加结束时间（如果有）
+        // Add end time (if available)
         if (job.status == JobStatus::COMPLETED || job.status == JobStatus::FAILED) {
             auto end_time_t = std::chrono::system_clock::to_time_t(job.end_time);
             std::string end_time_str = std::ctime(&end_time_t);
@@ -2084,7 +2072,7 @@ private:
             }
             doc.AddMember("end_time", rapidjson::Value(end_time_str.c_str(), allocator), allocator);
 
-            // 计算运行时间
+            // Calculate duration of the run
             auto duration =
                     std::chrono::duration_cast<std::chrono::seconds>(job.end_time - job.start_time)
                             .count();
@@ -2092,7 +2080,7 @@ private:
         }
     }
 
-    // 添加配置信息到JSON响应
+    // Add configuration information to JSON response
     void add_config_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
                          const JobConfig& config) {
         rapidjson::Value config_obj(rapidjson::kObjectType);
@@ -2112,7 +2100,7 @@ private:
         config_obj.AddMember("write_file_cache", config.write_file_cache, allocator);
         config_obj.AddMember("bvar_enable", config.bvar_enable, allocator);
 
-        // 添加读取范围（如果适用）
+        // Add read offset (if applicable)
         if (config.read_iops > 0) {
             rapidjson::Value read_offset_array(rapidjson::kArrayType);
             read_offset_array.PushBack(config.read_offset_left, allocator);
@@ -2128,7 +2116,7 @@ private:
         doc.AddMember("config", config_obj, allocator);
     }
 
-    // 添加统计信息到JSON响应
+    // Add statistics information to JSON response
     void add_stats_info(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
                         const Job::Statistics& stats) {
         rapidjson::Value stats_obj(rapidjson::kObjectType);
@@ -2172,7 +2160,7 @@ private:
         doc.AddMember("statistics", stats_obj, allocator);
     }
 
-    // 添加文件记录到JSON响应
+    // Add file records to JSON response
     void add_file_records(rapidjson::Document& doc, rapidjson::Document::AllocatorType& allocator,
                           const std::vector<FileInfo>& file_records, size_t max_files) {
         rapidjson::Value files_array(rapidjson::kArrayType);
@@ -2180,7 +2168,7 @@ private:
 
         for (const auto& file_info : file_records) {
             if (count >= max_files) {
-                break; // 超过最大限制，停止添加
+                break; // Stop adding if max limit is reached
             }
             rapidjson::Value file_obj(rapidjson::kObjectType);
             file_obj.AddMember("filename", rapidjson::Value(file_info.filename.c_str(), allocator),
@@ -2201,7 +2189,7 @@ private:
 };
 } // namespace microbenchService
 
-// HTTP服务器处理
+// HTTP server handling
 class HttpServer {
 public:
     HttpServer(JobManager& job_manager) : _job_manager(job_manager), _server(nullptr) {}
@@ -2224,26 +2212,15 @@ public:
         }
 
         LOG(INFO) << "HTTP server started successfully";
+        _server->RunUntilAskedToQuit(); // Wait for signals
+        _server->ClearServices();
 
-        // 等待信号
-        while (g_running) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        // 优雅退出
-        LOG(INFO) << "Stopping HTTP server...";
-        _server->Stop(0);
-        _server->Join();
-        delete _server;
-        _server = nullptr;
         LOG(INFO) << "HTTP server stopped";
     }
 
     ~HttpServer() {
         if (_server) {
             LOG(INFO) << "Cleaning up HTTP server in destructor";
-            _server->Stop(0);
-            _server->Join();
             delete _server;
         }
     }
@@ -2269,38 +2246,32 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_minloglevel = google::GLOG_INFO;
     FLAGS_log_dir = "./logs";
-    FLAGS_logbufsecs = 0; // 禁用缓冲，立即写入
+    FLAGS_logbufsecs = 0; // Disable buffering, write immediately
     std::filesystem::path log_dir(FLAGS_log_dir);
     if (!std::filesystem::exists(log_dir)) {
         std::filesystem::create_directories(log_dir);
-        LOG(INFO) << "日志目录创建成功: " << log_dir.string();
+        LOG(INFO) << "Log directory created successfully: " << log_dir.string();
     } else {
-        LOG(INFO) << "日志目录已存在: " << log_dir.string();
+        LOG(INFO) << "Log directory already exists: " << log_dir.string();
     }
     google::InitGoogleLogging(argv[0]);
-
-    // 安装信号处理器
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGHUP, signal_handler);
-    LOG(INFO) << "Signal handlers installed for graceful shutdown";
 
     if (-1 == setenv("DORIS_HOME", ".", 0)) {
         LOG(WARNING) << "set DORIS_HOME error";
     }
     const char* doris_home = getenv("DORIS_HOME");
     if (doris_home == nullptr) {
-        LOG(INFO) << "DORIS_HOME 环境变量未设置";
+        LOG(INFO) << "DORIS_HOME environment variable not set";
     }
     LOG(INFO) << "env=" << doris_home;
     std::string conffile = std::string(doris_home) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), true, true, true)) {
-        LOG(ERROR) << "读取配置文件错误";
+        LOG(ERROR) << "Error reading config file";
         return -1;
     }
     std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
     if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
-        LOG(ERROR) << "读取自定义配置文件错误";
+        LOG(ERROR) << "Error reading custom config file";
         return -1;
     }
 
@@ -2347,6 +2318,19 @@ int main(int argc, char* argv[]) {
     init_exec_env();
     JobManager job_manager;
 
+    std::thread periodiccally_log_thread;
+    std::mutex periodiccally_log_thread_lock;
+    std::condition_variable periodiccally_log_thread_cv;
+    std::atomic_bool periodiccally_log_thread_run = true;
+    auto periodiccally_log = [&]() {
+        while (periodiccally_log_thread_run) {
+            std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
+            periodiccally_log_thread_cv.wait_for(lck, std::chrono::milliseconds(5000));
+            LOG(INFO) << "Periodically log for file cache microbench";
+        }
+    };
+    periodiccally_log_thread = std::thread {periodiccally_log};
+
     try {
         HttpServer http_server(job_manager);
         http_server.start();
@@ -2354,6 +2338,16 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "Error in HTTP server: " << e.what();
     }
 
+    if (periodiccally_log_thread.joinable()) {
+        {
+            std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
+            periodiccally_log_thread_run = false;
+            // immediately notify the log thread to quickly exit in case it block the
+            // whole procedure
+            periodiccally_log_thread_cv.notify_all();
+        }
+        periodiccally_log_thread.join();
+    }
     LOG(INFO) << "Program exiting normally";
     return 0;
 }
