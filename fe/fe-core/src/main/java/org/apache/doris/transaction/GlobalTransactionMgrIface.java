@@ -201,4 +201,6 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
                 long dbId, List<Long> tableIdList) throws UserException;
+
+    public int getQueueLength();
 }

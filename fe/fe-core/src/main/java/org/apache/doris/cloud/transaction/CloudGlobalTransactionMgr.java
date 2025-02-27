@@ -649,6 +649,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 cb.afterVisible(txnState, txnOperated);
             }
             long costTime = stopWatch.getTime();
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_COMMIT_TO_MS_LATENCY.update(costTime);
+            }
             if (commitCostTimeStatisticMap.containsKey(transactionId)) {
                 commitCostTimeStatisticMap.get(transactionId).setCommitToMsCostTimeMs(costTime);
             }
@@ -1097,6 +1100,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         } finally {
             stopWatch.stop();
             long costTime = stopWatch.getTime();
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_CALCULATE_DELETE_BITMAP_LATENCY.update(costTime);
+            }
             if (commitCostTimeStatisticMap.containsKey(transactionId)) {
                 commitCostTimeStatisticMap.get(transactionId).setCalculateDeleteBitmapCostTimeMs(costTime);
             }
@@ -1255,6 +1261,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 + StringUtils.join(tablesToLock, ",") + ")");
             }
             long costTimeMs = stopWatch.getTime();
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_GET_COMMIT_LOCK_LATENCY.update(costTimeMs);
+            }
             if (commitCostTimeStatisticMap.containsKey(transactionId)) {
                 commitCostTimeStatisticMap.get(transactionId).setWaitCommitLockCostTimeMs(costTimeMs);
             }
@@ -2113,5 +2122,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             long tableId = tableList.get(i).getId();
             waitToCommitTxnCountMap.get(tableId).decrementAndGet();
         }
+    }
+
+    @Override
+    public int getQueueLength() {
+        int count = 0;
+        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
+            count += entry.getValue().get();
+        }
+        return count;
     }
 }
