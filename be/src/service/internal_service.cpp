@@ -2193,4 +2193,22 @@ void PInternalService::delete_dictionary(google::protobuf::RpcController* contro
     st.to_protobuf(response->mutable_status());
 }
 
+void PInternalService::commit_refresh_dictionary(google::protobuf::RpcController* controller,
+                                                 const PCommitRefreshDictionaryRequest* request,
+                                                 PCommitRefreshDictionaryResponse* response,
+                                                 google::protobuf::Closure* done) {
+    Status st = ExecEnv::GetInstance()->dict_factory()->commit_refresh_dict(
+            request->dictionary_id(), request->version_id());
+    st.to_protobuf(response->mutable_status());
+}
+
+void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController* controller,
+                                                const PAbortRefreshDictionaryRequest* request,
+                                                PAbortRefreshDictionaryResponse* response,
+                                                google::protobuf::Closure* done) {
+    Status st = ExecEnv::GetInstance()->dict_factory()->abort_refresh_dict(request->dictionary_id(),
+                                                                           request->version_id());
+    st.to_protobuf(response->mutable_status());
+}
+
 } // namespace doris

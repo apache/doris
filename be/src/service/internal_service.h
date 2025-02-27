@@ -235,6 +235,15 @@ public:
                            PDeleteDictionaryResponse* response,
                            google::protobuf::Closure* done) override;
 
+    void commit_refresh_dictionary(google::protobuf::RpcController* controller,
+                                   const PCommitRefreshDictionaryRequest* request,
+                                   PCommitRefreshDictionaryResponse* response,
+                                   google::protobuf::Closure* done) override;
+    void abort_refresh_dictionary(google::protobuf::RpcController* controller,
+                                  const PAbortRefreshDictionaryRequest* request,
+                                  PAbortRefreshDictionaryResponse* response,
+                                  google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

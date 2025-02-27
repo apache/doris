@@ -17,12 +17,10 @@
 
 #include <gen_cpp/BackendService_types.h>
 
-#include <fstream>
 #include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/functions/dictionary.h"
 
 namespace doris {
@@ -37,7 +35,7 @@ public:
 
     // Returns nullptr if failed
     std::shared_ptr<const IDictionary> get(int64_t dict_id, int64_t version_id) {
-        std::shared_lock lc(_mutex);
+        std::unique_lock lc(_mutex);
         // dict_id and version_id must match
         if (_dict_id_to_dict_map.contains(dict_id) &&
             _dict_id_to_version_id_map[dict_id] == version_id) {
@@ -46,28 +44,67 @@ public:
         return nullptr;
     }
 
-    Status register_dict(int64_t dict_id, int64_t version_id, DictionaryPtr dict) {
+    Status refresh_dict(int64_t dict_id, int64_t version_id, DictionaryPtr dict) {
         std::unique_lock lc(_mutex);
-        if (_dict_id_to_version_id_map.contains(dict_id)) {
-            // check version_id
-            if (version_id <= _dict_id_to_version_id_map[dict_id]) {
-                LOG_WARNING("DictionaryFactory Failed to register dictionary")
-                        .tag("dict_id", dict_id)
-                        .tag("version_id", version_id)
-                        .tag("dict name", dict->dict_name());
-                return Status::InvalidArgument(
-                        "Version ID is not greater than the existing version ID for the "
-                        "dictionary. {} : {}",
-                        version_id, _dict_id_to_version_id_map[dict_id]);
-            }
-        }
-        LOG_INFO("DictionaryFactory Successfully register dictionary")
-                .tag("dict_id", dict_id)
-                .tag("version_id", version_id)
-                .tag("dict name", dict->dict_name());
-        _dict_id_to_dict_map[dict_id] = dict;
-        _dict_id_to_version_id_map[dict_id] = version_id;
         dict->_mem_tracker = _mem_tracker;
+        _refreshing_dict_map[dict_id] = std::make_pair(version_id, dict);
+        // Set the mem tracker for the dictionary
+        return Status::OK();
+    }
+
+    Status abort_refresh_dict(int64_t dict_id, int64_t version_id) {
+        std::unique_lock lc(_mutex);
+        if (!_refreshing_dict_map.contains(dict_id)) {
+            // The dictionary is not refreshing, so we can return OK directly.
+            return Status::OK();
+        }
+        auto [refresh_version_id, dict] = _refreshing_dict_map[dict_id];
+        if (version_id != refresh_version_id) {
+            return Status::InvalidArgument(
+                    "Version ID is not equal to the refreshing version ID. {} : {}", version_id,
+                    refresh_version_id);
+        }
+        _refreshing_dict_map.erase(dict_id);
+        return Status::OK();
+    }
+
+    Status commit_refresh_dict(int64_t dict_id, int64_t version_id) {
+        std::unique_lock lc(_mutex);
+        if (!_refreshing_dict_map.contains(dict_id)) {
+            return Status::InvalidArgument("Dictionary is not refreshing dict_id: {}", dict_id);
+        }
+        auto [refresh_version_id, dict] = _refreshing_dict_map[dict_id];
+        if (version_id != refresh_version_id) {
+            return Status::InvalidArgument(
+                    "Version ID is not equal to the refreshing version ID. {} : {}", version_id,
+                    refresh_version_id);
+        }
+        {
+            // commit the dictionary
+            if (_dict_id_to_version_id_map.contains(dict_id)) {
+                // check version_id
+                if (version_id <= _dict_id_to_version_id_map[dict_id]) {
+                    LOG_WARNING(
+                            "DictionaryFactory Failed to commit dictionary because version ID "
+                            "is not greater than the existing version ID")
+                            .tag("dict_id", dict_id)
+                            .tag("version_id", version_id)
+                            .tag("dict name", dict->dict_name())
+                            .tag("existing version ID", _dict_id_to_version_id_map[dict_id]);
+                    return Status::InvalidArgument(
+                            "Version ID is not greater than the existing version ID for the "
+                            "dictionary. {} : {}",
+                            version_id, _dict_id_to_version_id_map[dict_id]);
+                }
+            }
+            LOG_INFO("DictionaryFactory Successfully commit dictionary")
+                    .tag("dict_id", dict_id)
+                    .tag("version_id", version_id)
+                    .tag("dict name", dict->dict_name());
+            _dict_id_to_dict_map[dict_id] = dict;
+            _dict_id_to_version_id_map[dict_id] = version_id;
+            _refreshing_dict_map.erase(dict_id);
+        }
         return Status::OK();
     }
 
@@ -94,6 +131,9 @@ public:
 private:
     std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;
     std::map<int64_t, int64_t> _dict_id_to_version_id_map;
+
+    std::map<int64_t, std::pair<int64_t, DictionaryPtr>>
+            _refreshing_dict_map; // dict_id -> (version_id, dict)
 
     std::shared_mutex _mutex;
 

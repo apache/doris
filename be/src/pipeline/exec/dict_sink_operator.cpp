@@ -93,14 +93,15 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
     }
 
     if (dict->allocated_bytes() > p._memory_limit) {
+        dict = nullptr;
         return Status::InternalError(
                 "load dict  memory limit exceeded , current memory usage: {} , memory limit: {}",
                 dict->allocated_bytes(), p._memory_limit);
     }
 
-    LOG(INFO) << fmt::format("Loading dictionary {}, version: {}", p._dictionary_id, p._version_id);
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->dict_factory()->register_dict(p._dictionary_id,
-                                                                          p._version_id, dict));
+    LOG(INFO) << fmt::format("Refresh dictionary {}, version: {}", p._dictionary_id, p._version_id);
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->dict_factory()->refresh_dict(p._dictionary_id,
+                                                                         p._version_id, dict));
     return Status::OK();
 }
 

@@ -27,7 +27,7 @@
 
 namespace doris::vectorized {
 
-TEST(DictionaryVersionTest, test) {
+TEST(DictionaryVersionTest, refresh_dict) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
 
     auto dict = create_complex_hash_map_dict_from_column(
@@ -38,56 +38,123 @@ TEST(DictionaryVersionTest, test) {
                     ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
                                            std::make_shared<DataTypeInt32>(), ""},
             });
+    EXPECT_TRUE(dict_factory->refresh_dict(1, 1, dict));
+    EXPECT_EQ(dict_factory->_refreshing_dict_map[1].first, 1);
+
+    EXPECT_TRUE(dict_factory->refresh_dict(1, 114, dict));
+    EXPECT_EQ(dict_factory->_refreshing_dict_map[1].first, 114);
+
+    EXPECT_TRUE(dict_factory->refresh_dict(2, 114, dict));
+    EXPECT_EQ(dict_factory->_refreshing_dict_map[2].first, 114);
+}
+
+TEST(DictionaryVersionTest, abort_refresh_dict) {
+    auto dict_factory = std::make_shared<DictionaryFactory>();
+
+    auto dict = create_complex_hash_map_dict_from_column(
+            "ip dict",
+            ColumnsWithTypeAndName {
+                    {DataTypeInt32::ColumnType::create(), std::make_shared<DataTypeInt32>(), ""}},
+            ColumnsWithTypeAndName {
+                    ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
+                                           std::make_shared<DataTypeInt32>(), ""},
+            });
+    EXPECT_TRUE(dict_factory->refresh_dict(3, 5, dict));
+    EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
 
     {
-        auto st = dict_factory->register_dict(1, 2, dict);
-        EXPECT_TRUE(st.ok());
+        auto status = dict_factory->abort_refresh_dict(2, 5);
+        EXPECT_TRUE(status.ok());
     }
 
     {
-        auto st = dict_factory->register_dict(2, 2, dict);
-        EXPECT_TRUE(st.ok());
+        auto status = dict_factory->abort_refresh_dict(3, 6);
+        EXPECT_FALSE(status.ok());
+        std::cout << status.msg() << std::endl;
     }
 
     {
-        auto st = dict_factory->register_dict(1, 2, dict);
-        EXPECT_FALSE(st.ok());
-        std::cout << st.msg() << std::endl;
+        auto status = dict_factory->abort_refresh_dict(3, 5);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
+    }
+}
+
+TEST(DictionaryVersionTest, commit_dict) {
+    auto dict_factory = std::make_shared<DictionaryFactory>();
+
+    auto dict = create_complex_hash_map_dict_from_column(
+            "ip dict",
+            ColumnsWithTypeAndName {
+                    {DataTypeInt32::ColumnType::create(), std::make_shared<DataTypeInt32>(), ""}},
+            ColumnsWithTypeAndName {
+                    ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
+                                           std::make_shared<DataTypeInt32>(), ""},
+            });
+    EXPECT_TRUE(dict_factory->refresh_dict(3, 5, dict));
+    EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
+
+    {
+        auto status = dict_factory->commit_refresh_dict(2, 5);
+        EXPECT_FALSE(status.ok());
+        std::cout << status.msg() << std::endl;
+        EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
     }
 
     {
-        auto dict = dict_factory->get(2, 2);
-        EXPECT_TRUE(dict != nullptr);
+        auto status = dict_factory->commit_refresh_dict(3, 6);
+        EXPECT_FALSE(status.ok());
+        std::cout << status.msg() << std::endl;
+        EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
     }
 
     {
-        auto dict = dict_factory->get(2, 3);
-        EXPECT_TRUE(dict == nullptr);
+        auto status = dict_factory->commit_refresh_dict(3, 5);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
+        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
+        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 5);
     }
 
-    {
-        auto dict = dict_factory->get(1, 2);
-        EXPECT_TRUE(dict != nullptr);
-    }
+    auto dict2 = create_complex_hash_map_dict_from_column(
+            "ip dict",
+            ColumnsWithTypeAndName {
+                    {DataTypeInt32::ColumnType::create(), std::make_shared<DataTypeInt32>(), ""}},
+            ColumnsWithTypeAndName {
+                    ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
+                                           std::make_shared<DataTypeInt32>(), ""},
+            });
+    EXPECT_TRUE(dict_factory->refresh_dict(3, 6, dict));
+    EXPECT_TRUE(dict_factory->_refreshing_dict_map.contains(3));
 
     {
-        auto dict = dict_factory->get(1, 3);
-        EXPECT_TRUE(dict == nullptr);
+        auto status = dict_factory->commit_refresh_dict(3, 5);
+        EXPECT_FALSE(status.ok());
+        std::cout << status.msg() << std::endl;
+    }
+    {
+        auto status = dict_factory->commit_refresh_dict(3, 6);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
+        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
+        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 6);
     }
 
-    {
-        auto st = dict_factory->delete_dict(3);
-        EXPECT_TRUE(st.ok());
-    }
+    auto dict3 = create_complex_hash_map_dict_from_column(
+            "ip dict",
+            ColumnsWithTypeAndName {
+                    {DataTypeInt32::ColumnType::create(), std::make_shared<DataTypeInt32>(), ""}},
+            ColumnsWithTypeAndName {
+                    ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
+                                           std::make_shared<DataTypeInt32>(), ""},
+            });
+    EXPECT_TRUE(dict_factory->refresh_dict(3, 4, dict));
+    EXPECT_TRUE(dict_factory->_refreshing_dict_map.contains(3));
 
     {
-        auto st = dict_factory->delete_dict(1);
-        EXPECT_TRUE(st.ok());
-    }
-
-    {
-        auto dict = dict_factory->get(1, 2);
-        EXPECT_TRUE(dict == nullptr);
+        auto status = dict_factory->commit_refresh_dict(3, 4);
+        EXPECT_FALSE(status.ok());
+        std::cout << status.msg() << std::endl;
     }
 }
 

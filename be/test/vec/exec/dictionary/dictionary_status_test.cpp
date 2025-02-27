@@ -39,9 +39,8 @@ TEST(DictionaryStatusTest, test) {
                         ColumnWithTypeAndName {DataTypeInt32::ColumnType::create(),
                                                std::make_shared<DataTypeInt32>(), ""},
                 });
-
-        auto st = dict_factory->register_dict(1, 2, dict);
-        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(dict_factory->refresh_dict(1, 2, dict));
+        EXPECT_TRUE(dict_factory->commit_refresh_dict(1, 2));
     }
 
     {
@@ -54,8 +53,8 @@ TEST(DictionaryStatusTest, test) {
                                                std::make_shared<DataTypeInt32>(), ""},
                 });
 
-        auto st = dict_factory->register_dict(2, 2, dict);
-        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(dict_factory->refresh_dict(2, 2, dict));
+        EXPECT_TRUE(dict_factory->commit_refresh_dict(2, 2));
     }
 
     {
