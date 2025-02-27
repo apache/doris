@@ -183,4 +183,45 @@ TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
     }
     std::cout << "test serialize/deserialize_column_from_json_vector" << std::endl;
 }
+
+TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
+    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(1);
+    auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
+    column_fixed_length->resize(2);
+    *((int64_t*)column_fixed_length->get_data().data()) = 11;
+    *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
+    ASSERT_EQ(column_fixed_length->size(), 2);
+    DataTypeSerDe::FormatOptions formatOptions;
+    formatOptions.date_olap_format = true;
+    auto ser_col = ColumnString::create();
+    VectorBufferWriter buffer_writer(*ser_col.get());
+    auto st = fixed_length_serde->serialize_one_cell_to_hive_text(*column_fixed_length, 0,
+                                                                  buffer_writer, formatOptions);
+    buffer_writer.commit();
+    EXPECT_TRUE(st.ok());
+    st = fixed_length_serde->serialize_one_cell_to_hive_text(*column_fixed_length, 1, buffer_writer,
+                                                             formatOptions);
+    buffer_writer.commit();
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(*reinterpret_cast<const int64_t*>(ser_col->get_data_at(0).data), 11);
+    EXPECT_EQ(*reinterpret_cast<const int64_t*>(ser_col->get_data_at(1).data), 22);
+
+    std::vector<Slice> slices_vec;
+    auto except_column = ColumnFixedLengthObject::create(sizeof(int64_t));
+    int64_t value = 11;
+    Slice slice1((const char*)&value, sizeof(int64_t));
+    st = fixed_length_serde->deserialize_one_cell_from_hive_text(*except_column, slice1,
+                                                                 formatOptions);
+
+    int64_t value2 = 22;
+    Slice slice2((const char*)&value2, sizeof(int64_t));
+    st = fixed_length_serde->deserialize_one_cell_from_hive_text(*except_column, slice2,
+                                                                 formatOptions);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    // check column value
+    for (size_t j = 0; j < column_fixed_length->size(); ++j) {
+        ASSERT_EQ(column_fixed_length->operator[](j), except_column->operator[](j)) << j;
+    }
+    std::cout << "test serialize/deserialize_one_cell_from_hive_text" << std::endl;
+}
 } // namespace doris::vectorized
