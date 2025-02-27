@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -42,13 +45,19 @@ public class RandomBytes extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IntegerType.INSTANCE)
     );
 
+    private final ExprId exprId;
+
     /**
      * constructor with 1 argument.
      */
     public RandomBytes(Expression arg0) {
-        super("random_bytes", arg0);
+        this(StatementScopeIdGenerator.newExprId(), arg0);
     }
 
+    public RandomBytes(ExprId exprId, Expression arg0) {
+        super("random_bytes", arg0);
+        this.exprId = exprId;
+    }
 
     /**
      * withChildren.
@@ -56,7 +65,14 @@ public class RandomBytes extends ScalarFunction
     @Override
     public RandomBytes withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new RandomBytes(children.get(0));
+        ExprId newExprId = exprId;
+        List<Expression> myChildren = this.children();
+        if (children.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && myChildren.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && !children.equals(myChildren)) {
+            newExprId = StatementScopeIdGenerator.newExprId();
+        }
+        return new RandomBytes(newExprId, children.get(0));
     }
 
     @Override
@@ -77,5 +93,24 @@ public class RandomBytes extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitRandomBytes(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        RandomBytes other = (RandomBytes) o;
+        return exprId.equals(other.exprId);
+    }
+
+    // The contains method needs to use hashCode, so similar to equals, it only compares exprId
+    @Override
+    public int computeHashCode() {
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 }

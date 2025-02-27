@@ -19,9 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -43,27 +46,44 @@ public class Random extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE)
     );
 
+    private final ExprId exprId;
+
     /**
      * constructor with 0 argument.
      */
     public Random() {
-        super("random");
+        this(StatementScopeIdGenerator.newExprId());
     }
 
     /**
      * constructor with 1 argument.
      */
     public Random(Expression arg) {
-        super("random", arg);
-        // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
-        Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
+        this(StatementScopeIdGenerator.newExprId(), arg);
     }
 
     /**
      * constructor with 2 argument.
      */
     public Random(Expression lchild, Expression rchild) {
+        this(StatementScopeIdGenerator.newExprId(), lchild, rchild);
+    }
+
+    public Random(ExprId exprId) {
+        super("random");
+        this.exprId = exprId;
+    }
+
+    public Random(ExprId exprId, Expression arg) {
+        super("random", arg);
+        this.exprId = exprId;
+        // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
+        Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
+    }
+
+    public Random(ExprId exprId, Expression lchild, Expression rchild) {
         super("random", lchild, rchild);
+        this.exprId = exprId;
     }
 
     @Override
@@ -94,12 +114,20 @@ public class Random extends ScalarFunction
      */
     @Override
     public Random withChildren(List<Expression> children) {
+        ExprId newExprId = exprId;
+        List<Expression> myChildren = this.children();
+        if (myChildren.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && children.stream().allMatch(arg -> arg instanceof NumericLiteral)
+                && !children.equals(myChildren)) {
+            newExprId = StatementScopeIdGenerator.newExprId();
+        }
+
         if (children.isEmpty()) {
-            return new Random();
+            return new Random(newExprId);
         } else if (children.size() == 1) {
-            return new Random(children.get(0));
+            return new Random(newExprId, children.get(0));
         } else if (children.size() == 2) {
-            return new Random(children.get(0), children.get(1));
+            return new Random(newExprId, children.get(0), children.get(1));
         }
         throw new AnalysisException("random function only accept 0-2 arguments");
     }
@@ -122,5 +150,24 @@ public class Random extends ScalarFunction
     @Override
     public boolean foldable() {
         return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Random other = (Random) o;
+        return exprId.equals(other.exprId);
+    }
+
+    // The contains method needs to use hashCode, so similar to equals, it only compares exprId
+    @Override
+    public int computeHashCode() {
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 }
