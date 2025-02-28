@@ -309,27 +309,11 @@ public class VariableMgr {
         return joiner.toString();
     }
 
-    // The only difference between setVar and setVarForNonMasterFE
-    // is that setVarForNonMasterFE will just return if "checkUpdate" throw exception.
-    // This is because, when setting global variables from Non Master FE, Doris will do following step:
-    //      1. forward this SetStmt to Master FE to execute.
-    //      2. Change this SetStmt to "SESSION" level, and execute it again on this Non Master FE.
-    // But for "GLOBAL only" variable, such ash "password_history", it doesn't allow to set on SESSION level.
-    // So when doing step 2, "set password_history=xxx" without "GLOBAL" keywords will throw exception.
-    // So in this case, we should just ignore this exception and return.
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
-        }
-        try {
-            checkUpdate(setVar, varCtx.getFlag());
-        } catch (DdlException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
-            }
-            return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
