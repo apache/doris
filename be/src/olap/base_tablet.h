@@ -307,6 +307,10 @@ public:
             uint64_t* max_base_rowset_delete_bitmap_score,
             int64_t* max_base_rowset_delete_bitmap_score_tablet_id);
 
+    virtual Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
+        return Status::OK();
+    }
+
 protected:
     // Find the missed versions until the spec_version.
     //
