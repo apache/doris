@@ -113,26 +113,14 @@ suite("test_cloud_mow_new_tablet_compaction", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                         [tablet_id:"${newTabletId}", start_version: start_ver, end_version: end_ver]);
             {
-                // trigger cumu compaction
+                // trigger cumu compaction, should fail
                 logger.info("trigger cumu compaction on tablet=${newTabletId} BE.Host=${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
                 def (code, out, err) = be_run_cumulative_compaction(tabletBackend.Host, tabletBackend.HttpPort, newTabletId)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 assert code == 0
                 def compactJson = parseJson(out.trim())
-                assert "success" == compactJson.status.toLowerCase()
+                assert "success" != compactJson.status.toLowerCase()
             }
-
-            // wait for cumu compaction to complete
-            Awaitility.await().atMost(5, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(500, TimeUnit.MILLISECONDS).until(
-                {
-                    def (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, newTabletId)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assert code == 0
-                    def compactionStatus = parseJson(out.trim())
-                    assert "success" == compactionStatus.status.toLowerCase()
-                    return !compactionStatus.run_status
-                }
-            )
 
             GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock")
             // wait for sc to finish
