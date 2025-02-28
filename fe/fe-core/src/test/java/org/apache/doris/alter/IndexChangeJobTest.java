@@ -116,17 +116,18 @@ public class IndexChangeJobTest {
 
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef("index1", false,
+        String indexName = "index1";
+        IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
 
-        buildIndexClause = new BuildIndexClause(tableName, indexDef, false);
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
         buildIndexClause.analyze(analyzer);
 
-        dropIndexClause = new DropIndexClause("index1", false, tableName, false);
+        dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
         dropIndexClause.analyze(analyzer);
 
         cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
@@ -565,7 +566,8 @@ public class IndexChangeJobTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
 
-        IndexDef indexDef = new IndexDef("ngram_bf_index", false,
+        String indexName = "ngram_bf_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
                 Maps.newHashMap(), "ngram bf index");
@@ -574,7 +576,7 @@ public class IndexChangeJobTest {
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
 
-        buildIndexClause = new BuildIndexClause(tableName, indexDef, false);
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
         org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
                 () -> buildIndexClause.analyze(analyzer));
     }
