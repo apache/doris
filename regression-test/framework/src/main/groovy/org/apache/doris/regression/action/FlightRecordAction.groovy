@@ -236,7 +236,7 @@ class FlightRecordAction implements SuiteAction {
         if (pidStr.isEmpty()) {
             throw new IllegalStateException("Can not found process: ${processName}")
         }
-        int fePid = s.toInteger()
+        int fePid = pidStr.toInteger()
         log.info("fe pid: ${fePid}")
         return Optional.of(fePid)
     }
