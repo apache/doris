@@ -445,7 +445,7 @@ void serialize_and_deserialize_arrow_test() {
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
     static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                              &result, timezone_obj));
     Block new_block = block.clone_empty();
@@ -526,7 +526,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
     static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                              &result, timezone_obj));
     Block new_block = block.clone_empty();
