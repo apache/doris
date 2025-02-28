@@ -846,6 +846,7 @@ struct TSchemaTableRequestParams {
     3: optional bool replay_to_other_fe
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
+    6: optional string time_zone // used for DATETIME field
 }
 
 struct TFetchSchemaTableDataRequest {
