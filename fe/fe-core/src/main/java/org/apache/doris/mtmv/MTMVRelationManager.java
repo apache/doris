@@ -28,6 +28,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -48,7 +49,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
 
@@ -90,14 +90,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 if (predicate.test(ctx, mtmv)) {
                     continue;
                 }
-                // If mv property use_for_rewrite is set false, should not partition in
-                // query rewrite by materialized view
-                if (!mtmv.isUseForRewrite()) {
-                    LOG.debug("mv doesn't part in query rewrite process because "
-                            + "use_for_rewrite is false, mv is {}", mtmv.getName());
-                    continue;
-                }
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
+                if (isMVPartitionValid(mtmv, ctx, forceConsistent, PartitionCompensator.getQueryUsedPartitions(ctx))) {
                     res.add(mtmv);
                 }
             } catch (Exception e) {
@@ -126,10 +119,11 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @VisibleForTesting
-    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+            Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
         long currentTimeMillis = System.currentTimeMillis();
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
-                mtmv, ctx, currentTimeMillis, forceConsistent);
+                mtmv, ctx, currentTimeMillis, forceConsistent, queryUsedRelatedTablePartitionsMap);
         // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later
         ctx.getStatementContext().getMvCanRewritePartitionsMap().putIfAbsent(
                 new BaseTableInfo(mtmv), mtmvCanRewritePartitions);
@@ -227,7 +221,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param mtmv
      */
     @Override
-    public void unregisterMTMV(MTMV mtmv) {
+    public void deregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
     }
 
@@ -269,15 +263,17 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * update mtmv status to `SCHEMA_CHANGE`
      *
-     * @param isReplace
+     * @param table
      */
     @Override
-    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
-        // when replace, need deal two table
-        if (isReplace) {
-            processBaseTableChange(newTableInfo.get(), "The base table has been updated:");
+    public void alterTable(Table table, String oldTableName) {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        baseTableInfo.setTableName(oldTableName);
+        if (table instanceof MTMV) {
+            removeMTMV(baseTableInfo);
+            refreshMTMVCache(((MTMV) table).getRelation(), new BaseTableInfo(table));
         }
-        processBaseTableChange(oldTableInfo, "The base table has been updated:");
+        processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 
     @Override

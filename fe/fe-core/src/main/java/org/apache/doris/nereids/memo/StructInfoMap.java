@@ -20,11 +20,14 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -42,6 +45,8 @@ import javax.annotation.Nullable;
  * Representation for group in cascades optimizer.
  */
 public class StructInfoMap {
+
+    public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;

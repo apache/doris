@@ -31,6 +31,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class MTMVRewriteUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVRewriteUtil.class);
@@ -43,7 +45,8 @@ public class MTMVRewriteUtil {
      * @return
      */
     public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx,
-            long currentTimeMills, boolean forceConsistent) {
+            long currentTimeMills, boolean forceConsistent,
+            Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
         MTMVRelation mtmvRelation = mtmv.getRelation();
