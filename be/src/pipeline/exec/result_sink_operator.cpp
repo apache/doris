@@ -48,6 +48,10 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     auto fragment_instance_id = state->fragment_instance_id();
 
     auto& p = _parent->cast<ResultSinkOperatorX>();
+    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
     if (state->query_options().enable_parallel_result_sink) {
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     } else {
@@ -61,11 +65,6 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
                 p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL, arrow_schema));
     }
     _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
-
-    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     return Status::OK();
 }
 
