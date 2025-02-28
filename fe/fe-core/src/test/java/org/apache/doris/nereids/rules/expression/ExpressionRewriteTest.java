@@ -82,9 +82,9 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testSimplifyConflictPredicate() {
+    void testSimplifyRange() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(SimplifyConflictCompound.INSTANCE)
+                ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE)
         ));
 
         // random is non-foldable expression, the two RANDOM are not equals
