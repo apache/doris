@@ -43,6 +43,9 @@ class VCastExpr final : public VExpr {
 
 public:
     VCastExpr(const TExprNode& node) : VExpr(node) {}
+#ifdef BE_TEST
+    VCastExpr() = default;
+#endif
     ~VCastExpr() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
