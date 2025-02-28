@@ -86,12 +86,14 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v1)"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
     }
 
     explain {
         sql("""
-            select preagg_t3.k2, t12.k2, sum(t12.v1), max(preagg_t3.v9)
+            select preagg_t3.k2, t12.k2, max(preagg_t3.v9)
             from 
             (
                 select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(ta2.t2_sum_v7) v2
@@ -124,7 +126,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v3)"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
     }
 
     explain {
@@ -151,7 +155,7 @@ suite("set_preagg") {
             select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
             from 
             (
-                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta1.k1 < 0 then ta2.v8 else 0 end) v2, count(distinct ta2.k5) v3
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, sum(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta2.k1 < 0 then ta2.v8 else 0 end) v2, count(distinct ta2.k5) v3
                 from 
                     (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
                 inner join 
@@ -162,7 +166,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v3)"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
     }
 
     explain {
@@ -181,7 +187,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "PREAGGREGATION: OFF. Reason: max(v7)"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: max(v7)"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v2)"
     }
 
     explain {

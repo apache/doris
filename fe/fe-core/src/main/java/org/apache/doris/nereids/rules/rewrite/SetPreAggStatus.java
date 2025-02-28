@@ -292,22 +292,18 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return PreAggStatus.off(String.format("Join conjuncts %s contains non-key column %s",
                     joinConjuncts, joinInputSlots));
         }
-        Set<AggregateFunction> candidateAggFuncs = Sets.newHashSet();
-        Set<Slot> aggInputSlots = Sets.newHashSet();
         for (AggregateFunction aggregateFunction : aggregateFuncs) {
-            aggInputSlots.addAll(aggregateFunction.getInputSlots());
-            aggInputSlots.retainAll(outputSlots);
-            if (!aggInputSlots.isEmpty()) {
-                candidateAggFuncs.add(aggregateFunction);
+            if (!outputSlots.containsAll(aggregateFunction.getInputSlots())) {
+                return PreAggStatus.off(String.format("agg function is invalid %s",
+                        aggregateFunction.toSql()));
             }
-            aggInputSlots.clear();
         }
 
         Set<Slot> candidateGroupByInputSlots = Sets.newHashSet();
         candidateGroupByInputSlots.addAll(groupingExprsInputSlots);
         candidateGroupByInputSlots.retainAll(outputSlots);
 
-        return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots);
+        return checkAggregateFunctions(aggregateFuncs, candidateGroupByInputSlots);
     }
 
     private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
