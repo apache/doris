@@ -6859,7 +6859,7 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
-    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - 200000);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - 400000);
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
