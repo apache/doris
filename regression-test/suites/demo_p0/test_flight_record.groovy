@@ -28,8 +28,16 @@ suite("test_flight_record", "nonConcurrent") {
     }
 
     flightRecord {
-        // whether delete jfr file after callback
+        // whether delete jfr file after callback, default is true
         cleanUp true
+
+        // the process name, default is DorisFE
+        processName "DorisFE"
+
+        // the jcmd extra config, default is empty
+        extraConfig(["jdk.ObjectAllocationSample#throttle=\"100 /ns\""])
+
+
         // these sql will allocate some objects in localhost frontend,
         // and we start to record flight in localhost frontend
         record {
