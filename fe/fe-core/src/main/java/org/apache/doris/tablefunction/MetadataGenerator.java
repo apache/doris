@@ -1424,7 +1424,7 @@ public class MetadataGenerator {
     }
 
     private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity,
-            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1474,8 +1474,9 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setIntVal(0)); // INDEX_LENGTH (not available)
                     trow.addToColumnValue(new TCell().setIntVal(0)); // DATA_FREE (not available)
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // CREATE_TIME (not available)
+                    // UPDATE_TIME
                     trow.addToColumnValue(new TCell().setStringVal(
-                            TimeUtils.longToTimeString(partition.getVisibleVersionTime()))); // UPDATE_TIME
+                            TimeUtils.longToTimeStringWithTimeZone(partition.getVisibleVersionTime(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // CHECK_TIME (not available)
                     trow.addToColumnValue(new TCell().setIntVal(0)); // CHECKSUM (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_COMMENT (not available)
@@ -1490,7 +1491,7 @@ public class MetadataGenerator {
     }
 
     private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity,
-            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
+            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
         for (TableIf table : tables) {
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
                     database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
@@ -1511,6 +1512,11 @@ public class MetadataGenerator {
 
         if (!params.isSetCatalog()) {
             return errorResult("current catalog is not set.");
+        }
+
+        String timezone = ConnectContext.get().getSessionVariable().getTimeZone();
+        if (params.isSetTimeZone()) {
+            timezone = params.getTimeZone();
         }
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
@@ -1540,9 +1546,9 @@ public class MetadataGenerator {
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
             // only olap tables
-            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
+            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
         } else if (catalog instanceof ExternalCatalog) {
-            partitionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
+            partitionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
