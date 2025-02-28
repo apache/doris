@@ -50,12 +50,20 @@ void CloudCompactionStopToken::do_lease() {
     if (!st.ok()) {
         LOG_WARNING("failed to lease compaction stop token")
                 .tag("job_id", _uuid)
+                .tag("delete_bitmap_lock_initiator", _initiator)
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
 }
 
 Status CloudCompactionStopToken::do_register() {
+    int64_t base_compaction_cnt = 0;
+    int64_t cumulative_compaction_cnt = 0;
+    {
+        std::lock_guard lock {_tablet->get_header_lock()};
+        base_compaction_cnt = _tablet->base_compaction_cnt();
+        cumulative_compaction_cnt = _tablet->cumulative_compaction_cnt();
+    }
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -69,14 +77,22 @@ Status CloudCompactionStopToken::do_register() {
                                   std::to_string(config::heartbeat_service_port));
     compaction_job->set_type(cloud::TabletCompactionJobPB::STOP_TOKEN);
     // required by MS to check if it's a valid compaction job
-    compaction_job->set_base_compaction_cnt(0);
-    compaction_job->set_cumulative_compaction_cnt(0);
+    compaction_job->set_base_compaction_cnt(base_compaction_cnt);
+    compaction_job->set_cumulative_compaction_cnt(cumulative_compaction_cnt);
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     compaction_job->set_expiration(now + config::compaction_timeout_seconds);
     compaction_job->set_lease(now + (config::lease_compaction_interval_seconds * 4));
     cloud::StartTabletJobResponse resp;
-    return _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    if (!st.ok()) {
+        LOG_WARNING("failed to register compaction stop token")
+                .tag("job_id", _uuid)
+                .tag("delete_bitmap_lock_initiator", _initiator)
+                .tag("tablet_id", _tablet->tablet_id())
+                .error(st);
+    }
+    return st;
 }
 
 Status CloudCompactionStopToken::do_unregister() {
@@ -96,10 +112,14 @@ Status CloudCompactionStopToken::do_unregister() {
     if (!st.ok()) {
         LOG_WARNING("failed to unregister compaction stop token")
                 .tag("job_id", _uuid)
+                .tag("delete_bitmap_lock_initiator", _initiator)
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
     return st;
 }
 
+int64_t CloudCompactionStopToken::initiator() const {
+    return _initiator;
+}
 } // namespace doris

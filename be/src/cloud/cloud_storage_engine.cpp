@@ -41,6 +41,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -883,7 +884,6 @@ Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet
     }
 
     auto stop_token = std::make_shared<CloudCompactionStopToken>(*this, tablet, initiator);
-
     auto st = stop_token->do_register();
 
     if (!st.ok()) {
@@ -896,6 +896,10 @@ Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet
         std::lock_guard lock(_compaction_mtx);
         _active_compaction_stop_tokens[tablet->tablet_id()] = stop_token;
     }
+    LOG_INFO(
+            "successfully register compaction stop token for tablet_id={}, "
+            "delete_bitmap_lock_initiator={}",
+            tablet->tablet_id(), initiator);
     return st;
 }
 
@@ -911,7 +915,12 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
         }
         _active_compaction_stop_tokens.erase(tablet->tablet_id());
     }
-    return stop_token->do_unregister();
+    RETURN_IF_ERROR(stop_token->do_unregister());
+    LOG_INFO(
+            "successfully unregister compaction stop token for tablet_id={}, "
+            "delete_bitmap_lock_initiator={}",
+            tablet->tablet_id(), stop_token->initiator());
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"
