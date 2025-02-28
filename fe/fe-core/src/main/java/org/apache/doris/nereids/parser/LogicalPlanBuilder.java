@@ -672,6 +672,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterLoadErrorUrlOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
@@ -5763,7 +5764,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropAllBrokerClause(DropAllBrokerClauseContext ctx) {
         String brokerName = stripQuotes(ctx.name.getText());
         AlterSystemOp alterSystemOp = new DropAllBrokerOp(brokerName);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DROP_ALL_BROKER);
+    }
+
+    @Override
+    public LogicalPlan visitAlterSystem(DorisParser.AlterSystemContext ctx) {
+        return plan(ctx.alterSystemClause());
     }
 
     @Override
@@ -5773,7 +5779,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
         AlterSystemOp alterSystemOp = new AddBrokerOp(brokerName, hostPorts);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_ADD_BROKER);
     }
 
     @Override
@@ -5783,7 +5789,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
         AlterSystemOp alterSystemOp = new DropBrokerOp(brokerName, hostPorts);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DROP_BROKER);
     }
 
     @Override
@@ -5793,7 +5799,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(Collectors.toList());
         Map<String, String> properties = visitPropertyClause(ctx.properties);
         AlterSystemOp alterSystemOp = new AddBackendOp(hostPorts, properties);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_ADD_BACKEND);
     }
 
     @Override
@@ -5806,7 +5812,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             force = true;
         }
         AlterSystemOp alterSystemOp = new DropBackendOp(hostPorts, force);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DROP_BACKEND);
     }
 
     @Override
@@ -5815,35 +5821,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(e -> stripQuotes(e.getText()))
                 .collect(Collectors.toList());
         AlterSystemOp alterSystemOp = new DecommissionBackendOp(hostPorts);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
     }
 
     @Override
     public LogicalPlan visitAddFollowerClause(DorisParser.AddFollowerClauseContext ctx) {
         String hostPort = stripQuotes(ctx.hostPort.getText());
         AlterSystemOp alterSystemOp = new AddFollowerOp(hostPort);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_ADD_FOLLOWER);
     }
 
     @Override
     public LogicalPlan visitDropFollowerClause(DorisParser.DropFollowerClauseContext ctx) {
         String hostPort = stripQuotes(ctx.hostPort.getText());
         AlterSystemOp alterSystemOp = new DropFollowerOp(hostPort);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DROP_FOLLOWER);
     }
 
     @Override
     public LogicalPlan visitAddObserverClause(DorisParser.AddObserverClauseContext ctx) {
         String hostPort = stripQuotes(ctx.hostPort.getText());
         AlterSystemOp alterSystemOp = new AddObserverOp(hostPort);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_ADD_OBSERVER);
     }
 
     @Override
     public LogicalPlan visitDropObserverClause(DorisParser.DropObserverClauseContext ctx) {
         String hostPort = stripQuotes(ctx.hostPort.getText());
         AlterSystemOp alterSystemOp = new DropObserverOp(hostPort);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_DROP_OBSERVER);
+    }
+
+    @Override
+    public LogicalPlan visitAlterLoadErrorUrlClause(DorisParser.AlterLoadErrorUrlClauseContext ctx) {
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        AlterSystemOp alterSystemOp = new AlterLoadErrorUrlOp(properties);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_SET_LOAD_ERRORS_HU);
     }
 
     @Override
@@ -5853,7 +5866,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(Collectors.toList());
         Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
         AlterSystemOp alterSystemOp = new ModifyBackendOp(hostPorts, properties);
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
     }
 
     @Override
@@ -5867,7 +5880,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.BACKEND() != null) {
             alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Backend);
         }
-        return new AlterSystemCommand(alterSystemOp);
+        return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
     }
 
     @Override

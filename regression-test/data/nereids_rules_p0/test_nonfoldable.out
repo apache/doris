@@ -21,7 +21,7 @@ PhysicalResultSink
 -- !filter_through_project_4 --
 PhysicalResultSink
 --PhysicalProject[(id + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
-----filter(((t1.id + random(1, 10)) > 899))
+----filter(((t1.id + random(1, 10)) > 799) and ((t1.id + random(1, 10)) > 899))
 ------PhysicalOlapScan[t1]
 
 -- !filter_through_project_5 --
@@ -54,7 +54,7 @@ PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
 ------PhysicalProject[(id + 100) AS `a`, (id + 200) AS `b`, (id + 300) AS `c`]
---------filter(((t1.id + random(1, 10)) > 899))
+--------filter(((t1.id + random(1, 10)) > 799) and ((t1.id + random(1, 10)) > 899))
 ----------PhysicalOlapScan[t1]
 
 -- !merge_project_1 --

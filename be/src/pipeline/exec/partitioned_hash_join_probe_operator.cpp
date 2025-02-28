@@ -501,16 +501,16 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
+Status PartitionedHashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // to avoid open _child twice
     auto child = std::move(_child);
-    RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
+    RETURN_IF_ERROR(JoinProbeOperatorX::prepare(state));
     RETURN_IF_ERROR(_inner_probe_operator->set_child(child));
     DCHECK(_build_side_child != nullptr);
     _inner_probe_operator->set_build_side_child(_build_side_child);
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_build_side_child));
-    RETURN_IF_ERROR(_inner_probe_operator->open(state));
-    RETURN_IF_ERROR(_inner_sink_operator->open(state));
+    RETURN_IF_ERROR(_inner_probe_operator->prepare(state));
+    RETURN_IF_ERROR(_inner_sink_operator->prepare(state));
     _child = std::move(child);
     RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));

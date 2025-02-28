@@ -416,13 +416,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),

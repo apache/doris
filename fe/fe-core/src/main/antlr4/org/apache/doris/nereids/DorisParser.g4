@@ -220,7 +220,8 @@ supportedCreateStatement
     ;
 
 supportedAlterStatement
-    : ALTER VIEW name=multipartIdentifier
+    : ALTER SYSTEM alterSystemClause                                                        #alterSystem
+    | ALTER VIEW name=multipartIdentifier
         ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
@@ -638,8 +639,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER SYSTEM alterSystemClause                                                #alterSystem
-    | ALTER DATABASE name=identifier SET PROPERTIES
+    : ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterCatalogProperties
@@ -653,7 +653,27 @@ unsupportedAlterStatement
     ;
 
 alterSystemClause
-    : SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
+    : ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
+        properties=propertyClause?                                                  #addBackendClause
+    | (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBackendClause
+    | DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #decommissionBackendClause
+    | ADD OBSERVER hostPort=STRING_LITERAL                                          #addObserverClause
+    | DROP OBSERVER hostPort=STRING_LITERAL                                         #dropObserverClause
+    | ADD FOLLOWER hostPort=STRING_LITERAL                                          #addFollowerClause
+    | DROP FOLLOWER hostPort=STRING_LITERAL                                         #dropFollowerClause
+    | ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #addBrokerClause
+    | DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #dropBrokerClause
+    | DROP ALL BROKER name=identifierOrText                                         #dropAllBrokerClause
+    | SET LOAD ERRORS HUB properties=propertyClause?                                #alterLoadErrorUrlClause
+    | MODIFY BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #modifyBackendClause
+    | MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
+        HOSTNAME hostName=STRING_LITERAL                                            #modifyFrontendOrBackendHostNameClause
     ;
 
 dropRollupClause
