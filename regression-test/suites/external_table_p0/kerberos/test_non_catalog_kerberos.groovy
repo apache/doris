@@ -19,6 +19,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite("test_non_catalog_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    String enabled = context.config.otherConfigs.get("enableNonCatalogKerberosTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
     }

@@ -170,6 +170,7 @@ enableTrinoConnectorTest = true
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableNonCatalogKerberosTest = true
 
 
 // LakeSoul catalog test config
