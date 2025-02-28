@@ -26,14 +26,30 @@ suite('test_nonfoldable_merge_project') {
 
     // no project
     qt_one_row_relation_1 '''
-        explain shape plan select random(1, 100), uuid_to_int(uuid());
+        explain shape plan select random(1, 100), uuid_to_int(uuid())
         '''
 
     qt_one_row_relation_2 '''
-        explain shape plan select random(1, 100) between 10 and 20, uuid_to_int(uuid());
+        explain shape plan select random(1, 100) between 10 and 20, uuid_to_int(uuid())
         '''
 
     qt_one_row_relation_3 '''
-        explain shape plan select random(1, 100) between 10 and 20, uuid_to_int(uuid()) between 111 and 222;
+        explain shape plan select random(1, 100) between 10 and 20, uuid_to_int(uuid()) between 111 and 222
+        '''
+
+    qt_project_1 '''
+        explain shape plan select id + random(1, 100) > 20, id * 200 from t1
+        '''
+
+    qt_project_2 '''
+        explain shape plan select id + random(1, 100) between 10 and 20, id * 200 from t1
+        '''
+
+    qt_select_1 '''
+        explain shape plan select id from t1 where id + random(1, 100) >= 10
+        '''
+
+    qt_select_2 '''
+        explain shape plan select id from t1 where id + random(1, 100) between 10 and 20
         '''
 }

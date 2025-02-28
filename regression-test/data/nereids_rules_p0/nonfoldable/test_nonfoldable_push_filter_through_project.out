@@ -14,9 +14,9 @@ PhysicalResultSink
 
 -- !3 --
 PhysicalResultSink
---PhysicalProject[((id + _expr_5) + 100) AS `a`, ((id + _expr_5) + 200) AS `b`, ((id + _expr_5) + 300) AS `c`]
-----filter((((t1.id + _expr_5) + 100) > 999) and (((t1.id + _expr_5) + 200) > 999))
-------PhysicalProject[random(1, 10) AS `_expr_5`, t1.id, t1.msg]
+--PhysicalProject[((id + $_expr_5_$) + 100) AS `a`, ((id + $_expr_5_$) + 200) AS `b`, ((id + $_expr_5_$) + 300) AS `c`]
+----filter((((t1.id + $_expr_5_$) + 100) > 999) and (((t1.id + $_expr_5_$) + 200) > 999))
+------PhysicalProject[random(1, 10) AS `$_expr_5_$`, t1.id, t1.msg]
 --------PhysicalOlapScan[t1]
 
 -- !4 --
@@ -46,9 +46,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------PhysicalProject[((id + _expr_5) + 100) AS `a`, ((id + _expr_5) + 200) AS `b`, ((id + _expr_5) + 300) AS `c`]
---------filter((((t1.id + _expr_5) + 100) > 999) and (((t1.id + _expr_5) + 200) > 999))
-----------PhysicalProject[random(1, 10) AS `_expr_5`, t1.id, t1.msg]
+------PhysicalProject[((id + $_expr_5_$) + 100) AS `a`, ((id + $_expr_5_$) + 200) AS `b`, ((id + $_expr_5_$) + 300) AS `c`]
+--------filter((((t1.id + $_expr_5_$) + 100) > 999) and (((t1.id + $_expr_5_$) + 200) > 999))
+----------PhysicalProject[random(1, 10) AS `$_expr_5_$`, t1.id, t1.msg]
 ------------PhysicalOlapScan[t1]
 
 -- !8 --
