@@ -628,7 +628,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION and CUMULATIVE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
-    _filter_delete = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+    _filter_delete = ((read_params.reader_type == ReaderType::READER_BASE_COMPACTION &&
+                       config::enable_prune_delete_sign_when_base_compaction) ||
                       read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                       ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
                         config::enable_delete_when_cumu_compaction)) ||
