@@ -119,9 +119,13 @@ suite("test_information_schema_timezone") {
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
             );
         """
-
     }
-    select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";
+    qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.hms_test_table; """
+
+    List<List<Object>> kerberos_cache_res_1 = sql """ 
+                select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
+            """
+    logger.info("--ftw: kerberos_cache_res_1 = " + kerberos_cache_res_1);
 
     // 7. active_queries
     List<List<Object>> active_queries_res_1 = sql """ 
@@ -160,7 +164,7 @@ suite("test_information_schema_timezone") {
             select LOGIN_TIME from information_schema.processlist where INFO like "%information_schema.processlist%"
             """
     logger.info("--ftw: processlist_res_2 = " + processlist_res_2);
-    // assertEquals(true, isEightHoursDiff(processlist_res_1[0][0], processlist_res_2[0][0]))
+    assertEquals(true, isEightHoursDiff(processlist_res_1[0][0], processlist_res_2[0][0]))
 
     // 5. rowsets
     List<List<Object>> rowsets_res_2 = sql """ 
@@ -171,7 +175,16 @@ suite("test_information_schema_timezone") {
     assertEquals(true, isEightHoursDiff(rowsets_res_1[0][1], rowsets_res_2[0][1]))
 
     // 6. backend_kerberos_ticket_cache
-   
+    List<List<Object>> kerberos_cache_res_2 = sql """ 
+                select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
+            """
+    logger.info("--ftw: kerberos_cache_res_2 = " + kerberos_cache_res_2);
+
+    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][0], kerberos_cache_res_2[0][0]))
+    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][1], kerberos_cache_res_2[0][1]))
+    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][2], kerberos_cache_res_2[0][2]))
+  
+    sql """DROP CATALOG IF EXISTS test_information_schema_timezone_catalog"""
 
     // 7. active_queries
     List<List<Object>> active_queries_res_2 = sql """ 
@@ -187,4 +200,7 @@ suite("test_information_schema_timezone") {
     } catch (Exception e) {
         throw exception("Wrong datetime formatter: " + e.getMessage())
     }
+
+    // set time_zone back
+    sql """ SET time_zone = "Asia/Shanghai" """
 }
