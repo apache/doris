@@ -141,7 +141,7 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
                 && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
             StringBuilder builder = new StringBuilder();
             builder.append(getClass().getSimpleName());
-            builder.append(projects.stream().map(Expression::shapeInfo)
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
                     .collect(Collectors.joining(", ", "[", "]")));
             return builder.toString();
         } else {
