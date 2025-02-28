@@ -119,7 +119,9 @@ public class PlanCacheRewriter {
         private static final List<RewriteJob> REWRITE_JOBS = jobs(
                 topDown(
                         new PruneOlapScanPartition(),
-                        new PruneEmptyPartition(),
+                        new PruneEmptyPartition()
+                ),
+                topDown(
                         new PruneOlapScanTablet()
                 )
         );

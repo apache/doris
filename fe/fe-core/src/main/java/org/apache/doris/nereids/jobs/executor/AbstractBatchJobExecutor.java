@@ -99,6 +99,7 @@ public abstract class AbstractBatchJobExecutor {
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
+        // return new BottomUpVisitorRewriteJob(rules);
         return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
     }
 

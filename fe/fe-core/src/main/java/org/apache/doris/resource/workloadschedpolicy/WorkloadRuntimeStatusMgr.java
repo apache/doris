@@ -35,6 +35,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 // NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
@@ -48,8 +52,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
-    private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
+    private final ReentrantLock queryAuditEventLock = new ReentrantLock();
+    // private final Semaphore semaphore = new Semaphore(1);
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    // private AtomicBoolean spinLock = new AtomicBoolean();
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -230,10 +236,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     private void queryAuditEventLogWriteLock() {
-        queryAuditEventLock.writeLock().lock();
+        queryAuditEventLock.lock();
     }
 
     private void queryAuditEventLogWriteUnlock() {
-        queryAuditEventLock.writeLock().unlock();
+        queryAuditEventLock.unlock();
     }
 }
