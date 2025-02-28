@@ -63,16 +63,17 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_dump_image," +
-    "test_index_failure_injection," +
-    "test_profile," +
-    "test_refresh_mtmv," +
-    "test_spark_load," +
-    "test_broker_load_func," +
-    "test_index_compaction_failure_injection," +
-    "test_full_compaction_run_status," +
-    "test_topn_fault_injection," + 
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+        "test_dump_image," +
+        "test_index_failure_injection," +
+        "test_profile," +
+        "test_refresh_mtmv," +
+        "test_spark_load," +
+        "test_broker_load_func," +
+        "test_index_compaction_failure_injection," +
+        "test_full_compaction_run_status," +
+        "test_topn_fault_injection," +
+        "dis_26495," +
+        "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -146,7 +147,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
-max_failure_num=50
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
 

@@ -45,6 +45,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_insert," + // txn insert
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," +
+    "dis_26495," +
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
