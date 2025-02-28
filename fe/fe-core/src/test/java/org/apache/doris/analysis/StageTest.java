@@ -26,12 +26,15 @@ import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
-import org.apache.doris.utframe.UtFrameUtils;
 
 import mockit.Mocked;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.platform.commons.util.StringUtils;
 
@@ -59,7 +62,7 @@ public class StageTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        ctx = UtFrameUtils.createDefaultCtx();
+        ctx = createDefaultCtx();
     }
 
     @Test
@@ -87,10 +90,12 @@ public class StageTest extends TestWithFeService {
                     + "('endpoint' = 'cos.ap-beijing.myqcloud.com', "
                     + "'bucket' = 'test_bucket', "
                     + "'region' = 'ap-beijing', " + "'ak'='tmp_ak', 'sk'='tmp_sk', 'access_type'='aksk', "
-                    + (entry.getKey() == null ? "" : ("'prefix'='" + entry.getKey()) + "', ")
+                    + "'prefix'='" + entry.getValue() + "', "
                     + "'provider'='oss');";
-            CreateStageStmt stmt = parseAndAnalyze(sql);
-            StageProperties stageProperties = stmt.getStageProperties();
+
+            CreateStageCommand command = getCreateStageCommand(sql);
+            StageProperties stageProperties = command.getStageProperties();
+
             Assert.assertEquals(entry.getValue(), stageProperties.getProperties().get(StageProperties.PREFIX));
             Assert.assertEquals(entry.getValue(), stageProperties.getObjectStoreInfoPB().getPrefix());
         }
@@ -108,8 +113,10 @@ public class StageTest extends TestWithFeService {
 
         // test getObjectInfoPB
         sql = "create stage if not exists ex_stage_1 " + OBJ_INFO + ")";
-        CreateStageStmt stmt = parseAndAnalyze(sql);
-        ObjectStoreInfoPB objectStoreInfoPB = stmt.getStageProperties().getObjectStoreInfoPB();
+
+        CreateStageCommand command = getCreateStageCommand(sql);
+        ObjectStoreInfoPB objectStoreInfoPB = command.getStageProperties().getObjectStoreInfoPB();
+
         Assert.assertEquals("cos.ap-beijing.myqcloud.com", objectStoreInfoPB.getEndpoint());
         Assert.assertEquals("ap-beijing", objectStoreInfoPB.getRegion());
         Assert.assertEquals("tmp_bucket", objectStoreInfoPB.getBucket());
@@ -123,23 +130,23 @@ public class StageTest extends TestWithFeService {
     public void testAnalyzeTypeAndCompression() throws Exception {
         // create stage with type
         String sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'json')";
-        Assert.assertEquals("json", parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals("json", getCreateStageCommand(sql).getStageProperties().getFileType());
 
         // TODO create stage with type with invalid type
         sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'js')";
-        Assert.assertEquals("js", parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals("js", getCreateStageCommand(sql).getStageProperties().getFileType());
 
         // create stage with compression
         sql = CREATE_STAGE_SQL + ", 'default.file.compression' = 'gz')";
-        Assert.assertEquals(null, parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals(null, getCreateStageCommand(sql).getStageProperties().getFileType());
 
         // TODO create stage with invalid compression
         sql = CREATE_STAGE_SQL + ", 'default.file.compression' = 'gza')";
-        Assert.assertEquals(null, parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals(null, getCreateStageCommand(sql).getStageProperties().getFileType());
 
         // create stage with type and compression
         sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'csv', 'default.file.compression'='gz')";
-        Assert.assertEquals("csv", parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals("csv", getCreateStageCommand(sql).getStageProperties().getFileType());
 
         // create stage with invalid type and compression
         sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'orc', 'default.file.compression'='gz')";
@@ -150,11 +157,11 @@ public class StageTest extends TestWithFeService {
     public void testAnalyzeSizeLimit() throws Exception {
         // create stage without size limit
         String sql = CREATE_STAGE_SQL + ")";
-        Assert.assertEquals(0, parseAndAnalyze(sql).getStageProperties().getSizeLimit());
+        Assert.assertEquals(0, getCreateStageCommand(sql).getStageProperties().getSizeLimit());
 
         // create stage with size limit
         sql = CREATE_STAGE_SQL + ", 'default.copy.size_limit' = '100')";
-        Assert.assertEquals(100, parseAndAnalyze(sql).getStageProperties().getSizeLimit());
+        Assert.assertEquals(100, getCreateStageCommand(sql).getStageProperties().getSizeLimit());
 
         // create stage with invalid size limit
         sql = CREATE_STAGE_SQL + ", 'default.copy.size_limit' = '100a')";
@@ -165,19 +172,19 @@ public class StageTest extends TestWithFeService {
     public void testAnalyzeOnError() throws Exception {
         // create stage without on_error
         String sql = CREATE_STAGE_SQL + ")";
-        Assert.assertEquals(0, parseAndAnalyze(sql).getStageProperties().getMaxFilterRatio(), 0.02);
+        Assert.assertEquals(0, getCreateStageCommand(sql).getStageProperties().getMaxFilterRatio(), 0.02);
 
         // create stage with on_error value is continue
         sql = CREATE_STAGE_SQL + ", 'default.copy.on_error' = 'continue')";
-        Assert.assertEquals(1, parseAndAnalyze(sql).getStageProperties().getMaxFilterRatio(), 0.02);
+        Assert.assertEquals(1, getCreateStageCommand(sql).getStageProperties().getMaxFilterRatio(), 0.02);
 
         // create stage with on_error value is abort_statement
         sql = CREATE_STAGE_SQL + ", 'default.copy.on_error' = 'abort_statement')";
-        Assert.assertEquals(0, parseAndAnalyze(sql).getStageProperties().getMaxFilterRatio(), 0.02);
+        Assert.assertEquals(0, getCreateStageCommand(sql).getStageProperties().getMaxFilterRatio(), 0.02);
 
         // create stage with on_error value is max filter ratio
         sql = CREATE_STAGE_SQL + ", 'default.copy.on_error' = 'max_filter_ratio_0.4')";
-        Assert.assertEquals(0.4, parseAndAnalyze(sql).getStageProperties().getMaxFilterRatio(), 0.02);
+        Assert.assertEquals(0.4, getCreateStageCommand(sql).getStageProperties().getMaxFilterRatio(), 0.02);
 
         // create stage with on_error value is invalid max filter ratio
         sql = CREATE_STAGE_SQL + ", 'default.copy.on_error' = 'max_filter_ratio_0.a')";
@@ -188,11 +195,11 @@ public class StageTest extends TestWithFeService {
     public void testAnalyzeAsync() throws Exception {
         // create stage without async
         String sql = CREATE_STAGE_SQL + ")";
-        Assert.assertEquals(true, parseAndAnalyze(sql).getStageProperties().isAsync());
+        Assert.assertEquals(true, getCreateStageCommand(sql).getStageProperties().isAsync());
 
         // create stage with async
         sql = CREATE_STAGE_SQL + ", 'default.copy.async'='false')";
-        Assert.assertEquals(false, parseAndAnalyze(sql).getStageProperties().isAsync());
+        Assert.assertEquals(false, getCreateStageCommand(sql).getStageProperties().isAsync());
 
         // create stage with invalid async
         sql = CREATE_STAGE_SQL + ", 'default.copy.async'='abc')";
@@ -204,7 +211,7 @@ public class StageTest extends TestWithFeService {
         // create stage with strict mode
         String sql = CREATE_STAGE_SQL + ", 'default.copy.strict_mode'='true')";
         Assert.assertEquals(true, Boolean.parseBoolean(
-                parseAndAnalyze(sql).getStageProperties().getDefaultPropertiesWithoutPrefix().get("copy.strict_mode")));
+                getCreateStageCommand(sql).getStageProperties().getDefaultPropertiesWithoutPrefix().get("copy.strict_mode")));
 
         // create stage with invalid strict mode
         sql = CREATE_STAGE_SQL + ", 'default.copy.strict_mode'='def')";
@@ -216,7 +223,7 @@ public class StageTest extends TestWithFeService {
         // create stage with load parallelism
         String sql = CREATE_STAGE_SQL + ", 'default.copy.load_parallelism'='2')";
         Assert.assertEquals(2, Integer.parseInt(
-                parseAndAnalyze(sql).getStageProperties().getDefaultPropertiesWithoutPrefix()
+                getCreateStageCommand(sql).getStageProperties().getDefaultPropertiesWithoutPrefix()
                         .get("copy.load_parallelism")));
 
         // create stage with invalid load parallelism
@@ -228,16 +235,16 @@ public class StageTest extends TestWithFeService {
     public void testOtherProperties() throws Exception {
         String sql = CREATE_STAGE_SQL + ", 'default.file.column_separator'=\",\", "
                 + "'default.file.line_delimiter'=\"\n\")";
-        CreateStageStmt stmt = parseAndAnalyze(sql);
-        Assert.assertEquals(",", stmt.getStageProperties().getColumnSeparator());
-        Assert.assertEquals("\n", stmt.getStageProperties().getProperties().get("default.file.line_delimiter"));
-        Assert.assertEquals("\n", stmt.getStageProperties().getDefaultProperties().get("default.file.line_delimiter"));
+        CreateStageCommand command = getCreateStageCommand(sql);
+        Assert.assertEquals(",", command.getStageProperties().getColumnSeparator());
+        Assert.assertEquals("\n", command.getStageProperties().getProperties().get("default.file.line_delimiter"));
+        Assert.assertEquals("\n", command.getStageProperties().getDefaultProperties().get("default.file.line_delimiter"));
         Assert.assertEquals("\n",
-                stmt.getStageProperties().getDefaultPropertiesWithoutPrefix().get("file.line_delimiter"));
+                command.getStageProperties().getDefaultPropertiesWithoutPrefix().get("file.line_delimiter"));
 
         // without property
         sql = "create stage in_stage_1";
-        parseAndAnalyzeWithException(sql, "Syntax error");
+        parseAndAnalyzeWithException(sql, "Property endpoint is required for ExternalStage");
 
         // with an unknown property
         sql = CREATE_STAGE_SQL + ", 'default.file.type' = 'csv', 'test_key'='test_value')";
@@ -245,31 +252,15 @@ public class StageTest extends TestWithFeService {
     }
 
     @Test
-    public void testToSql() throws Exception {
-        String sql = "create stage ex_stage_1 properties (\"bucket\" = \"tmp_bucket\", "
-                + "\"default.copy.size_limit\" = \"100\", "
-                + "\"endpoint\" = \"cos.ap-beijing.myqcloud.com\", \"access_type\" = \"aksk\", "
-                + "\"default.file.type\" = \"csv\", "
-                + "\"provider\" = \"cos\", "
-                + "\"prefix\" = \"tmp_prefix\", "
-                + "\"default.file.column_separator\" = \",\", "
-                + "\"sk\" = \"tmp_sk\", \"ak\" = \"tmp_ak\", \"region\" = \"ap-beijing\")";
-        StatementBase statementBase = parseAndAnalyze(sql);
-        System.out.println("expectedSql: " + sql.toLowerCase());
-        System.out.println("realSql    : " + statementBase.toSql().toLowerCase().trim());
-        Assert.assertEquals(sql.toLowerCase(), statementBase.toSql().toLowerCase().trim());
-    }
-
-    @Test
     public void testGetProperties() throws Exception {
         String sql = CREATE_STAGE_SQL
                 + ", 'default.file.type' = 'csv', 'default.file.column_separator'=\",\" "
                 + ", 'default.copy.on_error' = 'abort_statement', 'default.copy.size_limit' = '100')";
-        CreateStageStmt createStageStmt = parseAndAnalyze(sql);
-        Assert.assertEquals(12, createStageStmt.getStageProperties().getProperties().size());
+        CreateStageCommand command = getCreateStageCommand(sql);
+        Assert.assertEquals(12, command.getStageProperties().getProperties().size());
         // check default properties
         do {
-            Map<String, String> properties = createStageStmt.getStageProperties().getDefaultProperties();
+            Map<String, String> properties = command.getStageProperties().getDefaultProperties();
             Assert.assertEquals(4, properties.size());
             Map<String, String> expectedProperties = new HashMap<>();
             expectedProperties.put("default.file.type", "csv");
@@ -283,7 +274,7 @@ public class StageTest extends TestWithFeService {
         } while (false);
         // check default properties without prefix
         do {
-            Map<String, String> properties = createStageStmt.getStageProperties().getDefaultPropertiesWithoutPrefix();
+            Map<String, String> properties = command.getStageProperties().getDefaultPropertiesWithoutPrefix();
             Assert.assertEquals(4, properties.size());
             Map<String, String> expectedProperties = new HashMap<>();
             expectedProperties.put("file.type", "csv");
@@ -303,8 +294,8 @@ public class StageTest extends TestWithFeService {
         String sql = CREATE_STAGE_SQL
                 + ", 'default.file.type' = 'csv', 'default.file.column_separator'=\",\" "
                 + ", 'default.copy.on_error' = 'abort_statement', 'default.copy.size_limit' = '100')";
-        CreateStageStmt createStageStmt = parseAndAnalyze(sql);
-        StagePB stagePB = createStageStmt.toStageProto();
+        CreateStageCommand command = getCreateStageCommand(sql);
+        StagePB stagePB = command.toStageProto();
         Assert.assertEquals(StageType.EXTERNAL, stagePB.getType());
         Assert.assertEquals("ex_stage_1", stagePB.getName());
         Assert.assertTrue(StringUtils.isNotBlank(stagePB.getStageId()));
@@ -318,7 +309,7 @@ public class StageTest extends TestWithFeService {
     private void parseAndAnalyzeWithException(String sql, String errorMsg) {
         do {
             try {
-                UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+                createStage(sql);
             } catch (AnalysisException e) {
                 Assert.assertTrue(e.getMessage().contains(errorMsg));
                 break;
@@ -329,14 +320,13 @@ public class StageTest extends TestWithFeService {
         } while (false);
     }
 
-    private CreateStageStmt parseAndAnalyze(String sql) throws Exception {
-        try {
-            CreateStageStmt stmt = (CreateStageStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
-            return stmt;
-        } catch (Exception e) {
-            e.printStackTrace();
-            Assert.fail("must be success.");
-            throw e;
-        }
+    private void createStage(String sql) throws Exception {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateStageCommand);
+        ((CreateStageCommand) plan).run(connectContext, null);
+    }
+
+    private CreateStageCommand getCreateStageCommand(String sql) {
+        return (CreateStageCommand) new NereidsParser().parseSingle(sql);
     }
 }

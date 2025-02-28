@@ -41,6 +41,8 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -333,12 +335,29 @@ public class CloudEnv extends Env {
         }
     }
 
+    public void createStage(CreateStageCommand command) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        if (!command.isDryRun()) {
+            ((CloudInternalCatalog) getInternalCatalog()).createStage(command.toStageProto(), command.isIfNotExists());
+        }
+    }
+
     public void dropStage(DropStageStmt stmt) throws DdlException {
         if (Config.isNotCloudMode()) {
             throw new DdlException("stage is only supported in cloud mode");
         }
         ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
                 null, null, stmt.getStageName(), null, stmt.isIfExists());
+    }
+
+    public void dropStage(DropStageCommand command) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
+                null, null, command.getStageName(), null, command.isIfExists());
     }
 
     public long loadCloudWarmUpJob(DataInputStream dis, long checksum) throws Exception {
