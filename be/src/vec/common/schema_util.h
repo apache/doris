@@ -113,7 +113,7 @@ void inherit_column_attributes(TabletSchemaSPtr& schema);
 // source: variant column
 // target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
-                               TabletSchemaSPtr& target_schema);
+                               TabletSchemaSPtr* target_schema = nullptr);
 
 // get sorted subcolumns of variant
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(

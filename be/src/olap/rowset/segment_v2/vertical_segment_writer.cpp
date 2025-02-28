@@ -1074,7 +1074,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             int current_column_id = column_id++;
             TabletColumn tablet_column = generate_column_info(entry);
             vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
-                                                               _flush_schema);
+                                                               &_flush_schema);
             RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
                                                   _flush_schema));
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(

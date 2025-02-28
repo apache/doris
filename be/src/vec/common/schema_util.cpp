@@ -366,7 +366,7 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
-                               TabletSchemaSPtr& target_schema) {
+                               TabletSchemaSPtr* target_schema) {
     DCHECK(target.is_extracted_column());
     target.set_aggregation_method(source.aggregation());
 
@@ -379,19 +379,25 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         target.set_is_bf_column(source.is_bf_column());
     }
 
+    if (!target_schema) {
+        return;
+    }
+
     // 2. inverted index
-    const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
+    const auto* source_index_meta = (*target_schema)->inverted_index(source.unique_id());
     if (source_index_meta != nullptr) {
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta = target_schema->inverted_index(
-                target.parent_unique_id(), target.path_info_ptr()->get_path());
+        const auto* target_index_meta =
+                (*target_schema)
+                        ->inverted_index(target.parent_unique_id(),
+                                         target.path_info_ptr()->get_path());
         if (target_index_meta != nullptr) {
             // already exist
-            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
+            (*target_schema)->update_index(target, IndexType::INVERTED, std::move(index_info));
         } else {
-            target_schema->append_index(std::move(index_info));
+            (*target_schema)->append_index(std::move(index_info));
         }
     }
 
@@ -409,7 +415,7 @@ void inherit_column_attributes(TabletSchemaSPtr& schema) {
             // parent column is missing, maybe dropped
             continue;
         }
-        inherit_column_attributes(schema->column_by_uid(col.parent_unique_id()), col, schema);
+        inherit_column_attributes(schema->column_by_uid(col.parent_unique_id()), col, &schema);
     }
 }
 

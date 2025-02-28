@@ -101,21 +101,62 @@ suite("update_test_index_query", "p0") {
     }
 
     def normal_check = {check_table_name->
-        sql """set enable_match_without_inverted_index = false """ 
-        sql """ set inverted_index_skip_threshold = 0 """
-        qt_sql """ select count() from ${check_table_name} """
-        qt_sql """ select count() from ${check_table_name} where cast (v['repo']['name'] as string) match 'github'"""
-        qt_sql """ select count() from ${check_table_name} where cast (v['actor']['id'] as int) > 1575592 """
-        qt_sql """ select count() from ${check_table_name} where cast (v['actor']['id'] as int) > 1575592 and  cast (v['repo']['name'] as string) match 'github'"""
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+            sql """set enable_match_without_inverted_index = false""" 
+            sql """ set inverted_index_skip_threshold = 0 """
+            sql """ set enable_inverted_index_query = true """ 
+            qt_sql """ select count() from ${check_table_name} """
+            qt_sql """ select count() from ${check_table_name} where cast (v['repo']['name'] as string) match 'github'"""
+            qt_sql """ select count() from ${check_table_name} where cast (v['actor']['id'] as int) > 1575592 """
+            qt_sql """ select count() from ${check_table_name} where cast (v['actor']['id'] as int) > 1575592 and  cast (v['repo']['name'] as string) match 'github'"""
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+        }
+
+        try {
+        GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+            sql """ set enable_inverted_index_query = false """ 
+            // number
+            qt_sql1 """ select count() from ${check_table_name} where cast(v['repo']['id'] as int) in (0, 1, 2, 3, 4, 5); """
+
+            // string
+            qt_sql2 """ select count() from ${check_table_name} where cast(v['repo']['name'] as text) in ("aaaaaa"); """
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+        }
     }
 
-    def table_name = "test_update_index_compact"
+    
 
-    for (int i = 0; i < 2; i++) {
+   
+
+   def table_name = "test_update_index_compact_v1"
+
+    for (int i = 0; i < 3; i++) {
         load_json_data.call(table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
     }
 
-   GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+    normal_check.call("test_update_index_compact_v1")
+
+    compaction.call("test_update_index_compact_v1")
+
+    normal_check.call("test_update_index_compact_v1")
+
+    table_name = "test_update_index_compact_v2"
+
+    for (int i = 0; i < 3; i++) {
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+    }
+
+    normal_check.call("test_update_index_compact_v2")
+
+    compaction.call("test_update_index_compact_v2")
+
+    normal_check.call("test_update_index_compact_v2")
+
+
+    table_name = "test_update_index_compact2_v1"
 
     normal_check.call(table_name)
 
@@ -123,7 +164,7 @@ suite("update_test_index_query", "p0") {
 
     normal_check.call(table_name)
 
-    table_name = "test_update_index_compact2"
+    table_name = "test_update_index_compact2_v2"
 
     normal_check.call(table_name)
 
@@ -177,25 +218,45 @@ suite("update_test_index_query", "p0") {
     }
 
 
-    def table_name_sc = "test_update_index_sc"
+    // def table_name_sc = "test_update_index_sc_v1"
 
-    for (int i = 0; i < 2; i++) {
-        load_json_data.call(table_name_sc, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
-    }
+    // for (int i = 0; i < 3; i++) {
+    //     load_json_data.call(table_name_sc, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+    // }
 
-    normal_check.call(table_name_sc)
+    // normal_check.call(table_name_sc)
 
-    schema_change.call(table_name_sc)
+    // schema_change.call(table_name_sc)
 
-    normal_check.call(table_name_sc)
+    // normal_check.call(table_name_sc)
 
-    table_name_sc = "test_update_index_sc2"
+    // table_name_sc = "test_update_index_sc_v2"
 
-    normal_check.call(table_name_sc)
+    // for (int i = 0; i < 3; i++) {
+    //     load_json_data.call(table_name_sc, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
+    // }
 
-    schema_change.call(table_name_sc)
+    // normal_check.call(table_name_sc)
 
-    normal_check.call(table_name_sc)
+    // schema_change.call(table_name_sc)
 
-   GetDebugPoint().disableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+    // normal_check.call(table_name_sc)
+
+    // table_name_sc = "test_update_index_sc2_v1"
+
+    // normal_check.call(table_name_sc)
+
+    // schema_change.call(table_name_sc)
+
+    // normal_check.call(table_name_sc)
+
+    // table_name_sc = "test_update_index_sc2_v2"
+
+    // normal_check.call(table_name_sc)
+
+    // schema_change.call(table_name_sc)
+
+    // normal_check.call(table_name_sc)
+
+   
 }

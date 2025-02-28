@@ -677,6 +677,12 @@ public class SchemaChangeHandler extends AlterHandler {
         modColumn.setName(oriColumn.getName());
         modColumn.setUniqueId(oriColumn.getUniqueId());
 
+        Type type = modColumn.getType();
+        if (type.isVariantType()) {
+            ScalarType scType = (ScalarType) type;
+            scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
+        }
+
         if (!modColumn.equals(oriColumn) && oriColumn.isAutoInc() != modColumn.isAutoInc()) {
             throw new DdlException("Can't modify the column["
                     + oriColumn.getName() + "]'s auto-increment attribute.");
