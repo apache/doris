@@ -26,17 +26,17 @@ export DORIS_HOME
 echo "DORIS_HOME: ${DORIS_HOME}"
 
 if [[ -z "${JAVA_HOME}" ]]; then
-    if ! command -v java &>/dev/null; then
-        JAVA=""
+    if ! command -v jcmd &>/dev/null; then
+        JCMD=""
     else
-        JAVA="$(command -v java)"
+        JCMD="$(command -v jcmd)"
     fi
 else
-    JAVA="${JAVA_HOME}/bin/java"
+    JCMD="${JAVA_HOME}/bin/jcmd"
 fi
-echo "JAVA: ${JAVA}"
+echo "JCMD: ${JCMD}"
 
-if [[ ! -x "${JAVA}" ]]; then
+if [[ ! -x "${JCMD}" ]]; then
     echo "The JAVA_HOME environment variable is not set correctly"
     echo "This environment variable is required to run this program"
     echo "Note: JAVA_HOME should point to a JDK and not a JRE"
@@ -53,11 +53,26 @@ echo "DorisFE pid: ${FE_PID}"
 
 mkdir -p "${DORIS_HOME}/log"
 NOW=$(date +'%Y%m%d%H%M%S')
-PROFILE_OUTPUT="${DORIS_HOME}/log/profile_${NOW}.html"
-if [[ -z "${PROFILE_SECONDS}" ]]; then
-    PROFILE_SECONDS="10"
+RECORD_OUTPUT="${DORIS_HOME}/log/flight_record_${NOW}.jfr"
+if [[ -z "${RECORD_SECONDS}" ]]; then
+    RECORD_SECONDS="30"
 fi
 
-echo "Begin profiling ${PROFILE_SECONDS} seconds and generate flame graph to ${PROFILE_OUTPUT}..."
-${JAVA} -jar "${DORIS_HOME}"/lib/ap-loader-all-*.jar profiler -a -n -l -i 200us -d "${PROFILE_SECONDS}" -f "${PROFILE_OUTPUT}" "${FE_PID}"
-echo "Generated flame graph to ${PROFILE_OUTPUT}"
+# add shutdown hook to stop flight record
+cleanup() {
+    echo "Exec shutdown hook"
+    ${JCMD} "${FE_PID}" JFR.stop name="jfr_${NOW}"
+    echo "Generated flight record to ${RECORD_OUTPUT}"
+    exit 1
+}
+
+trap cleanup SIGINT
+
+echo "Begin flight record ${RECORD_SECONDS} seconds and generate to ${RECORD_OUTPUT}..."
+${JCMD} "${FE_PID}" JFR.start name="jfr_${NOW}" settings=profile filename="${RECORD_OUTPUT}"
+
+echo "wait ${RECORD_SECONDS} seconds..."
+sleep "${RECORD_SECONDS}"
+${JCMD} "${FE_PID}" JFR.stop name="jfr_${NOW}"
+
+echo "Generated flight record to ${RECORD_OUTPUT}"
