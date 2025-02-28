@@ -308,6 +308,11 @@ suite("insert_group_commit_into_unique_sync_mode") {
             // qt_sql """ select * from ${dbTableName} order by id, name, score asc; """
         };
 
+        sql """ set global enable_unique_key_partial_update = true """
+        onFinish {
+            sql """ set global enable_unique_key_partial_update = false """
+        }
+
         // 2. stream load
         streamLoad {
             table "${tableName}"

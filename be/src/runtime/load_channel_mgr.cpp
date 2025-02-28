@@ -146,13 +146,15 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         return status;
     }
     SCOPED_TIMER(channel->get_mgr_add_batch_timer());
+    SCOPED_ATTACH_TASK(channel->resource_ctx());
 
     if (!channel->is_high_priority()) {
         // 2. check if mem consumption exceed limit
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
+                channel->workload_group());
     }
 
     // 3. add batch to load channel

@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
@@ -116,12 +117,11 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, task_ctx, state]() {
-                DCHECK(_async_thread_running == false);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
-                    _scanner_status.update(Status::InternalError("Task context not exists!"));
                     return;
                 }
+                DCHECK(_async_thread_running == false);
                 SCOPED_ATTACH_TASK(state);
                 _async_thread_running = true;
                 if (!_opened) {
@@ -225,6 +225,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
+        return SchemaBackendKerberosTicketCacheScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

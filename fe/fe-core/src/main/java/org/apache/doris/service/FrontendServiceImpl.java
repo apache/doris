@@ -584,6 +584,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
         PatternMatcher matcher = null;
+        String specifiedTable = null;
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
@@ -591,6 +592,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
+        }
+        if (params.isSetTable()) {
+            specifiedTable = params.getTable();
         }
         // database privs should be checked in analysis phrase
 
@@ -629,6 +633,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
+                        if (matcher != null && !matcher.match(table.getName())) {
+                            continue;
+                        }
+                        if (specifiedTable != null && !specifiedTable.equals(table.getName())) {
+                            continue;
+                        }
                         // For the follower node in cloud mode,
                         // when querying the information_schema table,
                         // the version needs to be updated.
@@ -645,9 +655,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         table.readLock();
                         try {
-                            if (matcher != null && !matcher.match(table.getName())) {
-                                continue;
-                            }
                             long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
@@ -2129,6 +2136,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
+            ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
+        }
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 2;
@@ -2795,7 +2805,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogResult result = new TGetBinlogResult();
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
-        Pair<TStatus, TBinlog> statusBinlogPair = env.getBinlogManager().getBinlog(dbId, tableId, prevCommitSeq);
+        long numAcquired = request.getNumAcquired();
+        Pair<TStatus, List<TBinlog>> statusBinlogPair = env.getBinlogManager()
+                .getBinlog(dbId, tableId, prevCommitSeq, numAcquired);
         TStatus status = statusBinlogPair.first;
         if (status != null && status.getStatusCode() != TStatusCode.OK) {
             result.setStatus(status);
@@ -2804,10 +2816,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             }
         }
-        TBinlog binlog = statusBinlogPair.second;
-        if (binlog != null) {
-            List<TBinlog> binlogs = Lists.newArrayList();
-            binlogs.add(binlog);
+        List<TBinlog> binlogs = statusBinlogPair.second;
+        if (binlogs != null) {
             result.setBinlogs(binlogs);
         }
         return result;
@@ -3004,6 +3014,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (request.isAtomicRestore()) {
             properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
+        if (request.isForceReplace()) {
+            properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
         }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
@@ -3464,7 +3477,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        OlapTable table = (OlapTable) (db.getTable(tableId).get());
+        Table table = db.getTable(tableId).get();
         if (table == null) {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
@@ -3546,16 +3559,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
-            if (partition == null) {
-                String partInfos = table.getAllPartitions().stream()
-                        .map(partitionArg -> partitionArg.getName() + partitionArg.getId())
-                        .collect(Collectors.joining(", "));
-
-                errorStatus.setErrorMsgs(Lists.newArrayList("get partition " + partitionName + " failed"));
-                result.setStatus(errorStatus);
-                LOG.warn("send create partition error status: {}, {}", result, partInfos);
-                return result;
-            }
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();

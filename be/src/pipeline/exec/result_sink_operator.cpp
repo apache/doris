@@ -117,8 +117,8 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     _name = "ResultSink";
 }
 
-Status ResultSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::open(state));
+Status ResultSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::prepare(state));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -198,7 +198,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) {
-            _sender->update_return_rows(_writer->get_written_rows());
+            int64_t written_rows = _writer->get_written_rows();
+            _sender->update_return_rows(written_rows);
+            state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(
+                    written_rows);
         }
         RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
     }

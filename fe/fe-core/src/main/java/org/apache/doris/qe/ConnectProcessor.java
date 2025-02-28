@@ -319,6 +319,9 @@ public abstract class ConnectProcessor {
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
+            if (stmts.size() > 1 && usingOrigSingleStmt) {
+                ctx.setSqlHash(DigestUtils.md5Hex(auditStmt));
+            }
             try {
                 ctx.getState().reset();
                 if (i > 0) {
@@ -599,38 +602,6 @@ public abstract class ConnectProcessor {
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
-        } else {
-            // For compatibility, all following variables are moved to SessionVariables.
-            // Should move in future.
-            if (request.isSetTimeZone()) {
-                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-            }
-            if (request.isSetSqlMode()) {
-                ctx.getSessionVariable().setSqlMode(request.sqlMode);
-            }
-            if (request.isSetEnableStrictMode()) {
-                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
-            }
-            if (request.isSetCurrentUserIdent()) {
-                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-                ctx.setCurrentUserIdentity(currentUserIdentity);
-            }
-            if (request.isSetInsertVisibleTimeoutMs()) {
-                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
-            }
-        }
-
-        if (request.isSetQueryOptions()) {
-            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
-        } else {
-            // For compatibility, all following variables are moved to TQueryOptions.
-            // Should move in future.
-            if (request.isSetExecMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
-            }
-            if (request.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
         }
 
         if (request.isSetUserVariables()) {
@@ -638,8 +609,7 @@ public abstract class ConnectProcessor {
         }
 
         // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser),
-                Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(ctx.qualifiedUser));
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

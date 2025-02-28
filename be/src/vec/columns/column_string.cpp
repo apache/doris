@@ -150,6 +150,15 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
 }
 
 template <typename T>
+bool ColumnStr<T>::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+    return (this->get_chars().capacity() - this->get_chars().size() >
+            src_concrete.get_chars().size()) &&
+           (this->get_offsets().capacity() - this->get_offsets().size() >
+            src_concrete.get_offsets().size());
+}
+
+template <typename T>
 void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     if (length == 0) {
         return;
@@ -166,7 +175,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
         auto nested_length = src_offsets[start + length - 1] - nested_offset;
 
         size_t old_chars_size = chars.size();
-        check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length, size());
         chars.resize(old_chars_size + nested_length);
         memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
@@ -200,7 +209,7 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
     auto [data_val, data_length] = string_column.get_data_at(position);
 
     size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length, size());
     chars.resize(old_chars_size + data_length * length);
 
     auto old_size = offsets.size();
@@ -235,7 +244,7 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             // if Offsets is uint32, size will not exceed range of uint32, cast is OK.
             dst_offsets_data[dst_offsets_pos++] = static_cast<T>(total_chars_size);
         }
-        check_chars_length(total_chars_size, offsets.size());
+        check_chars_length(total_chars_size, offsets.size(), dst_offsets_pos);
 
         chars.resize(total_chars_size);
 
@@ -418,7 +427,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
 
     const size_t old_size = chars.size();
     const size_t new_size = old_size + string_size;
-    check_chars_length(new_size, offsets.size() + 1);
+    check_chars_length(new_size, offsets.size() + 1, size());
     chars.resize(new_size);
     memcpy(chars.data() + old_size, pos, string_size);
 
@@ -438,8 +447,7 @@ size_t ColumnStr<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                 size_t max_row_byte_size) const {
+void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         auto offset(offset_at(i));
         auto string_size(size_at(i));
@@ -452,7 +460,7 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnStr<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
 
@@ -493,7 +501,7 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         const auto* original_ptr = keys[i].data;
         keys[i].data = deserialize_and_insert_from_arena(original_ptr);
@@ -502,8 +510,8 @@ void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t nu
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                 const size_t num_rows, const uint8_t* null_map) {
+void ColumnStr<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                                 const uint8_t* null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
             const auto* original_ptr = keys[i].data;
@@ -582,7 +590,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
         prev_string_offset = offsets[i];
     }
 
-    check_chars_length(res_chars.size(), res_offsets.size());
+    check_chars_length(res_chars.size(), res_offsets.size(), col_size);
     return res;
 }
 

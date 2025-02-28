@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <cstdint>
 #include <string>
 
@@ -29,6 +27,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -102,12 +101,12 @@ protected:
     DependencySPtr _scan_dependency = nullptr;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
-    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
     // Num of newly created free blocks when running query
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
-    RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::Counter* _max_scan_concurrency = nullptr;
+    RuntimeProfile::Counter* _min_scan_concurrency = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
@@ -115,7 +114,6 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
@@ -352,7 +350,7 @@ template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
@@ -374,6 +372,8 @@ public:
         return _query_parallel_instance_num;
     }
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
@@ -386,6 +386,14 @@ public:
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+
+        if (local_state._scanner_ctx) {
+            local_state._scanner_ctx->clear_free_blocks();
+        }
     }
 
     int64_t get_push_down_count() const { return _push_down_count; }

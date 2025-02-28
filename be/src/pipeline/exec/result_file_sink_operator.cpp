@@ -71,8 +71,8 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ResultFileSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
+Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->query_id(), _buf_size,
@@ -129,7 +129,9 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     }
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+        int64_t written_rows = _writer == nullptr ? 0 : _writer->get_written_rows();
+        _sender->update_return_rows(written_rows);
+        state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(written_rows);
         RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
     }
     state->exec_env()->result_mgr()->cancel_at_time(

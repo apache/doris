@@ -92,6 +92,7 @@ message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -225,6 +226,10 @@ install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
+install(DIRECTORY
+    ${BASE_DIR}/dict/icu/uax29
+    DESTINATION ${OUTPUT_DIR}/dict/icu)
+
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
 # You can check funcion here which depends on platform. Don't forget add this
@@ -328,13 +333,17 @@ endif()
 # simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
+    add_definitions(-DLIBDIVIDE_SSE2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
+        add_definitions(-DUSE_AVX2)
+        add_definitions(-DLIBDIVIDE_AVX2)
     endif()
 endif()
 
 if (ARCH_ARM)
     add_compile_options(-march=armv8-a+crc)
+    add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
 
@@ -536,6 +545,9 @@ if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
+    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)

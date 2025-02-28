@@ -24,6 +24,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
@@ -80,6 +81,15 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
         Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
         Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
+
+        valueDesc = getValueDesc("L + RANDOM(1, 10) > 8 AND L + RANDOM(1, 10) <  1");
+        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
+        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(2, sourceValues.size());
+        for (ValueDesc value : sourceValues) {
+            Assertions.assertInstanceOf(RangeValue.class, value);
+            Assertions.assertEquals("(L + random(1, 10))", value.getReference().toSql());
+        }
     }
 
     @Test
@@ -114,9 +124,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "TA is null and null");
         assertRewriteNotNull("TA > 3 and TA < 1", "FALSE");
         assertRewrite("TA > 3 and TA < 1", "TA is null and null");
-        assertRewrite("TA >= 3 and TA < 3", "TA >= 3 and TA < 3");
+        assertRewrite("TA >= 3 and TA < 3", "TA is null and null");
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
+        assertRewrite("TA >= 1 and TA <= 1", "TA = 1");
         assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
         assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");
@@ -176,7 +187,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or (TA + TC > 7 and TA + TC < 5)", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC > 3 and TA + TC < 1", "FALSE");
         assertRewrite("TA + TC > 3 and TA + TC < 1", "(TA + TC) is null and null");
-        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC >= 3 and TA + TC < 3");
+        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC is null and null");
         assertRewriteNotNull("TA + TC = 1 and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC = 1 and TA + TC > 10", "(TA + TC) is null and null");
         assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC < 1 or TA + TC > 5");
@@ -226,6 +237,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
 
+        // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
+        Expression expr = rewrite("TA + random(1, 10) > 10 AND  TA + random(1, 10) < 1", Maps.newHashMap());
+        Assertions.assertEquals("AND[((TA + random(1, 10)) > 10),((TA + random(1, 10)) < 1)]", expr.toSql());
     }
 
     @Test
@@ -246,7 +260,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("AA > date '2024-01-03' and AA < date '2024-01-01'", "FALSE");
         assertRewrite("AA > date '2024-01-03' and AA < date '2024-01-01'", "AA is null and null");
         assertRewrite("AA >= date '2024-01-01' and AA < date '2024-01-01'",
-                "AA >= date '2024-01-01' and AA < date '2024-01-01'");
+                "AA IS NULL AND NULL");
         assertRewriteNotNull("AA = date '2024-01-01' and AA > date '2024-01-10'", "FALSE");
         assertRewrite("AA = date '2024-01-01' and AA > date '2024-01-10'", "AA is null and null");
         assertRewrite("AA > date '2024-01-05' or AA < date '2024-01-01'",
@@ -326,7 +340,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "FALSE");
         assertRewrite("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "CA is null and null");
         assertRewrite("CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'",
-                "CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'");
+                "CA is null and null");
         assertRewriteNotNull("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "FALSE");
         assertRewrite("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "CA is null and null");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'",
@@ -402,12 +416,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
-        needRewriteExpression = typeCoercion(needRewriteExpression);
+        Expression rewrittenExpression = rewrite(expression, mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewrite(String expression, Map<String, Slot> mem) {
+        Expression rewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        rewriteExpression = typeCoercion(rewriteExpression);
+        rewriteExpression = executor.rewrite(rewriteExpression, context);
+        return sortChildren(rewriteExpression);
     }
 
     private void assertRewriteNotNull(String expression, String expected) {
