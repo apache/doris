@@ -224,14 +224,19 @@ class FlightRecordAction implements SuiteAction {
     private Optional<Integer> getFePid(long startTime) {
         def fePidResult = exec(["jps"].execute()
                 .pipeTo(["grep", processName].execute())
-                .pipeTo(["awk", "{print \$1}"].execute()))
+                .pipeTo(["awk", "{print \$1}"].execute())
+                .pipeTo(["head", "-1"].execute()))
         if (fePidResult.exception != null || fePidResult.exitCode != 0) {
             Throwable e = new IllegalStateException("Can not get frontend pid: " + new String(fePidResult.stderr), fePidResult.exception)
             callbackError(startTime, e)
             return Optional.empty()
         }
 
-        int fePid = new String(fePidResult.stdout).toInteger()
+        def pidStr = new String(fePidResult.stdout)
+        if (pidStr.isEmpty()) {
+            throw new IllegalStateException("Can not found process: ${processName}")
+        }
+        int fePid = s.toInteger()
         log.info("fe pid: ${fePid}")
         return Optional.of(fePid)
     }
