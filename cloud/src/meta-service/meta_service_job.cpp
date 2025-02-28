@@ -62,7 +62,8 @@ bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
     if (!job_pb.has_schema_change() || !job_pb.schema_change().has_alter_version()) {
         return true;
     }
-    if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
+    if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE ||
+        compaction.type() == TabletCompactionJobPB::STOP_TOKEN) {
         return true;
     }
     if (compaction.input_versions_size() != 2 ||
@@ -201,8 +202,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
             });
             msg = fmt::format(
                     "compactions are not allowed on tablet_id={} currently, blocked by schema "
-                    "change job initiator={}",
-                    tablet_id, it->initiator());
+                    "change job delete_bitmap_initiator={}",
+                    tablet_id, it->delete_bitmap_lock_initiator());
             code = MetaServiceCode::JOB_TABLET_BUSY;
             return;
         }

@@ -33,6 +33,8 @@ public:
     Status do_register();
     Status do_unregister();
 
+    int64_t initiator() const;
+
 private:
     CloudStorageEngine& _engine;
     CloudTabletSPtr _tablet;
