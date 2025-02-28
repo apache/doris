@@ -45,6 +45,8 @@ class FlightRecordAction implements SuiteAction {
     private Closure callback
 
     private static File logPath
+    private String processName = "DorisFE"
+    private List<String> extraConfig = []
 
     static {
         ch.qos.logback.classic.Logger loggerOfSuite =
@@ -70,6 +72,14 @@ class FlightRecordAction implements SuiteAction {
 
     private void cleanUp(boolean cleanUp) {
         this.cleanUp = cleanUp
+    }
+
+    private void processName(String processName) {
+        this.processName = processName
+    }
+
+    private void extraConfig(List<String> extraConfig) {
+        this.extraConfig = extraConfig
     }
 
     void record(Closure record) {
@@ -193,7 +203,11 @@ class FlightRecordAction implements SuiteAction {
         String name = "flight_record_${startTime}".toString()
         String file = getRecordFile(name).absolutePath
         log.info("start record: ${file}")
-        def startResult = exec(["jcmd", "${pid}", "JFR.start", "name=${name}", "settings=profile", "filename=${file}"].execute())
+        List<String> commands = ["jcmd", "${pid}", "JFR.start", "name=${name}", "filename=${file}"]
+        if (extraConfig != null) {
+            commands.addAll(extraConfig)
+        }
+        def startResult = exec(commands.execute())
         if (startResult.exception != null || startResult.exitCode != 0) {
             Throwable e = new IllegalStateException("Can not start record flight: " + new String(startResult.stderr), startResult.exception)
             callbackError(startTime, e)
@@ -209,7 +223,7 @@ class FlightRecordAction implements SuiteAction {
 
     private Optional<Integer> getFePid(long startTime) {
         def fePidResult = exec(["jps"].execute()
-                .pipeTo(["grep", "DorisFE"].execute())
+                .pipeTo(["grep", processName].execute())
                 .pipeTo(["awk", "{print \$1}"].execute()))
         if (fePidResult.exception != null || fePidResult.exitCode != 0) {
             Throwable e = new IllegalStateException("Can not get frontend pid: " + new String(fePidResult.stderr), fePidResult.exception)
