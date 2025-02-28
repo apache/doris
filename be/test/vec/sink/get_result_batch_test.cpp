@@ -27,8 +27,8 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
-#include "vec/sink/vmysql_result_writer.h"
 #include "vec/sink/varrow_flight_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::vectorized {
 

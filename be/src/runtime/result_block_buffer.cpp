@@ -208,7 +208,8 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
                                 *result->get_by_position(i).column, 0, num_rows);
                     }
                 } else {
-                    std::vector<std::string>& back_rows = _result_batch_queue.back()->result_batch.rows;
+                    std::vector<std::string>& back_rows =
+                            _result_batch_queue.back()->result_batch.rows;
                     std::vector<std::string>& result_rows = result->result_batch.rows;
                     back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                                      std::make_move_iterator(result_rows.end()));
