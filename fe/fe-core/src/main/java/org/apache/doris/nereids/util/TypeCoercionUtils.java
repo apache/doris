@@ -1226,6 +1226,14 @@ public class TypeCoercionUtils {
                         .map(Expression::getDataType)
                         .collect(Collectors.toList()));
 
+        if (optionalCommonType.isPresent()) {
+            optionalCommonType = Optional.of(downgradeDecimalAndDateLikeType(
+                    optionalCommonType.get(),
+                    between.getCompareExpr(),
+                    between.getLowerBound(),
+                    between.getUpperBound()));
+        }
+
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = between.children().stream()
