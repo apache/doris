@@ -1220,6 +1220,33 @@ public class TypeCoercionUtils {
                 && between.getUpperBound().getDataType().equals(between.getCompareExpr().getDataType())) {
             return between;
         }
+
+        // process string literal
+        boolean hitString = false;
+        Expression newLowerBound = between.getLowerBound();
+        Expression newUpperBound = between.getUpperBound();
+        if (!(between.getCompareExpr().getDataType().isStringLikeType())) {
+            if (newLowerBound instanceof Literal && ((Literal) newLowerBound).isStringLikeLiteral()) {
+                Optional<Expression> boundOpt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                        ((Literal) newLowerBound).getStringValue(), between.getCompareExpr().getDataType());
+                if (boundOpt.isPresent()) {
+                    newLowerBound = boundOpt.get();
+                    hitString = true;
+                }
+            }
+            if (newUpperBound instanceof Literal && ((Literal) newUpperBound).isStringLikeLiteral()) {
+                Optional<Expression> boundOpt = TypeCoercionUtils.characterLiteralTypeCoercion(
+                        ((Literal) newUpperBound).getStringValue(), between.getCompareExpr().getDataType());
+                if (boundOpt.isPresent()) {
+                    newUpperBound = boundOpt.get();
+                    hitString = true;
+                }
+            }
+        }
+        if (hitString) {
+            between = new Between(between.getCompareExpr(), newLowerBound, newUpperBound);
+        }
+
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
                 between.children()
                         .stream()
@@ -1234,12 +1261,15 @@ public class TypeCoercionUtils {
                     between.getUpperBound()));
         }
 
+        // lambda need a final variable
+        final Between finalBetween = between;
+
         return optionalCommonType
                 .map(commonType -> {
-                    List<Expression> newChildren = between.children().stream()
+                    List<Expression> newChildren = finalBetween.children().stream()
                             .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
                             .collect(Collectors.toList());
-                    return between.withChildren(newChildren);
+                    return finalBetween.withChildren(newChildren);
                 })
                 .orElse(between);
     }
