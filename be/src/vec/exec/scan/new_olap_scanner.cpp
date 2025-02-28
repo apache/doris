@@ -411,7 +411,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    if (tablet_schema->field_index(BeConsts::GLOBAL_ROWID_COL) >= 0) {
+    if (tablet_schema->has_global_row_id()) {
         auto& id_file_map = _state->get_id_file_map();
         for (auto rs_reader : _tablet_reader_params.rs_splits) {
             id_file_map->add_temp_rowset(rs_reader.rs_reader->rowset());

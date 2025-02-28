@@ -634,6 +634,8 @@ Status MaterializationSharedState::init_multi_requests(
                                                              .request = multi_get_request,
                                                              .callback = nullptr});
     }
+    // add be_num ad count finish counter for source dependency
+    ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
 
     return Status::OK();
 }

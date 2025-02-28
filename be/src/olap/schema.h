@@ -69,7 +69,7 @@ public:
                 ++num_key_columns;
             }
             if (column.name() == BeConsts::ROWID_COL ||
-                column.name() == BeConsts::GLOBAL_ROWID_COL) {
+                column.name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
                 _rowid_col_idx = cid;
             }
             if (column.name() == VERSION_COL) {
@@ -96,7 +96,7 @@ public:
                 _delete_sign_idx = i;
             }
             if (columns[i]->name() == BeConsts::ROWID_COL ||
-                columns[i]->name() == BeConsts::GLOBAL_ROWID_COL) {
+                columns[i]->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
                 _rowid_col_idx = i;
             }
             if (columns[i]->name() == VERSION_COL) {

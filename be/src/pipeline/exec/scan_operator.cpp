@@ -106,7 +106,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     // init id_file_map() for runtime state
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
     for (auto slot : slots) {
-        if (slot->col_name() == BeConsts::GLOBAL_ROWID_COL) {
+        if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             state->set_id_file_map();
         }
     }
