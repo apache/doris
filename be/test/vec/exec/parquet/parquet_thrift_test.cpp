@@ -292,8 +292,8 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
-        if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        if (column_descs[i].type == TYPE_DECIMAL128I) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv3_type(27, 9).to_thrift());
         } else {
             TypeDescriptor descriptor(column_descs[i].type);
             if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
@@ -356,7 +356,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true},
-            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
+            {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATEV2, sizeof(uint32_t), true},

@@ -25,7 +25,6 @@ namespace doris::vectorized::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 
 #define FOR_LOGICAL_DECIMAL_TYPES(M) \
-    M(TYPE_DECIMALV2)                \
     M(TYPE_DECIMAL32)                \
     M(TYPE_DECIMAL64)                \
     M(TYPE_DECIMAL128I)              \
@@ -133,8 +132,8 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     if (is_decimal(remove_nullable(dst_logical_type))) {
-        // using destination decimal type, avoid type and scale change
-        src_logical_type = remove_nullable(dst_logical_type)->get_type_as_type_descriptor();
+        src_logical_type = create_decimal(parquet_schema.precision, parquet_schema.scale, false)
+                                   ->get_type_as_type_descriptor();
     }
 
     tparquet::Type::type src_physical_type = parquet_schema.type;
@@ -298,8 +297,8 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
 
     if (physical_converter->support()) {
         physical_converter->_convert_params = std::move(convert_params);
-        physical_converter->_logical_converter =
-                converter::ColumnTypeConverter::get_converter(src_logical_type, dst_logical_type);
+        physical_converter->_logical_converter = converter::ColumnTypeConverter::get_converter(
+                src_logical_type, dst_logical_type, converter::FileFormat::PARQUET);
         if (!physical_converter->_logical_converter->support()) {
             physical_converter.reset(new UnsupportedConverter(
                     "Unsupported type change: " +
