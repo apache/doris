@@ -151,7 +151,7 @@ public class Profile {
         try {
             profileMetaFileInputStream = new FileInputStream(path);
         } catch (Exception e) {
-            LOG.warn("open profile file {} failed", path, e);
+            LOG.warn("Open profile file {} failed", path, e);
         }
 
         return profileMetaFileInputStream;
@@ -160,6 +160,7 @@ public class Profile {
     // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
     public static String[] parseProfileFileName(String profileFileName) {
         if (!profileFileName.endsWith(".zip")) {
+            LOG.warn("Invalid profile name {}", profileFileName);
             return null;
         } else {
             profileFileName = profileFileName.substring(0, profileFileName.length() - 4);
@@ -218,8 +219,6 @@ public class Profile {
 
             String[] parts = path.split(File.separator);
             String filename = parts[parts.length - 1];
-            // Remove .zip extension
-            filename = filename.substring(0, filename.length() - 4);
             String queryFinishTimeStr = parseProfileFileName(filename)[0];
             res.queryFinishTimestamp = Long.valueOf(queryFinishTimeStr);
 
