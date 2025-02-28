@@ -55,6 +55,7 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -293,9 +294,9 @@ public abstract class ConnectProcessor {
         if (stmts == null) {
             try {
                 stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-            } catch (NotSupportedException e) {
+            } catch (NotSupportedException | SyntaxParseException e) {
                 // Parse sql failed, audit it and return
-                handleQueryException(e, convertedStmt, null, null);
+                handleQueryException(e, originStmt, null, null);
                 return;
             } catch (Exception e) {
                 if (LOG.isDebugEnabled()) {
@@ -454,28 +455,28 @@ public abstract class ConnectProcessor {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
-        if (throwable instanceof ConnectionException) {
+        if (throwable instanceof SyntaxParseException) {
+            // Syntax parse exception.
+            Throwable e = new AnalysisException(throwable.getMessage(), throwable);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+            ctx.getState().setErrType(QueryState.ErrType.SYNTAX_PARSE_ERR);
+        } else if (throwable instanceof ConnectionException) {
             // Throw this exception to close the connection outside.
-            LOG.warn("Process one query failed because ConnectionException: ", throwable);
             throw (ConnectionException) throwable;
         } else if (throwable instanceof IOException) {
             // Client failed.
-            LOG.warn("Process one query failed because IOException: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
         } else if (throwable instanceof UserException) {
-            LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else if (throwable instanceof NotSupportedException) {
-            LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else {
             // Catch all throwable.
             // If reach here, maybe palo bug.
-            LOG.warn("Process one query failed because unknown reason: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
             if (parsedStmt instanceof KillStmt) {
@@ -483,6 +484,7 @@ public abstract class ConnectProcessor {
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
+        LOG.warn("Process one query failed because.", throwable);
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
