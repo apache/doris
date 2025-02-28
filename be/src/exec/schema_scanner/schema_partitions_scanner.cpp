@@ -96,6 +96,7 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     }
     _block_rows_limit = state->batch_size();
     _rpc_timeout_ms = state->execution_timeout() * 1000;
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -110,6 +111,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
+    schema_table_request_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::PARTITIONS);
