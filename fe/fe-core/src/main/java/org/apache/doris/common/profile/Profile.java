@@ -584,7 +584,7 @@ public class Profile {
             }
         }
     }
-    
+
     // remove profile from storage
     public void deleteFromStorage() {
         if (!profileHasBeenStored()) {
