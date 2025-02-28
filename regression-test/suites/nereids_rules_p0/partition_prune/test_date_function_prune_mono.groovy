@@ -124,9 +124,9 @@ suite("test_date_prune_mono") {
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
             // forbid rewrite not a>1 to a<=1
-            sql "set disable_nereids_rules = 'REWRITE_FILTER_EXPRESSION'"
+            sql "set disable_nereids_expression_rules = 'SIMPLIFY_NOT_EXPR'"
         } else {
-            sql "set disable_nereids_rules = ''"
+            sql "set disable_nereids_expression_rules = ''"
         }
         explain {
             sql """select * from mal_test_partition_range5_date_mono where not date(b)<="2020-01-14" """

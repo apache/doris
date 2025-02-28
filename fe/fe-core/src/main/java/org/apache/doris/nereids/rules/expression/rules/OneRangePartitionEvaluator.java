@@ -30,7 +30,6 @@ import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluato
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator.EvaluateRangeResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionRangeExpander.PartitionSlotType;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -375,15 +374,6 @@ public class OneRangePartitionEvaluator<K>
         }
         result = result.withRejectNot(false);
         return result;
-    }
-
-    @Override
-    public EvaluateRangeResult visitBetween(Between between, EvaluateRangeInput context) {
-        return visitAnd(
-                new And(
-                        new GreaterThanEqual(between.getCompareExpr(), between.getLowerBound()),
-                        new LessThanEqual(between.getCompareExpr(), between.getUpperBound())),
-                context);
     }
 
     @Override
