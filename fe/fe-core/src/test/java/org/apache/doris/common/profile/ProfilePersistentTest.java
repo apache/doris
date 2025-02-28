@@ -321,7 +321,7 @@ public class ProfilePersistentTest {
 
             // Test with invalid path
             Assert.assertNull(Profile.createPorfileFileInputStream("/invalid/path"));
-            
+
             // Test with directory
             Assert.assertNull(Profile.createPorfileFileInputStream(tempDir.toString()));
 
@@ -332,7 +332,7 @@ public class ProfilePersistentTest {
         }
     }
 
-    @Test 
+    @Test
     public void testGetOnStorageProfile() throws IOException {
         final int executionProfileNum = 2;
         Profile profile = constructRandomProfile(executionProfileNum);
@@ -440,7 +440,6 @@ public class ProfilePersistentTest {
         try {
             // Write profile first
             profile.writeToStorage(tempDir.toString());
-            String path = profile.getProfileStoragePath();
 
             // Test with empty file
             File emptyFile = new File(tempDir.toString(), "empty_1234567_abcdef.zip");
@@ -474,7 +473,6 @@ public class ProfilePersistentTest {
             // First get profile content before storage
             StringBuilder beforeStorage = new StringBuilder();
             profile.getExecutionProfileContent(beforeStorage);
-            String originalContent = beforeStorage.toString();
 
             // Write to storage
             profile.writeToStorage(tempDir.toString());
