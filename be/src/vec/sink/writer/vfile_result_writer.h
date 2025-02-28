@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <iosfwd>
 #include <memory>
 #include <string>
@@ -99,6 +100,7 @@ private:
     Status _fill_result_block();
     // delete the dir of file_path
     Status _delete_dir();
+    double _get_write_speed(int64_t write_bytes, int64_t write_time);
 
     RuntimeState* _state; // not owned, set when init
     const pipeline::ResultFileOptions* _file_opts = nullptr;
