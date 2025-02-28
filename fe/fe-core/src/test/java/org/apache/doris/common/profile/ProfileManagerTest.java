@@ -631,7 +631,7 @@ class ProfileManagerTest {
                 profileManager.pushProfile(profile);
 
                 // Create profile file
-                File profileFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
+                File profileFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId + ".zip");
                 profileFile.createNewFile();
             }
 
@@ -679,7 +679,7 @@ class ProfileManagerTest {
                 Profile profile = constructProfile(profileId);
                 profileManager.pushProfile(profile);
 
-                File normalFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId);
+                File normalFile = new File(tempDir, System.currentTimeMillis() + "_" + profileId + ".zip");
                 normalFile.createNewFile();
                 normalFiles.add(normalFile);
             }
