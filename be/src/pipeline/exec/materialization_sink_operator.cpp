@@ -98,8 +98,8 @@ Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state
     return Status::OK();
 }
 
-Status MaterializationSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status MaterializationSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_rowid_exprs, state));
     return Status::OK();
