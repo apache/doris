@@ -2773,7 +2773,7 @@ public class Env {
     public void createReplayer() {
         replayer = new Daemon("replayer", REPLAY_INTERVAL_MS) {
             // Avoid numerous 'meta out of date' log
-            private long lastLogMetaOutOfDateTime = 0;
+            private long lastLogMetaOutOfDateTime = System.currentTimeMillis();
 
             @Override
             protected void runOneCycle() {
