@@ -19,6 +19,9 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite("test_non_catalog_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        return
+    }
     def String hms_catalog_name = "hms_catalog_kerberos_test_export"
     def String test_tbl_name="hms_test_table"
     def keytab_root_dir = "/keytabs"
