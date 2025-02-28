@@ -145,4 +145,99 @@ suite("regression_test_variant_insert_into_select", "variant_type"){
         sql """insert into ${table_name}_var select k+35, b_s from ${table_name}_complex"""
         sql """insert into ${table_name}_var select k+42, c_s from ${table_name}_complex"""
         qt_sql """select * from ${table_name}_var order by k"""
+
+    def load_json_data = {tn, file_name ->
+        // load the json data
+        streamLoad {
+            table """$tn"""
+
+            // set http request header params
+            set 'read_json_by_line', 'true'
+            set 'jsonpaths', '[\"$.v.id\", \"$.v.type\", \"$.v.actor\", \"$.v.repo\", \"$.v.payload\", \"$.v.public\", \"$.v.created_at\"]'
+            set 'format', 'json'
+            set 'max_filter_ratio', '0.1'
+            file file_name // import json file
+            time 10000 // limit inflight 10s
+
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                logger.info("Stream load ${file_name} result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+        }
+    }
+
+        def table_name_j = "github_events_j"
+        sql """DROP TABLE IF EXISTS ${table_name_j}"""
+        sql """
+            CREATE TABLE `${table_name_j}` (
+              `id` BIGINT NOT NULL,
+              `type` VARCHAR(30) NULL,
+              `actor` JSON NULL,
+              `repo` JSON NULL,
+              `payload` JSON NULL,
+              `public` BOOLEAN NULL,
+              `created_at` DATETIME NULL,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );  
+        """
+        load_json_data.call(table_name_j, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
+        load_json_data.call(table_name_j, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
+
+        // use github-events
+       qt_sql_count_json """ select count() from ${table_name_j}"""
+       qt_sql_json """ select * from ${table_name_j} order by id limit 100"""
+       // test event json to variant
+       sql """insert into ${table_name}_var select id, actor from github_events_j order by id"""
+       qt_sql_count """ select count() from ${table_name}_var"""
+       qt_sql """ select * from ${table_name}_var order by k limit 100"""
+
+        // truncate table first to avoid k is same
+        sql """truncate table ${table_name}_complex"""
+        sql """truncate table ${table_name}_var"""
+       // use github_events to insert into complex table
+        sql """insert into ${table_name}_complex (k, a, b, c, d) select
+                                                                   JSONB_EXTRACT(actor, '\$.id') AS k,
+                                                                   JSON_ARRAY(
+                                                                     JSON_UNQUOTE(
+                                                                       JSON_EXTRACT(actor, '\$.login')
+                                                                     )
+                                                                   ) as a,
+                                                                   map(
+                                                                     JSONB_EXTRACT(repo, '\$.id'),
+                                                                     JSON_UNQUOTE(JSONB_EXTRACT(repo, '\$.name'))
+                                                                     ) as b,
+                                                                    named_struct('a', JSONB_EXTRACT(actor, '\$.id'),
+                                                                                 'b', JSON_UNQUOTE(JSON_EXTRACT(actor, '\$.login')),
+                                                                                 'c', '192.168.0.1',
+                                                                                 'd', 100.50
+                                                                     ) as c,
+                                                                     payload as d
+                                                                 from
+                                                                   ${table_name_j}
+                                                                 order by id """
+        qt_sql_count """ select count() from ${table_name}_complex;"""
+        qt_sql_check """ select * from ${table_name}_complex order by k limit 100"""
+
+        // then insert into select from ${table_name}_complex to ${table_name}_var with key increment by 1
+        sql """insert into ${table_name}_var select k, a from ${table_name}_complex"""
+        sql """insert into ${table_name}_var select k+7, b from ${table_name}_complex"""
+        sql """insert into ${table_name}_var select k+14, c from ${table_name}_complex"""
+        sql """insert into ${table_name}_var select k+21, d from ${table_name}_complex"""
+        qt_sql_count """ select count() from ${table_name}_var;"""
+        // to much data, only check the first 100 rows
+        qt_sql_variant """select * from ${table_name}_var order by k limit 100"""
+
 }
