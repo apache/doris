@@ -130,7 +130,12 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             if (!outerJoinNullableSideSlots.isEmpty()) {
                 Set<Slot> newOuterJoinNullableSideSlots = Sets.newHashSet();
                 for (Slot slot : outerJoinNullableSideSlots) {
-                    newOuterJoinNullableSideSlots.add((Slot) ExpressionUtils.replace(slot, replaceMap));
+                    Expression expr = ExpressionUtils.replace(slot, replaceMap);
+                    if (expr instanceof Slot) {
+                        newOuterJoinNullableSideSlots.add((Slot) expr);
+                    } else {
+                        newOuterJoinNullableSideSlots.add(slot);
+                    }
                 }
                 outerJoinNullableSideSlots = newOuterJoinNullableSideSlots;
             }
@@ -187,6 +192,10 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> logicalJoin,
             Stack<PreAggValidateContext> context) {
+        if (logicalJoin.getJoinType().isOuterJoin()) {
+            // TODO how to handle outer join?
+            context.clear();
+        }
         int size = context.size();
         if (size != 0) {
             context.peek().addJoinInfo(logicalJoin);

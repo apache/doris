@@ -200,7 +200,8 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can not turn on pre agg for outer join"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
     }
 
     explain {
@@ -218,7 +219,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can not turn on pre agg for outer join"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can not turn on pre agg for outer join"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
     }
 }
