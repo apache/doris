@@ -43,6 +43,20 @@ TEST(MathFunctionTest, acos_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, acosh_test) {
+    std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
+
+    InputTypeSet input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{1.0}, 0.0},
+                        {{2.0}, 1.3169578969248168},
+                        {{3.0}, 1.7627471740390861},
+                        {{10.0}, 2.9932228461263808},
+                        {{100.0}, 5.2982923656104850}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, asin_test) {
     std::string func_name = "asin"; //[-1,1] -->[-pi_2, pi_2]
 
@@ -50,6 +64,20 @@ TEST(MathFunctionTest, asin_test) {
 
     DataSet data_set = {
             {{-1.0}, -M_PI / 2}, {{0.0}, 0.0}, {{0.5}, 0.52359877559829893}, {{1.0}, M_PI / 2}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, asinh_test) {
+    std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
+
+    InputTypeSet input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{1.0}, 0.8813735870195430},
+                        {{-1.0}, -0.8813735870195430},
+                        {{2.0}, 1.4436354751788103},
+                        {{-2.0}, -1.4436354751788103}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
@@ -63,6 +91,20 @@ TEST(MathFunctionTest, atan_test) {
                         {{0.0}, 0.0},
                         {{0.5}, 0.46364760900080609},
                         {{1.0}, 0.78539816339744828}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, atanh_test) {
+    std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
+
+    InputTypeSet input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{0.5}, 0.5493061443340549},
+                        {{-0.5}, -0.5493061443340549},
+                        {{0.9}, 1.4722194895832204},
+                        {{-0.9}, -1.4722194895832204}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
@@ -91,6 +133,20 @@ TEST(MathFunctionTest, sin_test) {
                         {{0.5}, 0.479425538604203},
                         {{M_PI / 2}, 1.0},
                         {{1.0}, 0.8414709848078965}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, sinh_test) {
+    std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
+
+    InputTypeSet input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{1.0}, 1.1752011936438014},
+                        {{-1.0}, -1.1752011936438014},
+                        {{2.0}, 3.6268604078470186},
+                        {{-2.0}, -3.6268604078470186}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
