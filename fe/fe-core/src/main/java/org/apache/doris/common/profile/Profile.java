@@ -40,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -51,6 +52,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.Deflater;
+import java.util.zip.Inflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -159,9 +162,12 @@ public class Profile {
 
     // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
     public static String[] parseProfileFileName(String profileFileName) {
-        if (profileFileName.endsWith(".zip")) {
+        if (!profileFileName.endsWith(".zip")) {
+            return null;
+        } else {
             profileFileName = profileFileName.substring(0, profileFileName.length() - 4);
         }
+
         String [] timeAndID = profileFileName.split(SEPERATOR);
         if (timeAndID.length != 2) {
             return null;
@@ -200,7 +206,7 @@ public class Profile {
             byte[] buffer = new byte[1024];
             int readBytes;
             while ((readBytes = zipIn.read(buffer)) != -1) {
-                entryContent.write(buffer, 0, readBytes);
+                entryContent.write(buffer, 0, readBytes); 
             }
 
             // Parse profile data using memory stream
@@ -512,7 +518,7 @@ public class Profile {
             throw t;
         }
     }
-
+    
     public void writeToStorage(String systemProfileStorageDir) {
         if (Strings.isNullOrEmpty(getId())) {
             LOG.warn("store profile failed, name is empty");
@@ -540,14 +546,14 @@ public class Profile {
         try {
             fileOutputStream = new FileOutputStream(profileFilePath);
             zipOut = new ZipOutputStream(fileOutputStream);
-
+            
             // First create memory stream to hold all data
             ByteArrayOutputStream memoryStream = new ByteArrayOutputStream();
             DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
 
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
-
+            
             StringBuilder builder = new StringBuilder();
             getChangedSessionVars(builder);
             getExecutionProfileContent(builder);
@@ -571,7 +577,7 @@ public class Profile {
         } finally {
             try {
                 if (zipOut != null) {
-                    zipOut.close();
+                    zipOut.close(); 
                 }
                 if (fileOutputStream != null) {
                     fileOutputStream.close();
@@ -581,7 +587,6 @@ public class Profile {
             }
         }
     }
-
     // remove profile from storage
     public void deleteFromStorage() {
         if (!profileHasBeenStored()) {
@@ -689,7 +694,7 @@ public class Profile {
             if (entry == null || !entry.getName().equals(expectedEntryName)) {
                 throw new IOException("Invalid zip file format - missing entry: " + expectedEntryName);
             }
-
+            
             // Read zip entry content into memory
             ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
             byte[] buffer = new byte[1024 * 1024];
@@ -700,17 +705,17 @@ public class Profile {
 
             // Parse profile data using memory stream
             DataInputStream memoryDataInput = new DataInputStream(
-                    new ByteArrayInputStream(entryContent.toByteArray()));
-
+                new ByteArrayInputStream(entryContent.toByteArray()));
+            
             // Skip summary profile data
             Text.readString(memoryDataInput);
-
+            
             // Read execution profile length and content
             int executionProfileLength = memoryDataInput.readInt();
             byte[] executionProfileBytes = new byte[executionProfileLength];
             memoryDataInput.readFully(executionProfileBytes);
-
-            // Append execution profile content
+            
+            // Append execution profile content 
             builder.append(new String(executionProfileBytes, StandardCharsets.UTF_8));
         } catch (Exception e) {
             LOG.error("Failed to read profile from storage: {}", profileStoragePath, e);
