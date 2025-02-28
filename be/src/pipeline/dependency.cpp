@@ -499,7 +499,6 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
         }
     }
 
-    block->clear();
     for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
         if (i != rowid_to_block_loc) {
             block->insert(origin_block.get_by_position(i));
@@ -547,7 +546,7 @@ Dependency* MaterializationSharedState::create_source_dependency(int operator_id
 
 Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
                                                           bool eos, bool gc_id_map) {
-    const auto rows = columns[0]->size();
+    const auto rows = columns.empty() ? 0 : columns[0]->size();
     block_order_results.resize(columns.size());
 
     for (int i = 0; i < columns.size(); ++i) {
@@ -587,6 +586,7 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
         }
     }
     last_block = eos;
+    need_merge_block = rows > 0;
 
     return Status::OK();
 }

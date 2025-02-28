@@ -897,6 +897,8 @@ public:
     bool rpc_struct_inited = false;
     Status rpc_status = Status::OK();
     bool last_block = false;
+    // empty materialization sink block not need to merge block
+    bool need_merge_block = true;
     vectorized::Block origin_block;
     // The rowid column of the origin block. should be replaced by the column of the result block.
     std::vector<int> rowid_locs;

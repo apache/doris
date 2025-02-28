@@ -188,14 +188,14 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     // 1. Setup origin block with multiple nullable rowid columns
-    auto nullable_rowid_col1 = vectorized::ColumnNullable::create(_string_type->create_column(),
-                                                                 vectorized::ColumnUInt8::create());
+    auto nullable_rowid_col1 = vectorized::ColumnNullable::create(
+            _string_type->create_column(), vectorized::ColumnUInt8::create());
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
     nullable_rowid_col1->insert_data(nullptr, 4);
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
 
-    auto nullable_rowid_col2 = vectorized::ColumnNullable::create(_string_type->create_column(),
-                                                                 vectorized::ColumnUInt8::create());
+    auto nullable_rowid_col2 = vectorized::ColumnNullable::create(
+            _string_type->create_column(), vectorized::ColumnUInt8::create());
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data(nullptr, 4);
@@ -236,7 +236,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                     CompressionTypePB::LZ4);
+                                       CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id1].callback = callback1;
@@ -257,7 +257,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                     CompressionTypePB::LZ4);
+                                       CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id2].callback = callback2;
@@ -273,12 +273,12 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block1.insert({std::move(resp_value_col1), _int_type, "value2"});
 
         auto serialized_block = _shared_state->rpc_struct_map[_backend_id1]
-                                       .callback->response_->add_blocks()
-                                       ->mutable_block();
+                                        .callback->response_->add_blocks()
+                                        ->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                     CompressionTypePB::LZ4);
+                                       CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
     }
 
@@ -292,12 +292,12 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block2.insert({std::move(resp_value_col2), _int_type, "value2"});
 
         auto serialized_block = _shared_state->rpc_struct_map[_backend_id2]
-                                       .callback->response_->add_blocks()
-                                       ->mutable_block();
+                                        .callback->response_->add_blocks()
+                                        ->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
-                                     CompressionTypePB::LZ4);
+                                       CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
     }
 

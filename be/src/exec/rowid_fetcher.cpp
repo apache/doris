@@ -602,8 +602,9 @@ Status RowIdStorageReader::read_doris_format_row(
                 row_id);
     }
 
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-            [&]() { return id_file_map->get_temp_rowset(rowset_id); }, acquire_rowsets_ms));
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
+            scope_timer_run([&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
+                            acquire_rowsets_ms));
     if (!rowset) {
         return Status::InternalError(
                 "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "

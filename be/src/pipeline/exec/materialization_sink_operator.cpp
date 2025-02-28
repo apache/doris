@@ -112,15 +112,17 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         }
         // execute the rowid exprs
         vectorized::Columns columns;
-        local_state._shared_state->rowid_locs.resize(_rowid_exprs.size());
-        for (int i = 0; i < _rowid_exprs.size(); ++i) {
-            auto& rowid_expr = _rowid_exprs[i];
-            RETURN_IF_ERROR(
-                    rowid_expr->execute(in_block, &local_state._shared_state->rowid_locs[i]));
-            columns.emplace_back(
-                    in_block->get_by_position(local_state._shared_state->rowid_locs[i]).column);
+        if (in_block->rows() != 0) {
+            local_state._shared_state->rowid_locs.resize(_rowid_exprs.size());
+            for (int i = 0; i < _rowid_exprs.size(); ++i) {
+                auto& rowid_expr = _rowid_exprs[i];
+                RETURN_IF_ERROR(
+                        rowid_expr->execute(in_block, &local_state._shared_state->rowid_locs[i]));
+                columns.emplace_back(
+                        in_block->get_by_position(local_state._shared_state->rowid_locs[i]).column);
+            }
+            local_state._shared_state->origin_block.swap(*in_block);
         }
-        local_state._shared_state->origin_block.swap(*in_block);
         RETURN_IF_ERROR(
                 local_state._shared_state->create_muiltget_result(columns, eos, _gc_id_map));
 
