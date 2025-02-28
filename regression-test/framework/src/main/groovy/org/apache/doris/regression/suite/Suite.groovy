@@ -35,6 +35,7 @@ import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
+import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -745,6 +746,10 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void flightRecord(Closure actionSupplier) {
+        runAction(new FlightRecordAction(context), actionSupplier)
     }
 
     void profile(String tag, Closure<String> actionSupplier) {
