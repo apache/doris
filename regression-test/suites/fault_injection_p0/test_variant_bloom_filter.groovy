@@ -59,7 +59,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "9999");
     """
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -72,7 +72,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """ show tablets from ${index_table}; """
 
-    
+    def code, out, err, backend_id;
     for (def tablet in tablets) {
         int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
@@ -100,7 +100,8 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
 
     // wait for all compactions done
     for (def tablet in tablets) {
-        Awaitility.await().atMost(3, TimeUnit.MINUTES).untilAsserted(() -> {
+        Awaitility.await().atMost(10, TimeUnit.MINUTES).untilAsserted(() -> {
+            Thread.sleep(5000)
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
             (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)

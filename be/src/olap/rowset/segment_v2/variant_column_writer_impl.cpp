@@ -231,7 +231,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         CHECK(entry->data.is_finalized());
         int current_column_id = column_id++;
         TabletColumn tablet_column = generate_column_info(entry);
-        RETURN_IF_ERROR(_create_column_writer(current_column_id, tablet_column, *_tablet_column,
+        vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
+        RETURN_IF_ERROR(_create_column_writer(current_column_id, tablet_column,
                                               _opts.rowset_ctx->tablet_schema));
         converter->add_column_data_convertor(tablet_column);
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -510,7 +511,6 @@ void VariantColumnWriterImpl::_init_column_meta(ColumnMetaPB* meta, uint32_t col
 };
 
 Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const TabletColumn& column,
-                                                      const TabletColumn& parent_column,
                                                       const TabletSchemaSPtr& tablet_schema) {
     ColumnWriterOptions opts;
     opts.meta = _opts.footer->add_columns();
@@ -518,7 +518,8 @@ Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const Tablet
     _init_column_meta(opts.meta, cid, column);
 
     opts.need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
-    opts.need_bloom_filter = parent_column.is_bf_column();
+    opts.need_bloom_filter = column.is_bf_column();
+
     // const auto* tablet_index = tablet_schema->get_ngram_bf_index(parent_column.unique_id());
     // if (tablet_index) {
     //     opts.need_bloom_filter = true;
@@ -538,8 +539,8 @@ Status VariantColumnWriterImpl::_create_column_writer(uint32_t cid, const Tablet
     //     opts.gram_bf_size = gram_bf_size;
     // }
 
-    opts.need_bitmap_index = parent_column.has_bitmap_index();
-    const auto& index = tablet_schema->inverted_index(parent_column.unique_id());
+    opts.need_bitmap_index = column.has_bitmap_index();
+    const auto& index = tablet_schema->inverted_index(column.parent_unique_id());
     if (index != nullptr &&
         segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         auto subcolumn_index = std::make_unique<TabletIndex>(*index);
