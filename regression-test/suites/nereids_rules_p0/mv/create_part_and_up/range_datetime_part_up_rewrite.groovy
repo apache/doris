@@ -112,11 +112,12 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-29 00:00:00'),
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-29 02:00:00'); 
     """
-    sql """alter table lineitem_range_datetime_union modify column l_shipdate set stats 
+
+    sql """alter table lineitem_range_datetime_union modify column l_shipdate set stats
             ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='56.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
-    sql """alter table lineitem_range_datetime_union modify column l_orderkey set stats 
+    sql """alter table lineitem_range_datetime_union modify column l_orderkey set stats
             ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
-    sql """alter table orders_range_datetime_union modify column o_orderkey set stats 
+    sql """alter table orders_range_datetime_union modify column o_orderkey set stats
             ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
 
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""

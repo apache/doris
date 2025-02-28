@@ -113,13 +113,8 @@ suite("mtmv_range_date_part_up_rewrite") {
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-31'); 
     """
 
-    sql """alter table lineitem_range_datetime_union modify column l_shipdate set stats 
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='56.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
-    sql """alter table lineitem_range_datetime_union modify column l_orderkey set stats 
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
-    sql """alter table orders_range_datetime_union modify column o_orderkey set stats 
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
-
+    sql """alter table lineitem_range_date_union modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table orders_range_date_union modify column o_comment set stats ('row_count'='10');"""
 
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv1 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
