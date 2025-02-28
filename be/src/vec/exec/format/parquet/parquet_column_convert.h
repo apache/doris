@@ -154,7 +154,7 @@ struct ConvertParams {
  *
  * Ultimate performance optimization:
  * 1. If process of (First => Second) is consistent, eg. from BYTE_ARRAY to string, no additional copies and conversions will be introduced;
- * 2. If process of (Second => Third) is consistent, eg. from decimal(12, 4) to decimal(8, 2), no additional copies and conversions will be introduced;
+ * 2. If process of (Second => Third) is consistent, no additional copies and conversions will be introduced;
  * 3. Null map is share among all processes, no additional copies and conversions will be introduced in null map;
  * 4. Only create one physical column in physical conversion, and reused in each loop;
  * 5. Only create one logical column in logical conversion, and reused in each loop;
