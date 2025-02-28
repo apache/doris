@@ -198,8 +198,26 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 });
     }
     case TFileType::FILE_BROKER: {
+        int32_t index = -1;
+        // firstly find local broker
+        const auto local_host = BackendOptions::get_localhost();
+        for (int32_t i = 0; i < system_properties.broker_addresses.size(); ++i) {
+            if (system_properties.broker_addresses[i].hostname == local_host) {
+                index = i;
+                break;
+            }
+        }
+        // secondly select broker by hash of file path
+        if (index < 0) {
+            auto key =
+                    HashUtil::hash(file_description.path.data(), file_description.path.size(), 0);
+            index = key % system_properties.broker_addresses.size();
+        }
+        LOG_INFO("select broker: {} for file {}, local host: {}",
+                 system_properties.broker_addresses[index].hostname, file_description.path,
+                 local_host);
         // TODO(plat1ko): Create `FileReader` without FS
-        return io::BrokerFileSystem::create(system_properties.broker_addresses[0],
+        return io::BrokerFileSystem::create(system_properties.broker_addresses[index],
                                             system_properties.properties, io::FileSystem::TMP_FS_ID)
                 .and_then([&](auto&& fs) -> Result<io::FileReaderSPtr> {
                     io::FileReaderSPtr file_reader;
