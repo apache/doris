@@ -906,7 +906,7 @@ public class SystemInfoService {
         }
     }
 
-    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
         Backend be = getBackendWithHeartbeatPort(srcHost, srcPort);
         if (be == null) {
             throw new DdlException("backend does not exists[" + NetUtils
