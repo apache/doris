@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+suite ("query_in_different_db") {
 
-suite ("sum_devide_count") {
-    sql """set enable_nereids_planner=true;"""
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql """ DROP TABLE IF EXISTS d_table; """
-
     sql """
             create table d_table(
                 k1 int null,
@@ -42,40 +41,29 @@ suite ("sum_devide_count") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table select 3,-3,null,'c';"
-
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
-
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"
-    sql "insert into d_table select 3,2,null,'c';"
-    sql "insert into d_table select 3,2,null,'c';"
-    sql "insert into d_table select 3,2,null,'c';"
-    qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
-    sql """analyze table d_table with sync;"""
-    sql """alter table d_table modify column k3 set stats ('row_count'='15');"""
-    sql """set enable_stats=false;"""
+    create_sync_mv(db, "d_table", "mv_in_${db}", """
+    select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1
+    """)
 
+    sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='12');"""
+    // use another db, mv rewrite should be correct
+    sql """drop database IF EXISTS test_query_in_different_db"""
 
-    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
-    qt_select_mv "select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;"
+    sql """
+    create database test_query_in_different_db; 
+    """
+    sql """
+    use test_query_in_different_db; 
+    """
 
-    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
-    qt_select_mv "select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;"
+    // query with index should success
+    order_qt_select_with_index "select * from ${db}.d_table index mv_in_${db}"
 
-    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
-    qt_select_mv "select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;"
-
-    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
-    qt_select_mv "select sum(k2)/count(k2) from d_table;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
-
-    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
-
-    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
-
-    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
+    mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from ${db}.d_table group by abs(k1)+k2+1", "mv_in_${db}")
+    order_qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from ${db}.d_table group by abs(k1)+k2+1;"
 }
