@@ -734,6 +734,9 @@ public class ProfileManager extends MasterDaemon {
 
             try {
                 String timeStampAndId = profileDirAbsPath.substring(separatorIdx + 1);
+                if (timeStampAndId.endsWith(".zip")) {
+                    timeStampAndId = timeStampAndId.substring(0, timeStampAndId.length() - 4);
+                }
                 String[] parsed = Profile.parseProfileFileName(timeStampAndId);
                 if (parsed == null) {
                     LOG.warn("Invalid profile directory path: {}", profileDirAbsPath);
