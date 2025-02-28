@@ -1514,6 +1514,10 @@ DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 DECLARE_mInt32(schema_dict_cache_capacity);
 
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
