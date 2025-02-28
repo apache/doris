@@ -33,6 +33,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -60,11 +63,12 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, c1);
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };
@@ -88,7 +92,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1);
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -117,12 +121,13 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, c1);
-        root.getstructInfoMap().refresh(root, c1);
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };
@@ -145,8 +150,8 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1);
-        root.getstructInfoMap().refresh(root, c1);
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
         dropMvByNereids("drop materialized view mv1");
@@ -170,7 +175,8 @@ class StructInfoMapTest extends SqlTestBase {
         );
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };
@@ -192,7 +198,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .rewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1);
+        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         StructInfoMap structInfoMap = root.getstructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
         BitSet mvMap = structInfoMap.getTableMaps().stream()
