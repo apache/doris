@@ -27,6 +27,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "util/brpc_client_cache.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -499,8 +500,8 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     }
 
     block->clear();
-    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); ++i) {
-        if (i < rowid_to_block_loc) {
+    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
+        if (i != rowid_to_block_loc) {
             block->insert(origin_block.get_by_position(i));
         } else {
             auto& column = origin_block.get_by_position(i).column;
@@ -586,6 +587,53 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
         }
     }
     last_block = eos;
+
+    return Status::OK();
+}
+
+Status MaterializationSharedState::init_multi_requests(
+        const TMaterializationNode& materialization_node, RuntimeState* state) {
+    PMultiGetRequestV2 multi_get_request;
+    // Initialize the base struct of PMultiGetRequestV2
+    multi_get_request.set_be_exec_version(state->be_exec_version());
+    auto query_id = multi_get_request.mutable_query_id();
+    query_id->set_hi(state->query_id().hi);
+    query_id->set_lo(state->query_id().lo);
+    DCHECK_EQ(materialization_node.column_descs_lists.size(),
+              materialization_node.slot_locs_lists.size());
+
+    const auto& slots = state->desc_tbl()
+                                .get_tuple_descriptor(materialization_node.intermediate_tuple_id)
+                                ->slots();
+    for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
+        auto request_block_desc = multi_get_request.add_request_block_descs();
+        request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
+        // Initialize the column_descs and slot_locs
+        auto& column_descs = materialization_node.column_descs_lists[i];
+        for (auto& column_desc_item : column_descs) {
+            TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
+        }
+
+        auto& slot_locs = materialization_node.slot_locs_lists[i];
+        for (auto& slot_loc_item : slot_locs) {
+            slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
+        }
+    }
+
+    // Initialize the stubs and requests for each BE
+    for (const auto& node_info : materialization_node.nodes_info.nodes) {
+        auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                node_info.host, node_info.async_internal_port);
+        if (!client) {
+            LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
+                         << ", port=" << node_info.async_internal_port;
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.async_internal_port);
+        }
+        rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
+                                                             .request = multi_get_request,
+                                                             .callback = nullptr});
+    }
 
     return Status::OK();
 }

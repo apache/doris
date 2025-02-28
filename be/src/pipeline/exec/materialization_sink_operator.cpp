@@ -48,56 +48,6 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
     return Status::OK();
 }
 
-Status MaterializationSinkOperatorX::_init_multi_get_request(RuntimeState* state,
-                                                             LocalState& local_state) {
-    PMultiGetRequestV2 multi_get_request;
-    // init the base struct of PMultiGetRequestV2
-    multi_get_request.set_be_exec_version(state->be_exec_version());
-    auto query_id = multi_get_request.mutable_query_id();
-    query_id->set_hi(state->query_id().hi);
-    query_id->set_lo(state->query_id().lo);
-    DCHECK_EQ(_materialization_node.column_descs_lists.size(),
-              _materialization_node.slot_locs_lists.size());
-
-    const auto& slots = state->desc_tbl()
-                                .get_tuple_descriptor(_materialization_node.intermediate_tuple_id)
-                                ->slots();
-    for (int i = 0; i < _materialization_node.column_descs_lists.size(); ++i) {
-        auto request_block_desc = multi_get_request.add_request_block_descs();
-        request_block_desc->set_fetch_row_store(_materialization_node.fetch_row_stores[i]);
-        // init the column_descs and slot_locs
-        auto& column_descs = _materialization_node.column_descs_lists[i];
-        for (auto& column_desc_item : column_descs) {
-            TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
-        }
-
-        auto& slot_locs = _materialization_node.slot_locs_lists[i];
-        for (auto& slot_loc_item : slot_locs) {
-            slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
-        }
-    }
-
-    // init the stubs and requests for each BE
-    for (const auto& node_info : _materialization_node.nodes_info.nodes) {
-        auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
-                node_info.host, node_info.async_internal_port);
-        if (!client) {
-            LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
-                         << ", port=" << node_info.async_internal_port;
-            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
-                                         node_info.host, node_info.async_internal_port);
-        }
-        local_state._shared_state->rpc_struct_map.emplace(
-                node_info.id,
-                FetchRpcStruct {.stub = std::move(client), .request = multi_get_request});
-    }
-    local_state._shared_state->rpc_struct_inited = true;
-    // Need each BE to send the request, so we need to add BE count to the source_deps
-    ((CountedFinishDependency*)local_state._shared_state->source_deps.back().get())
-            ->add(local_state._shared_state->rpc_struct_map.size());
-    return Status::OK();
-}
-
 Status MaterializationSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
@@ -151,7 +101,8 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (!local_state._shared_state->rpc_struct_inited) {
-        RETURN_IF_ERROR(_init_multi_get_request(state, local_state));
+        RETURN_IF_ERROR(
+                local_state._shared_state->init_multi_requests(_materialization_node, state));
     }
 
     if (in_block->rows() > 0 || eos) {

@@ -887,8 +887,9 @@ struct MaterializationSharedState : public BasicSharedState {
 public:
     MaterializationSharedState() = default;
 
-    Status merge_multi_response(vectorized::Block* block);
+    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
+    Status merge_multi_response(vectorized::Block* block);
 
     Dependency* create_source_dependency(int operator_id, int node_id,
                                          const std::string& name) override;
