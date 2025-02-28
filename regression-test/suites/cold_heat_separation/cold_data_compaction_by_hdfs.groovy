@@ -22,6 +22,7 @@ suite("test_cold_data_compaction_by_hdfs") {
 
     if (!enableHdfs()) {
         logger.info("Skip this case, because HDFS is not available")
+        return
     }
 
     def retryUntilTimeout = { int timeoutSecond, Supplier<Boolean> closure ->
