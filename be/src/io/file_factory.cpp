@@ -143,7 +143,25 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
         break;
     }
     case TFileType::FILE_BROKER: {
-        RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
+        int32_t index = -1;
+        // firstly find local broker
+        const auto local_host = BackendOptions::get_localhost();
+        for (int32_t i = 0; i < system_properties.broker_addresses.size(); ++i) {
+            if (system_properties.broker_addresses[i].hostname == local_host) {
+                index = i;
+                break;
+            }
+        }
+        // secondly select broker by hash of file path
+        if (index < 0) {
+            auto key =
+                    HashUtil::hash(file_description.path.data(), file_description.path.size(), 0);
+            index = key % system_properties.broker_addresses.size();
+        }
+        LOG_INFO("select broker: {} for file {}, local host: {}",
+                 system_properties.broker_addresses[index].hostname, file_description.path,
+                 local_host);
+        RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[index],
                                              system_properties.properties, file_description,
                                              reader_options, file_system, file_reader));
         break;

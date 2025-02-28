@@ -75,6 +75,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -464,21 +465,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setProperties(locationProperties);
 
                 if (!params.isSetBrokerAddresses()) {
-                    FsBroker broker;
+                    List<FsBroker> brokers;
                     if (brokerName != null) {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug(String.format(
-                                    "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
-                                    brokerName, selectedBackend.getHost(), broker.host));
-                        }
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokersByName(brokerName);
                     } else {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
                     }
-                    if (broker == null) {
+                    Collections.shuffle(brokers);
+                    for (FsBroker broker : brokers) {
+                        if (broker.isAlive) {
+                            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                        }
+                    }
+                    if (params.getBrokerAddresses().isEmpty()) {
                         throw new UserException("No alive broker.");
                     }
-                    params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
                 }
             }
         } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)

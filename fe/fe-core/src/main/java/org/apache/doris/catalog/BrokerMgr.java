@@ -84,6 +84,15 @@ public class BrokerMgr {
         return brokers;
     }
 
+    public List<FsBroker> getAllBrokersByName(String brokerName) {
+        lock.lock();
+        try {
+            return brokerListMap.get(brokerName);
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public void execute(ModifyBrokerClause clause) throws DdlException {
         switch (clause.getOp()) {
             case OP_ADD:
