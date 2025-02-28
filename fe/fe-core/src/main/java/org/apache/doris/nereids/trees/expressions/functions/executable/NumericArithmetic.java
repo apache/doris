@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
+import org.apache.commons.math3.util.FastMath;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -893,6 +895,17 @@ public class NumericArithmetic {
     }
 
     /**
+     * sinh
+     */
+    @ExecFunction(name = "sinh")
+    public static Expression sinh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.sinh(first.getValue())));
+    }
+
+    /**
      * cos
      */
     @ExecFunction(name = "cos")
@@ -941,7 +954,44 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atan")
     public static Expression atan(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.atan(first.getValue())));
+    }
+
+    /**
+     * asinh
+     */
+    @ExecFunction(name = "asinh")
+    public static Expression asinh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.asinh(first.getValue())));
+    }
+
+    /**
+     * acosh
+     */
+    @ExecFunction(name = "acosh")
+    public static Expression acosh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, 1.0, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.acosh(first.getValue())));
+    }
+
+    /**
+     * atanh
+     */
+    @ExecFunction(name = "atanh")
+    public static Expression atanh(DoubleLiteral first) {
+        if (inputOutOfBound(first, 1.0, Double.POSITIVE_INFINITY, true, false)
+                || inputOutOfBound(first, Double.NEGATIVE_INFINITY, -1.0, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.atanh(first.getValue())));
     }
 
     /**

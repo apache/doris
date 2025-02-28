@@ -51,6 +51,17 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ACOS(1E308)")
     testFoldConst("SELECT ACOS(-1E308)")
 
+//Acosh function cases
+    testFoldConst("SELECT ACOSH(1) AS acosh_case_1"); // acosh(1) = 0
+    testFoldConst("SELECT ACOSH(2) AS acosh_case_2"); // acosh(2) ≈ 1.316957897
+    testFoldConst("SELECT ACOSH(10) AS acosh_case_3"); // acosh(10) ≈ 2.993222846
+    testFoldConst("SELECT ACOSH(0.5)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(-1)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(NULL)"); // NULL handling
+    testFoldConst("SELECT ACOSH(1E308)"); // Large value
+    testFoldConst("SELECT ACOSH(-1E308)"); // Invalid input (x < 1)
+    testFoldConst("SELECT ACOSH(1), ACOSH(2), ACOSH(10)"); // Multiple values
+
 //Asin function cases
     testFoldConst("SELECT ASIN(1) AS asin_case_1") //asin(1) = π/2
     testFoldConst("SELECT ASIN(0) AS asin_case_2") //asin(0) = 0
@@ -65,6 +76,17 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ASIN(1E308)")
     testFoldConst("SELECT ASIN(-1E308)")
 
+//Asinh function cases
+    testFoldConst("SELECT ASINH(0) AS asinh_case_1"); // asinh(0) = 0
+    testFoldConst("SELECT ASINH(1) AS asinh_case_2"); // asinh(1) ≈ 0.881373587
+    testFoldConst("SELECT ASINH(-1) AS asinh_case_3"); // asinh(-1) ≈ -0.881373587
+    testFoldConst("SELECT ASINH(0.5)"); // Common value
+    testFoldConst("SELECT ASINH(-0.5)"); // Negative common value
+    testFoldConst("SELECT ASINH(NULL)"); // NULL handling
+    testFoldConst("SELECT ASINH(1E308)"); // Large value
+    testFoldConst("SELECT ASINH(-1E308)"); // Large negative value
+    testFoldConst("SELECT ASINH(0), ASINH(1), ASINH(-1)"); // Multiple values
+
 //Atan function cases
     testFoldConst("SELECT ATAN(1) AS atan_case_1") //atan(1) = π/4
     testFoldConst("SELECT ATAN(0) AS atan_case_2") //atan(0) = 0
@@ -77,7 +99,22 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT ATAN(PI())") // PI input
     testFoldConst("SELECT ATAN(-PI())") // Negative PI input
     testFoldConst("SELECT ATAN(1E-308)") // Very small positive number
-    testFoldConst("SELECT ATAN(-1E-308)") // Very small negative number
+    testFoldConst("SELECT ATAN(-1E-308)") // Very small negative 
+    
+//Atanh function cases
+    testFoldConst("SELECT ATANH(0) AS atanh_case_1"); // atanh(0) = 0
+    testFoldConst("SELECT ATANH(0.5) AS atanh_case_2"); // atanh(0.5) ≈ 0.549306144
+    testFoldConst("SELECT ATANH(-0.5) AS atanh_case_3"); // atanh(-0.5) ≈ -0.549306144
+    testFoldConst("SELECT ATANH(0.9)"); // Common value
+    testFoldConst("SELECT ATANH(-0.9)"); // Negative common value
+    testFoldConst("SELECT ATANH(NULL)"); // NULL handling
+    testFoldConst("SELECT ATANH(1)"); // Boundary value (invalid)
+    testFoldConst("SELECT ATANH(-1)"); // Boundary value (invalid)
+    testFoldConst("SELECT ATANH(1.5)"); // Invalid input (x > 1)
+    testFoldConst("SELECT ATANH(-1.5)"); // Invalid input (x < -1)
+    testFoldConst("SELECT ATANH(1E-308)"); // Very small positive number
+    testFoldConst("SELECT ATANH(-1E-308)"); // Very small negative number
+    testFoldConst("SELECT ATANH(0), ATANH(0.5), ATANH(-0.5)"); // Multiple values
 
 //Atan2 function cases
     testFoldConst("SELECT ATAN2(1, 1) AS atan2_case_1") //atan2(1, 1) = π/4
@@ -439,6 +476,14 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT SIN(PI()) AS sin_case_3") //sin(π)
     testFoldConst("SELECT SIN(1E308) AS sin_case_overflow")
     testFoldConst("SELECT sin(0), sin(pi()/2), sin(pi()), sin(3*pi()/2)")
+
+// Sinh function cases
+    testFoldConst("SELECT SINH(0) AS sinh_case_1"); // sinh(0) = 0
+    testFoldConst("SELECT SINH(1) AS sinh_case_2"); // sinh(1) ≈ 1.175201194
+    testFoldConst("SELECT SINH(-1) AS sinh_case_3"); // sinh(-1) ≈ -1.175201194
+    testFoldConst("SELECT SINH(2) AS sinh_case_4"); // sinh(2) ≈ 3.626860408
+    testFoldConst("SELECT SINH(1E308) AS sinh_case_overflow");
+    testFoldConst("SELECT SINH(0), SINH(1), SINH(-1), SINH(2)"); // Multi value
 
 //Sqrt function cases
     testFoldConst("SELECT SQRT(16) AS sqrt_case_1") //sqrt(16) = 4
