@@ -119,52 +119,10 @@ void HdfsMgr::_cleanup_loop() {
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
-    uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
-
-    // First check without lock
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
-        if (it != _fs_handlers.end()) {
-            LOG(INFO) << "Reuse existing HDFS handler, hash_code=" << hash_code
-                      << ", is_kerberos=" << it->second->is_kerberos_auth
-                      << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
-            it->second->update_access_time();
-            *fs_handler = it->second;
-            return Status::OK();
-        }
-    }
-
-    // Create new hdfsFS handler outside the lock
-    LOG(INFO) << "Start to create new HDFS handler, hash_code=" << hash_code
-              << ", fs_name=" << fs_name;
-
     std::shared_ptr<HdfsHandler> new_fs_handler;
     RETURN_IF_ERROR(_create_hdfs_fs(hdfs_params, fs_name, &new_fs_handler));
-
-    // Double check with lock before inserting
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
-        if (it != _fs_handlers.end()) {
-            // Another thread has created the handler, use it instead
-            LOG(INFO) << "Another thread created HDFS handler, reuse it, hash_code=" << hash_code
-                      << ", is_kerberos=" << it->second->is_kerberos_auth
-                      << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
-            it->second->update_access_time();
-            *fs_handler = it->second;
-            return Status::OK();
-        }
-
-        // Store the new handler
-        *fs_handler = new_fs_handler;
-        _fs_handlers[hash_code] = new_fs_handler;
-
-        LOG(INFO) << "Finished create new HDFS handler, hash_code=" << hash_code
-                  << ", is_kerberos=" << new_fs_handler->is_kerberos_auth
-                  << ", principal=" << new_fs_handler->principal << ", fs_name=" << fs_name;
-    }
-
+    // Store the new handler
+    *fs_handler = new_fs_handler;
     return Status::OK();
 }
 
