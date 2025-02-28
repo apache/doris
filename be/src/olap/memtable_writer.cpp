@@ -116,7 +116,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     //    thus preventing potential crashes
     if (!st.ok()) [[unlikely]] {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        _mem_table.reset();
+        _reset_mem_table();
         return st;
     }
 
