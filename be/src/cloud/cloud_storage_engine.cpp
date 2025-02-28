@@ -915,7 +915,8 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
         }
         _active_compaction_stop_tokens.erase(tablet->tablet_id());
     }
-    RETURN_IF_ERROR(stop_token->do_unregister());
+    // stop token will be removed when SC commit or abort
+    // RETURN_IF_ERROR(stop_token->do_unregister());
     LOG_INFO(
             "successfully unregister compaction stop token for tablet_id={}, "
             "delete_bitmap_lock_initiator={}",
