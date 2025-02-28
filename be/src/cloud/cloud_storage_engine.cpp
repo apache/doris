@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -37,6 +38,7 @@
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -189,6 +191,9 @@ Status CloudStorageEngine::open() {
     _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    _schema_cloud_dictionary_cache =
+            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <vector>
 
 #include "util/runtime_profile.h"
@@ -52,6 +54,7 @@ public:
         FOR_UT_CACHE_NUMBER = 19,
         QUERY_CACHE = 20,
         TABLET_COLUMN_OBJECT_POOL = 21,
+        SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
     };
 
     static std::string type_string(CacheType type) {
@@ -98,6 +101,8 @@ public:
             return "QueryCache";
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
+        case CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE:
+            return "SchemaCloudDictionaryCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -126,7 +131,9 @@ public:
             {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE},
             {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
             {"QueryCache", CacheType::QUERY_CACHE},
-            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL}};
+            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
+            {"SchemaCloudDictionaryCache", CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE},
+    };
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {

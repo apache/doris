@@ -160,6 +160,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
 extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 
