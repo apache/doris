@@ -193,7 +193,7 @@ public class AddProjectForNonfoldable implements RewriteRuleFactory {
                 .map(Entry::getKey)
                 .map(expr -> {
                     ExprId exprId = StatementScopeIdGenerator.newExprId();
-                    return new Alias(exprId, expr, "_expr_" + exprId.asInt());
+                    return new Alias(exprId, expr, "$_expr_" + exprId.asInt() + "_$");
                 })
                 .collect(ImmutableList.toImmutableList());
     }
