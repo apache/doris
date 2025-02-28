@@ -134,6 +134,8 @@ private:
                                 int rows);
     jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
+    std::string _get_real_url(const std::string& url);
+
     bool _closed = false;
     jclass _executor_factory_clazz;
     jclass _executor_clazz;

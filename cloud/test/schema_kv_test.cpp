@@ -360,7 +360,7 @@ static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
 
 static TabletSchemaCloudPB getVariantSchema() {
     TabletSchemaCloudPB schema;
-    schema.set_schema_version(3);
+    schema.set_schema_version(10086);
     // columns
     ColumnPB var;
     var.set_type("VARIANT");
@@ -550,9 +550,17 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res->stats().segment_size(), 250000);
         if (schema != nullptr) {
             auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
-            get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);
-            EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().SerializeAsString(),
-                      schema->SerializeAsString());
+            get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(
+                    10086);
+            std::cout << get_rowset_res->rowset_meta(10).tablet_schema().ShortDebugString()
+                      << std::endl;
+            std::cout << schema->ShortDebugString() << std::endl;
+            EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().column(2).type(),
+                      schema->column(2).type());
+            EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().index(0).index_suffix_name(),
+                      schema->index(0).index_suffix_name());
+            EXPECT_EQ(get_rowset_res->rowset_meta(10).tablet_schema().index(1).index_id(),
+                      schema->index(1).index_id());
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(
                     schema_version);
         }

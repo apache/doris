@@ -77,10 +77,29 @@ true	9	900	9000
 1002	Sample data 2	2023-08-02
 1005	Sample data 5	2023-08-05
 
+-- !q8 --
+mc_bigint	bigint	Yes	true	\N	
+mc_string	text	Yes	true	\N	
+dt	text	Yes	true	\N	
+
 -- !replay_q6 --
 1003	Sample data 3	2023-08-03
 1004	Sample data 4	2023-08-04
 1005	Sample data 5	2023-08-05
+
+-- !multi_partition_q1 --
+city	text	Yes	true	\N	
+gender	boolean	Yes	true	\N	
+mnt	smallint	Yes	true	\N	
+order_rate	float	Yes	true	\N	
+amount	decimal(24,9)	Yes	true	\N	
+cut_date	date	Yes	true	\N	
+create_time	datetime(3)	Yes	true	\N	
+finished_time	datetime(6)	Yes	true	\N	
+yy	text	Yes	true	\N	
+mm	text	Yes	true	\N	
+dd	text	Yes	true	\N	
+pt	bigint	Yes	true	\N	
 
 -- !multi_partition_q1 --
 yy=2023/mm=08/dd=01/pt=1
@@ -128,8 +147,6 @@ yy=2023/mm=08/dd=05/pt=5
 
 -- !multi_partition_q8 --
 6
-
--- !multi_partition_q9 --
 
 -- !multi_partition_q10 --
 3	2023	08	03
@@ -186,4 +203,48 @@ dt=2023-08-02
 dt=2023-08-03
 dt=2023-08-04
 dt=2023-08-05
+
+-- !part2_q1 --
+1	2024-01-01	Y
+2	2024-04-04	N
+3	2027-01-09	Y
+4	2024-01-01	N
+
+-- !part2_q2 --
+1	2024-01-01	Y
+
+-- !part2_q3 --
+1	2024-01-01	Y
+3	2027-01-09	Y
+
+-- !part2_q4 --
+1	2024-01-01	Y
+2	2024-04-04	N
+4	2024-01-01	N
+
+-- !part2_q5 --
+2024-01-01
+2024-01-01
+2024-04-04
+
+-- !part2_q6 --
+2024-01-01	N	4
+2024-01-01	Y	1
+2024-04-04	N	2
+
+-- !part2_q7 --
+N	2024-01-01	2024-01-01	4	4	4
+N	2024-04-04	2024-04-04	2	2	2
+Y	2024-01-01	2024-01-01	1	1	1
+Y	2027-01-09	2027-01-09	3	3	3
+
+-- !part2_q8 --
+N
+N
+Y
+
+-- !part2_q9 --
+id	text	Yes	true	\N	
+ds	text	Yes	true	\N	
+audit_flag	text	Yes	true	\N	
 

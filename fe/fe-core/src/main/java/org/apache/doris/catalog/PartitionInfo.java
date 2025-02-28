@@ -437,7 +437,7 @@ public class PartitionInfo {
                 idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
         }
     }
 

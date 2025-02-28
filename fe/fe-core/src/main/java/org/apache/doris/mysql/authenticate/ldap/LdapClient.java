@@ -72,6 +72,7 @@ public class LdapClient {
             contextSource.setPassword(ldapPassword);
             contextSource.afterPropertiesSet();
             ldapTemplateNoPool = new LdapTemplate(contextSource);
+            ldapTemplateNoPool.setIgnorePartialResultException(true);
         }
 
         private void setLdapTemplatePool(String ldapPassword) {
@@ -100,6 +101,7 @@ public class LdapClient {
 
             TransactionAwareContextSourceProxy proxy = new TransactionAwareContextSourceProxy(poolingContextSource);
             ldapTemplatePool = new LdapTemplate(proxy);
+            ldapTemplatePool.setIgnorePartialResultException(true);
         }
 
         public boolean checkUpdate(String ldapPassword) {
@@ -145,6 +147,7 @@ public class LdapClient {
                     .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
         } catch (Exception e) {
+            LOG.info("ldap client checkPassword failed, userName: {}", userName, e);
             return false;
         }
     }
