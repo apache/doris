@@ -152,8 +152,7 @@ public class ProfileManager extends MasterDaemon {
         return INSTANCE;
     }
 
-    // The visibility of ProfileManager() is package level, so that we can write ut for it.
-    ProfileManager() {
+    protected ProfileManager() {
         super("profile-manager", Config.profile_manager_gc_interval_seconds * 1000);
         lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
@@ -483,7 +482,7 @@ public class ProfileManager extends MasterDaemon {
 
     // List PROFILE_STORAGE_PATH and return all dir names
     // string will contain profile id and its storage timestamp
-    List<String> getOnStorageProfileInfos() {
+    protected List<String> getOnStorageProfileInfos() {
         List<String> res = Lists.newArrayList();
         try {
             File profileDir = new File(PROFILE_STORAGE_PATH);
@@ -508,7 +507,7 @@ public class ProfileManager extends MasterDaemon {
     // read profile file on storage
     // deserialize to an object Profile
     // push them to memory structure of ProfileManager for index
-    void loadProfilesFromStorageIfFirstTime(boolean sync) {
+    protected void loadProfilesFromStorageIfFirstTime(boolean sync) {
         if (checkIfProfileLoaded()) {
             return;
         }
@@ -588,7 +587,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    void createProfileStorageDirIfNecessary() {
+    protected void createProfileStorageDirIfNecessary() {
         File profileDir = new File(PROFILE_STORAGE_PATH);
         if (profileDir.exists()) {
             return;
@@ -602,7 +601,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    List<ProfileElement> getProfilesNeedStore() {
+    protected List<ProfileElement> getProfilesNeedStore() {
         List<ProfileElement> profilesToBeStored = Lists.newArrayList();
 
         queryIdToProfileMap.forEach((queryId, profileElement) -> {
@@ -617,7 +616,7 @@ public class ProfileManager extends MasterDaemon {
     // Collect profiles that need to be stored to storage
     // Store them to storage
     // Release the memory
-    void writeProfileToStorage() {
+    protected void writeProfileToStorage() {
         try {
             if (Strings.isNullOrEmpty(PROFILE_STORAGE_PATH)) {
                 LOG.error("Logical error, PROFILE_STORAGE_PATH is empty");
@@ -671,7 +670,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    List<ProfileElement> getProfilesToBeRemoved() {
+    protected List<ProfileElement> getProfilesToBeRemoved() {
         // By order of query finish timestamp
         // The profile with the least storage timestamp will be on the top of heap
         PriorityQueue<ProfileElement> profileDeque = new PriorityQueue<>(Comparator.comparingLong(
@@ -703,7 +702,7 @@ public class ProfileManager extends MasterDaemon {
 
     // We can not store all profiles on storage, because the storage space is limited
     // So we need to remove the outdated profiles
-    void deleteOutdatedProfilesFromStorage() {
+    protected void deleteOutdatedProfilesFromStorage() {
         if (!checkIfProfileLoaded()) {
             return;
         }
@@ -759,7 +758,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    List<String> getBrokenProfiles() {
+    protected List<String> getBrokenProfiles() {
         List<String> profilesOnStorage = getOnStorageProfileInfos();
         List<String> brokenProfiles = Lists.newArrayList();
 
@@ -803,7 +802,7 @@ public class ProfileManager extends MasterDaemon {
         return brokenProfiles;
     }
 
-    void deleteBrokenProfiles() {
+    protected void deleteBrokenProfiles() {
         if (!checkIfProfileLoaded()) {
             return;
         }
@@ -840,7 +839,7 @@ public class ProfileManager extends MasterDaemon {
 
     // The init value of query finish time of profile is MAX_VALUE,
     // So a more recent query will be on the top of the heap.
-    PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTimeDesc() {
+    protected PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTimeDesc() {
         readLock.lock();
         try {
             PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
@@ -858,7 +857,7 @@ public class ProfileManager extends MasterDaemon {
 
     // The init value of query finish time of profile is MAX_VALUE
     // So query finished earlier will be on the top of heap
-    PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
+    protected PriorityQueue<ProfileElement> getProfileOrderByQueryFinishTime() {
         readLock.lock();
         try {
             PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
@@ -875,7 +874,7 @@ public class ProfileManager extends MasterDaemon {
     }
 
     // Older query will be on the top of heap
-    PriorityQueue<ProfileElement> getProfileOrderByQueryStartTime() {
+    protected PriorityQueue<ProfileElement> getProfileOrderByQueryStartTime() {
         readLock.lock();
         try {
             PriorityQueue<ProfileElement> queryIdDeque = new PriorityQueue<>(Comparator.comparingLong(
@@ -955,7 +954,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    void deleteOutdatedProfilesFromMemory() {
+    protected void deleteOutdatedProfilesFromMemory() {
         StringBuilder stringBuilder = new StringBuilder();
         StringBuilder stringBuilderTTL = new StringBuilder();
         writeLock.lock();
@@ -1019,7 +1018,7 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    String getDebugInfo() {
+    protected String getDebugInfo() {
         StringBuilder stringBuilder = new StringBuilder();
         readLock.lock();
         try {
