@@ -34,7 +34,6 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -124,6 +123,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
@@ -408,7 +408,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
                 ),
                 topic("adjust preagg status",
-                        topDown(new AdjustPreAggStatus())
+                        custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
                 ),
                 topic("Point query short circuit",
                         topDown(new LogicalResultSinkToShortCircuitPointQuery())),
