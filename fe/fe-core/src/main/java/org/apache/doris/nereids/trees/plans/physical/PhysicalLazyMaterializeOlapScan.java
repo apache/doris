@@ -85,7 +85,12 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("PhysicalLazyMaterializeOlapScan[")
-                .append(scan.toString()).append("]");
+                .append(scan.toString());
+
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            getAppliedRuntimeFilters().forEach(rf -> sb.append(" RF").append(rf.getId().asInt()));
+        }
+        sb.append("]");
         return sb.toString();
     }
 

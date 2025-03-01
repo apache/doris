@@ -2006,13 +2006,13 @@ public class StmtExecutor {
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
-        } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            coord = new NereidsCoordinator(context, analyzer,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
-            profile.addExecutionProfile(coord.getExecutionProfile());
-            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QueryInfo(context, originStmt.originStmt, coord));
-            coordBase = coord;
+        // } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
+        //     coord = new NereidsCoordinator(context, analyzer,
+        //             (NereidsPlanner) planner, context.getStatsErrorEstimator());
+        //     profile.addExecutionProfile(coord.getExecutionProfile());
+        //     QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+        //             new QueryInfo(context, originStmt.originStmt, coord));
+        //     coordBase = coord;
         } else {
             coord = EnvFactory.getInstance().createCoordinator(
                     context, analyzer, planner, context.getStatsErrorEstimator());
