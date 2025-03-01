@@ -269,11 +269,10 @@ protected:
                            data_file_dir + "test_array_array_decimalv3(38,30).csv",
                            data_file_dir + "test_array_array_decimalv3(76,56).csv"});
 
-        data_files.insert(data_files.end(),
-                          {data_file_dir + "test_array_map_char_double.csv",
-                           data_file_dir + "test_array_map_datetime_decimal.csv",
-                           data_file_dir + "test_array_map_ipv4_ipv6.csv",
-                           data_file_dir + "test_array_map_largeInt_string.csv"});
+        data_files.insert(data_files.end(), {data_file_dir + "test_array_map_char_double.csv",
+                                             data_file_dir + "test_array_map_datetime_decimal.csv",
+                                             data_file_dir + "test_array_map_ipv4_ipv6.csv",
+                                             data_file_dir + "test_array_map_largeInt_string.csv"});
 
         data_files.insert(data_files.end(), {data_file_dir + "test_array_struct.csv"});
 
