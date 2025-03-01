@@ -506,7 +506,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan.getScan(), slot)));
+        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
         return scan;
     }
 
@@ -691,11 +691,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
      */
     public static void getAllScanInfo(Plan root, Set<PhysicalRelation> scans) {
         if (root instanceof PhysicalRelation) {
-            if (root instanceof PhysicalLazyMaterializeOlapScan) {
-                scans.add(((PhysicalLazyMaterializeOlapScan) root).getScan());
-            } else {
-                scans.add((PhysicalRelation) root);
-            }
+            scans.add((PhysicalRelation) root);
+            // if (root instanceof PhysicalLazyMaterializeOlapScan) {
+            //     scans.add(((PhysicalLazyMaterializeOlapScan) root).getScan());
+            // } else {
+            //     scans.add((PhysicalRelation) root);
+            // }
         } else {
             for (Plan child : root.children()) {
                 getAllScanInfo(child, scans);

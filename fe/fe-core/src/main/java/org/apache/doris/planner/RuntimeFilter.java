@@ -130,7 +130,9 @@ public final class RuntimeFilter {
         public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
             Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds())
-                    || targetNode instanceof CTEScanNode);
+                    || targetNode instanceof CTEScanNode,
+                    "RuntimeFilter target " + expr + " is not bounded: slotDesc"
+                            + (targetExpr instanceof SlotRef ? ((SlotRef) targetExpr).getTupleId() : "null"));
             this.node = targetNode;
             this.expr = targetExpr;
             this.isBoundByKeyColumns = isBoundByKeyColumns;

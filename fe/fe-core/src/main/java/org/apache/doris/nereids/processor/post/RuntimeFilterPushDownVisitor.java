@@ -190,7 +190,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, PushDownContext ctx) {
-        return scan.getScan().accept(this, ctx);
+        return visitPhysicalRelation(scan, ctx);
     }
 
     @Override

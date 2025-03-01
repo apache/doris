@@ -233,10 +233,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     @Override
-    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan
-                                                                   lazyScan, PushDownContext ctx) {
-        return lazyScan.getScan().accept(this, ctx);
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, PushDownContext ctx) {
+        return visitPhysicalRelation(lazyScan, ctx);
     }
+
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan

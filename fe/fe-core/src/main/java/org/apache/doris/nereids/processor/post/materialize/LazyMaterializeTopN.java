@@ -84,7 +84,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         BiMap<CatalogRelation, SlotReference> relationToRowId = HashBiMap.create(relationToLazySlotMap.size());
         HashSet<SlotReference> rowIdSet = new HashSet<>();
         for (CatalogRelation relation : relationToLazySlotMap.keySet()) {
-            Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL, Type.STRING, false, null, false,
+            Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL,
+                    Type.STRING, false, null, false,
                     "", "global row_id column");
             SlotReference rowIdSlot = SlotReference.fromColumn(relation.getTable(), rowIdCol,
                     relation.getQualifier());

@@ -47,6 +47,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
@@ -159,6 +160,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -760,6 +762,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
+        return computePhysicalOlapScan(olapScan, false, context);
+    }
+
+    private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan,
+            boolean lazyMaterialize, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
         // generate real output tuple
@@ -818,15 +825,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(olapScanNode::init);
         // TODO: process collect scan node in one place
         context.addScanNode(olapScanNode, olapScan);
-        // TODO: process translate runtime filter in one place
-        //   use real plan node to present rf apply and rf generator
-        context.getRuntimeTranslator().ifPresent(
-                runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(olapScan)
-                        .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
-                                expr, olapScanNode, context)
-                )
-        );
-        context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
+        if (!lazyMaterialize) {
+            // TODO: process translate runtime filter in one place
+            //   use real plan node to present rf apply and rf generator
+            context.getRuntimeTranslator().ifPresent(
+                    runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(olapScan)
+                            .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
+                                    expr, olapScanNode, context)
+                            )
+            );
+            context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
+        }
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // Create PlanFragment
         // TODO: use a util function to convert distribution to DataPartition
@@ -2226,6 +2235,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             sortNode.setLimit(topN.getLimit());
             if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
                 context.getTopnFilterContext().translateSource(topN, sortNode);
+                TopnFilter filter = context.getTopnFilterContext().getTopnFilter(topN);
+                List<Pair<Integer, Integer>> targets = new ArrayList<>();
+                for (Map.Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
+                    targets.add(Pair.of(entry.getKey().getId().asInt(),
+                            ((SlotRef) entry.getValue()).getDesc().getId().asInt()));
+                }
+                sortNode.setTopnFilterTargets(targets);
             }
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
@@ -2463,7 +2479,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
         materializeNode.setRowIds(rowIds);
 
-        materializeNode.setColumns(materialize.getLazyColumns());
+        materializeNode.setLazyColumns(materialize.getLazyColumns());
         materializeNode.setLocations(materialize.getLazySlotLocations());
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
@@ -2494,7 +2510,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan,
             PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalOlapScan(lazyScan.getScan(), context);
+        PlanFragment planFragment = computePhysicalOlapScan(lazyScan.getScan(), true, context);
         TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
         olapScanNode.setDesc(outputTuple);
@@ -2506,6 +2522,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         planFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(outputTuple.getId()));
+        // translate rf on outputTuple
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(lazyScan)
+                        .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
+                                expr, olapScanNode, context)
+                        )
+        );
+        context.getTopnFilterContext().translateTarget(lazyScan, olapScanNode, context);
+
         return planFragment;
     }
 

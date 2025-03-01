@@ -75,7 +75,7 @@ public class MaterializationNode extends PlanNode {
 
     private List<Expr> rowIds;
 
-    private List<List<Column>> columns;
+    private List<List<Column>> lazyColumns;
 
     private List<List<Integer>> locations;
 
@@ -122,6 +122,7 @@ public class MaterializationNode extends PlanNode {
             output.append(detailPrefix)
                     .append("projectList:").append(projectList.toString()).append("\n");
         }
+        output.append("column_descs_lists").append(lazyColumns).append("\n");
         output.append(detailPrefix).append("locations: ").append(locations).append("\n");
 
         return output.toString();
@@ -137,7 +138,7 @@ public class MaterializationNode extends PlanNode {
         msg.materialization_node.setFetchExprLists(Expr.treesToThrift(rowIds));
 
         List<List<TColumn>> thriftCols = new ArrayList<>();
-        for (List<Column> cols : columns) {
+        for (List<Column> cols : lazyColumns) {
             List<TColumn> array = new ArrayList<>();
             for (Column col : cols) {
                 array.add(col.toThrift());
@@ -156,8 +157,8 @@ public class MaterializationNode extends PlanNode {
         this.rowIds = rowIds;
     }
 
-    public void setColumns(List<List<Column>> columns) {
-        this.columns = columns;
+    public void setLazyColumns(List<List<Column>> lazyColumns) {
+        this.lazyColumns = lazyColumns;
     }
 
     public void setLocations(List<List<Integer>> locations) {
@@ -172,4 +173,27 @@ public class MaterializationNode extends PlanNode {
         isTopMaterializeNode = topMaterializeNode;
     }
 
+    public TupleDescriptor getMaterializeTupleDescriptor() {
+        return materializeTupleDescriptor;
+    }
+
+    public List<Expr> getRowIds() {
+        return rowIds;
+    }
+
+    public List<List<Column>> getLazyColumns() {
+        return lazyColumns;
+    }
+
+    public List<List<Integer>> getLocations() {
+        return locations;
+    }
+
+    public List<Boolean> getRowStoreFlags() {
+        return rowStoreFlags;
+    }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
 }
