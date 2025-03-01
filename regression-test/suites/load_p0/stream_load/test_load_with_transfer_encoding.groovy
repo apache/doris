@@ -54,7 +54,7 @@ suite("test_load_with_transfer_encoding", "p0") {
         `source_type` varchar(50) NOT NULL,
         `online_account` int NOT NULL
         ) ENGINE = OLAP DUPLICATE KEY (`place_id`, `card_id`, `shift_id`) DISTRIBUTED BY HASH (`operation_type`) BUCKETS 10 PROPERTIES (
-        "replication_num" = "1",
+        "replication_num" = "1"
         );
     """
 
