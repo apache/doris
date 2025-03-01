@@ -158,7 +158,7 @@ public class ShowTableCommand extends ShowCommand {
         }
 
         String fullTblName = String.format("`%s`.`%s`.`%s`",
-                InternalCatalog.INTERNAL_CATALOG_NAME,
+                catalog,
                 InfoSchemaDb.DATABASE_NAME,
                 "tables");
 
