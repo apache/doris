@@ -94,9 +94,9 @@ private:
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
             std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
-            RowStoreReadStruct& row_store_read_struct, size_t total_rows,
-            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+            RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
+            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+            int64_t* lookup_row_data_ms,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             vectorized::Block& result_block);
 };

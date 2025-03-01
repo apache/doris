@@ -493,13 +493,15 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
             const auto& request_block_desc = request.request_block_descs(i);
-            auto& result_block = result_blocks[i];
-            auto ret_block = response->add_blocks();
 
+            auto& result_block = result_blocks[i];
             std::vector<SlotDescriptor> slots;
             slots.reserve(request_block_desc.slots_size());
             for (const auto& pslot : request_block_desc.slots()) {
                 slots.push_back(SlotDescriptor(pslot));
+            }
+            if (result_block.is_empty_column()) {
+                result_block = vectorized::Block(slots, request_block_desc.row_id_size());
             }
 
             TabletSchema full_read_schema;
@@ -533,8 +535,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
                     RETURN_IF_ERROR(read_doris_format_row(
                             id_file_map, file_mapping, request_block_desc.row_id(j), slots,
-                            full_read_schema, row_store_read_struct,
-                            request_block_desc.row_id_size(), stats, &acquire_tablet_ms,
+                            full_read_schema, row_store_read_struct, stats, &acquire_tablet_ms,
                             &acquire_rowsets_ms, &acquire_segments_ms, &lookup_row_data_ms,
                             iterator_map, result_block));
                 }
@@ -543,9 +544,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
             [[maybe_unused]] size_t compressed_size = 0;
             [[maybe_unused]] size_t uncompressed_size = 0;
             int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-            RETURN_IF_ERROR(result_block.serialize(be_exec_version, ret_block->mutable_block(),
-                                                   &uncompressed_size, &compressed_size,
-                                                   segment_v2::CompressionTypePB::LZ4));
+            RETURN_IF_ERROR(result_block.serialize(
+                    be_exec_version, response->add_blocks()->mutable_block(), &uncompressed_size,
+                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
         }
 
         // Build file type statistics string
@@ -581,7 +582,7 @@ Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
         const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
         std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
-        RowStoreReadStruct& row_store_read_struct, size_t total_rows, OlapReaderStatistics& stats,
+        RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
@@ -634,9 +635,6 @@ Status RowIdStorageReader::read_doris_format_row(
     }
     segment_v2::SegmentSharedPtr segment = *it;
 
-    if (result_block.is_empty_column()) {
-        result_block = vectorized::Block(slots, total_rows);
-    }
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());

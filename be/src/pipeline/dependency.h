@@ -905,6 +905,7 @@ public:
     std::vector<vectorized::MutableBlock> response_blocks;
     std::map<int64_t, FetchRpcStruct> rpc_struct_map;
     // Register each line in which block to ensure the order of the result.
+    // Zero means NULL value.
     std::vector<std::vector<int64_t>> block_order_results;
 };
 #include "common/compile_check_end.h"
