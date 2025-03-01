@@ -295,6 +295,8 @@ public abstract class RoutineLoadJob
     protected String qualifiedUser;
     protected String cloudCluster;
 
+    protected long latestCheckAbnormalJobTime = System.currentTimeMillis();
+
     public void setTypeRead(boolean isTypeRead) {
         this.isTypeRead = isTypeRead;
     }
@@ -1103,6 +1105,7 @@ public abstract class RoutineLoadJob
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
                 ++this.jobStatistic.committedTaskNum;
+                ++this.jobStatistic.currentCommittedTaskNum;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
                 }
@@ -1228,6 +1231,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1452,12 +1456,14 @@ public abstract class RoutineLoadJob
     }
 
     private void executeStop() {
+        Env.getCurrentEnv().getRoutineLoadManager().removeAbnormalJob(this.id);
         state = JobState.STOPPED;
         routineLoadTaskInfoList.clear();
         endTimestamp = System.currentTimeMillis();
     }
 
     private void executeCancel(ErrorReason reason) {
+        Env.getCurrentEnv().getRoutineLoadManager().removeAbnormalJob(this.id);
         cancelReason = reason;
         state = JobState.CANCELLED;
         routineLoadTaskInfoList.clear();
@@ -1521,6 +1527,13 @@ public abstract class RoutineLoadJob
             }
         }
 
+        writeLock();
+        try {
+            checkAbnormalJob();
+        } finally {
+            writeUnlock();
+        }
+
         boolean needAutoResume = needAutoResume();
 
         if (!refreshKafkaPartitions(needAutoResume)) {
@@ -1540,6 +1553,48 @@ public abstract class RoutineLoadJob
         } finally {
             writeUnlock();
         }
+    }
+
+    private void checkAbnormalJob() {
+        // 1. check auto resume count
+        if (this.autoResumeCount >= Config.min_abnormal_auto_resume_count_threshold) {
+            Env.getCurrentEnv().getRoutineLoadManager().addAbnormalJob(this.id,
+                    "The auto resume time reaches threshold: " + Config.min_abnormal_auto_resume_count_threshold);
+            return;
+        }
+
+        // define a check window
+        if (System.currentTimeMillis() - latestCheckAbnormalJobTime
+                > maxBatchIntervalS * Config.abnormal_check_interval_multiplier) {
+            // 2. chekc abort txn ratio
+            if ((double) this.jobStatistic.currentAbortedTaskNum
+                    / (this.jobStatistic.currentAbortedTaskNum + this.jobStatistic.currentCommittedTaskNum)
+                    > Config.min_abnormal_abort_txn_ratio_threshold) {
+                this.jobStatistic.currentAbortedTaskNum = 0;
+                this.jobStatistic.currentCommittedTaskNum = 0;
+                Env.getCurrentEnv().getRoutineLoadManager().addAbnormalJob(this.id,
+                        "The ratio of currentAbortedTaskNum to the currentTotalTaskNum of tasks reaches: "
+                        + Config.min_abnormal_abort_txn_ratio_threshold);
+                return;
+            }
+
+            // 3. check progress and lag
+            if (checkAbnormalJobByProgress()) {
+                Env.getCurrentEnv().getRoutineLoadManager().addAbnormalJob(this.id, abnormalProgressReason());
+                return;
+            }
+
+            // remove job if all check pass.
+            Env.getCurrentEnv().getRoutineLoadManager().removeAbnormalJob(this.id);
+        }
+    }
+
+    protected boolean checkAbnormalJobByProgress() {
+        return false;
+    }
+
+    protected String abnormalProgressReason() {
+        return "";
     }
 
     // Call this before calling unprotectUpdateProgress().

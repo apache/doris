@@ -1278,6 +1278,24 @@ public class Config extends ConfigBase {
     public static int max_get_kafka_meta_timeout_second = 60;
 
     /**
+     * The interval (in seconds) to check for abnormal routine load jobs, multiplied by maxBatchInterval.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abnormal_check_interval_multiplier = 50;
+
+    /**
+     * The failure rate threshold for routine load jobs; if exceeded, the job is considered abnormal.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double min_abnormal_abort_txn_ratio_threshold = 0.8;
+
+    /**
+     * The threshold for automatic resumption of routine load jobs; if exceeded, the job is considered abnormal.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int min_abnormal_auto_resume_count_threshold = 5;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)

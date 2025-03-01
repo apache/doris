@@ -904,4 +904,20 @@ public class LoadAction extends RestBaseController {
 
     }
 
+    @RequestMapping(path = "/api/routine_load/abnormal_jobs", method = RequestMethod.GET)
+    public Object getRoutineLoadAbnormalJobs(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        Map<Long, String> abnormalJobs = Env.getCurrentEnv().getRoutineLoadManager().getAbnormalJobs();
+        Map<String, String> fullJobNameAndReason = new HashMap<>();
+        for (Long id : abnormalJobs.keySet()) {
+            String fullJobName = Env.getCurrentEnv().getRoutineLoadManager().fullJobName(id);
+            fullJobNameAndReason.put(fullJobName, abnormalJobs.get(id));
+        }
+        return ResponseEntity.ok(fullJobNameAndReason);
+    }
 }
