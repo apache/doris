@@ -37,6 +37,8 @@ suite("test_update_rows_mv", "p0") {
         DROP TABLE IF EXISTS `${tbl}`
     """
 
+    sql """set global enable_auto_analyze=false"""
+
     sql """
           CREATE TABLE IF NOT EXISTS `${tbl}` (
             `analyzetestlimitedk3` int(11) null comment "",

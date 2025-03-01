@@ -195,6 +195,10 @@ Status NewOlapScanNode::_init_profile() {
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
 
     _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
+
+    _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
+    _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+
     return Status::OK();
 }
 

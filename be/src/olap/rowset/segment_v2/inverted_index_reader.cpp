@@ -1220,8 +1220,24 @@ Status InvertedIndexIterator::read_from_inverted_index(
         }
     }
 
-    RETURN_IF_ERROR(
-            _reader->query(_stats, _runtime_state, column_name, query_value, query_type, bit_map));
+    auto execute_query = [&]() {
+        return _reader->query(_stats, _runtime_state, column_name, query_value, query_type,
+                              bit_map);
+    };
+
+    if (_runtime_state->query_options().enable_profile) {
+        InvertedIndexQueryStatistics query_stats;
+        {
+            SCOPED_RAW_TIMER(&query_stats.exec_time);
+            RETURN_IF_ERROR(execute_query());
+        }
+        query_stats.column_name = column_name;
+        query_stats.hit_rows = bit_map->cardinality();
+        _stats->inverted_index_stats.stats.emplace_back(query_stats);
+    } else {
+        RETURN_IF_ERROR(execute_query());
+    }
+
     return Status::OK();
 }
 
