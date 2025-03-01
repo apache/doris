@@ -899,10 +899,14 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sinh")
     public static Expression sinh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
-        return checkOutputBoundary(new DoubleLiteral(FastMath.sinh(first.getValue())));
+        // if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+        //     return new NullLiteral(DoubleType.INSTANCE);
+        // }
+        // return checkOutputBoundary(new DoubleLiteral(Math.sinh(first.getValue())));
+
+        // How should I do, `x` over `710` the output becomes "inf"
+        BigDecimal result = BigDecimal.valueOf(Math.sinh(first.getValue()));
+        return new DecimalLiteral(result);
     }
 
     /**
