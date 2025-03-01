@@ -21,12 +21,17 @@
 
 #include "common/status.h"
 #include "util/deletion_vector.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
-                           RuntimeProfile* profile, const TFileScanRangeParams& params)
-        : TableFormatReader(std::move(file_format_reader)), _profile(profile), _params(params) {
+                           RuntimeProfile* profile, const TFileScanRangeParams& params,
+                           ShardedKVCache* kv_cache)
+        : TableFormatReader(std::move(file_format_reader)),
+          _profile(profile),
+          _params(params),
+          _kv_cache(kv_cache) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
@@ -60,37 +65,57 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
                                            _params.broker_addresses.end());
     }
 
-    io::FileDescription file_description = {
-            .path = deletion_file.path,
-            .file_size = -1,
-            .mtime = 0,
-            .fs_name = range.fs_name,
-    };
+    Status create_status = Status::OK();
+    auto* deletion_vector = _kv_cache->get<
+            DeletionVector>(deletion_file.path, [&]() -> DeletionVector* {
+        io::FileDescription file_description = {
+                .path = deletion_file.path,
+                .file_size = -1,
+                .mtime = 0,
+                .fs_name = range.fs_name,
+        };
 
-    // TODO: cache the file in local
-    auto delete_file_reader = DORIS_TRY(FileFactory::create_file_reader(
-            properties, file_description, io::FileReaderOptions::DEFAULT));
-    // the reason of adding 4: https://github.com/apache/paimon/issues/3313
-    size_t bytes_read = deletion_file.length + 4;
-    // TODO: better way to alloc memeory
-    std::vector<char> buf(bytes_read);
-    Slice result(buf.data(), bytes_read);
-    {
-        SCOPED_TIMER(_paimon_profile.delete_files_read_time);
-        RETURN_IF_ERROR(
-                delete_file_reader->read_at(deletion_file.offset, result, &bytes_read, io_ctx));
-    }
-    if (bytes_read != deletion_file.length + 4) {
-        return Status::IOError(
-                "failed to read deletion vector, deletion file path: {}, offset: {}, expect "
-                "length: {}, real "
-                "length: {}",
-                deletion_file.path, deletion_file.offset, deletion_file.length + 4, bytes_read);
-    }
-    auto deletion_vector = DORIS_TRY(DeletionVector::deserialize(result.data, result.size));
-    if (!deletion_vector.is_empty()) {
-        for (auto i = deletion_vector.minimum(); i <= deletion_vector.maximum(); i++) {
-            if (deletion_vector.is_delete(i)) {
+        auto opt_delete_file_reader = FileFactory::create_file_reader(
+                properties, file_description, io::FileReaderOptions::DEFAULT);
+        if (!opt_delete_file_reader.has_value()) {
+            create_status = opt_delete_file_reader.error();
+            return nullptr;
+        }
+        auto delete_file_reader = std::move(opt_delete_file_reader.value());
+
+        // the reason of adding 4: https://github.com/apache/paimon/issues/3313
+        size_t bytes_read = deletion_file.length + 4;
+        // TODO: better way to alloc memeory
+        std::vector<char> buf(bytes_read);
+        Slice result(buf.data(), bytes_read);
+        {
+            SCOPED_TIMER(_paimon_profile.delete_files_read_time);
+            Status s =
+                    delete_file_reader->read_at(deletion_file.offset, result, &bytes_read, io_ctx);
+            if (!s.ok()) {
+                create_status = s;
+                return nullptr;
+            }
+        }
+        if (bytes_read != deletion_file.length + 4) {
+            create_status = Status::IOError(
+                    "failed to read deletion vector, deletion file path: {}, offset: {}, expect "
+                    "length: {}, real "
+                    "length: {}",
+                    deletion_file.path, deletion_file.offset, deletion_file.length + 4, bytes_read);
+            return nullptr;
+        }
+        auto opt_deletion_vector = DeletionVector::deserialize(result.data, result.size);
+        if (!opt_deletion_vector.has_value()) {
+            create_status = opt_deletion_vector.error();
+            return nullptr;
+        }
+        return new DeletionVector(std::move(opt_deletion_vector.value()));
+    });
+
+    if (!deletion_vector->is_empty()) {
+        for (auto i = deletion_vector->minimum(); i <= deletion_vector->maximum(); i++) {
+            if (deletion_vector->is_delete(i)) {
                 _delete_rows.push_back(i);
             }
         }
