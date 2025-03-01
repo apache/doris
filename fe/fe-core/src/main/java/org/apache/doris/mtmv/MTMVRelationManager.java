@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -27,6 +28,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -43,6 +45,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -87,7 +90,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 if (predicate.test(ctx, mtmv)) {
                     continue;
                 }
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
+                if (isMVPartitionValid(mtmv, ctx, forceConsistent, PartitionCompensator.getQueryUsedPartitions(ctx))) {
                     res.add(mtmv);
                 }
             } catch (Exception e) {
@@ -116,10 +119,15 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @VisibleForTesting
-    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+    public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+            Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
         long currentTimeMillis = System.currentTimeMillis();
-        return !CollectionUtils
-                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMillis, forceConsistent));
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMillis, forceConsistent, queryUsedRelatedTablePartitionsMap);
+        // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later
+        ctx.getStatementContext().getMvCanRewritePartitionsMap().putIfAbsent(
+                new BaseTableInfo(mtmv), mtmvCanRewritePartitions);
+        return !CollectionUtils.isEmpty(mtmvCanRewritePartitions);
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {
