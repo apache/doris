@@ -54,17 +54,7 @@ suite("test_load_with_transfer_encoding", "p0") {
         `source_type` varchar(50) NOT NULL,
         `online_account` int NOT NULL
         ) ENGINE = OLAP DUPLICATE KEY (`place_id`, `card_id`, `shift_id`) DISTRIBUTED BY HASH (`operation_type`) BUCKETS 10 PROPERTIES (
-        "file_cache_ttl_seconds" = "0",
-        "is_being_synced" = "false",
-        "storage_medium" = "hdd",
-        "storage_format" = "V2",
-        "inverted_index_storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "group_commit_interval_ms" = "10000",
         "replication_num" = "1",
-        "group_commit_data_bytes" = "134217728"
         );
     """
 
