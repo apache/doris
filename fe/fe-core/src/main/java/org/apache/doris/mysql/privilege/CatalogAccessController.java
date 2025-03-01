@@ -78,7 +78,9 @@ public interface CatalogAccessController {
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
 
     // ==== Cloud ====
-    boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted, ResourceTypeEnum type);
+    boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted, ResourceTypeEnum type);
+
+    boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted);
 
     Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
             String col);

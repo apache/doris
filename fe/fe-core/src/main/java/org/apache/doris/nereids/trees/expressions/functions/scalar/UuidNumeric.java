@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.LargeIntType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -38,11 +42,24 @@ public class UuidNumeric extends ScalarFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).args()
     );
 
+    private final ExprId exprId;
+
     /**
      * constructor with 0 argument.
      */
     public UuidNumeric() {
+        this(StatementScopeIdGenerator.newExprId());
+    }
+
+    public UuidNumeric(ExprId exprId) {
         super("uuid_numeric");
+        this.exprId = exprId;
+    }
+
+    @Override
+    public UuidNumeric withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.isEmpty());
+        return new UuidNumeric(exprId);
     }
 
     @Override
@@ -63,5 +80,24 @@ public class UuidNumeric extends ScalarFunction
     @Override
     public boolean isDeterministic() {
         return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        UuidNumeric other = (UuidNumeric) o;
+        return exprId.equals(other.exprId);
+    }
+
+    // The contains method needs to use hashCode, so similar to equals, it only compares exprId
+    @Override
+    public int computeHashCode() {
+        // direct return exprId to speed up
+        return exprId.asInt();
     }
 }
