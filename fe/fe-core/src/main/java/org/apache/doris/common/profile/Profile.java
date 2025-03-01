@@ -201,7 +201,7 @@ public class Profile {
 
             // Read zip entry content into memory
             ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[1024 * 50];
             int readBytes;
             while ((readBytes = zipIn.read(buffer)) != -1) {
                 entryContent.write(buffer, 0, readBytes);
@@ -694,7 +694,7 @@ public class Profile {
 
             // Read zip entry content into memory
             ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
-            byte[] buffer = new byte[1024 * 1024];
+            byte[] buffer = new byte[1024 * 50];
             int readBytes;
             while ((readBytes = zipIn.read(buffer)) != -1) {
                 entryContent.write(buffer, 0, readBytes);
