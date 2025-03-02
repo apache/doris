@@ -894,6 +894,144 @@ suite("parse_sql_from_sql_cache") {
                 sql "DROP TABLE IF EXISTS ${dbName2}.${tableName}"
                 sql "DROP DATABASE IF EXISTS ${dbName1}"
                 sql "DROP DATABASE IF EXISTS ${dbName2}"
+            }),
+            extraThread("test_add_column", {
+                sql "drop table if exists test_use_plan_cache24"
+                sql """create table test_use_plan_cache24 (
+                    id int,
+                    dt int
+                   )
+                   partition by range(dt)
+                   (
+                    partition dt1 values [('1'), ('2')),
+                    partition dt2 values [('2'), ('3'))
+                   )
+                   distributed by hash(id)
+                   properties('replication_num'='1')"""
+
+                sql "insert into test_use_plan_cache24 values('2', '2')"
+                sleep(100)
+                sql "insert into test_use_plan_cache24 values('1', '1')"
+
+                // after partition changed 10s, the sql cache can be used
+                sleep(10000)
+
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from test_use_plan_cache24"
+                def result1 = sql "select * from test_use_plan_cache24"
+                assertTrue(result1.size() == 2)
+                assertHasCache "select * from test_use_plan_cache24"
+
+                sql "alter table test_use_plan_cache24 add column c1 int"
+                assertNoCache "select * from test_use_plan_cache24"
+            }),
+            extraThread("test_drop_column", {
+                sql "drop table if exists test_use_plan_cache25"
+                sql """create table test_use_plan_cache25 (
+                    id int,
+                    dt int,
+                    c1 int sum,
+                    c2 int sum
+                   )
+                   partition by range(dt)
+                   (
+                    partition dt1 values [('1'), ('2')),
+                    partition dt2 values [('2'), ('3'))
+                   )
+                   distributed by hash(id)
+                   properties('replication_num'='1')"""
+
+                sql "insert into test_use_plan_cache25 values('2', '2', '2', '2')"
+                sleep(100)
+                sql "insert into test_use_plan_cache25 values('1', '1', '1', '1')"
+
+                // after partition changed 10s, the sql cache can be used
+                sleep(10000)
+
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from test_use_plan_cache25"
+                def result1 = sql "select * from test_use_plan_cache25"
+                assertTrue(result1.size() == 2)
+                assertHasCache "select * from test_use_plan_cache25"
+
+                sql "alter table test_use_plan_cache25 drop column c2"
+                assertNoCache "select * from test_use_plan_cache25"
+            }),
+            extraThread("test_swap_column", {
+                sql "drop table if exists test_use_plan_cache26"
+                sql """create table test_use_plan_cache26 (
+                    id int,
+                    dt int,
+                    c1 int sum,
+                    c2 int sum
+                   )
+                   partition by range(dt)
+                   (
+                    partition dt1 values [('1'), ('2')),
+                    partition dt2 values [('2'), ('3'))
+                   )
+                   distributed by hash(id)
+                   properties('replication_num'='1')"""
+
+                sql "insert into test_use_plan_cache26 values('2', '2', '2', '2')"
+                sleep(100)
+                sql "insert into test_use_plan_cache26 values('1', '1', '1', '1')"
+
+                // after partition changed 10s, the sql cache can be used
+                sleep(10000)
+
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from test_use_plan_cache26"
+                def result1 = sql "select * from test_use_plan_cache26"
+                assertTrue(result1.size() == 2)
+                assertHasCache "select * from test_use_plan_cache26"
+
+                sql "alter table test_use_plan_cache26 modify column c1 int sum after c2"
+                assertNoCache "select * from test_use_plan_cache26"
+            }),
+            extraThread("test_rename_column_name", {
+                sql "drop table if exists test_use_plan_cache27"
+                sql """create table test_use_plan_cache27 (
+                    id int,
+                    dt int,
+                    c1 int sum,
+                    c2 int sum
+                   )
+                   partition by range(dt)
+                   (
+                    partition dt1 values [('1'), ('2')),
+                    partition dt2 values [('2'), ('3'))
+                   )
+                   distributed by hash(id)
+                   properties('replication_num'='1')"""
+
+               sql "insert into test_use_plan_cache27 values('2', '2', '2', '2')"
+               sleep(100)
+               sql "insert into test_use_plan_cache27 values('1', '1', '1', '1')"
+
+               // after partition changed 10s, the sql cache can be used
+               sleep(10000)
+
+               sql "set enable_nereids_planner=true"
+               sql "set enable_fallback_to_original_planner=false"
+               sql "set enable_sql_cache=true"
+
+               assertNoCache "select * from test_use_plan_cache27"
+               def result1 = sql "select * from test_use_plan_cache27"
+               assertTrue(result1.size() == 2)
+               assertHasCache "select * from test_use_plan_cache27"
+
+               sql "alter table test_use_plan_cache27 rename column c1 d1"
+               assertNoCache "select * from test_use_plan_cache27"
             })
         ).get()
     }
