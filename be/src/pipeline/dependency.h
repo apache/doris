@@ -505,7 +505,7 @@ using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SortSharedState)
 public:
-    std::unique_ptr<vectorized::Sorter> sorter;
+    std::shared_ptr<vectorized::Sorter> sorter;
 };
 
 struct SpillSortSharedState : public BasicSharedState,
