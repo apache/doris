@@ -581,6 +581,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
             res_chars.resize(res_chars.size() + string_size);
             memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
                                                      &chars[prev_string_offset], string_size);
+            check_chars_length(res_chars.size(), res_offsets.size());
         }
 
         prev_replicate_offset = replicate_offsets[i];
