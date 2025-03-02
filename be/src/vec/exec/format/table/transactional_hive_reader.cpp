@@ -19,7 +19,6 @@
 
 #include <re2/re2.h>
 
-#include "runtime/runtime_state.h"
 #include "transactional_hive_common.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -41,12 +40,7 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
                                                  RuntimeProfile* profile, RuntimeState* state,
                                                  const TFileScanRangeParams& params,
                                                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader)),
-          _profile(profile),
-          _state(state),
-          _params(params),
-          _range(range),
-          _io_ctx(io_ctx) {
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(_profile, transactional_hive_profile);
     _transactional_orc_profile.num_delete_files =
@@ -74,7 +68,7 @@ Status TransactionalHiveReader::init_reader(
     return status;
 }
 
-Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
         DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);
@@ -93,8 +87,7 @@ Status TransactionalHiveReader::get_columns(
     return _file_format_reader->get_columns(name_to_type, missing_cols);
 }
 
-Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
-                                                 io::IOContext* io_ctx) {
+Status TransactionalHiveReader::init_row_filters() {
     std::string data_file_path = _range.path;
     // the path in _range is remove the namenode prefix,
     // and the file_path in delete file is full path, so we should add it back.
@@ -128,7 +121,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
 
     SCOPED_TIMER(_transactional_orc_profile.delete_files_read_time);
     for (const auto& delete_delta :
-         range.table_format_params.transactional_hive_params.delete_deltas) {
+         _range.table_format_params.transactional_hive_params.delete_deltas) {
         const std::string file_name = file_path.filename().string();
 
         //need opt.
