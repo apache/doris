@@ -702,13 +702,11 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     // remove exec state after this fragment finished
     {
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
-
-        VLOG(10) << fmt::format("Instance {} finished",
-                                print_id(fragment_executor->fragment_instance_id()));
+        VLOG(10) << fmt::format("Instance {} finished, all_done: {}",
+                                print_id(fragment_executor->fragment_instance_id()), all_done);
     }
     if (all_done && query_ctx) {
         _query_ctx_map.erase(query_ctx->query_id());
-        LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
     }
 
     // Callback after remove from this id
@@ -809,7 +807,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         }
     }
     q_ctx->set_ready_to_execute(false);
-    VLOG(10) << fmt::format("Query {} start execution", print_id(query_id));
+    LOG(INFO) << fmt::format("Query {} start execution", print_id(query_id));
     return Status::OK();
 }
 
@@ -830,9 +828,7 @@ void FragmentMgr::remove_pipeline_context(
         }
     }
     if (all_done) {
-        // the only one log when query finished.
         _query_ctx_map.erase(query_id);
-        LOG_INFO("Query {} finished", print_id(query_id));
     }
 }
 
@@ -872,7 +868,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                              << params.fragment_num_on_host
                              << ", fe process uuid: " << params.query_options.fe_process_uuid
                              << ", query type: " << params.query_options.query_type
-                             << ", report audit fe:" << current_connect_fe_addr;
+                             << ", report audit fe:" << current_connect_fe_addr << ", limit: "
+                             << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
 
                     // This may be a first fragment request of the query.
                     // Create the query fragments context.
@@ -923,9 +920,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                     // There is some logic in query ctx's dctor, we could not check if exists and delete the
                     // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                     map.insert({query_id, query_ctx});
-                    VLOG(10) << "Register query/load memory tracker, query/load id: "
-                             << print_id(query_ctx->query_id()) << " limit: "
-                             << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
                     return Status::OK();
                 }));
     }
