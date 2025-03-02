@@ -46,7 +46,7 @@ TEST(MathFunctionTest, acos_test) {
 TEST(MathFunctionTest, acosh_test) {
     std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{2.0}, 1.3169578969248168},
@@ -54,7 +54,8 @@ TEST(MathFunctionTest, acosh_test) {
                         {{10.0}, 2.9932228461263808},
                         {{100.0}, 5.2982923656104850}};
 
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, asin_test) {
@@ -71,7 +72,7 @@ TEST(MathFunctionTest, asin_test) {
 TEST(MathFunctionTest, asinh_test) {
     std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 0.8813735870195430},
@@ -79,7 +80,8 @@ TEST(MathFunctionTest, asinh_test) {
                         {{2.0}, 1.4436354751788103},
                         {{-2.0}, -1.4436354751788103}};
 
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, atan_test) {
@@ -98,7 +100,7 @@ TEST(MathFunctionTest, atan_test) {
 TEST(MathFunctionTest, atanh_test) {
     std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{0.5}, 0.5493061443340549},
@@ -106,7 +108,8 @@ TEST(MathFunctionTest, atanh_test) {
                         {{0.9}, 1.4722194895832204},
                         {{-0.9}, -1.4722194895832204}};
 
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, cos_test) {
@@ -140,7 +143,7 @@ TEST(MathFunctionTest, sin_test) {
 TEST(MathFunctionTest, sinh_test) {
     std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 1.1752011936438014},
@@ -148,7 +151,8 @@ TEST(MathFunctionTest, sinh_test) {
                         {{2.0}, 3.6268604078470186},
                         {{-2.0}, -3.6268604078470186}};
 
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, sqrt_test) {
