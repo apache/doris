@@ -276,7 +276,8 @@ public class BindExpression implements AnalysisRuleFactory {
             // 1. the expandColumnsAlias is not empty, we should use make boundSlot expand to multi alias
             // 2. the expandColumnsAlias is empty, we should use origin boundSlot
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
-                    && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
+                    && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))
+                    && boundSlot.getDataType().isStructType()) {
                 // if the alias is not empty, we should bind it with struct_element as child expr with alias
                 // struct_element(#expand_col#k, #k) as #k
                 // struct_element(#expand_col#v, #v) as #v
