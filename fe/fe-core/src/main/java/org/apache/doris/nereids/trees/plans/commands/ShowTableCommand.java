@@ -173,14 +173,14 @@ public class ShowTableCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        if (whereClause != null) {
+            return executeWhere(ctx, executor);
+        }
         List<List<String>> rows = Lists.newArrayList();
         DatabaseIf<TableIf> dbIf = ctx.getEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(catalog)
                 .getDbOrAnalysisException(db);
         PatternMatcher matcher = null;
-        if (whereClause != null) {
-            return executeWhere(ctx, executor);
-        }
         if (likePattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
