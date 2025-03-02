@@ -83,7 +83,7 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState* local_st
             return true;
         }
         COUNTER_UPDATE(local_state->_get_block_failed_counter, 1);
-        local_state->get_dependency(channel_id)->block();
+        local_state->_dependency->block();
     }
     return false;
 }
@@ -368,135 +368,12 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
     return Status::OK();
 }
 
-Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                                     Profile&& profile, SinkInfo&& sink_info) {
-    if (!in_block->empty()) {
-        vectorized::Block new_block;
-        if (!_free_blocks.try_dequeue(new_block)) {
-            new_block = {in_block->clone_empty()};
-        }
-        DCHECK_LE(*sink_info.channel_id, _data_queue.size());
-
-        new_block.swap(*in_block);
-        _enqueue_data_and_set_ready(
-                *sink_info.channel_id, sink_info.local_state,
-                BlockWrapper::create_shared(
-                        std::move(new_block),
-                        sink_info.local_state ? sink_info.local_state->_shared_state : nullptr,
-                        *sink_info.channel_id));
-    }
-    if (eos && sink_info.local_state) {
-        _eos[*sink_info.channel_id]->store(true);
-        sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
-                ->set_always_ready();
-    }
-
-    sink_info.local_state->_memory_used_counter->set(
-            sink_info.local_state->_shared_state->mem_usage);
-    return Status::OK();
-}
-
 void ExchangerBase::finalize() {
     DCHECK(_running_source_operators == 0);
     vectorized::Block block;
     while (_free_blocks.try_dequeue(block)) {
         // do nothing
     }
-}
-
-void LocalMergeSortExchanger::finalize() {
-    BlockWrapperSPtr next_block;
-    vectorized::Block block;
-    bool eos;
-    int id = 0;
-    for (auto& data_queue : _data_queue) {
-        data_queue.set_eos();
-        while (_dequeue_data(next_block, &eos, &block, id)) {
-            block = vectorized::Block();
-        }
-        id++;
-    }
-    ExchangerBase::finalize();
-}
-
-Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
-                                             LocalExchangeSourceLocalState* local_state) {
-    vectorized::VExprContextSPtrs ordering_expr_ctxs;
-    ordering_expr_ctxs.resize(_merge_info.ordering_expr_ctxs.size());
-    for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(_merge_info.ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
-    }
-    _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            ordering_expr_ctxs, _merge_info.is_asc_order, _merge_info.nulls_first,
-            state->batch_size(), _merge_info.limit, _merge_info.offset, local_state->profile());
-    std::vector<vectorized::BlockSupplier> child_block_suppliers;
-    for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
-        vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
-                                                           vectorized::Block* block, bool* eos) {
-            BlockWrapperSPtr next_block;
-            auto got = _dequeue_data(local_state, next_block, eos, block, id);
-            if (got) {
-                // If this block is the last block, we should block this pipeline task to wait for
-                // the next block.
-                // TODO: LocalMergeSortExchanger should be refactored.
-                if (_data_queue[id].data_queue.size_approx() == 0 && !*eos) {
-                    std::unique_lock l(*_m[id]);
-                    if (_data_queue[id].data_queue.size_approx() == 0 && !*eos) {
-                        local_state->get_dependency(id)->block();
-                    }
-                }
-            }
-#ifndef NDEBUG
-            if (*eos && !(*_eos[id])) {
-                return Status::InternalError(
-                        "LocalMergeSortExchanger{} meet error! _eos[id] should be true if no "
-                        "source operators are running",
-                        local_state->debug_string(0));
-            }
-#endif
-            // `eos` is true if all sink operators are closed and no block remains. `_eos[id]` is
-            // true means sink operator of instance[id] has already sent the last block with `eos`
-            // flag.
-            if (block->empty() && !(*_eos[id])) {
-                return Status::InternalError(
-                        "LocalMergeSortExchanger{} meet error! Block should not be empty when eos "
-                        "is false",
-                        local_state->debug_string(0));
-            } else if (block->empty()) {
-                *eos = *_eos[id];
-            }
-            return Status::OK();
-        };
-        child_block_suppliers.push_back(block_supplier);
-    }
-    RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
-    return Status::OK();
-}
-
-/*
-before
-    sort(8) --> datasink(8) [0,7].  ---->
-    sort(8) --> datasink(8) [8,15]. ---->        [0,23]global merge ---->   Exchange(1)
-    sort(8) --> datasink(8) [16,23].---->
-
-now
-
-    sort(8) --> local merge(1) ---> datasink(1) [0] ---->
-    sort(8) --> local merge(1) ---> datasink(1) [1] ---->     [0,2]global merge ---->   Exchange(1)
-    sort(8) --> local merge(1) ---> datasink(1) [2] ---->
-*/
-Status LocalMergeSortExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
-                                          Profile&& profile, SourceInfo&& source_info) {
-    if (source_info.channel_id != 0) {
-        *eos = true;
-        return Status::OK();
-    }
-    if (!_merger) {
-        DCHECK(source_info.local_state);
-        RETURN_IF_ERROR(build_merger(state, source_info.local_state));
-    }
-    RETURN_IF_ERROR(_merger->get_next(block, eos));
-    return Status::OK();
 }
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,

@@ -117,7 +117,6 @@ public:
         friend class PassthroughExchanger;
         friend class BroadcastExchanger;
         friend class PassToOneExchanger;
-        friend class LocalMergeSortExchanger;
         friend class AdaptivePassthroughExchanger;
         template <typename BlockType>
         friend class Exchanger;
@@ -341,45 +340,6 @@ public:
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
     void close(SourceInfo&& source_info) override;
 };
-
-class LocalMergeSortExchanger final : public Exchanger<BlockWrapperSPtr> {
-public:
-    struct MergeInfo {
-        const std::vector<bool>& is_asc_order;
-        const std::vector<bool>& nulls_first;
-        const int64_t limit;
-        const int64_t offset;
-        const vectorized::VExprContextSPtrs& ordering_expr_ctxs;
-    };
-    ENABLE_FACTORY_CREATOR(LocalMergeSortExchanger);
-    LocalMergeSortExchanger(MergeInfo&& merge_info, int running_sink_operators, int num_partitions,
-                            int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
-              _merge_info(std::move(merge_info)) {
-        _eos.resize(num_partitions, nullptr);
-        for (size_t i = 0; i < num_partitions; i++) {
-            _eos[i] = std::make_shared<std::atomic_bool>(false);
-        }
-    }
-    ~LocalMergeSortExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
-                SinkInfo&& sink_info) override;
-
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
-                     SourceInfo&& source_info) override;
-    ExchangeType get_type() const override { return ExchangeType::LOCAL_MERGE_SORT; }
-
-    Status build_merger(RuntimeState* statem, LocalExchangeSourceLocalState* local_state);
-
-    void close(SourceInfo&& source_info) override {}
-    void finalize() override;
-
-private:
-    std::unique_ptr<vectorized::VSortedRunMerger> _merger;
-    MergeInfo _merge_info;
-    std::vector<std::shared_ptr<std::atomic_bool>> _eos;
-};
-
 class BroadcastExchanger final : public Exchanger<BroadcastBlock> {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);

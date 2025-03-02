@@ -199,7 +199,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    DataDistribution required_data_distribution() const override;
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);

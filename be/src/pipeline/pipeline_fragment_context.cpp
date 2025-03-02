@@ -764,9 +764,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
-            data_distribution.distribution_type == ExchangeType::LOCAL_MERGE_SORT
-                    ? LocalMergeExchangeSharedState::create_shared(_num_instances)
-                    : LocalExchangeSharedState::create_shared(_num_instances);
+            LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -819,25 +817,6 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                             : 0);
         }
         break;
-    case ExchangeType::LOCAL_MERGE_SORT: {
-        auto child_op = cur_pipe->sink()->child();
-        auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
-        if (!sort_source) {
-            return Status::InternalError(
-                    "LOCAL_MERGE_SORT must use in SortSourceOperatorX , but now is {} ",
-                    child_op->get_name());
-        }
-        shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                LocalMergeSortExchanger::MergeInfo {
-                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
-                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? cast_set<int>(
-                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
-        break;
-    }
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,

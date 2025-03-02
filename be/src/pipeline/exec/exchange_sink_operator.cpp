@@ -564,19 +564,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return Base::close(state, exec_status);
 }
 
-DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
-        // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
-        // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
-            sort_source && sort_source->use_local_merge()) {
-            // Sort the data local
-            return ExchangeType::LOCAL_MERGE_SORT;
-        }
-    }
-    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
-}
-
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
         const std::vector<InstanceLoId>& sender_ins_ids) {
     PUniqueId id;
