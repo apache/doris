@@ -128,7 +128,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
         value_col_data1->insert(100);
         value_col_data1->insert(101);
-        resp_block1.insert({std::move(resp_value_col1), _int_type, "value"});
+        resp_block1.insert(
+                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value"});
 
         auto callback1 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
         callback1->response_.reset(new PMultiGetResponseV2());
@@ -149,7 +150,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         auto* value_col_data2 =
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
         value_col_data2->insert(200);
-        resp_block2.insert({std::move(resp_value_col2), _int_type, "value"});
+        resp_block2.insert(
+                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
 
         auto callback2 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
         callback2->response_.reset(new PMultiGetResponseV2());
@@ -166,7 +168,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // 3. Setup block order results to control merge order
     _shared_state->block_order_results = {
-            {_backend_id1, _backend_id1, _backend_id2} // First block order: BE1,BE1,BE2
+            {_backend_id1, 0, _backend_id2} // First block order: BE1,BE1,BE2
     };
 
     // 4. Test merging responses
@@ -227,8 +229,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto* value_col_data1 =
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
         value_col_data1->insert(100);
-        value_col_data1->insert(101);
-        resp_block1.insert({std::move(resp_value_col1), _int_type, "value1"});
+        resp_block1.insert(
+                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value1"});
 
         auto callback1 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
         callback1->response_.reset(new PMultiGetResponseV2());
@@ -249,7 +251,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto* value_col_data2 =
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
         value_col_data2->insert(102);
-        resp_block2.insert({std::move(resp_value_col2), _int_type, "value1"});
+        resp_block2.insert(
+                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value1"});
 
         auto callback2 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
         callback2->response_.reset(new PMultiGetResponseV2());
@@ -270,7 +273,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto* value_col_data1 =
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
         value_col_data1->insert(200);
-        resp_block1.insert({std::move(resp_value_col1), _int_type, "value2"});
+        resp_block1.insert(
+                {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value2"});
 
         auto serialized_block = _shared_state->rpc_struct_map[_backend_id1]
                                         .callback->response_->add_blocks()
@@ -288,8 +292,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto* value_col_data2 =
                 reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
         value_col_data2->insert(201);
-        value_col_data2->insert(202);
-        resp_block2.insert({std::move(resp_value_col2), _int_type, "value2"});
+        resp_block2.insert(
+                {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value2"});
 
         auto serialized_block = _shared_state->rpc_struct_map[_backend_id2]
                                         .callback->response_->add_blocks()
@@ -303,8 +307,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // 3. Setup block order results for both rowids
     _shared_state->block_order_results = {
-            {_backend_id1, _backend_id1, _backend_id2}, // First block order: BE1,BE1,BE2
-            {_backend_id1, _backend_id2, _backend_id2}  // Second block order: BE1,BE2,BE2
+            {_backend_id1, 0, _backend_id2}, // First block order: BE1,null,BE2
+            {_backend_id1, _backend_id2, 0}  // Second block order: BE1,BE2,null
     };
 
     // 4. Test merging responses

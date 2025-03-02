@@ -39,7 +39,17 @@ public:
     MaterializationSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : Base(state, parent) {};
 
+    Status init(doris::RuntimeState* state, doris::pipeline::LocalStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+        _max_rpc_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "MaxRpcTime", 2);
+        _merge_response_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "MergeResponseTime", 2);
+        return Status::OK();
+    }
+
 private:
+    RuntimeProfile::Counter* _max_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _merge_response_timer = nullptr;
+
     friend class MaterializationSourceOperatorX;
     friend class OperatorX<MaterializationSourceLocalState>;
 };
@@ -49,9 +59,7 @@ public:
     using Base = OperatorX<MaterializationSourceLocalState>;
     MaterializationSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                                    const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs) {
-        _op_name = "MATERIALIZATION_SOURCE_OPERATOR";
-    };
+            : Base(pool, tnode, operator_id, descs) {};
     ~MaterializationSourceOperatorX() override = default;
 
     Status get_block(doris::RuntimeState* state, vectorized::Block* block, bool* eos) override;

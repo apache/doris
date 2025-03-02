@@ -49,7 +49,6 @@ Status MaterializationSinkOperatorX::init(const doris::TPlanNode& tnode,
 }
 
 Status MaterializationSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_rowid_exprs, state));
     return Status::OK();
@@ -61,8 +60,10 @@ class MaterializationCallback : public ::doris::DummyBrpcCallback<Response> {
 
 public:
     MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx,
-                            MaterializationSharedState* shared_state)
-            : _tast_exec_ctx(std::move(tast_exec_ctx)), _shared_state(shared_state) {}
+                            MaterializationSharedState* shared_state, MonotonicStopWatch& rpc_timer)
+            : _tast_exec_ctx(std::move(tast_exec_ctx)),
+              _shared_state(shared_state),
+              _rpc_timer(rpc_timer) {}
 
     ~MaterializationCallback() override = default;
     MaterializationCallback(const MaterializationCallback& other) = delete;
@@ -74,6 +75,7 @@ public:
             return;
         }
 
+        _rpc_timer.stop();
         if (::doris::DummyBrpcCallback<Response>::cntl_->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
@@ -93,6 +95,7 @@ public:
 private:
     std::weak_ptr<TaskExecutionContext> _tast_exec_ctx;
     MaterializationSharedState* _shared_state;
+    MonotonicStopWatch& _rpc_timer;
 };
 
 Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -126,16 +129,20 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         RETURN_IF_ERROR(
                 local_state._shared_state->create_muiltget_result(columns, eos, _gc_id_map));
 
-        for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {
+        for (auto& [backend_id, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             auto callback = MaterializationCallback<PMultiGetResponseV2>::create_shared(
-                    state->get_task_execution_context(), local_state._shared_state);
-            rpc_struct.callback = callback;
+                    state->get_task_execution_context(), local_state._shared_state,
+                    rpc_struct.rpc_timer);
+            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
             auto closure =
                     AutoReleaseClosure<int, ::doris::DummyBrpcCallback<PMultiGetResponseV2>>::
-                            create_unique(std::make_shared<int>(), callback,
-                                          state->get_query_ctx_weak());
-
-            callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * -+1000);
+                            create_unique(
+                                    std::make_shared<int>(), callback, state->get_query_ctx_weak(),
+                                    "Materialization Sink node id:" + std::to_string(node_id()) +
+                                            " target_backend_id:" + std::to_string(backend_id));
+            // send brpc request
+            rpc_struct.callback = callback;
+            rpc_struct.rpc_timer.start();
             rpc_struct.stub->multiget_data_v2(callback->cntl_.get(), &rpc_struct.request,
                                               callback->response_.get(), closure.release());
         }

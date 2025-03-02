@@ -555,14 +555,14 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
             column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
         }
 
-        const GlobalRowLoacationV2* row_locations =
-                reinterpret_cast<const GlobalRowLoacationV2*>(column_rowid->get_chars().data());
         auto& block_order = block_order_results[i];
         block_order.resize(rows);
 
         for (int j = 0; j < rows; ++j) {
-            if (null_map && !null_map[j]) {
-                GlobalRowLoacationV2 row_location = row_locations[j];
+            if (!null_map || !null_map[j]) {
+                DCHECK(column_rowid->get_data_at(j).size == sizeof(GlobalRowLoacationV2));
+                GlobalRowLoacationV2 row_location =
+                        *((GlobalRowLoacationV2*)column_rowid->get_data_at(j).data);
                 auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
                 if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
                     return Status::InternalError(

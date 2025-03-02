@@ -880,6 +880,7 @@ struct FetchRpcStruct {
     std::shared_ptr<PBackendService_Stub> stub;
     PMultiGetRequestV2 request;
     std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
+    MonotonicStopWatch rpc_timer;
 };
 
 struct MaterializationSharedState : public BasicSharedState {
