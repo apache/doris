@@ -196,7 +196,10 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         validateContext.addGroupByExpresssions(nonVirtualGroupByExprs(logicalAggregate));
         context.push(validateContext);
         Plan plan = super.visit(logicalAggregate, context);
-        context.pop();
+        if (!context.isEmpty()) {
+            // context may be cleared by unsupported plan node
+            context.pop();
+        }
         return plan;
     }
 
