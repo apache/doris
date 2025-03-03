@@ -19,11 +19,11 @@
 suite("test_show_load_warnings","p0") {
     def tableName = "test_show_load_warnings_tb"
     def dbName = "test_show_load_warnings_db"
-    def s3BucketName = getS3BucketName()
-    def s3Endpoint = getS3Endpoint()
-    def s3Provider = getS3Provider()
 
     try {
+        sql """ set enable_nereids_planner=true """
+        sql """ set enable_fallback_to_original_planner=false """
+
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
         // create table and insert data
         sql """ drop table if exists ${dbName}.${tableName} force"""
@@ -63,7 +63,6 @@ suite("test_show_load_warnings","p0") {
             }
         }
 
-
         sql """ DROP TABLE IF EXISTS ${dbName}.${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${dbName}.${tableName} (
@@ -83,8 +82,11 @@ suite("test_show_load_warnings","p0") {
         String path = "s3://${s3BucketName}/regression/load/data/etl_failure/etl-failure.csv"
         String format = "CSV"
         String ak = getS3AK()
-        String sk = getS3SK()    
-        sql """ use ${dbName} """   
+        String sk = getS3SK()
+        String s3BucketName = getS3BucketName()
+        String s3Endpoint = getS3Endpoint()
+        String s3Provider = getS3Provider()
+        sql """ use ${dbName} """
 
         sql """
             LOAD LABEL ${label} (
@@ -117,6 +119,5 @@ suite("test_show_load_warnings","p0") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """ DROP DATABASE IF EXISTS ${dbName} """
     }
-
 
 }
