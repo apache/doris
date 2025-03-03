@@ -64,7 +64,7 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
     return Status::OK();
 }
 
-void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
+Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer);
     for (int i = 0; i < _producers.size(); i++) {
         auto filter = _producers[i];
@@ -74,8 +74,9 @@ void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t
         }
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
         const auto& column = block->get_by_position(result_column_id).column;
-        filter->insert(column, start);
+        RETURN_IF_ERROR(filter->insert(column, start));
     }
+    return Status::OK();
 }
 
 Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
@@ -103,7 +104,7 @@ Status RuntimeFilterProducerHelper::process(
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
-            _insert(block, 1);
+            RETURN_IF_ERROR(_insert(block, 1));
         }
     }
 
