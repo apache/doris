@@ -331,6 +331,8 @@ supportedShowStatement
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarnings
     ;
 
 supportedLoadStatement
@@ -383,8 +385,6 @@ unsupportedShowStatement
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
