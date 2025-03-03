@@ -212,9 +212,10 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
         //  the implementation of NULL values because the dictionary itself does not contain
         //  NULL value encoding. As a result, many NULL-related functions or expressions
         //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate is not slot.
+        //  Here we first disable dictionary filtering when predicate is not IN or BINARY_PRED.
         //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() != TExprNodeType::SLOT_REF) {
+        if (expr->node_type() != TExprNodeType::BINARY_PRED &&
+            expr->node_type() != TExprNodeType::IN_PRED) {
             return false;
         }
         for (auto& child : expr->children()) {
