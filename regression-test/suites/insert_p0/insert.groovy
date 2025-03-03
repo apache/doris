@@ -112,4 +112,41 @@ suite("insert") {
           b as (select * from a)
         select id from a;
         """
+    sql """
+    DROP TABLE IF EXISTS source;
+    DROP TABLE IF EXISTS dest;
+    CREATE TABLE source (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+
+    CREATE TABLE dest (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+    insert into source values('1994-12-08', 1,1) , ('1994-12-14',1,1), ('1994-12-14',2,1);
+
+
+    insert into dest select * from source where l_shipdate = '1994-12-08';
+    insert into dest select * from source where l_shipdate = '1994-12-14';
+    """
+
+    def rows1 = sql """select count() from source;"""
+    def rows2 = sql """select count() from dest;"""
+    assertTrue(rows1 == rows2);
 }

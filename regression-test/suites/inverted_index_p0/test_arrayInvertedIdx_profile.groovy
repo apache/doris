@@ -62,8 +62,8 @@ suite("test_arrayInvertedIdx_profile", "nonConcurrent"){
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
     sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-    sql """ set enable_pipeline_x_engine = true;"""
     sql """ set enable_profile = true;"""
+    sql """ set profile_level = 2;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table

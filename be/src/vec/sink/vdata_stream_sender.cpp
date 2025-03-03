@@ -57,17 +57,23 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
+    // only enable_local_exchange() is true and the destination address is localhost, then the channel is local
+    _is_local &= state->enable_local_exchange();
+
+    if (_is_local) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_init_brpc_stub(state));
+
+    return Status::OK();
+}
+
+Status Channel::_init_brpc_stub(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";
         return Status::InternalError("no brpc destination");
-    }
-    if (state->query_options().__isset.enable_local_exchange) {
-        _is_local &= state->query_options().enable_local_exchange;
-    }
-
-    if (_is_local) {
-        return Status::OK();
     }
 
     auto network_address = _brpc_dest_addr;
@@ -94,23 +100,10 @@ Status Channel::init(RuntimeState* state) {
 
 Status Channel::open(RuntimeState* state) {
     if (_is_local) {
-        auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr);
-        if (!st.ok()) {
-            // If could not find local receiver, then it means the channel is EOF.
-            // Maybe downstream task is finished already.
-            //if (_receiver_status.ok()) {
-            //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
-            //}
-            LOG(INFO) << "Query: " << print_id(state->query_id())
-                      << " recvr is not found, maybe downstream task is finished. error st is: "
-                      << st.to_string();
-        }
+        RETURN_IF_ERROR(_find_local_recvr(state));
     }
     _be_number = state->be_number();
-
     _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
-
     _serializer.set_is_local(_is_local);
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
@@ -118,7 +111,44 @@ Status Channel::open(RuntimeState* state) {
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
 
-    _state = state;
+    return Status::OK();
+}
+
+Status Channel::_find_local_recvr(RuntimeState* state) {
+    auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(_fragment_instance_id,
+                                                                      _dest_node_id, &_local_recvr);
+    if (!st.ok()) {
+        // If could not find local receiver, then it means the channel is EOF.
+        // Maybe downstream task is finished already.
+        //if (_receiver_status.ok()) {
+        //    _receiver_status = Status::EndOfFile("local data stream receiver is deconstructed");
+        //}
+        LOG(INFO) << "Query: " << print_id(state->query_id())
+                  << " recvr is not found, maybe downstream task is finished. error st is: "
+                  << st.to_string();
+    }
+    return Status::OK();
+}
+Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offset,
+                         const uint32_t size, bool eos) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
+
+    bool serialized = false;
+    if (_pblock == nullptr) {
+        _pblock = std::make_unique<PBlock>();
+    }
+    int64_t old_channel_mem_usage = mem_usage();
+    Defer update_mem([&]() {
+        COUNTER_UPDATE(_parent->memory_used_counter(), mem_usage() - old_channel_mem_usage);
+    });
+    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
+                                                      data, offset, size));
+    if (serialized) {
+        RETURN_IF_ERROR(_send_current_block(eos));
+    }
+
     return Status::OK();
 }
 
@@ -130,9 +160,7 @@ std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
 }
 
 int64_t Channel::mem_usage() const {
-    auto* mutable_block = _serializer.get_block();
-    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
-    return mem_usage;
+    return _serializer.mem_usage();
 }
 
 Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
@@ -169,6 +197,7 @@ Status Channel::_send_current_block(bool eos) {
     if (is_local()) {
         return _send_local_block(eos);
     }
+    // here _pblock maybe nullptr , but we must send the eos to the receiver
     return send_remote_block(std::move(_pblock), eos);
 }
 
@@ -275,23 +304,28 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         }
     }
 
-    if (_mutable_block->rows() >= _batch_size || eos) {
+    if (_mutable_block->rows() >= _batch_size || eos ||
+        (_mutable_block->rows() > 0 && _mutable_block->allocated_bytes() > _buffer_mem_limit)) {
         if (!_is_local) {
-            RETURN_IF_ERROR(serialize_block(dest, num_receivers));
+            RETURN_IF_ERROR(_serialize_block(dest, num_receivers));
         }
         *serialized = true;
-        return Status::OK();
+    } else {
+        *serialized = false;
     }
-    *serialized = false;
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
+Status BlockSerializer::_serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
-        block.clear_column_data();
-        _mutable_block->set_mutable_columns(block.mutate_columns());
+        if (_parent->state()->low_memory_mode()) {
+            reset_block();
+        } else {
+            block.clear_column_data();
+            _mutable_block->set_mutable_columns(block.mutate_columns());
+        }
     }
 
     return Status::OK();
@@ -307,8 +341,12 @@ Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t n
     COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
     COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());
-    _parent->get_query_statistics_ptr()->add_shuffle_send_bytes(compressed_bytes * num_receivers);
-    _parent->get_query_statistics_ptr()->add_shuffle_send_rows(src->rows() * num_receivers);
+#ifndef BE_TEST
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_bytes(
+            compressed_bytes * num_receivers);
+    _parent->state()->get_query_ctx()->resource_ctx()->io_context()->update_shuffle_send_rows(
+            src->rows() * num_receivers);
+#endif
 
     return Status::OK();
 }

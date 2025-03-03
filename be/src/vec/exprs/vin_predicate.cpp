@@ -146,6 +146,26 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     return Status::OK();
 }
 
+size_t VInPredicate::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) {
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+
+    for (int i = 0; i < _children.size(); ++i) {
+        estimate_size += _children[i]->estimate_memory(rows);
+    }
+
+    if (_data_type->is_nullable()) {
+        estimate_size += rows * sizeof(uint8_t);
+    }
+
+    estimate_size += rows * sizeof(uint8_t);
+
+    return estimate_size;
+}
+
 const std::string& VInPredicate::expr_name() const {
     return _expr_name;
 }

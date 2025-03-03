@@ -30,6 +30,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
 #include "vec/columns/column.h"
@@ -41,12 +42,7 @@ bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudFullCompaction::~CloudFullCompaction() = default;
 
@@ -221,13 +217,13 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
     compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.block", DBUG_BLOCK);
+
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(this->initiator()));
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -268,7 +264,7 @@ Status CloudFullCompaction::modify_rowsets() {
     return Status::OK();
 }
 
-void CloudFullCompaction::garbage_collection() {
+Status CloudFullCompaction::garbage_collection() {
     //file_cache_garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -283,9 +279,7 @@ void CloudFullCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::FULL);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -294,6 +288,7 @@ void CloudFullCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudFullCompaction::do_lease() {

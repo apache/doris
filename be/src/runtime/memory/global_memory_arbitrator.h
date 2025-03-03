@@ -90,7 +90,7 @@ public:
     }
 
     static bool try_reserve_process_memory(int64_t bytes);
-    static void release_process_reserved_memory(int64_t bytes);
+    static void shrink_process_reserved(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
         return _process_reserved_memory.load(std::memory_order_relaxed);
@@ -149,18 +149,21 @@ public:
 
     static std::string process_limit_exceeded_errmsg_str() {
         return fmt::format(
-                "{} exceed limit {} or {} less than low water mark {}", process_memory_used_str(),
-                MemInfo::mem_limit_str(), sys_mem_available_str(),
+                "{} exceed limit {} or {} less than low water mark {}",
+                process_memory_used_details_str(), MemInfo::mem_limit_str(),
+                sys_mem_available_details_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
     }
 
     static std::string process_soft_limit_exceeded_errmsg_str() {
         return fmt::format("{} exceed soft limit {} or {} less than warning water mark {}.",
-                           process_memory_used_str(), MemInfo::soft_mem_limit_str(),
-                           sys_mem_available_str(),
+                           process_memory_used_details_str(), MemInfo::soft_mem_limit_str(),
+                           sys_mem_available_details_str(),
                            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
                                                 TUnit::BYTES));
     }
+
+    static void refresh_memory_bvar();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
@@ -170,6 +173,12 @@ public:
     static std::condition_variable cache_adjust_capacity_cv;
     static std::atomic<bool> cache_adjust_capacity_notify;
     static std::atomic<double> last_cache_capacity_adjust_weighted;
+    // This capacity is set by workload group spill disk thread
+    static std::atomic<double> last_wg_trigger_cache_capacity_adjust_weighted;
+    // The value that take affect
+    static std::atomic<double> last_affected_cache_capacity_adjust_weighted;
+    static std::atomic<bool> any_workload_group_exceed_limit;
+
     static void notify_cache_adjust_capacity() {
         cache_adjust_capacity_notify.store(true, std::memory_order_relaxed);
         cache_adjust_capacity_cv.notify_all();

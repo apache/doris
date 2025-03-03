@@ -17,8 +17,9 @@
 
 #include "runtime/record_batch_queue.h"
 
+#include <mutex>
+
 #include "pipeline/dependency.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -41,7 +42,7 @@ void RecordBatchQueue::update_status(const Status& status) {
         return;
     }
     {
-        std::lock_guard<SpinLock> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         if (_status.ok()) {
             _status = status;
         }

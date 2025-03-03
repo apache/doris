@@ -26,7 +26,7 @@
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
 # choose a base image
-FROM selectdb/base:latest
+FROM apache/doris:base-latest
 
 ARG TARGETARCH
 

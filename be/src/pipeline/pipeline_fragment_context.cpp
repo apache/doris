@@ -22,6 +22,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <pthread.h>
 
+#include <algorithm>
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
@@ -112,6 +113,7 @@
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/spill/spill_stream.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -130,8 +132,11 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext")
+            .tag("query_id", print_id(_query_id))
+            .tag("fragment_id", _fragment_id);
     // The memory released by the query end is recorded in the query mem tracker.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
     _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
@@ -181,7 +186,9 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
-        LOG(WARNING) << "PipelineFragmentContext is cancelled due to timeout : " << debug_string();
+        auto dbg_str = fmt::format("PipelineFragmentContext is cancelled due to timeout:\n{}",
+                                   debug_string());
+        LOG_LONG_STRING(WARNING, dbg_str);
     }
 
     // `ILLEGAL_STATE` means queries this fragment belongs to was not found in FE (maybe finished)
@@ -190,6 +197,9 @@ void PipelineFragmentContext::cancel(const Status reason) {
                     debug_string());
     }
 
+    if (reason.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || reason.is<ErrorCode::MEM_ALLOC_FAILED>()) {
+        print_profile("cancel pipeline, reason: " + reason.to_string());
+    }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -363,6 +373,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
     _runtime_filter_states.resize(target_size);
+    _runtime_filter_mgr_map.resize(target_size);
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _task_runtime_states[pip_idx].resize(_pipelines[pip_idx]->num_tasks());
@@ -374,8 +385,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
         _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
-        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
+        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr =
+                std::make_unique<RuntimeFilterMgr>(request.query_id, _runtime_filter_states[i],
+                                                   _query_ctx->query_mem_tracker(), false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -410,7 +422,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
-                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
+                    task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
 
                     task_runtime_state->set_task_execution_context(shared_from_this());
                     task_runtime_state->set_be_number(local_params.backend_num);
@@ -510,7 +522,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         }
         {
             std::lock_guard<std::mutex> l(_state_map_lock);
-            _runtime_filter_mgr_map[fragment_instance_id] = std::move(runtime_filter_mgr);
+            _runtime_filter_mgr_map[i] = std::move(runtime_filter_mgr);
         }
         return Status::OK();
     };
@@ -816,7 +828,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                     child_op->get_name());
         }
         shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                sort_source, cur_pipe->num_tasks(), _num_instances,
+                LocalMergeSortExchanger::MergeInfo {
+                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
+                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
+                cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
@@ -1048,7 +1063,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         DCHECK(thrift_sink.__isset.olap_table_sink);
 #ifndef NDEBUG
         DCHECK(state->get_query_ctx() != nullptr);
-        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+        state->get_query_ctx()->query_mem_tracker()->is_group_commit_load = true;
 #endif
         _sink.reset(
                 new GroupCommitBlockSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
@@ -1121,11 +1136,12 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             sources.push_back(source_id);
         }
 
-        _sink.reset(new MultiCastDataStreamSinkOperatorX(
-                sink_id, sources, pool, thrift_sink.multi_cast_stream_sink, row_desc));
+        _sink.reset(new MultiCastDataStreamSinkOperatorX(sink_id, sources, pool,
+                                                         thrift_sink.multi_cast_stream_sink));
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
-            RowDescriptor* _row_desc = nullptr;
+            // use to exchange sink
+            RowDescriptor* exchange_row_desc = nullptr;
             {
                 const auto& tmp_row_desc =
                         !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
@@ -1133,8 +1149,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                                 {thrift_sink.multi_cast_stream_sink.sinks[i]
                                                          .output_tuple_id},
                                                 {false})
-                                : _sink->row_desc();
-                _row_desc = pool->add(new RowDescriptor(tmp_row_desc));
+                                : row_desc;
+                exchange_row_desc = pool->add(new RowDescriptor(tmp_row_desc));
             }
             auto source_id = sources[i];
             OperatorPtr source_op;
@@ -1147,7 +1163,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
 
             DataSinkOperatorPtr sink_op;
             sink_op.reset(new ExchangeSinkOperatorX(
-                    state, *_row_desc, next_sink_operator_id(),
+                    state, *exchange_row_desc, next_sink_operator_id(),
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], _fragment_instance_ids));
 
@@ -1200,7 +1216,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
 #ifndef NDEBUG
         DCHECK(_query_ctx != nullptr);
-        _query_ctx->query_mem_tracker->is_group_commit_load = true;
+        _query_ctx->query_mem_tracker()->is_group_commit_load = true;
 #endif
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(
@@ -1251,7 +1267,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             return Status::InternalError("Illegal aggregate node " + std::to_string(tnode.node_id) +
                                          ": group by and output is empty");
         }
-
+        bool need_create_cache_op =
+                enable_query_cache && tnode.node_id == request.fragment.query_cache_param.node_id;
         auto create_query_cache_operator = [&](PipelinePtr& new_pipe) {
             auto cache_node_id = request.local_params[0].per_node_scan_ranges.begin()->first;
             auto cache_source_id = next_operator_id();
@@ -1277,14 +1294,18 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         /// PartitionedAggSourceOperatorX does not support "group by limit opt(#29641)" yet.
         /// If `group_by_limit_opt` is true, then it might not need to spill at all.
-        const bool enable_spill = _runtime_state->enable_agg_spill() &&
+        const bool enable_spill = _runtime_state->enable_spill() &&
                                   !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt;
+        const bool is_streaming_agg = tnode.agg_node.__isset.use_streaming_preaggregation &&
+                                      tnode.agg_node.use_streaming_preaggregation &&
+                                      !tnode.agg_node.grouping_exprs.empty();
+        const bool can_use_distinct_streaming_agg =
+                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                request.query_options.__isset.enable_distinct_streaming_aggregation &&
+                request.query_options.enable_distinct_streaming_aggregation;
 
-        if (tnode.agg_node.aggregate_functions.empty() && !enable_spill &&
-            request.query_options.__isset.enable_distinct_streaming_aggregation &&
-            request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt) {
-            if (enable_query_cache) {
+        if (can_use_distinct_streaming_agg) {
+            if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1305,10 +1326,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 RETURN_IF_ERROR(cur_pipe->add_operator(
                         op, request.__isset.parallel_instances ? request.parallel_instances : 0));
             }
-        } else if (tnode.agg_node.__isset.use_streaming_preaggregation &&
-                   tnode.agg_node.use_streaming_preaggregation &&
-                   !tnode.agg_node.grouping_exprs.empty()) {
-            if (enable_query_cache) {
+        } else if (is_streaming_agg) {
+            if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
@@ -1325,7 +1344,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         } else {
             // create new pipeline to add query cache operator
             PipelinePtr new_pipe;
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
             }
 
@@ -1334,7 +1353,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             } else {
                 op.reset(new AggSourceOperatorX(pool, tnode, next_operator_id(), descs));
             }
-            if (enable_query_cache) {
+            if (need_create_cache_op) {
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
                 RETURN_IF_ERROR(new_pipe->add_operator(
                         op, request.__isset.parallel_instances ? request.parallel_instances : 0));
@@ -1371,23 +1390,26 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::HASH_JOIN_NODE: {
         const auto is_broadcast_join = tnode.hash_join_node.__isset.is_broadcast_join &&
                                        tnode.hash_join_node.is_broadcast_join;
-        const auto enable_join_spill = _runtime_state->enable_join_spill();
-        if (enable_join_spill && !is_broadcast_join) {
+        const auto enable_spill = _runtime_state->enable_spill();
+        if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
-            /// TODO: support rf in partitioned hash join
             tnode_.runtime_filters.clear();
-            const uint32_t partition_count = 32;
+            uint32_t partition_count = _runtime_state->spill_hash_join_partition_count();
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
-            auto inner_sink_operator =
+
+            // probe side inner sink operator is used to build hash table on probe side when data is spilled.
+            // So here use `tnode_` which has no runtime filters.
+            auto probe_side_inner_sink_operator =
                     std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode_, descs);
 
             RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
-            RETURN_IF_ERROR(inner_sink_operator->init(tnode_, _runtime_state.get()));
+            RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
 
             auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
                     pool, tnode_, next_operator_id(), descs, partition_count);
-            probe_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
+            probe_operator->set_inner_operators(probe_side_inner_sink_operator,
+                                                inner_probe_operator);
             op = std::move(probe_operator);
             RETURN_IF_ERROR(cur_pipe->add_operator(
                     op, request.__isset.parallel_instances ? request.parallel_instances : 0));
@@ -1399,9 +1421,13 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
+            auto inner_sink_operator =
+                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode, descs);
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
                     pool, next_sink_operator_id(), op->operator_id(), tnode_, descs,
                     partition_count);
+            RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
+
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
             DataSinkOperatorPtr sink = std::move(sink_operator);
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
@@ -1485,7 +1511,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        const auto should_spill = _runtime_state->enable_sort_spill() &&
+        const auto should_spill = _runtime_state->enable_spill() &&
                                   tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1701,6 +1727,23 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::print_profile(const std::string& extra_info) {
+    if (_runtime_state->enable_profile()) {
+        std::stringstream ss;
+        for (auto runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+            runtime_profile_ptr->pretty_print(&ss);
+        }
+
+        if (_runtime_state->load_channel_profile()) {
+            _runtime_state->load_channel_profile()->pretty_print(&ss);
+        }
+
+        auto profile_str =
+                fmt::format("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
+                            this->_fragment_id, extra_info, ss.str());
+        LOG_LONG_STRING(INFO, profile_str);
+    }
+}
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 void PipelineFragmentContext::_close_fragment_instance() {
@@ -1717,7 +1760,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
     if (_runtime_state->enable_profile() &&
         (_query_ctx->get_query_source() == QuerySource::STREAM_LOAD ||
-         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR)) {
+         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR ||
+         _query_ctx->get_query_source() == QuerySource::GROUP_COMMIT_LOAD)) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:
@@ -1746,7 +1790,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
-void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
+void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     // If all tasks of this pipeline has been closed, upstream tasks is never needed, and we just make those runnable here
     DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
     if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
@@ -1804,6 +1848,44 @@ Status PipelineFragmentContext::send_report(bool done) {
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
+size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const {
+    size_t res = 0;
+    // _tasks will be cleared during ~PipelineFragmentContext, so that it's safe
+    // here to traverse the vector.
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            if (task->is_running() || task->is_revoking()) {
+                LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
+                                      << " is running, task: " << (void*)task.get()
+                                      << ", is_revoking: " << task->is_revoking()
+                                      << ", is_running: " << task->is_running()
+                                      << ", task info: " << task->debug_string();
+                *has_running_task = true;
+                return 0;
+            }
+
+            size_t revocable_size = task->get_revocable_size();
+            if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                res += revocable_size;
+            }
+        }
+    }
+    return res;
+}
+
+std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const {
+    std::vector<PipelineTask*> revocable_tasks;
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            size_t revocable_size_ = task->get_revocable_size();
+            if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                revocable_tasks.emplace_back(task.get());
+            }
+        }
+    }
+    return revocable_tasks;
+}
+
 std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info:\n");
@@ -1834,13 +1916,13 @@ PipelineFragmentContext::collect_realtime_profile() const {
 
     // Make sure first profile is fragment level profile
     auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
-    _fragment_level_profile->to_thrift(fragment_profile.get());
+    _fragment_level_profile->to_thrift(fragment_profile.get(), _runtime_state->profile_level());
     res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage
     for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {
         auto profile_ptr = std::make_shared<TRuntimeProfileTree>();
-        pipeline_profile->to_thrift(profile_ptr.get());
+        pipeline_profile->to_thrift(profile_ptr.get(), _runtime_state->profile_level());
         res.push_back(profile_ptr);
     }
 
@@ -1868,13 +1950,15 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 
             auto tmp_load_channel_profile = std::make_shared<TRuntimeProfileTree>();
 
-            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get());
+            runtime_state->runtime_profile()->to_thrift(tmp_load_channel_profile.get(),
+                                                        _runtime_state->profile_level());
             _runtime_state->load_channel_profile()->update(*tmp_load_channel_profile);
         }
     }
 
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
-    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
+    _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get(),
+                                                      _runtime_state->profile_level());
     return load_channel_profile;
 }
 #include "common/compile_check_end.h"
