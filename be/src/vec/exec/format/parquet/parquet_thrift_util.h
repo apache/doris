@@ -40,13 +40,13 @@ static Status read_thrift_footer(io::FileReaderSPtr file, std::vector<uint8_t>& 
                                  size_t bytes_read, io::IOContext* io_ctx) {
     size_t file_size = file->size();
     bytes_read = std::min(file_size, INIT_META_SIZE);
-    footer.reserve(bytes_read);
+    footer.resize(bytes_read);
     return file->read_at(file_size - bytes_read, Slice(footer.data(), bytes_read), &bytes_read,
                          io_ctx);
 }
 
 static bool validate_magic_number(const std::vector<uint8_t>& footer, size_t bytes_read) {
-    if (footer.size() < PARQUET_FOOTER_SIZE) {
+    if (bytes_read < PARQUET_FOOTER_SIZE) {
         return false;
     }
     const uint8_t* magic_ptr = footer.data() + bytes_read - 4;
