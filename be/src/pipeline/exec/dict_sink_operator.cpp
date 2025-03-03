@@ -49,8 +49,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
 
     vectorized::ColumnsWithTypeAndName value_data;
 
-    for (size_t i = 0; i < p._key_output_expr_slots.size(); i++) {
-        auto key_expr_id = p._key_output_expr_slots[i];
+    for (long key_expr_id : p._key_output_expr_slots) {
         auto key_expr_ctx = _output_vexpr_ctxs[key_expr_id];
         int key_column_id = -1;
         RETURN_IF_ERROR(key_expr_ctx->execute(&input_block, &key_column_id));
@@ -76,7 +75,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
     switch (p._layout_type) {
     case TDictLayoutType::type::IP_TRIE: {
         if (key_data.size() != 1) {
-            return Status::InternalError("IP_TRIE dict key size must be 1");
+            return Status::InvalidArgument("IP_TRIE dict key size must be 1");
         }
         dict = create_ip_trie_dict_from_column(dict_name, key_data[0], value_data);
         break;
@@ -86,16 +85,15 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         break;
     }
     default:
-        return Status::InternalError("Unknown layout type");
+        return Status::InvalidArgument("Unknown layout type");
     }
     if (dict == nullptr) {
         return Status::InternalError("Failed to create dictionary");
     }
 
     if (dict->allocated_bytes() > p._memory_limit) {
-        dict = nullptr;
-        return Status::InternalError(
-                "load dict  memory limit exceeded , current memory usage: {} , memory limit: {}",
+        return Status::InvalidArgument(
+                "load dict memory limit exceeded , current memory usage: {} , memory limit: {}",
                 dict->allocated_bytes(), p._memory_limit);
     }
 

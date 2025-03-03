@@ -55,7 +55,7 @@ public class DictionarySink extends DataSink {
 
         TDictionarySink tDictionarySink = new TDictionarySink();
         tDictionarySink.setDictionaryId(dictionary.getId());
-        tDictionarySink.setVersionId(dictionary.getVersion());
+        tDictionarySink.setVersionId(dictionary.getVersion() + 1); // refresh make a new version
         tDictionarySink.setDictionaryName(dictionary.getName());
         tDictionarySink.setLayoutType(TDictLayoutType.valueOf(dictionary.getLayout().name()));
 

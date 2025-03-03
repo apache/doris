@@ -213,6 +213,9 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
+    // for dictionary sink. report used backends after done distribute planning.
+    private List<Backend> usedBackendsDistributing;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -772,5 +775,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Backend> getUsedBackendsDistributing() {
+        return usedBackendsDistributing;
+    }
+
+    public void setUsedBackendsDistributing(List<Backend> usedBackends) {
+        this.usedBackendsDistributing = usedBackends;
     }
 }

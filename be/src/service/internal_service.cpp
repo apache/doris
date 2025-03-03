@@ -2197,6 +2197,7 @@ void PInternalService::commit_refresh_dictionary(google::protobuf::RpcController
                                                  const PCommitRefreshDictionaryRequest* request,
                                                  PCommitRefreshDictionaryResponse* response,
                                                  google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
     Status st = ExecEnv::GetInstance()->dict_factory()->commit_refresh_dict(
             request->dictionary_id(), request->version_id());
     st.to_protobuf(response->mutable_status());
@@ -2206,6 +2207,7 @@ void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController*
                                                 const PAbortRefreshDictionaryRequest* request,
                                                 PAbortRefreshDictionaryResponse* response,
                                                 google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
     Status st = ExecEnv::GetInstance()->dict_factory()->abort_refresh_dict(request->dictionary_id(),
                                                                            request->version_id());
     st.to_protobuf(response->mutable_status());

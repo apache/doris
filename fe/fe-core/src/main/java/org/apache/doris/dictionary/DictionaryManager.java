@@ -378,6 +378,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         LOG.info("Submit dictionary {} refresh task", dictionary.getName());
         executor.execute(() -> {
             try {
+                // even base table load make baseTableVersion changed, we don't care.
                 dataLoad(null, dictionary, baseTableVersion);
             } catch (Exception e) {
                 LOG.warn("Failed to load dictionary " + dictionary.getName(), e);
@@ -386,11 +387,13 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     }
 
     public void dataLoad(ConnectContext ctx, Dictionary dictionary, Long baseTableVersion) throws Exception {
+        Dictionary.DictionaryStatus oldStatus = dictionary.getStatus();
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
         }
+
         if (ctx == null) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
             ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
@@ -415,45 +418,147 @@ public class DictionaryManager extends MasterDaemon implements Writable {
 
         // run with sync by status.
         try {
-            dictionary.increaseVersion();
             command.run(ctx, executor);
         } catch (Exception e) {
             // wait next shedule.
-            LOG.warn("Dictionary {} refresh failed", dictionary.getName());
-            dictionary.decreaseVersion();
-            // wont fail cuz status is LOADING owned by me.
-            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
+            dictionary.trySetStatus(oldStatus);
             dictionary.setLastUpdateResult(e.getMessage());
             throw e;
         }
         // some insert failed won't throw but only set error status.
         if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
-            LOG.warn("Dictionary {} refresh failed", dictionary.getName());
-            dictionary.decreaseVersion();
-            // wont fail cuz status is LOADING owned by me.
-            dictionary.trySetStatus(Dictionary.DictionaryStatus.OUT_OF_DATE);
+            dictionary.trySetStatus(oldStatus);
             dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
-            return;
+            throw new RuntimeException(ctx.getState().getErrorMessage());
         }
 
-        // only when succeed we can do this. because of deleting does NOT conflict with loading,
-        // we should check existance again!
+        // because of deleting does NOT conflict with loading, we should check dictionary's existance again!
         lockRead();
+        boolean unlocked = false;
         try {
-            if (dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
-                Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
-                // wont fail cuz status is LOADING owned by me.
-                dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
-                dictionary.updateLastUpdateTime();
-                dictionary.updateSrcVersion(baseTableVersion);
-                dictionary.setLastUpdateResult("succeed");
-                LOG.info("Dictionary {} refresh succeed", dictionary.getName());
-            } else {
-                LOG.warn("Dictionary {} has been dropped during loading", dictionary.getName());
-                // the dictionary will be GC soon.
+            if (!dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
+                unlockRead();
+                unlocked = true;
+
+                // WITHOUT LOCK HERE
+                dictionary.trySetStatus(oldStatus); // revert status.
+                // already dropped. abort temporary version without lock.
+                // haven't increase version so use getVersion() + 1
+                abortNextVersion(ctx, dictionary, dictionary.getVersion() + 1);
+                throw new RuntimeException("Dictionary " + dictionary.getName() + " has been dropped during loading");
             }
+            // need under read lock here.
+            dictionary.increaseVersion();
+            Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
         } finally {
-            unlockRead();
+            if (!unlocked) {
+                unlockRead();
+            }
+        }
+
+        // commit and check the result. not modify metadata so dont need lock.
+        if (!commitNextVersion(ctx, dictionary)) {
+            dictionary.trySetStatus(oldStatus);
+            abortNextVersion(ctx, dictionary, dictionary.getVersion());
+            throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
+                    + (dictionary.getVersion() + 1) + " failed");
+        }
+
+        // commit succeed. update metadata.
+        dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL);
+        dictionary.updateLastUpdateTime();
+        dictionary.updateSrcVersion(baseTableVersion);
+        dictionary.setLastUpdateResult("succeed");
+        LOG.info("Dictionary {} refresh succeed", dictionary.getName());
+    }
+
+    private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {
+        // use the same BEs when we get before start loading.
+        List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
+
+        List<Future<InternalService.PCommitRefreshDictionaryResponse>> futureList = new ArrayList<>();
+        boolean allSucceed = true;
+        try {
+            for (Backend be : beList) {
+                if (!be.isAlive()) {
+                    throw new RuntimeException("BE " + be.getId() + " is not alive");
+                }
+                final InternalService.PCommitRefreshDictionaryRequest request =
+                        InternalService.PCommitRefreshDictionaryRequest.newBuilder().setDictionaryId(dictionary.getId())
+                        .setVersionId(dictionary.getVersion()).build();
+                Future<InternalService.PCommitRefreshDictionaryResponse> response = BackendServiceProxy.getInstance()
+                        .commitDictionaryAsync(be.getBrpcAddress(), Config.dictionary_rpc_timeout_seconds, request);
+                futureList.add(response);
+            }
+            // wait all responses. if succeed, delete dictionary.
+            for (int i = 0; i < futureList.size(); i++) {
+                Future<InternalService.PCommitRefreshDictionaryResponse> future = futureList.get(i);
+                Backend be = beList.get(i);
+                if (future == null) {
+                    throw new RuntimeException("Cannot get response future of BE " + be.getId());
+                }
+                InternalService.PCommitRefreshDictionaryResponse response = future
+                        .get(Config.dictionary_rpc_timeout_seconds, TimeUnit.SECONDS);
+                if (response.hasStatus()) {
+                    Status status = new Status(response.getStatus());
+                    if (status.getErrorCode() != TStatusCode.OK) {
+                        LOG.warn("Failed to commit dictionary " + dictionary.getId() + " on be " + be.getAddress()
+                                + " because " + status.getErrorMsg());
+                        allSucceed = false;
+                    }
+                } else {
+                    LOG.warn("Failed to commit dictionary " + dictionary.getId() + " on be " + be.getAddress());
+                    allSucceed = false;
+                }
+            }
+        } catch (Exception e) {
+            dictionary.setLastUpdateResult("commit failed: " + e.getMessage());
+            LOG.warn("Failed to commit dictionary " + dictionary.getId(), e);
+            allSucceed = false;
+        }
+        return allSucceed;
+    }
+
+    // abort could to all BE. swallow any failures.
+    private void abortNextVersion(ConnectContext ctx, Dictionary dictionary, long versionId) {
+        // use the same BEs when we get before start loading.
+        List<Backend> beList = ctx.getStatementContext().getUsedBackendsDistributing();
+
+        List<Future<InternalService.PAbortRefreshDictionaryResponse>> futureList = new ArrayList<>();
+        try {
+            for (Backend be : beList) {
+                if (!be.isAlive()) {
+                    throw new RuntimeException("BE " + be.getId() + " is not alive");
+                }
+                final InternalService.PAbortRefreshDictionaryRequest request =
+                        InternalService.PAbortRefreshDictionaryRequest.newBuilder().setDictionaryId(dictionary.getId())
+                        .setVersionId(versionId).build();
+                Future<InternalService.PAbortRefreshDictionaryResponse> response = BackendServiceProxy.getInstance()
+                        .abortDictionaryAsync(be.getBrpcAddress(), Config.dictionary_rpc_timeout_seconds, request);
+                futureList.add(response);
+            }
+            // wait all responses. if succeed, delete dictionary.
+            for (int i = 0; i < futureList.size(); i++) {
+                Future<InternalService.PAbortRefreshDictionaryResponse> future = futureList.get(i);
+                Backend be = beList.get(i);
+                if (future == null) {
+                    throw new RuntimeException("Cannot get response future of BE " + be.getId());
+                }
+                InternalService.PAbortRefreshDictionaryResponse response = future
+                        .get(Config.dictionary_rpc_timeout_seconds, TimeUnit.SECONDS);
+                if (response.hasStatus()) {
+                    Status status = new Status(response.getStatus());
+                    if (status.getErrorCode() != TStatusCode.OK) {
+                        LOG.warn("Failed to abort dictionary " + dictionary.getId() + " on be " + be.getAddress()
+                                + " because " + status.getErrorMsg());
+                    }
+                } else {
+                    LOG.warn("Failed to abort dictionary " + dictionary.getId() + " on be " + be.getAddress());
+                }
+            }
+        } catch (Exception e) {
+            dictionary.setLastUpdateResult("abort failed: " + e.getMessage());
+            LOG.warn("Failed to abort dictionary " + dictionary.getId(), e);
         }
     }
 
@@ -462,7 +567,6 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         executor.execute(() -> {
             try {
                 dataUnload(dictId, beIds);
-                LOG.info("Unload data of dictionary {} succeed", dictId);
             } catch (Exception e) {
                 // already logged in dataUnload
             }
@@ -490,7 +594,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 final InternalService.PDeleteDictionaryRequest request = InternalService.PDeleteDictionaryRequest
                         .newBuilder().setDictionaryId(dictId).build();
                 Future<InternalService.PDeleteDictionaryResponse> response = BackendServiceProxy.getInstance()
-                        .deleteDictionaryAsync(be.getBrpcAddress(), Config.dictionary_delete_rpc_timeout_ms, request);
+                        .deleteDictionaryAsync(be.getBrpcAddress(), Config.dictionary_rpc_timeout_seconds, request);
                 futureList.add(response);
             }
             // wait all responses. if succeed, delete dictionary.
@@ -498,9 +602,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 Future<InternalService.PDeleteDictionaryResponse> future = futureList.get(i);
                 Backend be = aliveBes.get(i);
                 if (future == null) {
-                    continue;
+                    throw new RuntimeException("Cannot get response future of BE " + be.getId());
                 }
-                InternalService.PDeleteDictionaryResponse response = future.get(Config.dictionary_delete_rpc_timeout_ms,
+                InternalService.PDeleteDictionaryResponse response = future.get(Config.dictionary_rpc_timeout_seconds,
                         TimeUnit.SECONDS);
                 if (response.hasStatus()) {
                     Status status = new Status(response.getStatus());
@@ -517,6 +621,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } catch (Exception e) {
             LOG.warn("Failed to unload dictionary " + dictId, e);
             allSucceed = false;
+        }
+        if (allSucceed) {
+            LOG.info("Unload data of dictionary {} succeed", dictId);
         }
         return allSucceed;
     }
@@ -547,6 +654,9 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         }
 
         LOG.info("Collecting all dictionaries status for " + queryDicts.size() + " dictionaries");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Collecting all dictionaries status for " + queryDicts);
+        }
         // traverse all backends
         for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackends(true)) {
             BackendService.Client client = null;

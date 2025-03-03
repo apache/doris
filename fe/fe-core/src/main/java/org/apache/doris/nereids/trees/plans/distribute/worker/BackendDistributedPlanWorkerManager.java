@@ -134,6 +134,11 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
+    public DistributedPlanWorker getWorker(Backend backend) {
+        return new BackendWorker(backend);
+    }
+
+    @Override
     public DistributedPlanWorker randomAvailableWorker() {
         try {
             Reference<Long> selectedBackendId = new Reference<>();
@@ -153,19 +158,19 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public List<Long> getAllBackend(boolean needAlive) {
-        ImmutableMap<Long, Backend> backends = this.allClusterBackends.get();
-        List<Long> backendIds = null;
+    public List<Backend> getAllBackend(boolean needAlive) {
+        ImmutableMap<Long, Backend> backendsMap = this.allClusterBackends.get();
+        List<Backend> backends = null;
         if (needAlive) {
-            backendIds = Lists.newArrayList();
-            for (Map.Entry<Long, Backend> entry : backends.entrySet()) {
+            backends = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : backendsMap.entrySet()) {
                 if (entry.getValue().isQueryAvailable()) {
-                    backendIds.add(entry.getKey());
+                    backends.add(entry.getValue());
                 }
             }
         } else {
-            backendIds = Lists.newArrayList(backends.keySet());
+            backends = Lists.newArrayList(backendsMap.values());
         }
-        return backendIds;
+        return backends;
     }
 }

@@ -45,6 +45,9 @@ public:
     }
 
     Status refresh_dict(int64_t dict_id, int64_t version_id, DictionaryPtr dict) {
+        VLOG_DEBUG << "DictionaryFactory refresh dictionary"
+                   << " dict_id: " << dict_id << " version_id: " << version_id
+                   << " dict name: " << dict->dict_name();
         std::unique_lock lc(_mutex);
         dict->_mem_tracker = _mem_tracker;
         _refreshing_dict_map[dict_id] = std::make_pair(version_id, dict);
@@ -53,9 +56,11 @@ public:
     }
 
     Status abort_refresh_dict(int64_t dict_id, int64_t version_id) {
+        VLOG_DEBUG << "DictionaryFactory abort refresh dictionary"
+                   << " dict_id: " << dict_id << " version_id: " << version_id;
         std::unique_lock lc(_mutex);
         if (!_refreshing_dict_map.contains(dict_id)) {
-            // The dictionary is not refreshing, so we can return OK directly.
+            // FE will abort all, including succeed and failed.
             return Status::OK();
         }
         auto [refresh_version_id, dict] = _refreshing_dict_map[dict_id];
@@ -69,6 +74,8 @@ public:
     }
 
     Status commit_refresh_dict(int64_t dict_id, int64_t version_id) {
+        VLOG_DEBUG << "DictionaryFactory commit refresh dictionary"
+                   << " dict_id: " << dict_id << " version_id: " << version_id;
         std::unique_lock lc(_mutex);
         if (!_refreshing_dict_map.contains(dict_id)) {
             return Status::InvalidArgument("Dictionary is not refreshing dict_id: {}", dict_id);
@@ -109,10 +116,11 @@ public:
     }
 
     Status delete_dict(int64_t dict_id) {
+        VLOG_DEBUG << "DictionaryFactory delete dictionary, dict_id: " << dict_id;
         std::unique_lock lc(_mutex);
         if (!_dict_id_to_dict_map.contains(dict_id)) {
             LOG_WARNING("DictionaryFactory Failed to delete dictionary").tag("dict_id", dict_id);
-            return Status::OK(); // TODO: change to not ok when we have heartbeat.
+            return Status::OK();
         }
         auto dict = _dict_id_to_dict_map[dict_id];
         LOG_INFO("DictionaryFactory Successfully delete dictionary")

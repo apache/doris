@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -25,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,25 +54,26 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
         // for Coordinator to know the right parallelism of DictionarySink
         exchange.getFragment().setParallelExecNum(expectInstanceNum);
 
-        List<Long> beIds = workerManager.getAllBackend(true);
-        if (beIds.size() != expectInstanceNum) {
+        List<Backend> bes = workerManager.getAllBackend(true);
+        if (bes.size() != expectInstanceNum) {
             // BE number changed when planning
-            throw new IllegalArgumentException("BE number should be " + expectInstanceNum + ", but is " + beIds.size());
+            throw new IllegalArgumentException("BE number should be " + expectInstanceNum + ", but is " + bes.size());
         }
 
         List<AssignedJob> assignedJobs = Lists.newArrayList();
-        for (int i = 0; i < beIds.size(); ++i) {
+        for (int i = 0; i < bes.size(); ++i) {
             // every time one BE is selected
-            DistributedPlanWorker worker = workerManager.getWorker(beIds.get(i));
+            DistributedPlanWorker worker = workerManager.getWorker(bes.get(i));
             if (worker != null) {
                 assignedJobs.add(assignWorkerAndDataSources(i, connectContext.nextInstanceId(), worker,
                         new DefaultScanSource(ImmutableMap.of())));
             } else {
                 throw new IllegalArgumentException(
-                        "worker " + Env.getCurrentSystemInfo().getBackend(beIds.get(i)).getAddress() + " not found");
+                        "worker " + bes.get(i).getAddress() + " not found");
             }
         }
 
+        statementContext.setUsedBackendsDistributing(bes);
         return assignedJobs;
     }
 }

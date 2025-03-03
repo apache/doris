@@ -3060,9 +3060,9 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_feature_data_sync_job = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"字典删除时 RPC 的超时时间",
-            "Timeout of dictionary deletion RPC"})
-    public static int dictionary_delete_rpc_timeout_ms = 5000;
+    @ConfField(mutable = true, masterOnly = true, description = {"字典相关的 RPC 的超时时间",
+            "Timeout of dictionary related RPC"})
+    public static int dictionary_rpc_timeout_seconds = 5;
 
     @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
             "Interval at which the dictionary triggers a data expiration check, in seconds" })
