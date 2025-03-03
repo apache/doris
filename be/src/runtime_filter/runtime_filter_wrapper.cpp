@@ -157,7 +157,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         return Status::OK();
     }
     if (other->_state == State::DISABLED) {
-        _hybrid_set->clear();
         set_state(State::DISABLED, other->_disabled_reason);
         return Status::OK();
     }
