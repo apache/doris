@@ -383,6 +383,7 @@ struct PercentileState {
             inited_flag = true;
             vec_counts.resize(1);
             vec_quantile.resize(1);
+            check_quantile(q);
             vec_quantile[0] = q;
         }
         vec_counts[0].increment_batch(source);
