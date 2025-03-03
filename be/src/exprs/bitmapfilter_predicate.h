@@ -50,7 +50,7 @@ class BitmapFilterFunc : public BitmapFilterFuncBase {
 public:
     using CppType = typename PrimitiveTypeTraits<type>::CppType;
 
-    BitmapFilterFunc() : _bitmap_value(std::make_shared<BitmapValue>()) {}
+    BitmapFilterFunc(bool null_aware = false) : _bitmap_value(std::make_shared<BitmapValue>()) {}
 
     ~BitmapFilterFunc() override = default;
 

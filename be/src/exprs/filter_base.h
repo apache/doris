@@ -17,19 +17,28 @@
 
 #pragma once
 
+#include "common/exception.h"
+
 namespace doris {
 
 class FilterBase {
 public:
+    FilterBase(bool null_aware) : _null_aware(null_aware) {}
     bool contain_null() const { return _null_aware && _contain_null; }
 
-    void set_contain_null() { _contain_null = true; }
-
-    void set_null_aware(bool null_aware) { _null_aware = null_aware; }
+    void set_contain_null(bool contain_null) {
+        if (_contain_null && !contain_null) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "contain_null cannot be changed from true to false");
+        }
+        _contain_null = contain_null;
+    }
 
 protected:
+    // Indicates whether a null datum exists to build this filter.
     bool _contain_null = false;
-    bool _null_aware = false;
+    // Indicates whether this filter is null-aware.
+    const bool _null_aware = false;
 };
 
 } // namespace doris

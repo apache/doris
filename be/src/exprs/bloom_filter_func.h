@@ -29,6 +29,7 @@ namespace doris {
 // Only Used In RuntimeFilter
 class BloomFilterFuncBase : public FilterBase {
 public:
+    BloomFilterFuncBase(bool null_aware) : FilterBase(null_aware) {}
     virtual ~BloomFilterFuncBase() = default;
 
     void init_params(const RuntimeFilterParams* params) {
@@ -37,7 +38,6 @@ public:
         _build_bf_by_runtime_size = params->build_bf_by_runtime_size;
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
-        _null_aware = params->null_aware;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
         _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _limit_length();
@@ -97,22 +97,16 @@ public:
                     "allocated bytes {}",
                     _bloom_filter_alloced, other->_bloom_filter_alloced);
         }
-        if (other->contain_null()) {
-            _bloom_filter->set_null_aware(true);
-            _bloom_filter->set_contain_null();
-        }
+        _bloom_filter->set_contain_null(other->contain_null());
         return _bloom_filter->merge(other->_bloom_filter.get());
     }
 
     Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size,
                   bool contain_null) {
         if (_bloom_filter == nullptr) {
-            _null_aware = contain_null;
             _bloom_filter.reset(BloomFilterAdaptor::create(_null_aware));
         }
-        if (contain_null) {
-            _bloom_filter->set_contain_null();
-        }
+        _bloom_filter->set_contain_null(contain_null);
 
         _bloom_filter_alloced = data_size;
         return _bloom_filter->init(data, data_size);
@@ -173,16 +167,14 @@ protected:
 template <PrimitiveType type>
 class BloomFilterFunc final : public BloomFilterFuncBase {
 public:
+    BloomFilterFunc(bool null_aware) : BloomFilterFuncBase(null_aware) {}
     void insert_set(std::shared_ptr<HybridSetBase> set) override {
         if (_enable_fixed_len_to_uint32_v2) {
             OpV2::insert_set(*_bloom_filter, set);
         } else {
             Op::insert_set(*_bloom_filter, set);
         }
-        if (set->contain_null()) {
-            _bloom_filter->set_null_aware(true);
-            _bloom_filter->set_contain_null();
-        }
+        _bloom_filter->set_contain_null(set->contain_null());
     }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {

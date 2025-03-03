@@ -192,7 +192,7 @@ private:
 // TODO Maybe change void* parameter to template parameter better.
 class HybridSetBase : public FilterBase {
 public:
-    HybridSetBase() = default;
+    HybridSetBase(bool null_aware) : FilterBase(null_aware) {}
     virtual ~HybridSetBase() = default;
     virtual void insert(const void* data) = 0;
     // use in vectorize execute engine
@@ -252,8 +252,7 @@ public:
     using ElementType = typename ContainerType::ElementType;
     using ColumnType = _ColumnType;
 
-    HybridSet() = default;
-
+    HybridSet(bool null_aware) : HybridSetBase(null_aware) {}
     ~HybridSet() override = default;
 
     void insert(const void* data) override {
@@ -387,7 +386,7 @@ class StringSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
 
-    StringSet() = default;
+    StringSet(bool null_aware) : HybridSetBase(null_aware) {}
 
     ~StringSet() override = default;
 
@@ -556,7 +555,7 @@ class StringValueSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;
 
-    StringValueSet() = default;
+    StringValueSet(bool null_aware) : HybridSetBase(null_aware) {}
 
     ~StringValueSet() override = default;
 

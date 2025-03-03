@@ -27,30 +27,27 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
                                State::UNINITED, params->max_in_num) {
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
-        _hybrid_set.reset(create_set(_column_return_type));
-        _hybrid_set->set_null_aware(params->null_aware);
+        _hybrid_set.reset(create_set(_column_return_type, params->null_aware));
         return;
     }
     // Only use in nested loop join not need set null aware
     case RuntimeFilterType::MIN_FILTER:
     case RuntimeFilterType::MAX_FILTER: {
-        _minmax_func.reset(create_minmax_filter(_column_return_type));
+        _minmax_func.reset(create_minmax_filter(_column_return_type, params->null_aware));
         return;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
-        _minmax_func.reset(create_minmax_filter(_column_return_type));
-        _minmax_func->set_null_aware(params->null_aware);
+        _minmax_func.reset(create_minmax_filter(_column_return_type, params->null_aware));
         return;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
-        _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
+        _bloom_filter_func.reset(create_bloom_filter(_column_return_type, params->null_aware));
         _bloom_filter_func->init_params(params);
         return;
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        _hybrid_set.reset(create_set(_column_return_type));
-        _hybrid_set->set_null_aware(params->null_aware);
-        _bloom_filter_func.reset(create_bloom_filter(_column_return_type));
+        _hybrid_set.reset(create_set(_column_return_type, params->null_aware));
+        _bloom_filter_func.reset(create_bloom_filter(_column_return_type, params->null_aware));
         _bloom_filter_func->init_params(params);
         return;
     }
@@ -231,7 +228,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
 Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_null) {
     if (contain_null) {
-        _hybrid_set->set_null_aware(true);
         _hybrid_set->insert((const void*)nullptr);
     }
 
@@ -417,10 +413,7 @@ Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
 }
 
 Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool contain_null) {
-    if (contain_null) {
-        _minmax_func->set_null_aware(true);
-        _minmax_func->set_contain_null();
-    }
+    _minmax_func->set_contain_null(contain_null);
 
     switch (_column_return_type) {
     case TYPE_BOOLEAN: {
