@@ -210,11 +210,11 @@ public class CreateTableInfo {
      */
     public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
         if (ctasColumns != null) {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
-                    keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,
-                    clusterKeysColumnNames);
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, ctasColumns,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, clusterKeysColumnNames);
         } else {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, columns, indexes,
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, columns, indexes,
                     engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
                     extProperties, clusterKeysColumnNames);
         }
@@ -305,7 +305,7 @@ public class CreateTableInfo {
 
         try {
             // check display name for temporary table, its inner name cannot pass validation
-            FeNameFormat.checkTableName(isTemp ? Util.getTempTableDisplayName(tableName) : tableName);
+            FeNameFormat.checkTableName(Util.getTempTableDisplayName(tableName));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }

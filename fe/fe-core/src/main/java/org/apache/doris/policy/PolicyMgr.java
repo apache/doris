@@ -35,7 +35,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSet;
@@ -183,10 +182,7 @@ public class PolicyMgr implements Writable {
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
                         OlapTable olapTable = (OlapTable) table;
-                        String tableName = table.getName();
-                        if (table.isTemporary()) {
-                            tableName = Util.getTempTableDisplayName(tableName);
-                        }
+                        String tableName = table.getDisplayName();
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                         for (Long partitionId : olapTable.getPartitionIds()) {
                             String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();

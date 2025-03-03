@@ -392,6 +392,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public String getDisplayName() {
+        return isTemporary ? Util.getTempTableDisplayName(name) : name;
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }

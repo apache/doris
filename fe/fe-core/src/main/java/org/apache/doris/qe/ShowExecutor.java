@@ -918,10 +918,8 @@ public class ShowExecutor {
                                 if (!Util.isTempTableInCurrentSession(tbl.getName())) {
                                     continue;
                                 }
-                                row.add(Util.getTempTableDisplayName(tbl.getName()));
-                            } else {
-                                row.add(tbl.getName());
                             }
+                            row.add(tbl.getDisplayName());
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
@@ -2598,12 +2596,11 @@ public class ShowExecutor {
                     }
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
-                    String tableName = olapTable.getName();
+                    String tableName = olapTable.getDisplayName();
                     if (olapTable.isTemporary()) {
                         if (!Util.isTempTableInCurrentSession(tableName)) {
                             continue;
                         }
-                        tableName = Util.getTempTableDisplayName(tableName);
                     }
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {

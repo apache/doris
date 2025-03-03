@@ -257,8 +257,7 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             if (!isAdmin && olapTable.isTemporary()) {
                 useDisplayName = true;
             }
-            String tableName = useDisplayName
-                    ? Util.getTempTableDisplayName(olapTable.getName()) : olapTable.getName();
+            String tableName = useDisplayName ? olapTable.getDisplayName() : olapTable.getName();
             if (!detailed) {
                 totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize));
             } else {

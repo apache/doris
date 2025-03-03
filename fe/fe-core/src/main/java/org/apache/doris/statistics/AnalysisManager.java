@@ -326,9 +326,7 @@ public class AnalysisManager implements Writable {
                 if (table instanceof View) {
                     continue;
                 }
-                if (table.isTemporary()) {
-                    continue;
-                }
+
                 TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
                 // columnNames null means to add all visible columns.
                 // Will get all the visible columns in analyzeTblStmt.check()
