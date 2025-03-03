@@ -92,9 +92,6 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             plan = ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
                     .copyStatsAndGroupIdFrom(physicalPlan).resetLogicalProperties();
         }
-        if (plan instanceof Filter) {
-            System.out.println(plan.getOutput());
-        }
         return plan;
     }
 
@@ -102,7 +99,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalOlapScan(PhysicalOlapScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeOlapScan lazyScan = new PhysicalLazyMaterializeOlapScan(scan,
-                    context.rowIdSlot, context.lazySlots);
+                    context.rowIdSlot.withNullable(false), context.lazySlots);
             return lazyScan;
         } else {
             // should not hit here
