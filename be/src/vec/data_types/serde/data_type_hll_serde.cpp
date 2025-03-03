@@ -121,7 +121,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnHLL&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
-    HyperLogLog hyper_log_log(Slice(blob->getBlob()));
+    HyperLogLog hyper_log_log(Slice(blob->getBlob(), blob->getBlobLen()));
     col.insert_value(hyper_log_log);
 }
 
