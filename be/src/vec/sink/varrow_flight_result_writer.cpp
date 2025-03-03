@@ -73,7 +73,7 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>&
     return Status::OK();
 }
 
-Status ArrowFlightResultBlockBuffer::find_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
+Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
     if (!_status.ok()) {
         return _status;
     }

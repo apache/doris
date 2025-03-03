@@ -42,7 +42,7 @@ class RuntimeState;
 
 namespace vectorized {
 class GetResultBatchCtx;
-using NormalResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
+using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 class VExprContext;
 } // namespace vectorized
 namespace pipeline {
@@ -140,7 +140,7 @@ private:
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
     // _sinker and _output_batch are not owned by FileResultWriter
-    std::shared_ptr<NormalResultBlockBuffer> _sinker = nullptr;
+    std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;
     Block* _output_block = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;

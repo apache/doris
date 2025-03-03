@@ -65,9 +65,9 @@
 
 namespace doris {
 
-class PointQueryResultBlockBuffer final : public vectorized::NormalResultBlockBuffer {
+class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
 public:
-    PointQueryResultBlockBuffer(RuntimeState* state) : vectorized::NormalResultBlockBuffer(state) {}
+    PointQueryResultBlockBuffer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
     ~PointQueryResultBlockBuffer() override = default;
     std::shared_ptr<TFetchDataResult> get_block() {
         std::lock_guard<std::mutex> l(_lock);

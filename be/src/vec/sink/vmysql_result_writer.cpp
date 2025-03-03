@@ -123,7 +123,7 @@ VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
         std::shared_ptr<ResultBlockBufferBase> sinker, const VExprContextSPtrs& output_vexpr_ctxs,
         RuntimeProfile* parent_profile)
         : ResultWriter(),
-          _sinker(std::dynamic_pointer_cast<NormalResultBlockBuffer>(sinker)),
+          _sinker(std::dynamic_pointer_cast<MySQLResultBlockBuffer>(sinker)),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile) {}
 

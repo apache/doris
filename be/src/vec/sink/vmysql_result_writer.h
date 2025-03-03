@@ -64,7 +64,7 @@ private:
     google::protobuf::Closure* _done = nullptr;
 };
 
-using NormalResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
+using MySQLResultBlockBuffer = ResultBlockBuffer<GetResultBatchCtx>;
 
 template <bool is_binary_format = false>
 class VMysqlResultWriter final : public ResultWriter {
@@ -83,7 +83,7 @@ private:
     Status _set_options(const TSerdeDialect::type& serde_dialect);
     Status _write_one_block(RuntimeState* state, Block& block);
 
-    std::shared_ptr<NormalResultBlockBuffer> _sinker = nullptr;
+    std::shared_ptr<MySQLResultBlockBuffer> _sinker = nullptr;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
 

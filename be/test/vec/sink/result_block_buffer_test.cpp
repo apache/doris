@@ -61,7 +61,7 @@ private:
     std::function<void()> _data_cb;
 };
 
-TEST_F(MysqlResultBlockBufferTest, TestNormalResultBlockBuffer) {
+TEST_F(MysqlResultBlockBufferTest, TestMySQLResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
@@ -70,7 +70,7 @@ TEST_F(MysqlResultBlockBufferTest, TestNormalResultBlockBuffer) {
     bool fail = false;
     bool close = false;
     bool data = false;
-    NormalResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
+    MySQLResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
     buffer.set_dependency(ins_id, dep);
     std::shared_ptr<GetResultBatchCtx> ctx = MockGetResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
@@ -186,7 +186,7 @@ TEST_F(MysqlResultBlockBufferTest, TestNormalResultBlockBuffer) {
     }
 }
 
-TEST_F(MysqlResultBlockBufferTest, TestCancelNormalResultBlockBuffer) {
+TEST_F(MysqlResultBlockBufferTest, TestCancelMySQLResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
@@ -195,7 +195,7 @@ TEST_F(MysqlResultBlockBufferTest, TestCancelNormalResultBlockBuffer) {
     bool fail = false;
     bool close = false;
     bool data = false;
-    NormalResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
+    MySQLResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
     buffer.set_dependency(ins_id, dep);
     std::shared_ptr<GetResultBatchCtx> ctx = MockGetResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },
@@ -270,7 +270,7 @@ TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
     bool fail = false;
     bool close = false;
     bool data = false;
-    NormalResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
+    MySQLResultBlockBuffer buffer(TUniqueId(), &state, buffer_size);
     buffer.set_dependency(ins_id, dep);
     std::shared_ptr<GetResultBatchCtx> ctx = MockGetResultBatchCtx::create_shared(
             [&]() -> void { fail = true; }, [&]() -> void { close = true; },

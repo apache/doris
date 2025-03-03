@@ -80,7 +80,7 @@ VFileResultWriter::VFileResultWriter(
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
-          _sinker(std::dynamic_pointer_cast<vectorized::NormalResultBlockBuffer>(sinker)),
+          _sinker(std::dynamic_pointer_cast<vectorized::MySQLResultBlockBuffer>(sinker)),
           _output_block(output_block),
           _output_row_descriptor(output_row_descriptor) {
     _output_object_data = output_object_data;

@@ -656,15 +656,13 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
     auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
     TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
-    std::shared_ptr<ResultBlockBufferBase> buffer;
+    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
     Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
     if (!st.ok()) {
         LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
         return;
     }
-    vectorized::NormalResultBlockBuffer* normal_buffer =
-            assert_cast<vectorized::NormalResultBlockBuffer*>(buffer.get());
-    if (st = normal_buffer->get_batch(ctx); !st.ok()) {
+    if (st = buffer->get_batch(ctx); !st.ok()) {
         LOG(WARNING) << "fetch_data failed: " << st.to_string();
     }
 }
@@ -677,15 +675,12 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         brpc::ClosureGuard closure_guard(done);
         auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
         TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
-        std::shared_ptr<ResultBlockBufferBase> buffer;
-        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
             return;
         }
-        vectorized::ArrowFlightResultBlockBuffer* arrow_buffer =
-                assert_cast<vectorized::ArrowFlightResultBlockBuffer*>(buffer.get());
-
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
             LOG(WARNING) << "fetch_arrow_data failed: " << st.to_string();
         }
@@ -904,7 +899,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        std::shared_ptr<ResultBlockBufferBase> buffer;
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
                 UniqueId(request->finst_id()).to_thrift(), buffer);
         if (!st.ok()) {
@@ -912,8 +907,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
             st.to_protobuf(result->mutable_status());
             return;
         }
-        st = assert_cast<vectorized::ArrowFlightResultBlockBuffer*>(buffer.get())
-                     ->find_schema(&schema);
+        st = buffer->get_schema(&schema);
         if (!st.ok()) {
             LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());

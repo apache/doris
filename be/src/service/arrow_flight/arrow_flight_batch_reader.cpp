@@ -76,15 +76,13 @@ ArrowFlightBatchLocalReader::ArrowFlightBatchLocalReader(
 arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLocalReader::Create(
         const std::shared_ptr<QueryStatement>& statement) {
     DCHECK(statement->result_addr.hostname == BackendOptions::get_localhost());
-    std::shared_ptr<ResultBlockBufferBase> buffer;
+    std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
     RETURN_ARROW_STATUS_IF_ERROR(
-            ExecEnv::GetInstance()->result_mgr()->find_buffer(statement->query_id, buffer));
-    vectorized::ArrowFlightResultBlockBuffer* arrow_buffer =
-            assert_cast<vectorized::ArrowFlightResultBlockBuffer*>(buffer.get());
+            ExecEnv::GetInstance()->result_mgr()->find_buffer(statement->query_id, arrow_buffer));
     // Make sure that FE send the fragment to BE and creates the BufferControlBlock before returning ticket
     // to the ADBC client, so that the schema and control block can be found.
     std::shared_ptr<arrow::Schema> schema;
-    RETURN_ARROW_STATUS_IF_ERROR(arrow_buffer->find_schema(&schema));
+    RETURN_ARROW_STATUS_IF_ERROR(arrow_buffer->get_schema(&schema));
     std::shared_ptr<MemTrackerLimiter> mem_tracker = arrow_buffer->mem_tracker();
     std::shared_ptr<ArrowFlightBatchLocalReader> result(
             new ArrowFlightBatchLocalReader(statement, schema, mem_tracker));
@@ -97,10 +95,9 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNext(std::shared_ptr<arrow::Recor
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
     TUniqueId tid = UniqueId(_statement->query_id).to_thrift();
-    std::shared_ptr<ResultBlockBufferBase> buffer;
-    RETURN_ARROW_STATUS_IF_ERROR(ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer));
-    vectorized::ArrowFlightResultBlockBuffer* arrow_buffer =
-            assert_cast<vectorized::ArrowFlightResultBlockBuffer*>(buffer.get());
+    std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+    RETURN_ARROW_STATUS_IF_ERROR(
+            ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer));
     std::shared_ptr<vectorized::Block> result;
     auto st = arrow_buffer->get_arrow_batch(&result);
     st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");

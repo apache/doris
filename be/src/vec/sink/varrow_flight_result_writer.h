@@ -71,7 +71,7 @@ public:
     ~ArrowFlightResultBlockBuffer() override = default;
     Status get_arrow_batch(std::shared_ptr<vectorized::Block>* result);
     void get_timezone(cctz::time_zone& timezone_obj) { timezone_obj = _timezone_obj; }
-    Status find_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
+    Status get_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
 
 private:
     friend class GetArrowResultBatchCtx;

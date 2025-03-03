@@ -72,9 +72,9 @@
 
 namespace doris::vectorized {
 
-class TestBlockSerializer final : public vectorized::NormalResultBlockBuffer {
+class TestBlockSerializer final : public vectorized::MySQLResultBlockBuffer {
 public:
-    TestBlockSerializer(RuntimeState* state) : vectorized::NormalResultBlockBuffer(state) {}
+    TestBlockSerializer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
     ~TestBlockSerializer() override = default;
     std::shared_ptr<TFetchDataResult> get_block() {
         std::lock_guard<std::mutex> l(_lock);

@@ -70,7 +70,8 @@ public:
                          std::shared_ptr<ResultBlockBufferBase>* sender, RuntimeState* state,
                          bool arrow_flight, std::shared_ptr<arrow::Schema> schema = nullptr);
 
-    Status find_buffer(const TUniqueId& finst_id, std::shared_ptr<ResultBlockBufferBase>& buffer);
+    template <typename ResultBlockBufferType>
+    Status find_buffer(const TUniqueId& finst_id, std::shared_ptr<ResultBlockBufferType>& buffer);
     // cancel
     bool cancel(const TUniqueId& query_id, const Status& reason);
 
@@ -81,7 +82,8 @@ private:
     using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<ResultBlockBufferBase>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
 
-    std::shared_ptr<ResultBlockBufferBase> find_control_block(const TUniqueId& query_id);
+    template <typename ResultBlockBufferType>
+    std::shared_ptr<ResultBlockBufferType> _find_control_block(const TUniqueId& query_id);
 
     // used to erase the buffer that fe not clears
     // when fe crush, this thread clear the buffer avoid memory leak in this backend

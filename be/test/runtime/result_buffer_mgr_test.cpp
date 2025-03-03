@@ -85,10 +85,9 @@ TEST_F(ResultBufferMgrTest, find_buffer) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     auto schema = std::make_shared<arrow::Schema>(std::move(fields));
     EXPECT_TRUE(
-            buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, true, schema).ok());
+            buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false, nullptr).ok());
 
-    auto res = std::make_shared<vectorized::GetResultBatchCtx>();
-    std::shared_ptr<ResultBlockBufferBase> buffer;
+    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
     EXPECT_TRUE(buffer_mgr.find_buffer(query_id, buffer).ok());
     EXPECT_TRUE(buffer != nullptr);
 }
