@@ -17,6 +17,7 @@
 
 #include "runtime_filter/runtime_filter_consumer.h"
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -25,7 +26,36 @@
 
 namespace doris {
 
-class RuntimeFilterConsumerTest : public RuntimeFilterTest {};
+class RuntimeFilterConsumerTest : public RuntimeFilterTest {
+public:
+    void test_signal_aquire(TRuntimeFilterType::type type) {
+        std::shared_ptr<RuntimeFilterConsumer> consumer;
+        auto desc = TRuntimeFilterDescBuilder().set_type(type).add_planId_to_target_expr(0).build();
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+                RuntimeFilterConsumer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
+                                              &desc, 0, &consumer, &_profile));
+
+        std::shared_ptr<RuntimeFilterProducer> producer;
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+                RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &producer, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(123));
+        producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+
+        consumer->signal(producer.get());
+
+        try {
+            consumer->signal(producer.get());
+            ASSERT_TRUE(false);
+        } catch (const Exception& e) {
+            ASSERT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        }
+
+        std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
+        ASSERT_NE(push_exprs.size(), 0);
+        ASSERT_TRUE(consumer->is_applied());
+    }
+};
 
 TEST_F(RuntimeFilterConsumerTest, basic) {
     std::shared_ptr<RuntimeFilterConsumer> consumer;
@@ -38,30 +68,20 @@ TEST_F(RuntimeFilterConsumerTest, basic) {
             desc, true, 0, &registed_consumer, &_profile));
 }
 
-TEST_F(RuntimeFilterConsumerTest, signal_aquire) {
-    std::shared_ptr<RuntimeFilterConsumer> consumer;
-    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterConsumer::create(
-            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer, &_profile));
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_in_or_bloom) {
+    test_signal_aquire(TRuntimeFilterType::IN_OR_BLOOM);
+}
 
-    std::shared_ptr<RuntimeFilterProducer> producer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
-            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &producer, &_profile));
-    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_bloom) {
+    test_signal_aquire(TRuntimeFilterType::BLOOM);
+}
 
-    consumer->signal(producer.get());
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_in) {
+    test_signal_aquire(TRuntimeFilterType::IN);
+}
 
-    try {
-        consumer->signal(producer.get());
-        ASSERT_TRUE(false);
-    } catch (const Exception& e) {
-        ASSERT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
-    }
-
-    std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
-    ASSERT_EQ(push_exprs.size(), 1);
-    ASSERT_TRUE(consumer->is_applied());
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_min_max) {
+    test_signal_aquire(TRuntimeFilterType::MIN_MAX);
 }
 
 TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {

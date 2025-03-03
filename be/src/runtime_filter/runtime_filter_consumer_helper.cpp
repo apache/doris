@@ -20,7 +20,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_consumer.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const int32_t _node_id, const std::vector<TRuntimeFilterDesc>& runtime_filters,
@@ -148,4 +148,4 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

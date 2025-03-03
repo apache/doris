@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter_producer_helper.h"
+#include "runtime_filter/runtime_filter_producer_helper_cross.h"
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -28,10 +28,11 @@
 #include "runtime_filter/runtime_filter_test_utils.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 
-class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
+class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
         _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
@@ -55,13 +56,15 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
     ObjectPool _pool;
 };
 
-TEST_F(RuntimeFilterProducerHelperTest, basic) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
+    auto helper = RuntimeFilterProducerHelperCross(&_profile);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
+
+    assert_cast<vectorized::VSlotRef*>(ctx->root().get())->_column_id = 0;
 
     vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {TRuntimeFilterDescBuilder().build()};
@@ -74,9 +77,8 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
     column->insert(2);
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+    vectorized::Blocks blocks = {block};
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.process(_runtime_states[0].get(), blocks));
 }
 
 } // namespace doris

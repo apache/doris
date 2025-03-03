@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime_filter/runtime_filter_producer_helper.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
@@ -25,13 +25,15 @@
 #include "pipeline/exec/mock_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/descriptors.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
 
-class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
+class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
         _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
@@ -46,6 +48,8 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
         _runtime_states[0]->set_task(_task.get());
+
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(ExecEnv::GetInstance()->init_pipeline_task_scheduler());
     }
 
     pipeline::OperatorPtr _op;
@@ -55,28 +59,50 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
     ObjectPool _pool;
 };
 
-TEST_F(RuntimeFilterProducerHelperTest, basic) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
-
+TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
-    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {TRuntimeFilterDescBuilder().build()};
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
+            TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> runtime_filter_dependencies;
+    SlotDescriptor slot_desc;
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&slot_desc);
+    RowDescriptor row_desc;
+    _tbl._slot_desc_map[0] = &slot_desc;
+    const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
+    auto helper = RuntimeFilterConsumerHelper(0, runtime_filter_descs, row_desc);
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.init(_runtime_states[0].get(), &_profile, true,
+                                                 runtime_filter_dependencies, 0, 0, ""));
+
+    vectorized::VExprContextSPtrs conjuncts;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.acquire_runtime_filter(conjuncts));
+    ASSERT_EQ(conjuncts.size(), 0);
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            RuntimeFilterProducer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
+                                          runtime_filter_descs.data(), &producer, &_profile));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    helper._consumers[0]->signal(producer.get());
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.acquire_runtime_filter(conjuncts));
+    ASSERT_EQ(conjuncts.size(), 1);
+
+    conjuncts.clear();
+    int arrived_rf_num = -1;
+    helper._consumers[1]->signal(producer.get());
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.try_append_late_arrival_runtime_filter(&arrived_rf_num, conjuncts));
+    ASSERT_EQ(conjuncts.size(), 1);
+    ASSERT_EQ(arrived_rf_num, 2);
 }
 
 } // namespace doris

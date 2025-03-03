@@ -73,6 +73,7 @@ void RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t
             continue;
         }
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
+        DCHECK_NE(result_column_id, -1);
         const auto& column = block->get_by_position(result_column_id).column;
         filter->insert(column, start);
     }
