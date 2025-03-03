@@ -820,7 +820,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                     rowset_writer->num_rows(), rids_be_overwritten.size(), tablet_id());
         }
         auto cost_us = watch.get_elapse_time_us();
-        if (cost_us > 10 * 1000) {
+        if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
             LOG(INFO) << "calc segment delete bitmap for "
                       << partial_update_info->partial_update_mode_str()
                       << ", tablet: " << tablet_id() << " rowset: " << rowset_id
@@ -834,7 +834,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         return Status::OK();
     }
     auto cost_us = watch.get_elapse_time_us();
-    if (cost_us > 10 * 1000) {
+    if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
         LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
