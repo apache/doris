@@ -20,9 +20,12 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/minmax_predicate.h"
 #include "testutil/column_helper.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
@@ -484,6 +487,169 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
     EXPECT_EQ(wrapper->filter_id(), filter_id);
     EXPECT_TRUE(wrapper->is_valid());
     EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    EXPECT_EQ(wrapper->column_type(), column_return_type);
+    EXPECT_EQ(wrapper->contain_null(), false);
+}
+
+TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
+    const int min_val = -1;
+    const int num_vals = 10;
+    std::vector<int> data_vector(num_vals);
+    std::iota(data_vector.begin(), data_vector.end(), min_val);
+    using DataType = vectorized::DataTypeInt32;
+    int32_t filter_id = 0;
+    RuntimeFilterType filter_type = RuntimeFilterType::MINMAX_FILTER;
+    bool null_aware = false;
+    PrimitiveType column_return_type = PrimitiveType::TYPE_INT;
+
+    int32_t max_in_num = 0;
+
+    int64_t runtime_bloom_filter_min_size = 64;
+    int64_t runtime_bloom_filter_max_size = 128;
+    bool build_bf_by_runtime_size = false;
+    int64_t bloom_filter_size = 0;
+    bool bloom_filter_size_calculated_by_ndv = true;
+    bool enable_fixed_len_to_uint32_v2 = true;
+
+    bool bitmap_filter_not_in = false;
+
+    RuntimeFilterParams params {
+            .filter_id = filter_id,
+            .filter_type = filter_type,
+            .column_return_type = column_return_type,
+            .null_aware = null_aware,
+            .max_in_num = max_in_num,
+            .runtime_bloom_filter_min_size = runtime_bloom_filter_min_size,
+            .runtime_bloom_filter_max_size = runtime_bloom_filter_max_size,
+            .bloom_filter_size = bloom_filter_size,
+            .build_bf_by_runtime_size = build_bf_by_runtime_size,
+            .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
+            .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+            .bitmap_filter_not_in = bitmap_filter_not_in};
+
+    std::shared_ptr<RuntimeFilterWrapper> wrapper;
+    {
+        wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_TRUE(wrapper->init(80).ok());
+        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), type_limit<int>::min());
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), type_limit<int>::max());
+    }
+    {
+        // Insert
+        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        EXPECT_TRUE(wrapper->insert(col, 0).ok());
+        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), min_val + num_vals - 1);
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), min_val);
+    }
+    {
+        PMergeFilterRequest valid_request;
+        valid_request.set_contain_null(false);
+        valid_request.set_filter_type(PFilterType::MINMAX_FILTER);
+        valid_request.set_filter_id(filter_id);
+        wrapper->to_protobuf(valid_request.mutable_minmax_filter());
+
+        auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_TRUE(new_wrapper->assign(valid_request, nullptr).ok());
+
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(),
+                  *(int*)new_wrapper->minmax_func()->get_max());
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(),
+                  *(int*)new_wrapper->minmax_func()->get_min());
+    }
+    {
+        auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_TRUE(new_wrapper->init(12312).ok());
+        EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        // Insert
+        std::vector<int> new_data_vector {-100, 100};
+        auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
+        EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        new_wrapper->_state = RuntimeFilterWrapper::State::READY;
+        // Merge
+        EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), 100);
+        EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), -100);
+    }
+    EXPECT_EQ(wrapper->filter_id(), filter_id);
+    EXPECT_TRUE(wrapper->is_valid());
+    EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::MINMAX_FILTER);
+    EXPECT_EQ(wrapper->column_type(), column_return_type);
+    EXPECT_EQ(wrapper->contain_null(), false);
+}
+
+TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
+    int32_t filter_id = 0;
+    RuntimeFilterType filter_type = RuntimeFilterType::BITMAP_FILTER;
+    bool null_aware = false;
+    PrimitiveType column_return_type = PrimitiveType::TYPE_INT;
+
+    int32_t max_in_num = 0;
+
+    int64_t runtime_bloom_filter_min_size = 64;
+    int64_t runtime_bloom_filter_max_size = 128;
+    bool build_bf_by_runtime_size = false;
+    int64_t bloom_filter_size = 0;
+    bool bloom_filter_size_calculated_by_ndv = true;
+    bool enable_fixed_len_to_uint32_v2 = true;
+
+    bool bitmap_filter_not_in = false;
+
+    RuntimeFilterParams params {
+            .filter_id = filter_id,
+            .filter_type = filter_type,
+            .column_return_type = column_return_type,
+            .null_aware = null_aware,
+            .max_in_num = max_in_num,
+            .runtime_bloom_filter_min_size = runtime_bloom_filter_min_size,
+            .runtime_bloom_filter_max_size = runtime_bloom_filter_max_size,
+            .bloom_filter_size = bloom_filter_size,
+            .build_bf_by_runtime_size = build_bf_by_runtime_size,
+            .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
+            .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+            .bitmap_filter_not_in = bitmap_filter_not_in};
+
+    std::shared_ptr<RuntimeFilterWrapper> wrapper;
+    {
+        wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_TRUE(wrapper->init(80).ok());
+        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(wrapper->bitmap_filter_func()->size(), 0);
+    }
+    {
+        // Insert
+        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        auto bitmap_column = bitmap_data_type->create_column();
+        std::vector<BitmapValue>& container =
+                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            BitmapValue bv;
+            bv.add(i);
+            container.push_back(bv);
+        }
+
+        EXPECT_TRUE(wrapper->insert(std::move(bitmap_column), 0).ok());
+        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+
+        // merge
+        std::shared_ptr<RuntimeFilterWrapper> new_wrapper;
+        new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_TRUE(new_wrapper->init(80).ok());
+        EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(new_wrapper->bitmap_filter_func()->size(), 0);
+        wrapper->_state = RuntimeFilterWrapper::State::READY;
+        EXPECT_TRUE(new_wrapper->merge(wrapper.get()).ok());
+    }
+    {
+        PMergeFilterRequest valid_request;
+        auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_EQ(new_wrapper->assign(valid_request, nullptr).code(), ErrorCode::INTERNAL_ERROR);
+    }
+    EXPECT_EQ(wrapper->filter_id(), filter_id);
+    EXPECT_TRUE(wrapper->is_valid());
+    EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BITMAP_FILTER);
     EXPECT_EQ(wrapper->column_type(), column_return_type);
     EXPECT_EQ(wrapper->contain_null(), false);
 }
