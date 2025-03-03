@@ -238,14 +238,14 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         _hybrid_set->insert((const void*)nullptr);
     }
 
-    auto batch_assign = [this](const PInFilter& filter,
-                               void (*assign_func)(std::shared_ptr<HybridSetBase>& hybrid_set,
-                                                   PColumnValue&)) {
-        for (int i = 0; i < filter.values_size(); ++i) {
-            PColumnValue column = filter.values(i);
-            assign_func(hybrid_set, column);
-        }
-    };
+    auto batch_assign =
+            [this](const PInFilter& filter,
+                   void (*assign_func)(std::shared_ptr<HybridSetBase>&, PColumnValue&)) {
+                for (int i = 0; i < filter.values_size(); ++i) {
+                    PColumnValue column = filter.values(i);
+                    assign_func(_hybrid_set, column);
+                }
+            };
 
     switch (_column_return_type) {
     case TYPE_BOOLEAN: {
