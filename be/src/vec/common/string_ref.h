@@ -21,6 +21,7 @@
 #pragma once
 
 // IWYU pragma: no_include <crc32intrin.h>
+#include <crc32intrin.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -386,16 +387,24 @@ struct CRC32Hash {
         const char* end = pos + size;
         size_t res = -1ULL;
 
-        do {
-            doris::vectorized::UInt64 word = unaligned_load<doris::vectorized::UInt64>(pos);
+        // process complete 8-byte blocks
+        while (pos + 8 <= end) {
+            auto word = unaligned_load<doris::vectorized::UInt64>(pos);
             res = _mm_crc32_u64(res, word);
-
             pos += 8;
-        } while (pos + 8 < end);
+        }
 
-        doris::vectorized::UInt64 word = unaligned_load<doris::vectorized::UInt64>(
-                end - 8); /// I'm not sure if this is normal.
-        res = _mm_crc32_u64(res, word);
+        // process the remaining bytes (if any)
+        if (pos < end) {
+            char buffer[8] = {0};
+            memcpy(buffer, pos, end - pos);
+            auto word = unaligned_load<doris::vectorized::UInt64>(buffer);
+            res = _mm_crc32_u64(res, word);
+        } else if (size >= 8) {
+            // ensure that at least the last 8 bytes are processed (when the size is a multiple of 8)
+            auto word = unaligned_load<doris::vectorized::UInt64>(end - 8);
+            res = _mm_crc32_u64(res, word);
+        }
 
         return res;
     }
