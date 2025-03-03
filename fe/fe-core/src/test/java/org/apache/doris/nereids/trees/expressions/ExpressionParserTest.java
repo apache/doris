@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
