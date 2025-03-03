@@ -299,6 +299,17 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
         assert("${ex}".contains("3000"))
     }
 
+    try {
+        sql "select id,percentile(non_nullable(level + 0.1), -1) from ${tableName_13} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+    try {
+        sql "select id,percentile(non_nullable(level + 0.1), 3000) from ${tableName_13} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 
     
