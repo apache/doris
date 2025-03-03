@@ -47,8 +47,8 @@ public:
     int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
-    Status _process_init_variant(Block* block, int value_column_idx, ColumnArrayExecutionData& data);
-    ColumnPtr _array_column;
+    Status _process_init_variant(Block* block, int value_column_idx, ColumnArrayExecutionData& data, ColumnPtr& column);
+    std::vector<ColumnPtr> _array_columns;
     size_t _row_idx;
     ColumnArrayExecutionDatas _multi_detail;
     std::vector<size_t> _array_offsets;

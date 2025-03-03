@@ -45,14 +45,15 @@ VExplodeTableFunction::VExplodeTableFunction() {
 }
 
 Status
-VExplodeTableFunction::_process_init_variant(Block *block, int value_column_idx, ColumnArrayExecutionData &data) {
+VExplodeTableFunction::_process_init_variant(Block *block, int value_column_idx, ColumnArrayExecutionData &data,
+                                             ColumnPtr& array_column) {
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
     const auto &variant_column = assert_cast<const ColumnObject &>(*column);
     data.output_as_variant = true;
     if (!variant_column.is_null_root()) {
-        _array_column = variant_column.get_root();
+        array_column = variant_column.get_root();
         // We need to wrap the output nested column within a variant column.
         // Otherwise the type is missmatched
         const auto *array_type = check_and_get_data_type<DataTypeArray>(
@@ -64,9 +65,9 @@ VExplodeTableFunction::_process_init_variant(Block *block, int value_column_idx,
         data.nested_type = array_type->get_nested_type();
     } else {
         // null root, use nothing type
-        _array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
-                                               ColumnUInt8::create(0));
-        _array_column->assume_mutable()->insert_many_defaults(variant_column.size());
+        array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
+                                              ColumnUInt8::create(0));
+        array_column->assume_mutable()->insert_many_defaults(variant_column.size());
         data.nested_type = std::make_shared<DataTypeNothing>();
     }
     return Status::OK();
@@ -80,6 +81,7 @@ Status VExplodeTableFunction::process_init(Block *block, RuntimeState *state) {
     int value_column_idx = -1;
     _multi_detail.resize(_expr_context->root()->children().size());
     _array_offsets.resize(_expr_context->root()->children().size());
+    _array_columns.resize(_expr_context->root()->children().size());
 
     for (int i = 0; i < _expr_context->root()->children().size(); i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
@@ -87,12 +89,12 @@ Status VExplodeTableFunction::process_init(Block *block, RuntimeState *state) {
         ColumnArrayExecutionData detail = ColumnArrayExecutionData();
         if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
                 .is_variant_type()) {
-            RETURN_IF_ERROR(_process_init_variant(block, value_column_idx, detail));
+            RETURN_IF_ERROR(_process_init_variant(block, value_column_idx, detail, _array_columns[i]));
         } else {
-            _array_column =
+            _array_columns[i] =
                     block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
         }
-        if (!extract_column_array_info(*_array_column, detail)) {
+        if (!extract_column_array_info(*_array_columns[i], detail)) {
             return Status::NotSupported("column type {} not supported now",
                                         block->get_by_position(value_column_idx).column->get_name());
         }
@@ -103,17 +105,6 @@ Status VExplodeTableFunction::process_init(Block *block, RuntimeState *state) {
 }
 
 void VExplodeTableFunction::process_row(size_t row_idx) {
-// 1.  [2,3] [4,5,6] =>
-//      2   4
-//      3   5
-//      null    6
-// 2.  [2, null] [4,5] =>
-//      2   4
-//      null 5
-// 3.  null [4,5] =>
-//      null 4
-//      null 5
-    DCHECK(row_idx < _array_column->size());
     TableFunction::process_row(row_idx);
 
     for (int i = 0; i < _multi_detail.size(); i++) {
@@ -131,7 +122,10 @@ void VExplodeTableFunction::process_row(size_t row_idx) {
 }
 
 void VExplodeTableFunction::process_close() {
-    _array_column = nullptr;
+    _multi_detail.clear();
+    _array_offsets.clear();
+    _array_columns.clear();
+    _row_idx = 0;
 }
 
 void VExplodeTableFunction::get_same_many_values(MutableColumnPtr &column, int length) {
@@ -201,9 +195,6 @@ int VExplodeTableFunction::get_value(MutableColumnPtr &column, int max_step) {
             auto &detail = _multi_detail[i];
             size_t pos = _array_offsets[i] + _cur_offset;
             size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
-            //* [aa, bb , cc] [1,2]
-            //* NULL ,        [3, null, 5]  3 4
-            //* [bb, cc]      [4, null]
             auto &struct_field = struct_column->get_column(i);
             if (detail.array_nullmap_data && detail.array_nullmap_data[_row_idx]) {
                 struct_field.insert_many_defaults(max_step);
