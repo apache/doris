@@ -74,20 +74,16 @@ struct FunctionCaseName<true, true> {
 struct CaseWhenColumnHolder {
     using OptionalPtr = std::optional<ColumnPtr>;
 
-    std::vector<OptionalPtr> when_ptrs; // case, when, when...
-    std::vector<OptionalPtr> then_ptrs; // else, then, then...
+    ColumnPtrs when_ptrs; // case, when, when...
+    ColumnPtrs then_ptrs; // else, then, then...
     size_t pair_count;
     size_t rows_count;
 
     CaseWhenColumnHolder(Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
                          bool has_case, bool has_else, bool when_null, bool then_null)
             : rows_count(input_rows_count) {
-        when_ptrs.emplace_back(has_case ? OptionalPtr(block.get_by_position(arguments[0]).column)
-                                        : std::nullopt);
-        then_ptrs.emplace_back(
-                has_else
-                        ? OptionalPtr(block.get_by_position(arguments[arguments.size() - 1]).column)
-                        : std::nullopt);
+        when_ptrs.push_back(has_case ? block.get_by_position(arguments.front()).column : nullptr);
+        then_ptrs.push_back(has_else ? block.get_by_position(arguments.back()).column : nullptr);
 
         int begin = 0 + has_case;
         int end = cast_set<int>(arguments.size() - has_else);
@@ -100,24 +96,24 @@ struct CaseWhenColumnHolder {
 
         // if case_column/when_column is nullable. cast all case_column/when_column to nullable.
         if (when_null) {
-            for (OptionalPtr& column_ptr : when_ptrs) {
+            for (auto& column_ptr : when_ptrs) {
                 cast_to_nullable(column_ptr);
             }
         }
 
         // if else_column/then_column is nullable. cast all else_column/then_column to nullable.
         if (then_null) {
-            for (OptionalPtr& column_ptr : then_ptrs) {
+            for (auto& column_ptr : then_ptrs) {
                 cast_to_nullable(column_ptr);
             }
         }
     }
 
-    void cast_to_nullable(OptionalPtr& column_ptr) {
-        if (!column_ptr.has_value() || column_ptr.value()->is_nullable()) {
+    void cast_to_nullable(ColumnPtr& column_ptr) {
+        if (column_ptr.get() == nullptr) {
             return;
         }
-        column_ptr.emplace(make_nullable(column_ptr.value()));
+        column_ptr = make_nullable(column_ptr);
     }
 };
 
@@ -125,6 +121,13 @@ template <bool has_case, bool has_else>
 class FunctionCase : public IFunction {
 public:
     static constexpr auto name = FunctionCaseName<has_case, has_else>::name;
+
+#ifndef NDEBUG
+    constexpr static auto use_short_circuit_count = 3;
+#else
+    constexpr static auto use_short_circuit_count = UINT8_MAX;
+#endif
+
     static FunctionPtr create() { return std::make_shared<FunctionCase>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
@@ -155,8 +158,8 @@ public:
 
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_short_circuit(const DataTypePtr& data_type, Block& block, uint32_t result,
-                                 CaseWhenColumnHolder column_holder) const {
-        auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
+                                 CaseWhenColumnHolder& column_holder) const {
+        auto case_column_ptr = column_holder.when_ptrs[0];
         size_t rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
@@ -166,7 +169,7 @@ public:
 
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             for (int i = 1; i < column_holder.pair_count; i++) {
-                auto when_column_ptr = column_holder.when_ptrs[i].value();
+                auto when_column_ptr = column_holder.when_ptrs[i];
                 if constexpr (has_case) {
                     if (!case_column_ptr->is_null_at(row_idx) &&
                         case_column_ptr->compare_at(row_idx, row_idx, *when_column_ptr, -1) == 0) {
@@ -191,8 +194,8 @@ public:
 
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, uint32_t result,
-                        CaseWhenColumnHolder column_holder) const {
-        if (column_holder.pair_count > UINT8_MAX) {
+                        CaseWhenColumnHolder& column_holder) const {
+        if (column_holder.pair_count > use_short_circuit_count) {
             return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
                                                                            column_holder);
         }
@@ -204,10 +207,10 @@ public:
         uint8_t* __restrict then_idx_ptr = then_idx_uptr.get();
         memset(then_idx_ptr, 0, rows_count);
 
-        auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
+        auto case_column_ptr = column_holder.when_ptrs[0];
 
         for (uint8_t i = 1; i < column_holder.pair_count; i++) {
-            auto when_column_ptr = column_holder.when_ptrs[i].value();
+            auto when_column_ptr = column_holder.when_ptrs[i];
             if constexpr (has_case) {
                 // TODO: need simd
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
@@ -282,9 +285,9 @@ public:
         std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
         std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
         for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
-            if (column_holder.then_ptrs[i].has_value()) {
+            if (column_holder.then_ptrs[i]) {
                 std::tie(raw_columns[i], is_consts[i]) =
-                        unpack_if_const(column_holder.then_ptrs[i].value());
+                        unpack_if_const(column_holder.then_ptrs[i]);
             }
         }
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
@@ -311,7 +314,7 @@ public:
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) const {
         for (auto& then_ptr : column_holder.then_ptrs) {
-            then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const().get());
+            then_ptr = then_ptr->convert_to_full_column_if_const();
         }
 
         size_t rows_count = column_holder.rows_count;
@@ -329,8 +332,7 @@ public:
         // some types had simd automatically, but some not.
         for (uint8_t i = (has_else ? 0 : 1); i < column_holder.pair_count; i++) {
             auto* __restrict column_raw_data =
-                    assert_cast<ColumnType*>(
-                            column_holder.then_ptrs[i].value()->assume_mutable().get())
+                    assert_cast<const ColumnType*>(column_holder.then_ptrs[i].get())
                             ->get_data()
                             .data();
 
@@ -400,10 +402,7 @@ public:
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, uint32_t result,
                             size_t input_rows_count) const {
-        WhichDataType which(
-                data_type->is_nullable()
-                        ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
-                        : data_type);
+        WhichDataType which(remove_nullable(data_type));
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
     if (which.idx == TypeIndex::TYPE)                                                  \
         return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \
