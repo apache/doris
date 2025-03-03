@@ -899,7 +899,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sinh")
     public static Expression sinh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.MIN_VALUE, Double.MAX_VALUE, false, false)) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
         return checkOutputBoundary(new DoubleLiteral(Math.sinh(first.getValue())));
