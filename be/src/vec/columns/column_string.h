@@ -131,11 +131,13 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
+        sanity_check_simple();
         return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
+        sanity_check_simple();
         if (res.get_type() == Field::Types::JSONB) {
             // Handle JsonbField
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
@@ -146,6 +148,7 @@ public:
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());
+        sanity_check_simple();
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
@@ -527,11 +530,20 @@ public:
         return typeid(rhs) == typeid(ColumnStr<T>);
     }
 
-    Chars& get_chars() { return chars; }
+    Chars& get_chars() {
+        sanity_check_simple();
+        return chars;
+    }
     const Chars& get_chars() const { return chars; }
 
-    auto& get_offsets() { return offsets; }
-    const auto& get_offsets() const { return offsets; }
+    auto& get_offsets() {
+        sanity_check_simple();
+        return offsets;
+    }
+    const auto& get_offsets() const {
+        sanity_check_simple();
+        return offsets;
+    }
 
     void clear() override {
         chars.clear();

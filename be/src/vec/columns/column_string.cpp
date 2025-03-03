@@ -55,7 +55,7 @@ void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
     auto count = offsets.size();
     if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: ",
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
                                               count, chars.size(), offsets[count - 1]));
     }
     if (offsets[-1] != 0) {
@@ -639,6 +639,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
+    sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base =
