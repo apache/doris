@@ -37,14 +37,13 @@ suite("test_array_orderby_limit", "query") {
             """
     // prepare data
     sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
-    sql "analyze table test_array_char_orderby with sync"
+    sql '''
+        alter table test_array_char_orderby modify column k1 set stats ('ndv'='1491920000', 'num_nulls'='0', 'min_value'='1', 'max_value'='6000000000', 'row_count'='1500000000');
+        '''
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
-    sql """ set topn_filter_ratio = 2 """
     def table_stats = sql("show table stats test_array_char_orderby")
-    log.info(table_stats.join("\n"))
-    def memo = sql ("explain memo plan select * from test_array_char_orderby order by k1 limit 1")
-    log.info(memo.join("\n"))
+
     explain{
         sql("select * from test_array_char_orderby order by k1 limit 1")
         contains "TOPN"
