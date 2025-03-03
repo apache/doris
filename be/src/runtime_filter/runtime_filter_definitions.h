@@ -58,7 +58,6 @@ struct RuntimeFilterParams {
     // Whether an estimated size by NDV is used to build bloom filter
     bool bloom_filter_size_calculated_by_ndv {};
 
-
     bool bitmap_filter_not_in {};
 };
 
