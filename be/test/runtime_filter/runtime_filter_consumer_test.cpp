@@ -28,9 +28,8 @@ namespace doris {
 
 class RuntimeFilterConsumerTest : public RuntimeFilterTest {
 public:
-    void test_signal_aquire(TRuntimeFilterType::type type) {
+    void test_signal_aquire(TRuntimeFilterDesc desc) {
         std::shared_ptr<RuntimeFilterConsumer> consumer;
-        auto desc = TRuntimeFilterDescBuilder().set_type(type).add_planId_to_target_expr(0).build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
                 RuntimeFilterConsumer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
                                               &desc, 0, &consumer, &_profile));
@@ -69,19 +68,49 @@ TEST_F(RuntimeFilterConsumerTest, basic) {
 }
 
 TEST_F(RuntimeFilterConsumerTest, signal_aquire_in_or_bloom) {
-    test_signal_aquire(TRuntimeFilterType::IN_OR_BLOOM);
+    test_signal_aquire(TRuntimeFilterDescBuilder()
+                               .set_type(TRuntimeFilterType::IN_OR_BLOOM)
+                               .add_planId_to_target_expr(0)
+                               .build());
 }
 
 TEST_F(RuntimeFilterConsumerTest, signal_aquire_bloom) {
-    test_signal_aquire(TRuntimeFilterType::BLOOM);
+    test_signal_aquire(TRuntimeFilterDescBuilder()
+                               .set_type(TRuntimeFilterType::BLOOM)
+                               .add_planId_to_target_expr(0)
+                               .build());
 }
 
 TEST_F(RuntimeFilterConsumerTest, signal_aquire_in) {
-    test_signal_aquire(TRuntimeFilterType::IN);
+    test_signal_aquire(TRuntimeFilterDescBuilder()
+                               .set_type(TRuntimeFilterType::IN)
+                               .add_planId_to_target_expr(0)
+                               .build());
 }
 
 TEST_F(RuntimeFilterConsumerTest, signal_aquire_min_max) {
-    test_signal_aquire(TRuntimeFilterType::MIN_MAX);
+    test_signal_aquire(TRuntimeFilterDescBuilder()
+                               .set_type(TRuntimeFilterType::MIN_MAX)
+                               .add_planId_to_target_expr(0)
+                               .build());
+}
+
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_min) {
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_type(TRuntimeFilterType::MIN_MAX)
+                        .add_planId_to_target_expr(0)
+                        .build();
+    desc.__set_min_max_type(TMinMaxRuntimeFilterType::MIN);
+    test_signal_aquire(desc);
+}
+
+TEST_F(RuntimeFilterConsumerTest, signal_aquire_max) {
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_type(TRuntimeFilterType::MIN_MAX)
+                        .add_planId_to_target_expr(0)
+                        .build();
+    desc.__set_min_max_type(TMinMaxRuntimeFilterType::MAX);
+    test_signal_aquire(desc);
 }
 
 TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {

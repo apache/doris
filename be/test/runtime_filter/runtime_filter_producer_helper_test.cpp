@@ -79,4 +79,57 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
             helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
 }
 
+TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
+    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+
+    vectorized::VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    ctx->_last_result_column_id = 0;
+
+    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder().set_build_bf_by_runtime_size(true).build()};
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
+
+    vectorized::Block block;
+    auto column = vectorized::ColumnInt32::create();
+    column->insert(1);
+    column->insert(2);
+    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+
+    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
+    _task->set_wake_up_early();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+}
+
+TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
+    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+
+    vectorized::VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    ctx->_last_result_column_id = 0;
+
+    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
+            TRuntimeFilterDescBuilder().set_build_bf_by_runtime_size(true).build()};
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
+
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.skip_process(_runtime_states[0].get()));
+
+    vectorized::Block block;
+    auto column = vectorized::ColumnInt32::create();
+    column->insert(1);
+    column->insert(2);
+    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+
+    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+}
+
 } // namespace doris
