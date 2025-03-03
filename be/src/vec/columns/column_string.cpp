@@ -41,7 +41,7 @@ void ColumnStr<T>::sanity_check() const {
 #ifndef NDEBUG
     sanity_check_simple();
     auto count = offsets.size();
-    for (size_t i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
