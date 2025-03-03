@@ -15,45 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.UserDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PasswordPolicy.FailedLoginPolicy;
+import org.apache.doris.mysql.privilege.PasswordPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
 import java.util.Set;
 
-// ALTER USER user@host [IDENTIFIED BY "password"] [DEFAULT ROLE role] [password_options]
-// password_options:
-//      PASSWORD_HISTORY
-//      ACCOUNT_LOCK[ACCOUNT_UNLOCK]
-//      FAILED_LOGIN_ATTEMPTS
-//      PASSWORD_LOCK_TIME
-public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
+/**
+ * AlterUserInfo
+ */
+public class AlterUserInfo {
     private boolean ifExist;
     private UserDesc userDesc;
-    private String role;
     private PasswordOptions passwordOptions;
-
     private String comment;
-
     private Set<AlterOpType> ops = Sets.newHashSet();
 
-    public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
-            String comment) {
+    public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
-        this.role = role;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
     }
@@ -73,10 +66,6 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         return null;
     }
 
-    public String getRole() {
-        return role;
-    }
-
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
     }
@@ -90,9 +79,10 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         return comment;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    /**
+     * validate
+     */
+    public void validate() throws UserException {
         userDesc.getUserIdent().analyze();
         userDesc.getPassVar().analyze();
 
@@ -100,18 +90,14 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
             ops.add(AlterOpType.SET_PASSWORD);
         }
 
-        if (!Strings.isNullOrEmpty(role)) {
-            ops.add(AlterOpType.SET_ROLE);
-        }
-
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
         if (comment != null) {
             ops.add(AlterOpType.MODIFY_COMMENT);
         }
         passwordOptions.analyze();
-        if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.LOCK_ACCOUNT) {
-            throw new AnalysisException("Not support lock account now");
-        } else if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.UNLOCK_ACCOUNT) {
+        if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
+            throw new org.apache.doris.common.AnalysisException("Not support lock account now");
+        } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
             ops.add(AlterOpType.UNLOCK_ACCOUNT);
         } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
                 || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
@@ -121,38 +107,11 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         if (ops.size() != 1) {
-            throw new AnalysisException("Only support doing one type of operation at one time");
+            throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ALTER USER ").append(userDesc.getUserIdent());
-        if (!Strings.isNullOrEmpty(userDesc.getPassVar().getText())) {
-            if (userDesc.getPassVar().isPlain()) {
-                sb.append(" IDENTIFIED BY '").append("*XXX").append("'");
-            } else {
-                sb.append(" IDENTIFIED BY PASSWORD '").append(userDesc.getPassVar().getText()).append("'");
-            }
-        }
-
-        if (!Strings.isNullOrEmpty(role)) {
-            sb.append(" DEFAULT ROLE '").append(role).append("'");
-        }
-        if (passwordOptions != null) {
-            sb.append(passwordOptions.toSql());
-        }
-
-        return sb.toString();
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.ALTER;
     }
 }
