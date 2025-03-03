@@ -54,12 +54,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
     _should_build_hash_table = true;
-    profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
+    custom_profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
     if (p._use_shared_hash_table) {
         _should_build_hash_table = info.task_idx == 0;
     }
-    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
-    profile()->add_info_string("ShareHashTableEnabled", std::to_string(p._use_shared_hash_table));
+    custom_profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
+    custom_profile()->add_info_string("ShareHashTableEnabled", std::to_string(p._use_shared_hash_table));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -72,23 +72,19 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     }
 
     _build_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
     _hash_table_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _build_arena_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageBuildKeyArena", TUnit::BYTES, 1);
 
     // Build phase
-    auto* record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(profile(), "BuildHashTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
+    auto* record_profile = _should_build_hash_table ? custom_profile() : faker_runtime_profile();
+    _build_table_timer = ADD_TIMER(custom_profile(), "BuildHashTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(custom_profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
 
-    // Hash Table Init
-    RETURN_IF_ERROR(_hash_table_init(state));
-    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
-            profile(), _should_build_hash_table, p._is_broadcast_join);
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
                                                           p._runtime_filter_descs));
     return Status::OK();
@@ -626,24 +622,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         dst.hash_table = src.hash_table;
                     }
                 },
-                local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
                         ->method_variant,
                 local_state._shared_state->hash_table_variant_vector.front()->method_variant);
-    }
-
-    if (eos) {
-        local_state._eos = true;
-        // If a shared hash table is used, states are shared by all tasks.
-        // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1 relationship.
-        // So we should notify the `_task_idx` source task if a shared hash table is used.
-        local_state._dependency->set_ready_to_read(_use_shared_hash_table ? local_state._task_idx
-                                                                          : 0);
-    }
-
-    return Status::OK();
-}
-
-size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     return local_state.get_reserve_mem_size(state, eos);
 }

@@ -31,7 +31,7 @@ Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* stat
     auto& p = PipelineXSinkLocalState<SharedStateArg>::_parent
                       ->template cast<typename Derived::Parent>();
 
-    PipelineXSinkLocalState<SharedStateArg>::profile()->add_info_string("JoinType",
+    PipelineXSinkLocalState<SharedStateArg>::custom_profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
     return Status::OK();
 }
