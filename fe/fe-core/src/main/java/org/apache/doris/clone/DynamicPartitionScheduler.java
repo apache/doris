@@ -673,18 +673,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 cloudBatchAfterCreatePartitions(executeFirstTime, partsInfo,
                         addPartitionClauses, db, olapTable, indexIds, tableName);
             }
-
-            if (Config.dynamic_partition_step_interval_ms > 0) {
-                long sleep = Config.dynamic_partition_step_interval_ms;
-                if (sleep > 1800 * 1000) {
-                    LOG.warn("fe conf dynamic_partition_step_interval_ms bigger than 1800s, plz check it");
-                }
-                try {
-                    Thread.sleep(sleep);
-                } catch (InterruptedException e) {
-                    LOG.warn("sleep err", e);
-                }
-            }
         }
     }
 
