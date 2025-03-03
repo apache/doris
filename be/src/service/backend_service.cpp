@@ -299,8 +299,10 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
         auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url =
-                fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
+        auto get_segment_file_url = segment_file_urls[segment_index];
+        if (config::enable_download_md5sum_check) {
+            get_segment_file_url = fmt::format("{}&acquire_md5=true", get_segment_file_url);
+        }
 
         auto segment_path = local_segment_path(local_tablet->tablet_path(),
                                                rowset_meta->rowset_id().to_string(), segment_index);
@@ -315,9 +317,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(segment_path);
 
             std::string remote_file_md5;
-            if (config::enable_download_md5sum_check) {
-                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-            }
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
             LOG(INFO) << "download segment file to " << segment_path
                       << ", remote md5: " << remote_file_md5
                       << ", remote size: " << segment_file_size;
@@ -471,8 +471,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
     for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
         auto segment_index_file_size = segment_index_file_sizes[i];
-        auto get_segment_index_file_url =
-                fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
+        auto get_segment_index_file_url = segment_index_file_urls[i];
+        if (config::enable_download_md5sum_check) {
+            get_segment_index_file_url =
+                    fmt::format("{}&acquire_md5=true", get_segment_index_file_url);
+        }
 
         uint64_t estimate_timeout = estimate_download_timeout(segment_index_file_size);
         auto local_segment_index_path = segment_index_file_names[i];
@@ -487,9 +490,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(local_segment_index_path);
 
             std::string remote_file_md5;
-            if (config::enable_download_md5sum_check) {
-                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-            }
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
 
             std::error_code ec;
             // Check file length
