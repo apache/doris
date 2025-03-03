@@ -353,7 +353,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(min.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -364,7 +364,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(max.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -374,19 +374,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
-        return new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setAvgSizeByte(width).build();
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(width);
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
+        // estimate size as BIGINT
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(sum.getDataType().width());
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitAvg(Avg avg, Statistics context) {
-        return avg.child().accept(this, context);
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(avg.getDataType().width());
     }
 
     @Override
