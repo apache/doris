@@ -140,13 +140,13 @@ void VExplodeTableFunction::get_same_many_values(MutableColumnPtr &column, int l
                 assert_cast<ColumnStruct *>(nullable_column->get_nested_column_ptr().get());
         auto *nullmap_column =
                 assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
-        nullmap_column->insert_many_defaults(length); //??
+        nullmap_column->insert_many_defaults(length);
     } else {
         struct_column = assert_cast<ColumnStruct *>(column.get());
     }
     if (!struct_column) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "only support map column explode to two column tmw");
+                        "Only multiple columns can be returned within a struct.");
     }
     for (int i = 0; i < _multi_detail.size(); i++) {
         auto &detail = _multi_detail[i];
@@ -189,7 +189,7 @@ int VExplodeTableFunction::get_value(MutableColumnPtr &column, int max_step) {
         }
         if (!struct_column) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "only support map column explode to two column tmw");
+                            "Only multiple columns can be returned within a struct.");
         }
         for (int i = 0; i < _multi_detail.size(); i++) {
             auto &detail = _multi_detail[i];
