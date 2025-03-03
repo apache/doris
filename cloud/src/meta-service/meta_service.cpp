@@ -2352,6 +2352,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                               << " expiration=" << lock_info.expiration() << " now=" << now
                               << " initiator_size=" << lock_info.initiators_size();
                     lock_info.clear_initiators();
+                    lock_info.clear_expiration();
                 } else if (lock_info.lock_id() != request->lock_id()) {
                     ss << "already be locked by lock_id=" << lock_info.lock_id()
                        << " expiration=" << lock_info.expiration() << " now=" << now
