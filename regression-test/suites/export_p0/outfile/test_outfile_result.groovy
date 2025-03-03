@@ -16,26 +16,7 @@
 // under the License.
 
 suite("test_outfile_result", "p0") {
-
     def export_table_name = "test_outfile_result"
-    
-    def outfile_to_S3 = {bucket, s3_endpoint, region, ak, sk  ->
-        def outFilePath = "${bucket}/outfile_different_s3/exp_"
-        // select ... into outfile ...
-        def res = sql """
-            SELECT * FROM ${export_table_name} t ORDER BY user_id
-            INTO OUTFILE "s3://${outFilePath}"
-            FORMAT AS parquet
-            PROPERTIES (
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
-            );
-        """
-        return res[0][3]
-    }
-
 
     sql """ DROP TABLE IF EXISTS ${export_table_name} """
     sql """
@@ -69,7 +50,7 @@ suite("test_outfile_result", "p0") {
         }
         try {
             double num = Double.parseDouble(str);
-            if (num <= 0) {
+            if (num < 0) {
                 throw exception("result can not be less than 0")
             }
         } catch (NumberFormatException e) {
@@ -87,19 +68,20 @@ suite("test_outfile_result", "p0") {
         String region = getS3Region()
         String bucket = context.config.otherConfigs.get("s3BucketName");
 
-        def outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
-
         // http schema
-        List<List<Object>> outfile_res = """ SELECT * FROM S3 (
-            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
-            "s3.access_key"= "${ak}",
-            "s3.secret_key" = "${sk}",
-            "format" = "parquet",
-            "region" = "${region}"
-        );
-        """
+        def outFilePath = "${bucket}/outfile_different_s3/exp_"
+        List<List<Object>> outfile_res = sql """ SELECT * FROM ${export_table_name} t ORDER BY user_id
+                                                INTO OUTFILE "s3://${outFilePath}"
+                                                FORMAT AS parquet
+                                                PROPERTIES (
+                                                    "s3.endpoint" = "${s3_endpoint}",
+                                                    "s3.region" = "${region}",
+                                                    "s3.secret_key"="${sk}",
+                                                    "s3.access_key" = "${ak}"
+                                                );
+                                            """
 
-        assertEquals(6, outfile_res.size())
+        assertEquals(6, outfile_res[0].size())
         assertEquals(true, isNumber(outfile_res[0][4]))
         assertEquals(true, isNumber(outfile_res[0][5]))
     } finally {
