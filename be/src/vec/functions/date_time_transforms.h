@@ -284,6 +284,7 @@ struct TransformerToStringOneArgument {
             res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
             null_map[i] = !date_time_value.is_valid_date();
         }
+        res_data.resize(res_offsets[res_offsets.size() - 1]);
     }
 
     static void vector(FunctionContext* context,
