@@ -21,13 +21,16 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -68,6 +71,14 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
 
         public Context withLazySlots(List<Slot> otherLazySlots) {
             return new Context(this.scan, otherLazySlots, this.rowIdSlot);
+        }
+
+        public void forceRowIdNullable() {
+            rowIdSlot = rowIdSlot.withNullable(true);
+        }
+
+        public void updateRowIdSlot(SlotReference rowIdSlot) {
+            this.rowIdSlot = rowIdSlot;
         }
     }
 
@@ -183,4 +194,33 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         return project;
     }
 
+    @Override
+    public Plan visitAbstractPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, Context context) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(2);
+        boolean hasNewChildren = false;
+        for (int i = 0; i < 2; i++) {
+            Plan child = join.child(i);
+            if (child.getOutputSet().containsAll(context.lazySlots)) {
+                Plan newChild = child.accept(this, context);
+                if (newChild != child) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            } else {
+                newChildren.add(child);
+            }
+        }
+        Plan plan = join;
+        if (hasNewChildren) {
+            AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) plan;
+            plan = ((AbstractPhysicalPlan) plan.withChildren(newChildren.build()))
+                    .copyStatsAndGroupIdFrom(physicalPlan).resetLogicalProperties();
+            // update rowIdSlot.nullable after outer join
+            int rowIdPos = plan.getOutput().indexOf(context.rowIdSlot);
+            if ( rowIdPos!= -1) {
+                context.updateRowIdSlot((SlotReference) plan.getOutput().get(rowIdPos));
+            }
+        }
+        return plan;
+    }
 }

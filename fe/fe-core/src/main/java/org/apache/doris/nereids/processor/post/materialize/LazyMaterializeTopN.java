@@ -86,10 +86,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         for (CatalogRelation relation : relationToLazySlotMap.keySet()) {
             Column rowIdCol = new Column(Column.GLOBAL_ROWID_COL + relation.getTable().getName(),
                     Type.STRING, false, null, false,
-                    "", "global row_id column");
+                    "", relation.getTable().getName() + ".global_row_id");
             SlotReference rowIdSlot = SlotReference.fromColumn(relation.getTable(), rowIdCol,
                     relation.getQualifier());
-            rowIdSlot = rowIdSlot.withNullable(true);
             result = result.accept(new LazySlotPruning(),
                     new LazySlotPruning.Context((PhysicalOlapScan) relation,
                             rowIdSlot, relationToLazySlotMap.get(relation)));
