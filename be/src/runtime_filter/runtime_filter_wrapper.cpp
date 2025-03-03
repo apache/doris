@@ -231,7 +231,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
 Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_null) {
     if (contain_null) {
-        _hybrid_set->set_null_aware(true);
         _hybrid_set->insert((const void*)nullptr);
     }
 
@@ -419,7 +418,6 @@ Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
 
 Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool contain_null) {
     if (contain_null) {
-        _minmax_func->set_null_aware(true);
         _minmax_func->set_contain_null();
     }
 

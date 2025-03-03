@@ -17,13 +17,18 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 namespace doris {
 
 class FilterBase {
 public:
     bool contain_null() const { return _null_aware && _contain_null; }
 
-    void set_contain_null() { _contain_null = true; }
+    void set_contain_null() {
+        DCHECK(_null_aware);
+        _contain_null = true;
+    }
 
     void set_null_aware(bool null_aware) { _null_aware = null_aware; }
 
