@@ -144,7 +144,6 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         return status;
     }
     SCOPED_TIMER(channel->get_mgr_add_batch_timer());
-    SCOPED_ATTACH_TASK(channel->resource_ctx());
 
     if (!channel->is_high_priority()) {
         // 2. check if mem consumption exceed limit
