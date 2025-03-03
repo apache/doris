@@ -32,9 +32,9 @@ suite("table_modify_resouce") {
         }
     }
     // data_sizes is one arrayList<Long>, t is tablet
-    def fetchDataSize = { data_sizes, t ->
-        def tabletId = t[0]
-        String meta_url = t[17]
+    def fetchDataSize = {List<Long> data_sizes, Map<String, Object> t ->
+        def tabletId = t.TabletId
+        String meta_url = t.MetaUrl
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -90,13 +90,13 @@ suite("table_modify_resouce") {
     def load_lineitem_table = {
         stream_load_one_part("00")
         stream_load_one_part("01")
-        def tablets = sql """
+        def tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        while (tablets[0][8] == "0") {
+        while (tablets[0].LocalDataSize == "0") {
             log.info( "test local size is zero, sleep 10s")
             sleep(10000)
-            tablets = sql """
+            tablets = sql_return_maparray """
             SHOW TABLETS FROM ${tableName}
             """
         }
@@ -190,7 +190,7 @@ suite("table_modify_resouce") {
 
     // 等待10分钟 获取remote data size
     sleep(600000)
-    def tablets = sql """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -201,7 +201,7 @@ suite("table_modify_resouce") {
     while (sizes[0] != 0) {
         log.info( "test local size is not zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
@@ -274,7 +274,7 @@ suite("table_modify_resouce") {
 
     // 等待10分钟 获取remote data size
     sleep(600000)
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -284,7 +284,7 @@ suite("table_modify_resouce") {
     while (sizes[0] != 0) {
         log.info( "test local size is not zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
@@ -310,7 +310,7 @@ suite("table_modify_resouce") {
     """
 
 
-    tablets2 = sql """
+    tablets2 = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     // [8] local data size, [9] remote data size
