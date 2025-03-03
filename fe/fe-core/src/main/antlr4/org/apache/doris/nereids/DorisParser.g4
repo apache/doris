@@ -367,20 +367,20 @@ supportedLoadStatement
     | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
-supportedOtherStatement
-    : HELP mark=identifierOrText                                                    #help
-    | UNLOCK TABLES                                                                 #unlockTables
-    ;
-
 supportedKillStatement
     : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
     ;
 
-unsupportedOtherStatement 
-    : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
-    | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
-    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
+supportedOtherStatement
+    : HELP mark=identifierOrText                                                    #help
+    | UNLOCK TABLES                                                                 #unlockTables
+    | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    ;
+
+unsupportedOtherStatement
+    : UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
