@@ -20,7 +20,7 @@
 #include "pipeline/dependency.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 // this class used in ScanNode or MultiCastDataStreamSource
 /**
@@ -74,4 +74,4 @@ private:
     std::unique_ptr<RuntimeProfile> _profile;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

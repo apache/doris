@@ -461,7 +461,7 @@ public:
                                                            .build())
                                         .build(),
                                 0)
-                                .set_slot_ref(TSlotRefBuilder(1, 1).build())
+                                .set_slot_ref(TSlotRefBuilder(0, 0).build())
                                 .build())
                 .build();
     }
