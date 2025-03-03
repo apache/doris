@@ -561,8 +561,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
 
         if (!isRegisteredRowCount(olapScan)
-                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()
-                && ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
+                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
@@ -571,8 +570,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = getColumnStatsFromPartitionCacheOrTableCache(
-                        olapScan, slot, selectedPartitionNames);
+                ColumnStatistic cache;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
+                    cache = getColumnStatsFromPartitionCacheOrTableCache(
+                            olapScan, slot, selectedPartitionNames);
+                } else {
+                    cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
+                }
                 if (slot.getColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
