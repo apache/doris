@@ -70,4 +70,10 @@ suite("test_gis_function", "arrow_flight_sql") {
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Polygon(\"POLYGON ((114.104486 22.547119,114.093758 22.547753,114.096504 22.532057,114.104229 22.539826,114.106203 22.542680,114.104486 22.547119))\"))));"
 
+    qt_sql "SELECT ST_AsText(ST_GeometryFromWKB('01010000208A11000068270210774C5D40B8DECA334C3B4240'));"
+    qt_sql "SELECT ST_X(ST_GeometryFromWKB(ST_AsBinary(ST_Point(1, 1))));"
+    qt_sql "SELECT ST_AsText(ST_GeometryFromWKB(ST_AsBinary(ST_Point(1.23456789, 2.34567891))));"
+    qt_sql "SELECT ST_X(ST_Point(0.9999999999999, 1));"
+    qt_sql "SELECT ST_Y(ST_Point(1, 1.0000000000001));"
+
 }
