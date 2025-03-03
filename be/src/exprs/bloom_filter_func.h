@@ -37,7 +37,7 @@ public:
         _build_bf_by_runtime_size = params->build_bf_by_runtime_size;
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
-        set_null_aware(params->null_aware);
+        _null_aware = params->null_aware;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
         _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _limit_length();
@@ -98,6 +98,7 @@ public:
                     _bloom_filter_alloced, other->_bloom_filter_alloced);
         }
         if (other->contain_null()) {
+            _bloom_filter->set_null_aware(true);
             _bloom_filter->set_contain_null();
         }
         return _bloom_filter->merge(other->_bloom_filter.get());
@@ -179,6 +180,7 @@ public:
             Op::insert_set(*_bloom_filter, set);
         }
         if (set->contain_null()) {
+            _bloom_filter->set_null_aware(true);
             _bloom_filter->set_contain_null();
         }
     }
