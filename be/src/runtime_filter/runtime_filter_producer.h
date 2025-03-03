@@ -59,13 +59,13 @@ public:
                      const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     // insert data to build filter
-    void insert(vectorized::ColumnPtr column, size_t start) {
+    Status insert(vectorized::ColumnPtr column, size_t start) {
         if (_rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED) {
             DCHECK(!_wrapper->is_valid());
-            return;
+            return Status::OK();
         }
         _check_state({State::WAITING_FOR_DATA});
-        _wrapper->insert(column, start);
+        return _wrapper->insert(column, start);
     }
     Status publish(RuntimeState* state, bool build_hash_table);
 

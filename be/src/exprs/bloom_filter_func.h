@@ -42,9 +42,6 @@ public:
         _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _limit_length();
     }
-
-    bool build_bf_by_runtime_size() const { return _build_bf_by_runtime_size; }
-
     Status init_with_fixed_length(size_t runtime_size) {
         if (_build_bf_by_runtime_size) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
@@ -73,6 +70,8 @@ public:
         RETURN_IF_ERROR(_bloom_filter->init(_bloom_filter_length));
         return Status::OK();
     }
+
+    bool build_bf_by_runtime_size() const { return _build_bf_by_runtime_size; }
 
     Status merge(BloomFilterFuncBase* other) {
         if (other == nullptr) {

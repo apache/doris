@@ -89,10 +89,18 @@ Status RuntimeFilterWrapper::init(const size_t real_size) {
     return Status::OK();
 }
 
-void RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t start) {
+Status RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t start) {
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert_fixed_len(column, start);
+        if (_hybrid_set->size() > _max_in_num) [[unlikely]] {
+            _hybrid_set->clear();
+            set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
+            return Status::InternalError(
+                    "Size of in set with actual size {} should be less than the limitation {} in "
+                    "runtime filter {}.",
+                    _hybrid_set->size(), _max_in_num, _filter_id);
+        }
         break;
     }
     case RuntimeFilterType::MIN_FILTER:
@@ -140,6 +148,7 @@ void RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t st
         DCHECK(false);
         break;
     }
+    return Status::OK();
 }
 
 bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
@@ -147,11 +156,12 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
-    if (other->_state == State::DISABLED) {
-        set_state(State::DISABLED, other->_disabled_reason);
-    }
-
     if (other->_state == State::IGNORED || _state == State::DISABLED) {
+        return Status::OK();
+    }
+    if (other->_state == State::DISABLED) {
+        _hybrid_set->clear();
+        set_state(State::DISABLED, other->_disabled_reason);
         return Status::OK();
     }
 
@@ -165,7 +175,8 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
         _hybrid_set->insert(other->_hybrid_set.get());
-        if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
+        if (_max_in_num >= 0 && _hybrid_set->size() > _max_in_num) {
+            _hybrid_set->clear();
             set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
         }
         break;
@@ -194,7 +205,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
             // case2: all input-filter's build_bf_by_runtime_size is false, inited by default size
             if (other_filter_type == RuntimeFilterType::IN_FILTER) {
                 _hybrid_set->insert(other->_hybrid_set.get());
-                if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
+                if (_max_in_num >= 0 && _hybrid_set->size() > _max_in_num) {
                     // case2: use default size to init bf
                     RETURN_IF_ERROR(_bloom_filter_func->init_with_fixed_length(0));
                     RETURN_IF_ERROR(_change_to_bloom_filter());
@@ -232,7 +243,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
 
     auto batch_assign = [this](const PInFilter& filter,
-                               void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
+                               void (*assign_func)(std::shared_ptr<HybridSetBase> & _hybrid_set,
                                                    PColumnValue&)) {
         for (int i = 0; i < filter.values_size(); ++i) {
             PColumnValue column = filter.values(i);
@@ -600,20 +611,62 @@ std::string RuntimeFilterWrapper::debug_string() const {
     return result + "]";
 }
 
-void RuntimeFilterWrapper::_to_protobuf(PInFilter* filter) {
+void RuntimeFilterWrapper::to_protobuf(PInFilter* filter) {
     filter->set_column_type(to_proto(column_type()));
     _hybrid_set->to_pb(filter);
 }
 
-void RuntimeFilterWrapper::_to_protobuf(PMinMaxFilter* filter) {
+void RuntimeFilterWrapper::to_protobuf(PMinMaxFilter* filter) {
     filter->set_column_type(to_proto(column_type()));
     _minmax_func->to_pb(filter);
 }
 
-void RuntimeFilterWrapper::_to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
+void RuntimeFilterWrapper::to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
     _bloom_filter_func->get_data(data, filter_length);
     filter->set_filter_length(*filter_length);
     filter->set_always_true(false);
 }
+
+template <class T>
+Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
+    PFilterType filter_type = request.filter_type();
+
+    if (request.has_disabled() && request.disabled()) {
+        set_state(State::DISABLED, "get disabled from remote");
+        return Status::OK();
+    }
+
+    if (request.has_ignored() && request.ignored()) {
+        set_state(State::IGNORED, "get ignored from remote");
+        return Status::OK();
+    }
+
+    set_state(State::READY);
+
+    switch (filter_type) {
+    case PFilterType::IN_FILTER: {
+        DCHECK(request.has_in_filter());
+        return _assign(request.in_filter(), request.contain_null());
+    }
+    case PFilterType::BLOOM_FILTER: {
+        DCHECK(request.has_bloom_filter());
+        _hybrid_set.reset(); // change in_or_bloom filter to bloom filter
+        return _assign(request.bloom_filter(), data, request.contain_null());
+    }
+    case PFilterType::MIN_FILTER:
+    case PFilterType::MAX_FILTER:
+    case PFilterType::MINMAX_FILTER: {
+        DCHECK(request.has_minmax_filter());
+        return _assign(request.minmax_filter(), request.contain_null());
+    }
+    default:
+        return Status::InternalError("unknown filter type {}", int(filter_type));
+    }
+}
+
+template Status RuntimeFilterWrapper::assign<doris::PMergeFilterRequest>(
+        doris::PMergeFilterRequest const&, butil::IOBufAsZeroCopyInputStream*);
+template Status RuntimeFilterWrapper::assign<doris::PPublishFilterRequestV2>(
+        doris::PPublishFilterRequestV2 const&, butil::IOBufAsZeroCopyInputStream*);
 
 } // namespace doris
