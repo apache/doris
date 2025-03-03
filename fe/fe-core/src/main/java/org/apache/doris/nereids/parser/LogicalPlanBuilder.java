@@ -605,6 +605,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
+            ConnectContext.get().setDatabase(name.getDb());
         } else {
             throw new ParseException("tableName and tableId cannot both be null");
         }
