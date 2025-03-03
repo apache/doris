@@ -104,7 +104,8 @@ Status RuntimeFilterProducerHelper::process(
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
-            RETURN_IF_ERROR(_insert(block, 1)); // the first row is mocked
+            constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
+            RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
         }
     }
 
