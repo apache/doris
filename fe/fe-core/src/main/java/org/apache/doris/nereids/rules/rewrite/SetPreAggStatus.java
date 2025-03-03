@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -76,35 +75,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
      * PreAggValidateContext
      */
     public static class PreAggValidateContext {
-        public Set<Slot> outerJoinNullableSideSlots = new HashSet<>();
         public List<Expression> filterConjuncts = new ArrayList<>();
         public List<Expression> joinConjuncts = new ArrayList<>();
         public List<Expression> groupByExpresssions = new ArrayList<>();
         public Set<AggregateFunction> aggregateFunctions = new HashSet<>();
-        public boolean hasJoin = false;
+        public boolean isJoinExpandData = false;
 
         void addJoinInfo(LogicalJoin logicalJoin) {
-            hasJoin = true;
             joinConjuncts.addAll(logicalJoin.getExpressions());
-            JoinType joinType = logicalJoin.getJoinType();
-            if (joinType.isOuterJoin()) {
-                if (outerJoinNullableSideSlots == null) {
-                    outerJoinNullableSideSlots = Sets.newHashSet();
-                }
-                switch (joinType) {
-                    case LEFT_OUTER_JOIN:
-                        outerJoinNullableSideSlots.addAll(logicalJoin.right().getOutput());
-                        break;
-                    case RIGHT_OUTER_JOIN:
-                        outerJoinNullableSideSlots.addAll(logicalJoin.left().getOutput());
-                        break;
-                    case FULL_OUTER_JOIN:
-                        outerJoinNullableSideSlots.addAll(logicalJoin.getOutput());
-                        break;
-                    default:
-                        break;
-                }
-            }
+            isJoinExpandData = !logicalJoin.getJoinType().isSemiOrAntiJoin();
         }
 
         void addFilterConjuncts(List<Expression> conjuncts) {
@@ -128,18 +107,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
             if (!groupByExpresssions.isEmpty()) {
                 groupByExpresssions = Lists.newArrayList(ExpressionUtils.replace(groupByExpresssions, replaceMap));
-            }
-            if (!outerJoinNullableSideSlots.isEmpty()) {
-                Set<Slot> newOuterJoinNullableSideSlots = Sets.newHashSet();
-                for (Slot slot : outerJoinNullableSideSlots) {
-                    Expression expr = ExpressionUtils.replace(slot, replaceMap);
-                    if (expr instanceof Slot) {
-                        newOuterJoinNullableSideSlots.add((Slot) expr);
-                    } else {
-                        newOuterJoinNullableSideSlots.add(slot);
-                    }
-                }
-                outerJoinNullableSideSlots = newOuterJoinNullableSideSlots;
             }
             if (!aggregateFunctions.isEmpty()) {
                 Set<AggregateFunction> newAggregateFunctions = Sets.newHashSet();
@@ -194,14 +161,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> logicalJoin,
             Stack<PreAggValidateContext> context) {
-        if (logicalJoin.getJoinType().isOuterJoin()) {
-            // TODO how to handle outer join?
-            context.clear();
-        }
-        int size = context.size();
-        if (size != 0) {
-            context.peek().addJoinInfo(logicalJoin);
-        }
+        context.peek().addJoinInfo(logicalJoin);
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(logicalJoin.arity());
         boolean hasNewChildren = false;
         for (Plan child : logicalJoin.children()) {
@@ -210,9 +170,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 hasNewChildren = true;
             }
             newChildren.add(newChild);
-            while (context.size() > size) {
-                context.pop();
-            }
         }
 
         if (hasNewChildren) {
@@ -238,7 +195,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         validateContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
         validateContext.addGroupByExpresssions(nonVirtualGroupByExprs(logicalAggregate));
         context.push(validateContext);
-        return super.visit(logicalAggregate, context);
+        Plan plan = super.visit(logicalAggregate, context);
+        context.pop();
+        return plan;
     }
 
     @Override
@@ -259,21 +218,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 "output slots contains no key or value slots");
 
         Set<Slot> groupingExprsInputSlots = ExpressionUtils.getInputSlotSet(groupingExprs);
-        Set<Slot> filterInputSlots = ExpressionUtils.getInputSlotSet(filterConjuncts);
-        Set<Slot> joinInputSlots = ExpressionUtils.getInputSlotSet(joinConjuncts);
-        Set<Slot> aggFunctionInputSlots = ExpressionUtils.getInputSlotSet(aggregateFuncs);
-
-        Set<Slot> allUsedSlots = new HashSet<>();
-        allUsedSlots.addAll(groupingExprsInputSlots);
-        allUsedSlots.addAll(filterInputSlots);
-        allUsedSlots.addAll(joinInputSlots);
-        allUsedSlots.addAll(aggFunctionInputSlots);
-
-        allUsedSlots.retainAll(context.outerJoinNullableSideSlots);
-        if (!allUsedSlots.isEmpty()) {
-            return PreAggStatus.off("can not turn on pre agg for outer join");
-        }
-
         Set<Slot> tmpInputSlots = Sets.newHashSet();
         tmpInputSlots.addAll(groupingExprsInputSlots);
         tmpInputSlots.retainAll(valueSlots);
@@ -283,33 +227,39 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             groupingExprs, tmpInputSlots));
         }
 
+        Set<Slot> filterInputSlots = ExpressionUtils.getInputSlotSet(filterConjuncts);
         filterInputSlots.retainAll(valueSlots);
         if (!filterInputSlots.isEmpty()) {
             return PreAggStatus.off(String.format("Filter conjuncts %s contains non-key column %s",
                     filterConjuncts, filterInputSlots));
         }
 
+        Set<Slot> joinInputSlots = ExpressionUtils.getInputSlotSet(joinConjuncts);
         joinInputSlots.retainAll(valueSlots);
         if (!joinInputSlots.isEmpty()) {
             return PreAggStatus.off(String.format("Join conjuncts %s contains non-key column %s",
                     joinConjuncts, joinInputSlots));
         }
+        Set<AggregateFunction> candidateAggFuncs = Sets.newHashSet();
+        Set<Slot> aggInputSlots = Sets.newHashSet();
         for (AggregateFunction aggregateFunction : aggregateFuncs) {
-            if (!outputSlots.containsAll(aggregateFunction.getInputSlots())) {
-                return PreAggStatus.off(String.format("agg function is invalid %s",
-                        aggregateFunction.toSql()));
+            aggInputSlots.addAll(aggregateFunction.getInputSlots());
+            aggInputSlots.retainAll(outputSlots);
+            if (!aggInputSlots.isEmpty()) {
+                candidateAggFuncs.add(aggregateFunction);
             }
+            aggInputSlots.clear();
         }
 
         Set<Slot> candidateGroupByInputSlots = Sets.newHashSet();
         candidateGroupByInputSlots.addAll(groupingExprsInputSlots);
         candidateGroupByInputSlots.retainAll(outputSlots);
 
-        return checkAggregateFunctions(aggregateFuncs, candidateGroupByInputSlots, context.hasJoin);
+        return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots, context.isJoinExpandData);
     }
 
     private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
-            Set<Slot> groupingExprsInputSlots, boolean hasJoin) {
+            Set<Slot> groupingExprsInputSlots, boolean isJoinExpandData) {
         PreAggStatus preAggStatus = aggregateFuncs.isEmpty() && groupingExprsInputSlots.isEmpty()
                 ? PreAggStatus.off("No aggregate on scan.")
                 : PreAggStatus.on();
@@ -324,7 +274,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     if (((SlotReference) aggSlot).getColumn().get().isKey()) {
                         preAggStatus = OneKeySlotAggChecker.INSTANCE.check(aggFunc);
                     } else {
-                        if (hasJoin && !(aggFunc instanceof Max || aggFunc instanceof Min)) {
+                        if (isJoinExpandData && !(aggFunc instanceof Max || aggFunc instanceof Min)) {
                             preAggStatus = PreAggStatus.off(
                                     String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                         } else {
@@ -338,7 +288,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                                     aggFunc, aggSlot));
                 }
             } else {
-                if (hasJoin) {
+                if (isJoinExpandData
+                        && !(aggFunc instanceof Max || aggFunc instanceof Min || aggFunc instanceof Count)) {
                     preAggStatus = PreAggStatus.off(
                             String.format("can't turn preAgg on for aggregate function %s", aggFunc));
                 } else {
@@ -409,8 +360,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
         // step 2: check condition expressions
         Set<Slot> inputSlots = ExpressionUtils.getInputSlotSet(conditionExps);
-        inputSlots.retainAll(valueSlots);
-        if (!inputSlots.isEmpty()) {
+        if (!keySlots.containsAll(inputSlots)) {
             return PreAggStatus
                     .off(String.format("some columns in condition %s is not key.", conditionExps));
         }
@@ -531,8 +481,11 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         @Override
         public PreAggStatus visitAggregateFunction(AggregateFunction aggregateFunction,
                 Void context) {
-            return PreAggStatus.off(String.format("Aggregate function %s contains key column %s",
-                    aggregateFunction.toSql(), aggregateFunction.child(0).toSql()));
+            if (aggregateFunction.isDistinct()) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off(String.format("%s is not distinct.", aggregateFunction.toSql()));
+            }
         }
 
         @Override
@@ -543,15 +496,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         @Override
         public PreAggStatus visitMin(Min min, Void context) {
             return PreAggStatus.on();
-        }
-
-        @Override
-        public PreAggStatus visitCount(Count count, Void context) {
-            if (count.isDistinct()) {
-                return PreAggStatus.on();
-            } else {
-                return PreAggStatus.off(String.format("%s is not distinct.", count.toSql()));
-            }
         }
     }
 

@@ -23,6 +23,7 @@ suite("set_preagg") {
         drop table if exists preagg_t1;
         drop table if exists preagg_t2;
         drop table if exists preagg_t3;
+
         create table preagg_t1(
             k1 int null,
             k2 int null,
@@ -37,6 +38,7 @@ suite("set_preagg") {
         aggregate key (k1,k2,k3,k4,k5,k6)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
+
         create table preagg_t2(
             k1 int null,
             k2 int null,
@@ -83,7 +85,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v1)"
+        contains "(preagg_t3), PREAGGREGATION: ON"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
     }
@@ -123,7 +125,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v3)"
+        contains "(preagg_t3), PREAGGREGATION: ON"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
     }
@@ -144,7 +146,30 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "PREAGGREGATION: OFF. Reason: max(v7) is not match agg mode SUM"
+        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: max(v7) is not match agg mode SUM"
+    }
+
+    explain {
+        sql("""
+            select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
+            from 
+            (
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(case when ta2.k1 > 0 then ta2.v9 when ta2.k1 = 0 then null when ta2.k1 < 0 then ta2.v9 else null end) v2, count(distinct ta2.k5) v3
+                from 
+                    (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
+                inner join 
+                    (select k1, k2, k3, k4, k5, v7, v8, v9 from preagg_t2) as ta2
+                on ta1.k3 = ta2.k3
+                group by k1, k2, k3, k4
+            ) t12 inner join preagg_t3 on t12.k1 = preagg_t3.k1
+            group by preagg_t3.k2, t12.k2
+            order by 1, 2;
+        """)
+        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
     }
 
     explain {
@@ -163,9 +188,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v3)"
+        contains "(preagg_t3), PREAGGREGATION: ON"
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum(CASE WHEN"
     }
 
     explain {
@@ -173,7 +198,7 @@ suite("set_preagg") {
             select preagg_t3.k2, t12.k2, sum(t12.v2), max(preagg_t3.v9)
             from 
             (
-                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, max(ta2.v7) v2
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(ta2.v7) v2
                 from 
                     (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
                 inner join 
@@ -185,8 +210,8 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: max(v7)"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: agg function is invalid sum(v2)"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {
@@ -194,7 +219,7 @@ suite("set_preagg") {
             select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
             from 
             (
-                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta1.k1 < 0 then ta2.v8 else 0 end) v2, count(distinct ta2.k5) v3
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, count(distinct ta2.k4) v2, count(distinct ta2.k5) v3
                 from 
                     (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
                 left join 
@@ -205,8 +230,30 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""
+            select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
+            from 
+            (
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta1.k1 < 0 then ta2.v8 else 0 end) v2, sum(ta2.v7) v3
+                from 
+                    (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
+                left join 
+                    (select k1, k2, k3, k4, k5, v7, v8 from preagg_t2) as ta2
+                on ta1.k3 = ta2.k3
+                group by k1, k2, k3, k4
+            ) t12 inner join preagg_t3 on t12.k1 = preagg_t3.k1
+            group by preagg_t3.k2, t12.k2
+            order by 1, 2;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum("
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {
@@ -224,7 +271,8 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: No valid aggregate on scan"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 }
