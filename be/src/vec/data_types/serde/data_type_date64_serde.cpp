@@ -257,7 +257,7 @@ void DataTypeDate64SerDe::_read_column_from_arrow(IColumn& column, const arrow::
             auto val_str = concrete_array->GetString(value_i);
             VecDateTimeValue v;
             v.from_date_str(val_str.c_str(), val_str.length(), ctz);
-            if (is_date) {
+            if constexpr (is_date) {
                 v.cast_to_date();
             }
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));

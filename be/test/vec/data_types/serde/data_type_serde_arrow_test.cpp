@@ -76,32 +76,9 @@
 
 namespace doris::vectorized {
 
-template <bool is_scalar>
-void serialize_and_deserialize_arrow_test() {
+void serialize_and_deserialize_arrow_test(
+        std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols) {
     vectorized::Block block;
-    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols;
-    if constexpr (is_scalar) {
-        cols = {
-                {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
-                {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
-                {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
-                {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
-                {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
-                {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
-                {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
-                {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
-                {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
-                {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-                {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
-                {"k13", FieldType::OLAP_FIELD_TYPE_DATE, 13, TYPE_DATE, false},
-                {"k14", FieldType::OLAP_FIELD_TYPE_DATEV2, 14, TYPE_DATEV2, false},
-        };
-    } else {
-        cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
-                {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
-                {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
-    }
-
     int row_num = 7;
     // generate block
     for (auto t : cols) {
@@ -303,9 +280,8 @@ void serialize_and_deserialize_arrow_test() {
         case TYPE_DATETIMEV2: // uint64
         {
             auto column_vector_datetimev2 = vectorized::ColumnVector<vectorized::UInt64>::create();
-            //                auto& datetimev2_data = column_vector_datetimev2->get_data();
             DateV2Value<DateTimeV2ValueType> value;
-            string date_literal = "2022-01-01 11-11-11.111";
+            string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
             TimezoneUtils::find_cctz_time_zone("UTC", ctz);
             EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));
@@ -467,11 +443,30 @@ void serialize_and_deserialize_arrow_test() {
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
-    serialize_and_deserialize_arrow_test<true>();
+    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
+            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
+            {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
+            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
+            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
+            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
+            {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
+            {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
+            {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
+            {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
+            {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
+            {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
+            {"k13", FieldType::OLAP_FIELD_TYPE_DATE, 13, TYPE_DATE, false},
+            {"k14", FieldType::OLAP_FIELD_TYPE_DATEV2, 14, TYPE_DATEV2, false},
+    };
+    serialize_and_deserialize_arrow_test(cols);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
-    serialize_and_deserialize_arrow_test<false>();
+    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
+            {"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
+            {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
+            {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
+    serialize_and_deserialize_arrow_test(cols);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
