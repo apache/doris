@@ -256,8 +256,6 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
-    // clear TEMP columns to avoid column align problem
-    block->erase_tmp_columns();
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
@@ -293,8 +291,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;
                     if (block->rows() == 0) {
-                        // clear TEMP columns to avoid column align problem in segment iterator
-                        block->erase_tmp_columns();
                         break;
                     }
                 } else {
@@ -305,8 +301,6 @@ Status VCollectIterator::_topn_next(Block* block) {
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
-            // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
-            block->erase_tmp_columns();
 
             // update read rows
             read_rows += block->rows();
@@ -869,8 +863,6 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     while (res.is<END_OF_FILE>() && !_children.empty()) {
         _cur_child = std::move(*(_children.begin()));
         _children.pop_front();
-        // clear TEMP columns to avoid column align problem
-        block->erase_tmp_columns();
         res = _cur_child->next(block);
     }
 
