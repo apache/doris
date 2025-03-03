@@ -40,7 +40,7 @@ template <typename T>
 void ColumnStr<T>::sanity_check() const {
 #ifndef NDEBUG
     sanity_check_simple();
-    auto count = offsets.size();
+    auto count = cast_set<int>(offsets.size());
     for (int i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
@@ -53,7 +53,7 @@ void ColumnStr<T>::sanity_check() const {
 template <typename T>
 void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
-    int count = offsets.size();
+    auto count = cast_set<int>(offsets.size());
     if (chars.size() != offsets[count - 1]) {
         throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
                                               count, chars.size(), count - 1, offsets[count - 1]));
