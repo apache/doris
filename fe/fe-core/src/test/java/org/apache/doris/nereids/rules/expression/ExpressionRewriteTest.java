@@ -250,7 +250,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         ));
 
         assertRewrite("a between c and d", "(a >= c) and (a <= d)");
-        assertRewrite("a not between c and d)", "(a < c) or (a > d)");
+        assertRewrite("a not between c and d", "(a < c) or (a > d)");
 
     }
 
