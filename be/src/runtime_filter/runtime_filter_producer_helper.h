@@ -58,8 +58,7 @@ public:
 
     // build rf's predicate and publish rf
     Status process(RuntimeState* state, const vectorized::Block* block,
-                   std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
-                   vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
+                   const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
 
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,

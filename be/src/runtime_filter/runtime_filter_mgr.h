@@ -52,7 +52,7 @@ class MemTrackerLimiter;
 class RuntimeState;
 class RuntimeFilterWrapper;
 class QueryContext;
-struct RuntimeFilterParamsContext;
+class RuntimeFilterParamsContext;
 class ExecEnv;
 class RuntimeProfile;
 

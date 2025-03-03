@@ -56,9 +56,10 @@ public:
         ASSERT_EQ(merger->_wrapper->_state, second_expected_state);
     }
 
-    void test_serialize(RuntimeFilterWrapper::State state) {
+    void test_serialize(RuntimeFilterWrapper::State state,
+                        TRuntimeFilterType::type type = TRuntimeFilterType::IN_OR_BLOOM) {
         std::shared_ptr<RuntimeFilterMerger> merger;
-        auto desc = TRuntimeFilterDescBuilder().build();
+        auto desc = TRuntimeFilterDescBuilder().set_type(type).build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
                 RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
         merger->set_expected_producer_num(1);
@@ -67,6 +68,7 @@ public:
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
                 _runtime_states[0]->register_producer_runtime_filter(desc, &producer, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(123));
         producer->set_wrapper_state_and_ready_to_publish(state);
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer.get()));
         ASSERT_TRUE(merger->ready());
@@ -76,12 +78,15 @@ public:
         int len = 0;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->serialize(&request, &data, &len));
 
-        std::shared_ptr<RuntimeFilterMerger> deserialized_merger;
+        std::shared_ptr<RuntimeFilterProducer> deserialized_producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterMerger::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
-                                            &desc, &deserialized_merger, &_profile));
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(deserialized_merger->assign(request, nullptr));
-        ASSERT_EQ(merger->_wrapper->_state, state);
+                RuntimeFilterProducer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
+                                              &desc, &deserialized_producer, &_profile));
+        butil::IOBuf buf;
+        buf.append(data, len);
+        butil::IOBufAsZeroCopyInputStream stream(buf);
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(deserialized_producer->assign(request, &stream));
+        ASSERT_EQ(deserialized_producer->_wrapper->_state, state);
     }
 };
 
@@ -174,6 +179,18 @@ TEST_F(RuntimeFilterMergerTest, serialize_disabled) {
 
 TEST_F(RuntimeFilterMergerTest, serialize_ignored) {
     test_serialize(RuntimeFilterWrapper::State::IGNORED);
+}
+
+TEST_F(RuntimeFilterMergerTest, serialize_bloom) {
+    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::BLOOM);
+}
+
+TEST_F(RuntimeFilterMergerTest, serialize_min_max) {
+    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::MIN_MAX);
+}
+
+TEST_F(RuntimeFilterMergerTest, serialize_in) {
+    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::IN);
 }
 
 } // namespace doris

@@ -51,7 +51,7 @@ private:
         for (const auto& vexpr_ctx : _filter_expr_contexts) {
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
-            DCHECK(result_column_id != -1);
+            DCHECK_NE(result_column_id, -1) << vexpr_ctx->root()->debug_string();
             block->get_by_position(result_column_id).column =
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();

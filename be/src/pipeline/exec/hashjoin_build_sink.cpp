@@ -226,8 +226,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
     try {
         RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                state, _shared_state->build_block.get(), _finish_dependency,
-                p._shared_hash_table_context));
+                state, _shared_state->build_block.get(), p._shared_hash_table_context));
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
                                                    p._shared_hashtable_controller &&

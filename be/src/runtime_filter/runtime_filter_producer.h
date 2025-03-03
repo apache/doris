@@ -105,11 +105,11 @@ public:
         }
     }
 
-    void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
+    void copy_to_shared_context(const vectorized::SharedHashTableContextPtr& context) {
         DCHECK(!context->runtime_filters.contains(_wrapper->filter_id()));
         context->runtime_filters[_wrapper->filter_id()] = _wrapper;
     }
-    void copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
+    void copy_from_shared_context(const vectorized::SharedHashTableContextPtr& context) {
         DCHECK(context->runtime_filters.contains(_wrapper->filter_id()));
         _wrapper = context->runtime_filters[_wrapper->filter_id()];
     }

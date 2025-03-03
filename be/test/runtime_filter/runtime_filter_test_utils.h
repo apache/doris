@@ -28,7 +28,9 @@ public:
     RuntimeFilterTest() = default;
     ~RuntimeFilterTest() override = default;
     void SetUp() override {
-        _query_options = TQueryOptionsBuilder().set_runtime_filter_max_in_num(15).build();
+        _tbl._row_tuples.push_back({});
+
+        _query_options = TQueryOptionsBuilder().build();
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
         fe_address.port = DUMMY_PORT;
@@ -50,6 +52,9 @@ public:
                     TUniqueId(), RuntimeFilterParamsContext::create(_query_ctx.get()),
                     _query_ctx->query_mem_tracker(), false);
             _runtime_states[i]->set_runtime_filter_mgr(_local_mgrs[i].get());
+            _runtime_states[i]->local_runtime_filter_mgr()->_state->set_state(
+                    _runtime_states[i].get());
+            _runtime_states[i]->set_desc_tbl(&_tbl);
         }
     }
     void TearDown() override {}
@@ -63,6 +68,7 @@ protected:
     const int INSTANCE_NUM = 2;
     std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _local_mgrs;
+    DescriptorTbl _tbl;
 };
 
 } // namespace doris

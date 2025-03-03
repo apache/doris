@@ -89,6 +89,7 @@ protected:
               _has_local_target(desc->has_local_targets),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
         DCHECK_NE(desc->has_remote_targets, _has_local_target);
+        DCHECK_NE(state, nullptr);
     }
 
     virtual Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);

@@ -73,6 +73,7 @@ Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size
             continue;
         }
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
+        DCHECK_NE(result_column_id, -1);
         const auto& column = block->get_by_position(result_column_id).column;
         RETURN_IF_ERROR(filter->insert(column, start));
     }
@@ -89,8 +90,7 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
 
 Status RuntimeFilterProducerHelper::process(
         RuntimeState* state, const vectorized::Block* block,
-        std::shared_ptr<pipeline::CountedFinishDependency> finish_dependency,
-        vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
+        const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
@@ -104,7 +104,8 @@ Status RuntimeFilterProducerHelper::process(
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
         if (hash_table_size > 1) {
-            RETURN_IF_ERROR(_insert(block, 1));
+            constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
+            RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
         }
     }
 

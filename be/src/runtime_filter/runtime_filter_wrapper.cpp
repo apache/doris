@@ -419,6 +419,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
 
 Status RuntimeFilterWrapper::_assign(const PBloomFilter& bloom_filter,
                                      butil::IOBufAsZeroCopyInputStream* data, bool contain_null) {
+    DCHECK(_bloom_filter_func);
     RETURN_IF_ERROR(_bloom_filter_func->assign(data, bloom_filter.filter_length(), contain_null));
     return Status::OK();
 }
@@ -612,12 +613,16 @@ std::string RuntimeFilterWrapper::debug_string() const {
 }
 
 void RuntimeFilterWrapper::to_protobuf(PInFilter* filter) {
-    filter->set_column_type(to_proto(column_type()));
+    filter->set_column_type(
+            PColumnType::
+                    COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _hybrid_set->to_pb(filter);
 }
 
 void RuntimeFilterWrapper::to_protobuf(PMinMaxFilter* filter) {
-    filter->set_column_type(to_proto(column_type()));
+    filter->set_column_type(
+            PColumnType::
+                    COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _minmax_func->to_pb(filter);
 }
 

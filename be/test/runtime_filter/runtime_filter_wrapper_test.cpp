@@ -228,7 +228,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
         auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);                            \
         PMergeFilterRequest valid_request;                                                         \
         auto* in_filter = valid_request.mutable_in_filter();                                       \
-        in_filter->set_column_type(to_proto(column_return_type));                                  \
+        in_filter->set_column_type(PColumnType::COLUMN_TYPE_BOOL);                                 \
         get_convertor<PrimitiveTypeTraits<column_return_type>::CppType>()(in_filter->add_values(), \
                                                                           value1);                 \
         get_convertor<PrimitiveTypeTraits<column_return_type>::CppType>()(in_filter->add_values(), \
