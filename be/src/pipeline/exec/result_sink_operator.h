@@ -21,12 +21,12 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "runtime/buffer_control_block.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class BufferControlBlock;
+class ResultBlockBufferBase;
 
 namespace pipeline {
 
@@ -135,7 +135,7 @@ private:
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
 
     RuntimeProfile::Counter* _fetch_row_id_timer = nullptr;
@@ -154,8 +154,8 @@ private:
     friend class ResultSinkLocalState;
 
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
-    TResultSinkType::type _sink_type;
-    int _result_sink_buffer_size_rows;
+    const TResultSinkType::type _sink_type;
+    const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;
 
@@ -167,9 +167,9 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     // for fetch data by rowids
-    TFetchOption _fetch_option;
+    const TFetchOption _fetch_option;
 
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
 } // namespace pipeline
