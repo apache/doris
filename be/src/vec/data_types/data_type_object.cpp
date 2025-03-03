@@ -94,8 +94,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 
     // sparse column
     // TODO make compability with sparse column
-    size += ColumnObject::get_sparse_column_type()->get_uncompressed_serialized_bytes(
-            *column_object.get_sparse_column(), be_exec_version);
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        size += ColumnObject::get_sparse_column_type()->get_uncompressed_serialized_bytes(
+                *column_object.get_sparse_column(), be_exec_version);
+    }
 
     return size;
 }
@@ -149,8 +151,10 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
 
     // serialize sparse column
     // TODO make compability with sparse column
-    buf = ColumnObject::get_sparse_column_type()->serialize(*column_object.get_sparse_column(), buf,
-                                                            be_exec_version);
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        buf = ColumnObject::get_sparse_column_type()->serialize(*column_object.get_sparse_column(),
+                                                                buf, be_exec_version);
+    }
 
     return buf;
 }
@@ -193,10 +197,14 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     }
 
     // deserialize sparse column
-    // TODO make compability with sparse column
-    MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
-    buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column, be_exec_version);
-    column_object->set_sparse_column(std::move(sparse_column));
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
+        buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column,
+                                                                  be_exec_version);
+        column_object->set_sparse_column(std::move(sparse_column));
+    } else {
+        column_object->get_sparse_column()->assume_mutable()->insert_many_defaults(num_rows);
+    }
 
     if (!root_added && column_object->get_subcolumn({})) {
         column_object->get_subcolumn({})->insert_many_defaults(num_rows);
