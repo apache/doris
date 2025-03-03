@@ -38,7 +38,7 @@ Status SimpleEqualityDelete::_build_set() {
     auto& column_and_type = _delete_block->get_by_position(0);
     _delete_column_name = column_and_type.name;
     _delete_column_type = remove_nullable(column_and_type.type)->get_type_as_type_descriptor().type;
-    _hybrid_set.reset(create_set(_delete_column_type, _delete_block->rows()));
+    _hybrid_set.reset(create_set(_delete_column_type, _delete_block->rows(), false));
     _hybrid_set->insert_fixed_len(column_and_type.column, 0);
     return Status::OK();
 }
