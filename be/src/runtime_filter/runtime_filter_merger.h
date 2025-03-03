@@ -41,6 +41,11 @@ public:
                 new RuntimeFilterMerger(state, desc, parent_profile));
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+        if ((*res)->_runtime_filter_type == RuntimeFilterType::UNKNOWN_FILTER ||
+            (*res)->_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
+            return Status::InternalError("RuntimeFilterMerger is not supported by filter type {}",
+                                         int((*res)->_runtime_filter_type));
+        }
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
                 build_ctx->root()->type().type, (*res)->_runtime_filter_type, desc->filter_id,
                 RuntimeFilterWrapper::State::IGNORED);
