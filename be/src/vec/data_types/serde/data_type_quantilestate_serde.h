@@ -98,7 +98,8 @@ public:
         auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
         auto& val = const_cast<QuantileState&>(col.get_element(row_num));
         size_t actual_size = val.get_serialized_size();
-        auto ptr = mem_pool->alloc(actual_size);
+        auto* ptr = mem_pool->alloc(actual_size);
+        val.serialize((uint8_t*)ptr);
         result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
         result.writeStartBinary();
         result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
@@ -109,9 +110,10 @@ public:
         auto& col = reinterpret_cast<ColumnQuantileState&>(column);
         auto blob = static_cast<const JsonbBlobVal*>(arg);
         QuantileState val;
-        val.deserialize(Slice(blob->getBlob()));
+        val.deserialize(Slice(blob->getBlob(), blob->getBlobLen()));
         col.insert_value(val);
     }
+
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override {
