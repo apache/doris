@@ -45,10 +45,8 @@ public:
     Status init_with_fixed_length(size_t runtime_size) {
         if (_build_bf_by_runtime_size) {
             // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
-            constexpr double fpp = 0.05;
-            constexpr double k = 8; // BUCKET_WORDS
             // m is the number of bits we would need to get the fpp specified
-            double m = -k * runtime_size / std::log(1 - std::pow(fpp, 1.0 / k));
+            double m = -K * runtime_size / std::log(1 - std::pow(FPP, 1.0 / K));
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
@@ -143,6 +141,8 @@ public:
                                                 bool is_parse_column) = 0;
 
 private:
+    static constexpr double FPP = 0.05;
+    static constexpr double K = 8; // BUCKET_WORDS
     void _limit_length() {
         if (_runtime_bloom_filter_min_size > 0) {
             _bloom_filter_length = std::max(_bloom_filter_length, _runtime_bloom_filter_min_size);

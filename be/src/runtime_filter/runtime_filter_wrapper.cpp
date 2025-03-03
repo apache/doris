@@ -32,10 +32,7 @@ RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
     }
     // Only use in nested loop join not need set null aware
     case RuntimeFilterType::MIN_FILTER:
-    case RuntimeFilterType::MAX_FILTER: {
-        _minmax_func.reset(create_minmax_filter(_column_return_type, params->null_aware));
-        return;
-    }
+    case RuntimeFilterType::MAX_FILTER:
     case RuntimeFilterType::MINMAX_FILTER: {
         _minmax_func.reset(create_minmax_filter(_column_return_type, params->null_aware));
         return;
