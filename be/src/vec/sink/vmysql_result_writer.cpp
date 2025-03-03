@@ -20,6 +20,8 @@
 #include <fmt/core.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,11 +36,11 @@
 #include "common/config.h"
 #include "gutil/integral_types.h"
 #include "olap/hll.h"
-#include "runtime/buffer_control_block.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
@@ -70,27 +72,64 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
+void GetResultBatchCtx::on_failure(const Status& status) {
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
+    status.to_protobuf(_result->mutable_status());
+    _done->Run();
+}
+
+void GetResultBatchCtx::on_close(int64_t packet_seq, int64_t returned_rows) {
+    Status status;
+    status.to_protobuf(_result->mutable_status());
+    PQueryStatistics* statistics = _result->mutable_query_statistics();
+    statistics->set_returned_rows(returned_rows);
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(true);
+    _done->Run();
+}
+
+Status GetResultBatchCtx::on_data(const std::shared_ptr<TFetchDataResult>& t_result,
+                                  int64_t packet_seq, ResultBlockBufferBase* buffer) {
+    Status st = Status::OK();
+    if (t_result != nullptr) {
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        ThriftSerializer ser(false, 4096);
+        RETURN_IF_ERROR(ser.serialize(&t_result->result_batch, &len, &buf));
+        _result->set_row_batch(std::string((const char*)buf, len));
+    } else {
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(false);
+
+    /// The size limit of proto buffer message is 2G
+    if (_result->ByteSizeLong() > _max_msg_size) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", _result->ByteSizeLong());
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    st.to_protobuf(_result->mutable_status());
+    _done->Run();
+    return Status::OK();
+}
 
 template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
-                                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                                         RuntimeProfile* parent_profile)
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
+        std::shared_ptr<ResultBlockBufferBase> sinker, const VExprContextSPtrs& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile)
         : ResultWriter(),
-          _sinker(sinker),
+          _sinker(std::dynamic_pointer_cast<MySQLResultBlockBuffer>(sinker)),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile) {}
 
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     _init_profile();
-    // TODO: for PointQueryExecutor, the sinker is null, but we still need call init(),
-    // so comment out this check temporarily.
-    // if (nullptr == _sinker) {
-    //     return Status::InternalError("sinker is NULL pointer.");
-    // }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
@@ -106,7 +145,6 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
         _convert_tuple_timer =
                 ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
         _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
-        _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
         _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
         _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
     }
@@ -147,7 +185,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
     Status status = Status::OK();
     int num_rows = cast_set<int>(block.rows());
     // convert one batch
-    auto result = std::make_unique<TFetchDataResult>();
+    auto result = std::make_shared<TFetchDataResult>();
     result->result_batch.rows.resize(num_rows);
     uint64_t bytes_sent = 0;
     {
@@ -222,11 +260,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
-            if (_sinker) {
-                status = _sinker->add_batch(state, result);
-            } else {
-                _results.push_back(std::move(result));
-            }
+            status = _sinker->add_batch(state, result);
         }
         if (status.ok()) {
             _written_rows += num_rows;
@@ -291,5 +325,4 @@ Status VMysqlResultWriter<is_binary_format>::close(Status) {
 template class VMysqlResultWriter<true>;
 template class VMysqlResultWriter<false>;
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
