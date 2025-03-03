@@ -105,7 +105,7 @@ suite("test_show_load_warnings","p0") {
 
         String[][] result = sql """ show load from ${dbName} where label = '${label}' """
         log.info("show load result: " + result[0])
-        def job_id = result[0][0].toInteger()
+        def job_id = result[0][0].toLong()
         checkNereidsExecute("""show load warnings from ${dbName} where load_job_id = ${job_id} """)
 
 
