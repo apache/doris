@@ -247,26 +247,6 @@ supportedAlterStatement
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
-    | ALTER SYSTEM ADD BACKEND hostPorts+=STRING_LITERAL (COMMA hostPorts+=STRING_LITERAL)*
-            properties=propertyClause?                                                      #addBackendClause
-    | ALTER SYSTEM (DROP | DROPP) BACKEND hostPorts+=STRING_LITERAL
-            (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBackendClause
-    | ALTER SYSTEM DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-            (COMMA hostPorts+=STRING_LITERAL)*                                              #decommissionBackendClause
-    | ALTER SYSTEM ADD OBSERVER hostPort=STRING_LITERAL                                     #addObserverClause
-    | ALTER SYSTEM DROP OBSERVER hostPort=STRING_LITERAL                                    #dropObserverClause
-    | ALTER SYSTEM ADD FOLLOWER hostPort=STRING_LITERAL                                     #addFollowerClause
-    | ALTER SYSTEM DROP FOLLOWER hostPort=STRING_LITERAL                                    #dropFollowerClause
-    | ALTER SYSTEM DROP ALL BROKER name=identifierOrText                                    #dropAllBrokerClause
-    | ALTER SYSTEM ADD BROKER name=identifierOrText hostPorts+=STRING_LITERAL
-            (COMMA hostPorts+=STRING_LITERAL)*                                              #addBrokerClause
-    | ALTER SYSTEM DROP BROKER name=identifierOrText hostPorts+=STRING_LITERAL
-            (COMMA hostPorts+=STRING_LITERAL)*                                              #dropBrokerClause
-    | ALTER SYSTEM MODIFY BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*
-        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #modifyBackendClause
-    | ALTER SYSTEM MODIFY (FRONTEND | BACKEND) hostPort=STRING_LITERAL
-        HOSTNAME hostName=STRING_LITERAL                                                    #modifyFrontendOrBackendHostNameClause
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
     ;
