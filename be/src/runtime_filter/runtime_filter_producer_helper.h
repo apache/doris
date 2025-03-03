@@ -65,7 +65,7 @@ protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
                             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
-    void _insert(const vectorized::Block* block, size_t start);
+    Status _insert(const vectorized::Block* block, size_t start);
     Status _publish(RuntimeState* state);
 
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;

@@ -56,7 +56,7 @@ private:
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
         }
-        _insert(block, 0);
+        RETURN_IF_ERROR(_insert(block, 0));
         return Status::OK();
     }
 

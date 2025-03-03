@@ -42,11 +42,14 @@ struct RuntimeFilterParams {
     RuntimeFilterType filter_type {};
     // Data type of build column
     PrimitiveType column_return_type {};
+    // Whether this runtime filter is null-aware
     bool null_aware {};
-    bool enable_fixed_len_to_uint32_v2 {};
 
+    // In filter
     // The max limitation of in-set
     int32_t max_in_num {};
+
+    // Bloom filter
     // The min size limitation of bloom filter
     int64_t runtime_bloom_filter_min_size {};
     // The max size limitation of bloom filter
@@ -57,7 +60,11 @@ struct RuntimeFilterParams {
     bool build_bf_by_runtime_size {};
     // Whether an estimated size by NDV is used to build bloom filter
     bool bloom_filter_size_calculated_by_ndv {};
+    // Whether an optimized way to build BF using fixed-length values
+    bool enable_fixed_len_to_uint32_v2 {};
 
+    // Bitmap filter
+    // Whether a join expression is `not in`
     bool bitmap_filter_not_in {};
 };
 

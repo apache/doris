@@ -52,44 +52,10 @@ public:
               _max_in_num(max_in_num) {}
 
     Status init(const size_t runtime_size);
-    void insert(const vectorized::ColumnPtr& column, size_t start);
+    Status insert(const vectorized::ColumnPtr& column, size_t start);
     Status merge(const RuntimeFilterWrapper* wrapper);
     template <class T>
-    Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
-        PFilterType filter_type = request.filter_type();
-
-        if (request.has_disabled() && request.disabled()) {
-            set_state(State::DISABLED, "get disabled from remote");
-            return Status::OK();
-        }
-
-        if (request.has_ignored() && request.ignored()) {
-            set_state(State::IGNORED, "get ignored from remote");
-            return Status::OK();
-        }
-
-        set_state(State::READY);
-
-        switch (filter_type) {
-        case PFilterType::IN_FILTER: {
-            DCHECK(request.has_in_filter());
-            return _assign(request.in_filter(), request.contain_null());
-        }
-        case PFilterType::BLOOM_FILTER: {
-            DCHECK(request.has_bloom_filter());
-            _hybrid_set.reset(); // change in_or_bloom filter to bloom filter
-            return _assign(request.bloom_filter(), data, request.contain_null());
-        }
-        case PFilterType::MIN_FILTER:
-        case PFilterType::MAX_FILTER:
-        case PFilterType::MINMAX_FILTER: {
-            DCHECK(request.has_minmax_filter());
-            return _assign(request.minmax_filter(), request.contain_null());
-        }
-        default:
-            return Status::InternalError("unknown filter type {}", int(filter_type));
-        }
-    }
+    Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 
     bool is_valid() const { return _state != State::DISABLED && _state != State::IGNORED; }
     int filter_id() const { return _filter_id; }
@@ -109,6 +75,10 @@ public:
     std::shared_ptr<HybridSetBase> hybrid_set() const { return _hybrid_set; }
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func() const { return _bloom_filter_func; }
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func() const { return _bitmap_filter_func; }
+
+    void to_protobuf(PInFilter* filter);
+    void to_protobuf(PMinMaxFilter* filter);
+    void to_protobuf(PBloomFilter* filter, char** data, int* filter_length);
 
     PrimitiveType column_type() const { return _column_return_type; }
 
@@ -148,16 +118,12 @@ public:
     }
 
 private:
-    friend class RuntimeFilter;
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status _assign(const PInFilter& in_filter, bool contain_null);
     Status _assign(const PBloomFilter& bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
                    bool contain_null);
     Status _assign(const PMinMaxFilter& minmax_filter, bool contain_null);
-    void _to_protobuf(PInFilter* filter);
-    void _to_protobuf(PMinMaxFilter* filter);
-    void _to_protobuf(PBloomFilter* filter, char** data, int* filter_length);
     Status _change_to_bloom_filter();
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
     const PrimitiveType _column_return_type; // column type

@@ -148,6 +148,11 @@ public:
     Iterator begin() { return Iterator(_data, 0); }
     Iterator end() { return Iterator(_data, _size); }
 
+    void clear() {
+        std::array<T, N> {}.swap(_data);
+        _size = 0;
+    }
+
 private:
     std::array<T, N> _data;
     size_t _size {};
@@ -178,6 +183,8 @@ public:
     void insert(Iterator begin, Iterator end) { _set.insert(begin, end); }
 
     bool find(const T& value) const { return _set.contains(value); }
+
+    void clear() { _set.clear(); }
 
     Iterator begin() { return _set.begin(); }
 
@@ -210,6 +217,7 @@ public:
         _contain_null |= set->_contain_null;
     }
 
+    virtual void clear() = 0;
     bool empty() { return !_contain_null && size() == 0; }
     virtual int size() = 0;
     virtual bool find(const void* data) const = 0;
@@ -262,6 +270,7 @@ public:
         }
         _set.insert(*reinterpret_cast<const ElementType*>(data));
     }
+    void clear() override { _set.clear(); }
 
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
@@ -390,6 +399,7 @@ public:
 
     ~StringSet() override = default;
 
+    void clear() override { _set.clear(); }
     void insert(const void* data) override {
         if (data == nullptr) {
             _contain_null = true;
@@ -558,6 +568,7 @@ public:
     StringValueSet(bool null_aware) : HybridSetBase(null_aware) {}
 
     ~StringValueSet() override = default;
+    void clear() override { _set.clear(); }
 
     void insert(const void* data) override {
         if (data == nullptr) {

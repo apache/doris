@@ -95,10 +95,10 @@ protected:
 
     template <typename T>
     void _to_protobuf(T* filter) {
-        _wrapper->_to_protobuf(filter);
+        _wrapper->to_protobuf(filter);
     }
     void _to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
-        _wrapper->_to_protobuf(filter, data, filter_length);
+        _wrapper->to_protobuf(filter, data, filter_length);
     }
 
     Status _push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
