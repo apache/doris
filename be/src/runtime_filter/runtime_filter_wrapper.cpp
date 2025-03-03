@@ -232,7 +232,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
 
     auto batch_assign = [this](const PInFilter& filter,
-                               void (*assign_func)(std::shared_ptr<HybridSetBase> & _hybrid_set,
+                               void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                                    PColumnValue&)) {
         for (int i = 0; i < filter.values_size(); ++i) {
             PColumnValue column = filter.values(i);
