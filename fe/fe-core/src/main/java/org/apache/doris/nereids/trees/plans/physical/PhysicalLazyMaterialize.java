@@ -40,7 +40,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
     lazy materialize node
@@ -58,6 +57,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     private final List<Slot> materializeInput;
     private final List<Slot> materializeOutput;
     // used for BE
+    private final List<Slot> rowIdList;
     private List<List<Column>> lazyColumns = new ArrayList<>();
     private List<List<Integer>> lazySlotLocations = new ArrayList<>();
     private final List<CatalogRelation> relations;
@@ -101,8 +101,10 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         outputBuilder.addAll(materializedSlots);
         int idx = materializedSlots.size();
         int loc = idx;
+        ImmutableList.Builder<Slot> rowIdListBuilder = ImmutableList.builder();
         for (; idx < materializeInput.size(); idx++) {
             Slot rowId = materializeInput.get(idx);
+            rowIdListBuilder.add(rowId);
             CatalogRelation rel = relationToRowId.inverse().get(rowId);
             List<Column> lazyColumnForRel = new ArrayList<>();
             lazyColumns.add(lazyColumnForRel);
@@ -115,6 +117,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
                 loc++;
             }
         }
+        rowIdList = rowIdListBuilder.build();
         this.materializeOutput = outputBuilder.build();
     }
 
@@ -215,7 +218,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         return lazySlotLocations;
     }
 
-    public List<SlotReference> getRowIds() {
-        return relationToRowId.values().stream().collect(Collectors.toList());
+    public List<Slot> getRowIds() {
+        return rowIdList;
     }
 }

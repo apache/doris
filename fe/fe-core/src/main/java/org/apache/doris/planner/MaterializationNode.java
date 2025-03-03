@@ -124,6 +124,7 @@ public class MaterializationNode extends PlanNode {
         }
         output.append("column_descs_lists").append(lazyColumns).append("\n");
         output.append(detailPrefix).append("locations: ").append(locations).append("\n");
+        output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
 
         return output.toString();
     }
