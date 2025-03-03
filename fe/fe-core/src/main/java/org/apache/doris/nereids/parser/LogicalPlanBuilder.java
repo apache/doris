@@ -220,6 +220,7 @@ import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
 import org.apache.doris.nereids.DorisParser.InlineTableContext;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
+import org.apache.doris.nereids.DorisParser.InstallPluginContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
@@ -646,6 +647,7 @@ import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeComma
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
@@ -5247,6 +5249,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             return new ShowVariablesCommand(statementScope, null);
         }
+    }
+
+    @Override
+    public LogicalPlan visitInstallPlugin(InstallPluginContext ctx) {
+        String source = visitIdentifierOrText(ctx.identifierOrText());
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.propertyClause());
+
+        return new InstallPluginCommand(source, properties);
     }
 
     private Expression getWildWhere(DorisParser.WildWhereContext ctx) {
