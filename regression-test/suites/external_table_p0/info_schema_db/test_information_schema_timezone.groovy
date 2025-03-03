@@ -18,7 +18,7 @@
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-suite("test_information_schema_timezone") {
+suite("test_information_schema_timezone", "p0,external,hive,external_docker,external_docker_hive") {
 
     def table_name = "test_information_schema_timezone"
     sql """ DROP TABLE IF EXISTS ${table_name} """
