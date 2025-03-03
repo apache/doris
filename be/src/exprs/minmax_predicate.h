@@ -29,6 +29,7 @@ namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase : public FilterBase {
 public:
+    MinMaxFuncBase(bool null_aware) : FilterBase(null_aware) {}
     virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
     virtual void* get_max() = 0;
     virtual void* get_min() = 0;
@@ -44,7 +45,7 @@ public:
 template <class T, bool NeedMax = true, bool NeedMin = true>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
-    MinMaxNumFunc() = default;
+    MinMaxNumFunc(bool null_aware) : MinMaxFuncBase(null_aware) {}
     ~MinMaxNumFunc() override = default;
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {

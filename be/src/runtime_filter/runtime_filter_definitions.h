@@ -36,19 +36,30 @@ enum class RuntimeFilterType {
 };
 
 struct RuntimeFilterParams {
-    RuntimeFilterType filter_type {};
-    PrimitiveType column_return_type {};
-    int64_t bloom_filter_size {};
-    int32_t max_in_num {};
-    int64_t runtime_bloom_filter_min_size {};
-    int64_t runtime_bloom_filter_max_size {};
+    // Filter ID
     int32_t filter_id {};
-    bool bitmap_filter_not_in {};
-    bool build_bf_by_runtime_size {};
-
-    bool bloom_filter_size_calculated_by_ndv {};
+    // Filter type
+    RuntimeFilterType filter_type {};
+    // Data type of build column
+    PrimitiveType column_return_type {};
     bool null_aware {};
     bool enable_fixed_len_to_uint32_v2 {};
+
+    // The max limitation of in-set
+    int32_t max_in_num {};
+    // The min size limitation of bloom filter
+    int64_t runtime_bloom_filter_min_size {};
+    // The max size limitation of bloom filter
+    int64_t runtime_bloom_filter_max_size {};
+    // Size of bloom filter which is estimated by FE using NDV
+    int64_t bloom_filter_size {};
+    // Whether a runtime size is used to build bloom filter
+    bool build_bf_by_runtime_size {};
+    // Whether an estimated size by NDV is used to build bloom filter
+    bool bloom_filter_size_calculated_by_ndv {};
+
+
+    bool bitmap_filter_not_in {};
 };
 
 class MinMaxFuncBase;

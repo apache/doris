@@ -30,8 +30,7 @@ namespace doris {
 
 class BloomFilterAdaptor : public FilterBase {
 public:
-    BloomFilterAdaptor(bool null_aware) {
-        _null_aware = null_aware;
+    BloomFilterAdaptor(bool null_aware) : FilterBase(null_aware) {
         _bloom_filter = std::make_shared<doris::BlockBloomFilter>();
     }
 
@@ -103,7 +102,7 @@ struct CommonFindOp {
                 if (!nullmap[i]) {
                     bloom_filter.add_element<fixed_len_to_uint32_method>(*(data + i));
                 } else {
-                    bloom_filter.set_contain_null();
+                    bloom_filter.set_contain_null(true);
                 }
             }
         } else {
@@ -166,7 +165,7 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
                 if (nullmap == nullptr || !nullmap[i]) {
                     bloom_filter.add_element<fixed_len_to_uint32_method>(col.get_data_at(i));
                 } else {
-                    bloom_filter.set_contain_null();
+                    bloom_filter.set_contain_null(true);
                 }
             }
         };

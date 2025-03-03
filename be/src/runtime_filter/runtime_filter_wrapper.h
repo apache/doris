@@ -40,7 +40,9 @@ public:
         DISABLED // This state indicates that the rf is deprecated, used in cases such as reach max_in_num / join spill / meet rpc error
     };
 
+    // Called by consumer / producer
     RuntimeFilterWrapper(const RuntimeFilterParams* params);
+    // Called by merger
     RuntimeFilterWrapper(PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id,
                          State state, int max_in_num = 0)
             : _column_return_type(column_type),
