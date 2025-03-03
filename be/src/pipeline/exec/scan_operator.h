@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <cstdint>
 #include <string>
 
@@ -29,6 +27,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -351,7 +350,7 @@ template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
@@ -373,6 +372,8 @@ public:
         return _query_parallel_instance_num;
     }
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }
@@ -385,6 +386,14 @@ public:
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+
+        if (local_state._scanner_ctx) {
+            local_state._scanner_ctx->clear_free_blocks();
+        }
     }
 
     int64_t get_push_down_count() const { return _push_down_count; }

@@ -103,8 +103,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
         }
     }
 
+#ifndef BE_TEST
     int64_t old_scan_rows = _num_rows_read;
     int64_t old_scan_bytes = _num_byte_read;
+#endif
     {
         do {
             // if step 2 filter all rows of block, and block will be reused to get next rows,
@@ -136,10 +138,12 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                  _num_rows_read < rows_read_threshold);
     }
 
-    if (_query_statistics) {
-        _query_statistics->add_scan_rows(_num_rows_read - old_scan_rows);
-        _query_statistics->add_scan_bytes(_num_byte_read - old_scan_bytes);
-    }
+#ifndef BE_TEST
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(_num_rows_read -
+                                                                            old_scan_rows);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(_num_byte_read -
+                                                                             old_scan_bytes);
+#endif
 
     if (state->is_cancelled()) {
         // TODO: Should return the specific ErrorStatus instead of just Cancelled.
@@ -242,8 +246,9 @@ Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-
+#ifndef BE_TEST
     COUNTER_UPDATE(_local_state->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
+#endif
     _is_closed = true;
     return Status::OK();
 }
@@ -260,9 +265,8 @@ void VScanner::_collect_profile_before_close() {
 void VScanner::update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
     _scan_cpu_timer += cpu_time;
-    _query_statistics->add_cpu_nanos(cpu_time);
     if (_state && _state->get_query_ctx()) {
-        _state->get_query_ctx()->update_cpu_time(cpu_time);
+        _state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(cpu_time);
     }
 }
 

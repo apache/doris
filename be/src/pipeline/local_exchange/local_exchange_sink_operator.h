@@ -113,9 +113,16 @@ public:
     Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state.exec_time_counter());
+        local_state._shared_state->set_low_memory_mode(state);
+        local_state._exchanger->set_low_memory_mode();
+    }
 
 private:
     friend class LocalExchangeSinkLocalState;

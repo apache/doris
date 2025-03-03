@@ -23,12 +23,15 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace vectorized {
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+
 class PartitionerBase;
-}
+} // namespace vectorized
 namespace pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
-class BlockWrapper;
 
 struct Profile {
     RuntimeProfile::Counter* compute_hash_value_timer = nullptr;
@@ -81,7 +84,7 @@ public:
                   _shared_state(shared_state),
                   _allocated_bytes(_data_block.allocated_bytes()) {
             if (_shared_state) {
-                _shared_state->add_total_mem_usage(_allocated_bytes, channel_id);
+                _shared_state->add_total_mem_usage(_allocated_bytes);
             }
         }
         ~BlockWrapper() {
@@ -89,8 +92,7 @@ public:
                 DCHECK_GT(_allocated_bytes, 0);
                 // `_channel_ids` may be empty if exchanger is shuffled exchanger and channel id is
                 // not used by `sub_total_mem_usage`. So we just pass -1 here.
-                _shared_state->sub_total_mem_usage(
-                        _allocated_bytes, _channel_ids.empty() ? -1 : _channel_ids.front());
+                _shared_state->sub_total_mem_usage(_allocated_bytes);
                 if (_shared_state->exchanger->_free_block_limit == 0 ||
                     _shared_state->exchanger->_free_blocks.size_approx() <
                             _shared_state->exchanger->_free_block_limit *
@@ -154,6 +156,11 @@ public:
 
     virtual std::string data_queue_debug_string(int i) = 0;
 
+    void set_low_memory_mode() {
+        _free_block_limit = 0;
+        clear_blocks(_free_blocks);
+    }
+
 protected:
     friend struct LocalExchangeSharedState;
     friend class LocalExchangeSourceLocalState;
@@ -164,7 +171,7 @@ protected:
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
-    const int _free_block_limit = 0;
+    std::atomic_int _free_block_limit = 0;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
 };
 
@@ -348,7 +355,12 @@ public:
     LocalMergeSortExchanger(MergeInfo&& merge_info, int running_sink_operators, int num_partitions,
                             int free_block_limit)
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions, free_block_limit),
-              _merge_info(std::move(merge_info)) {}
+              _merge_info(std::move(merge_info)) {
+        _eos.resize(num_partitions, nullptr);
+        for (size_t i = 0; i < num_partitions; i++) {
+            _eos[i] = std::make_shared<std::atomic_bool>(false);
+        }
+    }
     ~LocalMergeSortExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
                 SinkInfo&& sink_info) override;
@@ -365,7 +377,7 @@ public:
 private:
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
     MergeInfo _merge_info;
-    std::vector<std::atomic_int64_t> _queues_mem_usege;
+    std::vector<std::shared_ptr<std::atomic_bool>> _eos;
 };
 
 class BroadcastExchanger final : public Exchanger<BroadcastBlock> {

@@ -101,7 +101,14 @@ public interface ExternalMetadataOps {
         afterDropTable(stmt.getDbName(), stmt.getTableName());
     }
 
+    default void dropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
+        dropTableImpl(dbName, tableName, ifExists);
+        afterDropTable(dbName, tableName);
+    }
+
     void dropTableImpl(DropTableStmt stmt) throws DdlException;
+
+    void dropTableImpl(String dbName, String tableName, boolean ifExists) throws DdlException;
 
     default void afterDropTable(String dbName, String tblName) {
     }

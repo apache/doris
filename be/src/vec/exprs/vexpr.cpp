@@ -653,7 +653,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                         context->get_inverted_index_context()
                                 ->get_storage_name_and_type_by_column_id(column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
-                auto target_type = cast_expr->get_target_type();
+                auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
                 auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
                 if (is_complex_type(storage_type)) {
@@ -673,7 +673,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                     }
                 }
                 if (origin_primitive_type != TYPE_VARIANT &&
-                    (origin_primitive_type == target_primitive_type ||
+                    (storage_type->equals(*target_type) ||
                      (is_string_type(target_primitive_type) &&
                       is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
@@ -737,6 +737,24 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
     return Status::OK();
+}
+
+size_t VExpr::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) {
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 64; /// TODO: need a more reasonable value
+    }
+    return estimate_size;
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,

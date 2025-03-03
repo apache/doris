@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -37,6 +38,7 @@
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/config.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -190,6 +192,9 @@ Status CloudStorageEngine::open() {
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
+    _schema_cloud_dictionary_cache =
+            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
+
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
             "init StreamLoadRecorder failed");
@@ -268,27 +273,15 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
     // compaction tasks producer thread
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
-    if (wg_sptr->get_cgroup_cpu_ctl_wptr().lock()) {
-        RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                                .set_min_threads(base_thread_num)
-                                .set_max_threads(base_thread_num)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_base_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                                .set_min_threads(cumu_thread_num)
-                                .set_max_threads(cumu_thread_num)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_cumu_compaction_thread_pool));
-    } else {
-        RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                                .set_min_threads(base_thread_num)
-                                .set_max_threads(base_thread_num)
-                                .build(&_base_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                                .set_min_threads(cumu_thread_num)
-                                .set_max_threads(cumu_thread_num)
-                                .build(&_cumu_compaction_thread_pool));
-    }
+
+    RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                            .set_min_threads(base_thread_num)
+                            .set_max_threads(base_thread_num)
+                            .build(&_base_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                            .set_min_threads(cumu_thread_num)
+                            .set_max_threads(cumu_thread_num)
+                            .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
             [this]() { this->_compaction_tasks_producer_callback(); },

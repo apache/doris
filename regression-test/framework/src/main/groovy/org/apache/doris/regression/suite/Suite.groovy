@@ -17,6 +17,12 @@
 
 package org.apache.doris.regression.suite
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+
 import static java.util.concurrent.TimeUnit.SECONDS
 
 import com.google.common.base.Strings
@@ -96,6 +102,8 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
     static Boolean isTrinoConnectorDownloaded = false
+
+    private AmazonS3 s3Client = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -444,8 +452,10 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> insert_into_sql(String sqlStr, int num) {
         if (context.useArrowFlightSql()) {
+            logger.info("Use arrow flight sql")
             return arrow_flight_insert_into_sql(sqlStr, num)
         } else {
+            logger.info("Use jdbc insert into")
             return jdbc_insert_into_sql(sqlStr, num)
         }
     }
@@ -987,6 +997,16 @@ class Suite implements GroovyInterceptable {
         return s3Url
     }
 
+    synchronized AmazonS3 getS3Client() {
+        if (s3Client == null) {
+            def credentials = new BasicAWSCredentials(getS3AK(), getS3SK())
+            def endpointConfiguration = new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region())
+            s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+        }
+        return s3Client
+    }
+
     String getJdbcPassword() {
         String sk = context.config.otherConfigs.get("jdbcPassword");
         return sk
@@ -1076,6 +1096,62 @@ class Suite implements GroovyInterceptable {
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    void mkdirRemotePathOnAllBE(String username, String path) {
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                        Assert.assertEquals(0, exitcode)
+                    }
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        ipList.each { beid, ip ->
+            String cmd = "ssh -o StrictHostKeyChecking=no ${username}@${ip} \"mkdir -p ${path}\""
+            logger.info("Execute: ${cmd}".toString())
+            executeCommand(cmd, false)
+        }
+    }
+
+    void deleteRemotePathOnAllBE(String username, String path) {
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                        Assert.assertEquals(0, exitcode)
+                    }
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        ipList.each { beid, ip ->
+            String cmd = "ssh -o StrictHostKeyChecking=no ${username}@${ip} \"rm -r ${path}\""
+            logger.info("Execute: ${cmd}".toString())
+            executeCommand(cmd, false)
+        }
     }
 
     String cmd(String cmd, int timeoutSecond = 0) {

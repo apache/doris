@@ -40,6 +40,11 @@ public:
     std::string debug_string(int indentation_level) const override;
 
     std::vector<Dependency*> dependencies() const override;
+    Dependency* get_dependency(int id) {
+        return _exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT
+                       ? _local_merge_deps[id].get()
+                       : _dependency;
+    }
 
 private:
     friend class LocalExchangeSourceOperatorX;
@@ -73,7 +78,7 @@ public:
         _exchange_type = type;
         return Status::OK();
     }
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();
     }

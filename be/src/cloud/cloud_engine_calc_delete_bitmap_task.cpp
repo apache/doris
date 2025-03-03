@@ -69,7 +69,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
-
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
     for (const auto& partition : _cal_delete_bitmap_req.partitions) {
         int64_t version = partition.version;
         bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
@@ -99,7 +99,6 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     }
     // wait for all finished
     token->wait();
-    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()

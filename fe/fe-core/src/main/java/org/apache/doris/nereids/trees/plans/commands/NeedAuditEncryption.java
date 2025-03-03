@@ -17,13 +17,28 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
+
+import java.util.TreeMap;
+
 /**
  * NeedAuditEncryption
  */
 public interface NeedAuditEncryption {
-
     boolean needAuditEncryption();
 
-    String toSql();
-
+    /**
+     * gene encryption SQL
+     */
+    default String geneEncryptionSQL(String sql) {
+        if (!needAuditEncryption()) {
+            return sql;
+        }
+        TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
+        NereidsParser parser = new NereidsParser();
+        parser.parseForEncryption(sql, indexInSqlToString);
+        return BaseViewInfo.rewriteSql(indexInSqlToString, sql);
+    }
 }
