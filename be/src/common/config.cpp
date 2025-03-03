@@ -1445,6 +1445,8 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
+DEFINE_mBool(enable_mow_verbose_log, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
