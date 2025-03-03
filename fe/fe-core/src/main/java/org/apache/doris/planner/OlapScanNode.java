@@ -838,11 +838,12 @@ public class OlapScanNode extends ScanNode {
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    long beId = replica.getBackendId();
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                            LOG.debug("backend {} not exists or is not alive for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -928,7 +929,7 @@ public class OlapScanNode extends ScanNode {
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
-                scanRangeLocation.setBackendId(replica.getBackendId());
+                scanRangeLocation.setBackendId(backendId);
                 locations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
