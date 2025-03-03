@@ -37,7 +37,7 @@ constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
 
 static Status read_thrift_footer(io::FileReaderSPtr file, std::vector<uint8_t>& footer,
-                                 size_t bytes_read, io::IOContext* io_ctx) {
+                                 size_t& bytes_read, io::IOContext* io_ctx) {
     size_t file_size = file->size();
     bytes_read = std::min(file_size, INIT_META_SIZE);
     footer.resize(bytes_read);
