@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
@@ -67,8 +68,10 @@ public class RangerTest {
             String col = (String) resource.getValue(RangerDorisResource.KEY_COLUMN);
             String rs = (String) resource.getValue(RangerDorisResource.KEY_RESOURCE);
             String wg = (String) resource.getValue(RangerDorisResource.KEY_WORKLOAD_GROUP);
+            String cg = (String) resource.getValue(RangerDorisResource.KEY_COMPUTE_GROUP);
+            String sv = (String) resource.getValue(RangerDorisResource.KEY_STORAGE_VAULT);
             String user = request.getUser();
-            return returnAccessResult(request, ctl, db, tbl, col, rs, wg, user);
+            return returnAccessResult(request, ctl, db, tbl, col, rs, wg, cg, sv, user);
         }
 
         @Override
@@ -98,7 +101,7 @@ public class RangerTest {
 
         private RangerAccessResult returnAccessResult(
                 RangerAccessRequest request, String ctl, String db, String tbl,
-                String col, String rs, String wg, String user) {
+                String col, String rs, String wg, String cg, String sv, String user) {
             RangerAccessResult result = new RangerAccessResult(1, "test", null, request);
             if (!Strings.isNullOrEmpty(wg)) {
                 result.setIsAllowed(wg.equals("wg1"));
@@ -114,6 +117,10 @@ public class RangerTest {
                 result.setIsAllowed("ctl3".equals(ctl) && "db3".equals(db));
             } else if (!Strings.isNullOrEmpty(ctl)) {
                 result.setIsAllowed("ctl4".equals(ctl));
+            } else if (!Strings.isNullOrEmpty(cg)) {
+                result.setIsAllowed("cg1".equals(cg));
+            } else if (!Strings.isNullOrEmpty(sv)) {
+                result.setIsAllowed("sv1".equals(sv));
             } else {
                 result.setIsAllowed(false);
             }
@@ -226,5 +233,27 @@ public class RangerTest {
         // Others
         policy = ac.evalDataMaskPolicy(ui, "ctl1", "db1", "tbl1", "col4");
         Assertions.assertTrue(!policy.isPresent());
+    }
+
+    @Test
+    public void testComputeGroupAuth() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
+        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+        boolean cg1 = ac.checkCloudPriv(ui, "cg1", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+        Assertions.assertTrue(cg1);
+        boolean cg2 = ac.checkCloudPriv(ui, "cg2", PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
+        Assertions.assertFalse(cg2);
+    }
+
+    @Test
+    public void testStorageVaultAuth() {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        RangerDorisAccessController ac = new RangerDorisAccessController(plugin);
+        UserIdentity ui = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
+        boolean cg1 = ac.checkStorageVaultPriv(ui, "sv1", PrivPredicate.USAGE);
+        Assertions.assertTrue(cg1);
+        boolean cg2 = ac.checkStorageVaultPriv(ui, "sv2", PrivPredicate.USAGE);
+        Assertions.assertFalse(cg2);
     }
 }
