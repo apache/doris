@@ -85,7 +85,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
     }
@@ -125,7 +125,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
     }
@@ -146,7 +146,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: max(v7) is not match agg mode SUM"
     }
@@ -167,7 +167,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
     }
@@ -188,7 +188,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum(CASE WHEN"
     }
@@ -210,13 +210,13 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum"
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
         sql("""
-            select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
+            select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), min(t12.v3)
             from 
             (
                 select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, count(distinct ta2.k4) v2, count(distinct ta2.k5) v3
@@ -253,26 +253,66 @@ suite("set_preagg") {
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum("
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
         sql("""
-            select preagg_t3.k2, t12.k2, sum(t12.v2), max(preagg_t3.v9), count(distinct t12.v3), count(distinct t12.k4) v3
+            select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), count(distinct t12.v3), count(distinct t12.k4) v3
             from 
             (
-                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, ta1.t1_sum_v7 v1, ta2.v7 v2, ta2.k5 v3
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, ta1.t1_sum_v7 v1, ta2.v9 v2, ta2.k5 v3
                 from 
                     (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
                 inner join 
-                    (select k1, k2, k3, k4, k5, v7 from preagg_t2) as ta2
+                    (select k1, k2, k3, k4, k5, v9 from preagg_t2) as ta2
                 on ta1.k3 = ta2.k3
             ) t12 right join preagg_t3 on t12.k1 = preagg_t3.k1
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum"
+        contains "(preagg_t2), PREAGGREGATION: ON"
         contains "(preagg_t3), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""
+            select preagg_t3.k2, t12.k2, max(preagg_t3.v9), count(distinct t12.v3), count(distinct t12.k4) v3
+            from 
+            (
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, ta1.t1_sum_v7 v1, ta1.k5 v3
+                from 
+                    (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
+                inner join 
+                    (select k1, k2, k3, k4, k5, v9 from preagg_t2) as ta2
+                on ta1.k3 = ta2.k3
+            ) t12 right join preagg_t3 on t12.k1 = preagg_t3.k1
+            group by preagg_t3.k2, t12.k2
+            order by 1, 2;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: ON"
+    }
+
+    explain {
+        sql("""
+            select preagg_t3.k2, t12.k2, sum(t12.v1), max(preagg_t3.v9), count(distinct t12.v3), count(distinct t12.k4) v3
+            from 
+            (
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, ta1.t1_sum_v7 v1, ta1.k5 v3
+                from 
+                    (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
+                inner join 
+                    (select k1, k2, k3, k4, k5, v9 from preagg_t2) as ta2
+                on ta1.k3 = ta2.k3
+            ) t12 right join preagg_t3 on t12.k1 = preagg_t3.k1
+            group by preagg_t3.k2, t12.k2
+            order by 1, 2;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 }

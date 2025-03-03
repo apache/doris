@@ -252,6 +252,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             aggInputSlots.retainAll(outputSlots);
             if (!aggInputSlots.isEmpty()) {
                 candidateAggFuncs.add(aggregateFunction);
+            } else {
+                if (!(aggregateFunction instanceof Max || aggregateFunction instanceof Min
+                        || (aggregateFunction instanceof Count && aggregateFunction.isDistinct()))) {
+                    return PreAggStatus.off(
+                            String.format("can't turn preAgg on because aggregate function %s in other table",
+                                    aggregateFunction));
+                }
             }
             aggInputSlots.clear();
         }
@@ -259,8 +266,12 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         Set<Slot> candidateGroupByInputSlots = Sets.newHashSet();
         candidateGroupByInputSlots.addAll(groupingExprsInputSlots);
         candidateGroupByInputSlots.retainAll(outputSlots);
-
-        return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots, context.isJoinExpandData);
+        if (candidateAggFuncs.isEmpty() && candidateGroupByInputSlots.isEmpty()) {
+            return !aggregateFuncs.isEmpty() || !groupingExprs.isEmpty() ? PreAggStatus.on()
+                    : PreAggStatus.off("No aggregate on scan.");
+        } else {
+            return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots, context.isJoinExpandData);
+        }
     }
 
     private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
@@ -279,13 +290,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     if (((SlotReference) aggSlot).getColumn().get().isKey()) {
                         preAggStatus = OneKeySlotAggChecker.INSTANCE.check(aggFunc);
                     } else {
-                        if (isJoinExpandData && !(aggFunc instanceof Max || aggFunc instanceof Min)) {
-                            preAggStatus = PreAggStatus.off(
-                                    String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                        } else {
-                            preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
-                                    ((SlotReference) aggSlot).getColumn().get().getAggregationType());
-                        }
+                        preAggStatus = OneValueSlotAggChecker.INSTANCE.check(aggFunc,
+                                ((SlotReference) aggSlot).getColumn().get().getAggregationType());
                     }
                 } else {
                     preAggStatus = PreAggStatus.off(
