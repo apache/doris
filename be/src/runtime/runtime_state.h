@@ -619,7 +619,7 @@ public:
         return -1;
     }
 
-    bool enable_local_merge_sort() const {
+    MOCK_FUNCTION bool enable_local_merge_sort() const {
         return _query_options.__isset.enable_local_merge_sort &&
                _query_options.enable_local_merge_sort;
     }

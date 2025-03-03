@@ -74,7 +74,7 @@ public:
     LocalExchangeSourceOperatorX() = default;
 #endif
     Status init(ExchangeType type) override {
-        _op_name = "LOCAL_EXCHANGE_OPERATOR (" + get_exchange_type_name(type) + ")";
+        _op_name = "LOCAL_EXCHANGE_OPERATOR(" + get_exchange_type_name(type) + ")";
         _exchange_type = type;
         return Status::OK();
     }

@@ -797,7 +797,7 @@ suite("parse_sql_from_sql_cache") {
 
                     check { profileString, exception ->
                         log.info(profileString)
-                        assertTrue(profileString.contains("Is  Cached:  Yes"))
+                        assertTrue(profileString.contains("Is Cached: Yes"))
                     }
                 }
 
@@ -810,7 +810,7 @@ suite("parse_sql_from_sql_cache") {
 
                     check { profileString, exception ->
                         log.info(profileString)
-                        assertTrue(profileString.contains("Is  Cached:  Yes"))
+                        assertTrue(profileString.contains("Is Cached: Yes"))
                     }
                 }
             }),
