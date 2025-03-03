@@ -240,7 +240,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
     }
 
     auto batch_assign = [this](const PInFilter& filter,
-                               void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
+                               void (*assign_func)(std::shared_ptr<HybridSetBase> & _hybrid_set,
                                                    PColumnValue&)) {
         for (int i = 0; i < filter.values_size(); ++i) {
             PColumnValue column = filter.values(i);
@@ -662,7 +662,9 @@ Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInpu
         return _assign(request.minmax_filter(), request.contain_null());
     }
     default:
-        return Status::InternalError("unknown filter type {}", int(filter_type));
+        return Status::InternalError(
+                "`RuntimeFilterWrapper::assign` is not supported by Filter type {}",
+                int(filter_type));
     }
 }
 
