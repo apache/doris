@@ -161,7 +161,10 @@ public class ShowTableCommand extends ShowCommand {
                 InfoSchemaDb.DATABASE_NAME,
                 "tables");
 
-        LogicalPlan plan = toLogicalPlan(toBaseSql(columns, fullTblName) + " " + whereClause);
+        // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
+        // This also applies to the internal catalog.
+        LogicalPlan plan = toLogicalPlan(toBaseSql(columns, fullTblName) + " " + whereClause
+                + " and `TABLE_SCHEMA` = '" + db + "'");
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
         executor.setParsedStmt(adapter);
         List<ResultRow> resultRows = executor.executeInternalQuery();
