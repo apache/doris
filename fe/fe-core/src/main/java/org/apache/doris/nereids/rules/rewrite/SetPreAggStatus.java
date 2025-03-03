@@ -161,7 +161,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> logicalJoin,
             Stack<PreAggValidateContext> context) {
-        context.peek().addJoinInfo(logicalJoin);
+        if (!context.empty()) {
+            context.peek().addJoinInfo(logicalJoin);
+        }
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(logicalJoin.arity());
         boolean hasNewChildren = false;
         for (Plan child : logicalJoin.children()) {
