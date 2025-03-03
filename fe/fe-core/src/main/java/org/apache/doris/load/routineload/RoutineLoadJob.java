@@ -1566,7 +1566,7 @@ public abstract class RoutineLoadJob
         // define a check window
         if (System.currentTimeMillis() - latestCheckAbnormalJobTime
                 > maxBatchIntervalS * Config.abnormal_check_interval_multiplier) {
-            // 2. chekc abort txn ratio
+            // 2. check abort txn ratio
             if ((double) this.jobStatistic.currentAbortedTaskNum
                     / (this.jobStatistic.currentAbortedTaskNum + this.jobStatistic.currentCommittedTaskNum)
                     > Config.min_abnormal_abort_txn_ratio_threshold) {
