@@ -257,6 +257,7 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
+    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
