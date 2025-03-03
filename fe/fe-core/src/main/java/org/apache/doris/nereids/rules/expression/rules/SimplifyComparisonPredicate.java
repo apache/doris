@@ -51,12 +51,16 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -103,7 +107,9 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         Expression result;
 
         // process type coercion
-        if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
+        if (left.getDataType().isIntegralType() && right.getDataType().isIntegralType()) {
+            result = processIntegerLikeTypeCoercion(cp, left, right);
+        } else if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
             result = processFloatLikeTypeCoercion(cp, left, right);
         } else if (left.getDataType() instanceof DecimalV3Type && right.getDataType() instanceof DecimalV3Type) {
             result = processDecimalV3TypeCoercion(cp, left, right);
@@ -119,6 +125,56 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         }
 
         return result;
+    }
+
+    private static Expression processIntegerLikeTypeCoercion(ComparisonPredicate cp,
+            Expression left, Expression right) {
+        // Suppose a is integer type, for expression `a > 500000 + 100000`,
+        // since right type is big int (int plus int is big int),
+        // then will have cast(a as bigint) > cast(500000 + 100000).
+        // After fold constant, will have cast(a as bigint) > big int(600000),
+        // since 600000 can represent as an int type, will rewrite as a > int(600000).
+        if (left instanceof Cast && left.getDataType().isIntegralType()
+                && ((Cast) left).child().getDataType().isIntegralType()
+                && right instanceof IntegerLikeLiteral) {
+            DataType castDataType = left.getDataType();
+            DataType childDataType = ((Cast) left).child().getDataType();
+            boolean castDataTypeWider = false;
+            for (DataType type : TypeCoercionUtils.NUMERIC_PRECEDENCE) {
+                if (type.equals(childDataType)) {
+                    break;
+                }
+                if (type.equals(castDataType)) {
+                    castDataTypeWider = true;
+                    break;
+                }
+            }
+            if (castDataTypeWider) {
+                Optional<Pair<BigDecimal, BigDecimal>> minMaxOpt =
+                        TypeCoercionUtils.getDataTypeMinMaxValue(childDataType);
+                if (minMaxOpt.isPresent()) {
+                    BigDecimal childTypeMinValue = minMaxOpt.get().first;
+                    BigDecimal childTypeMaxValue = minMaxOpt.get().second;
+                    BigDecimal rightValue = ((IntegerLikeLiteral) right).getBigDecimalValue();
+                    if (rightValue.compareTo(childTypeMinValue) >= 0 && rightValue.compareTo(childTypeMaxValue) <= 0) {
+                        Expression newRight = null;
+                        if (childDataType.equals(BigIntType.INSTANCE)) {
+                            newRight = new BigIntLiteral(rightValue.longValue());
+                        } else if (childDataType.equals(IntegerType.INSTANCE)) {
+                            newRight = new IntegerLiteral(rightValue.intValue());
+                        } else if (childDataType.equals(SmallIntType.INSTANCE)) {
+                            newRight = new SmallIntLiteral(rightValue.shortValue());
+                        } else if (childDataType.equals(TinyIntType.INSTANCE)) {
+                            newRight = new TinyIntLiteral(rightValue.byteValue());
+                        }
+                        if (newRight != null) {
+                            return cp.withChildren(((Cast) left).child(), newRight);
+                        }
+                    }
+                }
+            }
+        }
+        return cp;
     }
 
     private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {

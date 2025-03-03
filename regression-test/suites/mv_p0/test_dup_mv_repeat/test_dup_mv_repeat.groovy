@@ -35,7 +35,17 @@ suite ("test_dup_mv_repeat") {
             );
         """
 
-    sql "insert into db1 values('2020-01-01','abc',123),('2020-01-02','def',456);"
+    sql """
+    insert into db1 values
+    ('2020-01-01','abc',123),
+    ('2020-01-01','abc',123),
+    ('2020-01-01','abc',123),
+    ('2020-01-02','def',456),
+    ('2020-01-02','def',456),
+    ('2020-01-02','def',456);
+    """
+
+    sql """alter table db1 modify column n set stats ('row_count'='6');"""
 
     createMV ("create materialized view dbviwe as select dt,s,sum(n) as n from db1 group by dt,s;")
 

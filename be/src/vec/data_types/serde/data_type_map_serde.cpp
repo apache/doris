@@ -44,7 +44,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int64
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
@@ -113,7 +113,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
         }
     }
 
-    int num_keys = 0, num_values = 0;
+    uint64_t num_keys = 0, num_values = 0;
     Status st;
     st = key_serde->deserialize_column_from_hive_text_vector(
             nested_key_column, key_slices, &num_keys, options,
@@ -136,7 +136,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
@@ -149,7 +149,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
 
     size_t start = offsets[row_num - 1];
@@ -178,7 +178,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
-                                                             int* num_deserialized,
+                                                             uint64_t* num_deserialized,
                                                              const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
@@ -314,7 +314,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
 }
 
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
@@ -334,17 +334,17 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
                                              arrow::ArrayBuilder* array_builder, int64_t start,
                                              int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     // now we default set key value in map is nullable
     DCHECK(nested_keys_column.is_nullable());
     DCHECK(nested_values_column.is_nullable());
-    auto keys_nullmap_data =
+    const auto* keys_nullmap_data =
             check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
-    auto& offsets = map_column.get_offsets();
-    auto key_builder = builder.key_builder();
-    auto value_builder = builder.item_builder();
+    const auto& offsets = map_column.get_offsets();
+    auto* key_builder = builder.key_builder();
+    auto* value_builder = builder.item_builder();
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
@@ -380,13 +380,13 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 }
 
 void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                              int start, int end,
+                                              int64_t start, int64_t end,
                                               const cctz::time_zone& ctz) const {
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
-    auto concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
+    const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
-    auto arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     auto arrow_nested_start_offset = arrow_offsets->Value(start);
     auto arrow_nested_end_offset = arrow_offsets->Value(end);
@@ -405,7 +405,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
                                                 int64_t row_idx, bool col_const,
                                                 const FormatOptions& options) const {
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
@@ -416,7 +416,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
     if (0 != result.push_string("{", 1)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    auto& offsets = map_column.get_offsets();
+    const auto& offsets = map_column.get_offsets();
     for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
         if (j != offsets[col_index - 1]) {
             if (0 != result.push_string(", ", 2)) {

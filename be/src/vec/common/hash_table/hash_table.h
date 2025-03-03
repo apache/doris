@@ -785,6 +785,18 @@ public:
         }
     }
 
+    size_t estimate_memory(size_t num_elem) const {
+        if (!add_elem_size_overflow(num_elem)) {
+            return 0;
+        }
+
+        auto new_size = num_elem + grower.buf_size();
+        Grower new_grower = grower;
+        new_grower.set(new_size);
+
+        return new_grower.buf_size() * sizeof(Cell);
+    }
+
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;

@@ -371,8 +371,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
-        PSlaveTabletNodes slave_nodes;
-
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, req, res);
@@ -409,9 +407,15 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
                                  PTabletWriterAddBlockResult* res) {
-    Status st = writer->commit_txn(_write_single_replica
-                                           ? req.slave_tablet_nodes().at(writer->tablet_id())
-                                           : PSlaveTabletNodes {});
+    PSlaveTabletNodes slave_nodes;
+    if (_write_single_replica) {
+        auto& nodes_map = req.slave_tablet_nodes();
+        auto it = nodes_map.find(writer->tablet_id());
+        if (it != nodes_map.end()) {
+            slave_nodes = it->second;
+        }
+    }
+    Status st = writer->commit_txn(slave_nodes);
     if (st.ok()) [[likely]] {
         auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
@@ -563,7 +567,7 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
 
 Status BaseTabletsChannel::_write_block_data(
         const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
-        std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
+        std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
         PTabletWriterAddBlockResult* response) {
     vectorized::Block send_data;
     RETURN_IF_ERROR(send_data.deserialize(request.block()));
@@ -639,7 +643,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         return Status::OK();
     }
 
-    std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
+    std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>
             tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
@@ -657,7 +661,7 @@ bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) const {
 
 void BaseTabletsChannel::_build_tablet_to_rowidxs(
         const PTabletWriterAddBlockRequest& request,
-        std::unordered_map<int64_t, std::vector<uint32_t>>* tablet_to_rowidxs) {
+        std::unordered_map<int64_t, DorisVector<uint32_t>>* tablet_to_rowidxs) {
     // just add a coarse-grained read lock here rather than each time when visiting _broken_tablets
     // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
     // see: https://github.com/apache/doris/pull/28552

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -41,7 +42,8 @@ import java.util.Optional;
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
  */
-public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate {
+public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Generate, DiffOutputInAsterisk {
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;
@@ -124,6 +126,14 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
                 .addAll(child().getOutput())
+                .addAll(generatorOutput)
+                .build();
+    }
+
+    @Override
+    public List<Slot> computeAsteriskOutput() {
+        return ImmutableList.<Slot>builder()
+                .addAll(child().getAsteriskOutput())
                 .addAll(generatorOutput)
                 .build();
     }

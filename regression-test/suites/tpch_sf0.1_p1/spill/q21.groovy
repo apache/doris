@@ -19,7 +19,7 @@ suite("q21_spill") {
     set enable_force_spill=true;
   """
   sql """
-    set min_revocable_mem=1;
+    set spill_min_revocable_mem=1;
   """
   sql """
     use regression_test_tpch_sf0_1_p1;
@@ -27,7 +27,7 @@ suite("q21_spill") {
   qt_q21 """
 -- tables: supplier,lineitem,orders,nation
 SELECT
-/*+SET_VAR(enable_force_spill=true, min_revocable_mem=1)*/
+/*+SET_VAR(enable_force_spill=true, spill_min_revocable_mem=1)*/
   s_name,
   count(*) AS numwait
 FROM

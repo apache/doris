@@ -18,6 +18,7 @@
 #include "transactional_hive_common.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string TransactionalHive::OPERATION = "operation";
 const std::string TransactionalHive::ORIGINAL_TRANSACTION = "originalTransaction";
@@ -69,4 +70,5 @@ const std::vector<std::string> TransactionalHive::ACID_COLUMN_NAMES_LOWER_CASE =
         OPERATION_LOWER_CASE, ORIGINAL_TRANSACTION_LOWER_CASE, BUCKET_LOWER_CASE,
         ROW_ID_LOWER_CASE,    CURRENT_TRANSACTION_LOWER_CASE,  ROW_LOWER_CASE};
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

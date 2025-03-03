@@ -24,6 +24,12 @@ public class DropObserverClause extends FrontendClause {
         super(hostPort, FrontendNodeType.OBSERVER);
     }
 
+    public DropObserverClause(String hostPort, String host, int port, FrontendNodeType role) {
+        super(hostPort, role);
+        this.host = host;
+        this.port = port;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();

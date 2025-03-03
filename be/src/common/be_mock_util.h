@@ -16,6 +16,9 @@
 // under the License.
 
 #pragma once
+#include "util/defer_op.h"
+
+namespace doris {
 
 // #define BE_TEST
 
@@ -36,6 +39,18 @@
 #else
 #define MOCK_REMOVE(str) str
 #endif
+
+void mock_random_sleep();
+
+#ifdef BE_TEST
+#define INJECT_MOCK_SLEEP(lock_guard) \
+    DEFER(mock_random_sleep());       \
+    lock_guard;
+#else
+#define INJECT_MOCK_SLEEP(lock_guard) lock_guard
+#endif
+
+} // namespace doris
 
 /*
 #include "common/be_mock_util.h"

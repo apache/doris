@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -159,15 +159,14 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         LogicalSubQueryAlias<LogicalOlapScan> sub3 = new LogicalSubQueryAlias<>("t3", scan3);
 
         DistributeHint hint = new DistributeHint(DistributeType.NONE);
-        UsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>
-                using1 = new UsingJoin<>(JoinType.LEFT_OUTER_JOIN, sub1,
-                sub2, ImmutableList.of(), ImmutableList.of(new UnboundSlot("id")), hint);
+        LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>
+                using1 = new LogicalUsingJoin<>(JoinType.LEFT_OUTER_JOIN, sub1,
+                sub2, ImmutableList.of(new UnboundSlot("id")), hint);
 
-        UsingJoin<UsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>,
-                    LogicalSubQueryAlias<LogicalOlapScan>> using2
-                = new UsingJoin<>(
-                        JoinType.LEFT_OUTER_JOIN, using1, sub3, ImmutableList.of(),
-                        ImmutableList.of(new UnboundSlot("id")), hint);
+        LogicalUsingJoin<LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>,
+                            LogicalSubQueryAlias<LogicalOlapScan>> using2 = new LogicalUsingJoin<>(
+                                    JoinType.LEFT_OUTER_JOIN, using1, sub3,
+                ImmutableList.of(new UnboundSlot("id")), hint);
 
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(using2)

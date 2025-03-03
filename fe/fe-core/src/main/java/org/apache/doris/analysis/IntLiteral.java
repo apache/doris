@@ -261,17 +261,13 @@ public class IntLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        if (expr instanceof StringLiteral) {
-            return ((StringLiteral) expr).compareLiteral(this);
-        }
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (value == expr.getLongValue()) {
-            return 0;
-        } else {
-            return value > expr.getLongValue() ? 1 : -1;
+        if (expr instanceof StringLiteral) {
+            return - ((StringLiteral) expr).compareLiteral(this);
         }
+        return Long.compare(value, expr.getLongValue());
     }
 
     @Override

@@ -23,9 +23,10 @@
 #include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/core/block.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -57,10 +58,10 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return Status::DataQualityError("check be exec version fail when reading wal file {}",
                                         _wal_path);
     }
-    vectorized::Block src_block;
+    Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
     //convert to dst block
-    vectorized::Block dst_block;
+    Block dst_block;
     int index = 0;
     auto output_block_columns = block->get_columns_with_type_and_name();
     size_t output_block_column_size = output_block_columns.size();
@@ -75,7 +76,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 std::to_string(output_block_column_size),
                 std::to_string(_tuple_descriptor->slots().size()));
     }
-    for (auto slot_desc : _tuple_descriptor->slots()) {
+    for (auto* slot_desc : _tuple_descriptor->slots()) {
         auto pos = _column_pos_map[slot_desc->col_unique_id()];
         if (pos >= src_block.columns()) {
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
@@ -106,7 +107,7 @@ Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     try {
         int64_t pos = 0;
         for (auto col_id_str : column_id_vector) {
-            auto col_id = std::strtoll(col_id_str.c_str(), NULL, 10);
+            auto col_id = std::strtoll(col_id_str.c_str(), nullptr, 10);
             _column_pos_map.emplace(col_id, pos);
             pos++;
         }
@@ -116,4 +117,5 @@ Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

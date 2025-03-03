@@ -19,6 +19,7 @@ package org.apache.doris.binlog;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.persist.CreateTableInfo;
@@ -29,7 +30,9 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CreateTableRecord {
     private static final Logger LOG = LogManager.getLogger(CreateTableRecord.class);
@@ -48,6 +51,8 @@ public class CreateTableRecord {
     protected TableType type;
     @SerializedName(value = "sql")
     private String sql;
+    @SerializedName(value = "properties")
+    private Map<String, String> properties;
 
     public CreateTableRecord(long commitSeq, CreateTableInfo info) {
         this.commitSeq = commitSeq;
@@ -77,6 +82,11 @@ public class CreateTableRecord {
         try {
             Env.getSyncedDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt,
                     false, false /* show password */, -1L);
+            if (table instanceof OlapTable) {
+                properties = new HashMap(((OlapTable) table).getTableProperty().getProperties());
+            } else {
+                properties = new HashMap<>();
+            }
         } finally {
             table.readUnlock();
         }

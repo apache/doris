@@ -35,6 +35,8 @@ suite("test_hudi_schema_evolution", "p2,external,hudi,external_remote,external_r
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
     
+    sql """set force_jni_scanner = true;"""
+    sql """set hudi_jni_scanner='hadoop';"""
     qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
     qt_altering_simple_columns_table """ select * from altering_simple_columns_table order by id """
     // qt_deleting_simple_columns_table """ select * from deleting_simple_columns_table order by id """
@@ -45,7 +47,7 @@ suite("test_hudi_schema_evolution", "p2,external,hudi,external_remote,external_r
     // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
     // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
     
-    sql """set force_jni_scanner = true;"""
+   sql """set force_jni_scanner = false;"""
     qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
     qt_altering_simple_columns_table """ select * from altering_simple_columns_table order by id """
     // qt_deleting_simple_columns_table """ select * from deleting_simple_columns_table order by id """
@@ -55,7 +57,6 @@ suite("test_hudi_schema_evolution", "p2,external,hudi,external_remote,external_r
     qt_altering_complex_columns_table """ select * from altering_complex_columns_table order by id """
     // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
     // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
-    sql """set force_jni_scanner = false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
 }

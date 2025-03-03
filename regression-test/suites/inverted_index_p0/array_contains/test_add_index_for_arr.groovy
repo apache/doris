@@ -106,9 +106,9 @@ suite("test_add_index_for_arr") {
 
     // query without inverted index
     // query rows with array_contains
-    def sql_query_name1 = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7')"
+    def sql_query_name1 = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7') order by id"
     // query rows with !array_contains
-    def sql_query_name2 = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7')"
+    def sql_query_name2 = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7') order by id"
 
     // add index for name
     sql "ALTER TABLE my_test_array ADD INDEX name_idx (name) USING INVERTED;"
@@ -122,9 +122,9 @@ suite("test_add_index_for_arr") {
     // query with inverted index
     sql "set enable_inverted_index_query=true"
     // query rows with array_contains
-    def sql_query_name1_inverted = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7')"
+    def sql_query_name1_inverted = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7') order by id"
     // query rows with !array_contains
-    def sql_query_name2_inverted = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7')"
+    def sql_query_name2_inverted = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7') order by id"
 
     // check result for query without inverted index and with inverted index
     def size1 = sql_query_name1.size();
@@ -147,9 +147,38 @@ suite("test_add_index_for_arr") {
     sql "drop index name_idx on my_test_array"
     wait_for_latest_op_on_table_finish("my_test_array", timeout)
 
-    def sql_query_name1_without_inverted = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7')"
-    def sql_query_name2_without_inverted = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7')"
+    def sql_query_name1_without_inverted = sql "select id, name[1], description[1] from my_test_array where array_contains(name,'text7') order by id"
+    def sql_query_name2_without_inverted = sql "select id, name[1], description[1] from my_test_array where !array_contains(name,'text7') order by id"
 
     assertEquals(sql_query_name1.size(), sql_query_name1_without_inverted.size())
     assertEquals(sql_query_name2.size(), sql_query_name2_without_inverted.size())
+
+    def table_name = "test_add_index_for_arr_all_null"
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                `id` int(11) NULL,
+                `name` ARRAY<text> NULL,
+            )
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            properties("replication_num" = "1");
+    """
+
+    sql "insert into ${table_name} values (1, null), (2, null)"
+    sql "ALTER TABLE ${table_name} ADD INDEX name_idx (name) USING INVERTED;"
+    wait_for_latest_op_on_table_finish("${table_name}", timeout)
+    // build index for name that name data can using inverted index
+    if (!isCloudMode()) {
+        sql "BUILD INDEX name_idx ON ${table_name}"
+        wait_for_build_index_on_partition_finish("${table_name}", timeout)
+    }
+
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=true)*/ * from ${table_name} where array_contains(name, 'text7') order by id"
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=true)*/ * from ${table_name} where !array_contains(name, 'text7') order by id"
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=true)*/ * from ${table_name} where name is null order by id"
+
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=false)*/ * from ${table_name} where array_contains(name, 'text7') order by id"
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=false)*/ * from ${table_name} where !array_contains(name, 'text7') order by id"
+    qt_sql "select /*+SET_VAR(enable_inverted_index_query=false)*/ * from ${table_name} where name is null order by id"
 }

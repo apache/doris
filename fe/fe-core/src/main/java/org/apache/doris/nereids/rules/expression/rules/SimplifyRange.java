@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -43,6 +44,7 @@ import com.google.common.collect.Range;
 import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * This class implements the function to simplify expression range.
@@ -104,20 +106,20 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     private Expression getExpression(RangeValue value) {
         Expression reference = value.getReference();
-        Range<Literal> range = value.getRange();
+        Range<ComparableLiteral> range = value.getRange();
         List<Expression> result = Lists.newArrayList();
         if (range.hasLowerBound()) {
             if (range.lowerBoundType() == BoundType.CLOSED) {
-                result.add(new GreaterThanEqual(reference, range.lowerEndpoint()));
+                result.add(new GreaterThanEqual(reference, (Literal) range.lowerEndpoint()));
             } else {
-                result.add(new GreaterThan(reference, range.lowerEndpoint()));
+                result.add(new GreaterThan(reference, (Literal) range.lowerEndpoint()));
             }
         }
         if (range.hasUpperBound()) {
             if (range.upperBoundType() == BoundType.CLOSED) {
-                result.add(new LessThanEqual(reference, range.upperEndpoint()));
+                result.add(new LessThanEqual(reference, (Literal) range.upperEndpoint()));
             } else {
-                result.add(new LessThan(reference, range.upperEndpoint()));
+                result.add(new LessThan(reference, (Literal) range.upperEndpoint()));
             }
         }
         if (!result.isEmpty()) {
@@ -128,7 +130,8 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     }
 
     private Expression getExpression(DiscreteValue value) {
-        return ExpressionUtils.toInPredicateOrEqualTo(value.getReference(), value.getValues());
+        return ExpressionUtils.toInPredicateOrEqualTo(value.getReference(),
+                value.getValues().stream().map(Literal.class::cast).collect(Collectors.toList()));
     }
 
     private Expression getExpression(UnknownValue value) {

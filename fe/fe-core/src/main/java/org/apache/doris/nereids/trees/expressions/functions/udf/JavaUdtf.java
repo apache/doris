@@ -56,6 +56,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     private final String prepareFn;
     private final String closeFn;
     private final String checkSum;
+    private final boolean isStaticLoad;
+    private final long expirationTime;
 
     /**
      * Constructor of UDTF
@@ -63,7 +65,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     public JavaUdtf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
             FunctionSignature signature,
             NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
-            String checkSum, Expression... args) {
+            String checkSum, boolean isStaticLoad, long expirationTime, Expression... args) {
         super(name, args);
         this.dbName = dbName;
         this.functionId = functionId;
@@ -75,6 +77,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
         this.prepareFn = prepareFn;
         this.closeFn = closeFn;
         this.checkSum = checkSum;
+        this.isStaticLoad = isStaticLoad;
+        this.expirationTime = expirationTime;
     }
 
     /**
@@ -84,7 +88,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
     public JavaUdtf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdtf(getName(), functionId, dbName, binaryType, signature, nullableMode,
-                objectFile, symbol, prepareFn, closeFn, checkSum, children.toArray(new Expression[0]));
+                objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+                children.toArray(new Expression[0]));
     }
 
     @Override
@@ -119,6 +124,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
             expr.setNullableMode(nullableMode);
             expr.setChecksum(checkSum);
             expr.setId(functionId);
+            expr.setStaticLoad(isStaticLoad);
+            expr.setExpirationTime(expirationTime);
             expr.setUDTFunction(true);
             return expr;
         } catch (Exception e) {
@@ -153,6 +160,8 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol(),
                 scalar.getChecksum(),
+                scalar.isStaticLoad(),
+                scalar.getExpirationTime(),
                 virtualSlots);
 
         JavaUdtfBuilder builder = new JavaUdtfBuilder(udf);

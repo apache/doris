@@ -24,7 +24,7 @@
 #include <cstdint>
 
 namespace doris::vectorized::detail {
-
+#include "common/compile_check_avoid_begin.h"
 template <typename T>
 int cmp(T a, T b) {
     if (a < b) return -1;
@@ -224,3 +224,5 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 }
 
 #endif
+
+#include "common/compile_check_avoid_end.h"

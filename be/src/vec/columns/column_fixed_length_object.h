@@ -187,14 +187,19 @@ public:
     ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
         column_match_filter_size(size(), filter.size());
         auto res = create(_item_size);
-        res->resize(result_size_hint);
-
-        for (size_t i = 0, pos = 0; i < filter.size(); i++) {
+        size_t column_size = size();
+        if (result_size_hint > 0) {
+            res->reserve(result_size_hint);
+        }
+        res->resize(column_size);
+        size_t pos = 0;
+        for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
                 memcpy(&res->_data[pos * _item_size], &_data[i * _item_size], _item_size);
                 pos++;
             }
         }
+        res->resize(pos);
         return res;
     }
 
@@ -261,6 +266,11 @@ public:
     }
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        return _data.capacity() - _data.size() > src_col.size();
+    }
 
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0

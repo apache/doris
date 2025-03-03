@@ -19,57 +19,49 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.classloader.ScannerLoader;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
+import org.apache.doris.common.jni.utils.UdfClassCache;
+import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
+import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
+import com.google.common.base.Strings;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.net.MalformedURLException;
 import java.net.URLClassLoader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Map.Entry;
 
 public abstract class BaseExecutor {
-    private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
-
-    // By convention, the function in the class must be called evaluate()
-    public static final String UDF_FUNCTION_NAME = "evaluate";
-    public static final String UDAF_CREATE_FUNCTION = "create";
-    public static final String UDAF_DESTROY_FUNCTION = "destroy";
-    public static final String UDAF_ADD_FUNCTION = "add";
-    public static final String UDAF_RESET_FUNCTION = "reset";
-    public static final String UDAF_SERIALIZE_FUNCTION = "serialize";
-    public static final String UDAF_DESERIALIZE_FUNCTION = "deserialize";
-    public static final String UDAF_MERGE_FUNCTION = "merge";
-    public static final String UDAF_RESULT_FUNCTION = "getValue";
-
     // Object to deserialize ctor params from BE.
     protected static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
-
+    private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
     protected Object udf;
     // setup by init() and cleared by close()
     protected URLClassLoader classLoader;
-
-    // Return and argument types of the function inferred from the udf method
-    // signature.
-    // The JavaUdfDataType enum maps it to corresponding primitive type.
-    protected JavaUdfDataType[] argTypes;
-    protected JavaUdfDataType retType;
-    protected Class[] argClass;
-    protected MethodAccess methodAccess;
+    protected UdfClassCache objCache;
     protected TFunction fn;
+    protected boolean isStaticLoad = false;
+    protected VectorTable outputTable = null;
+    String className;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used
@@ -100,41 +92,79 @@ public abstract class BaseExecutor {
 
     public String debugString() {
         StringBuilder res = new StringBuilder();
-        for (JavaUdfDataType type : argTypes) {
+        for (JavaUdfDataType type : objCache.argTypes) {
             res.append(type.toString());
-            if (type.getItemType() != null) {
-                res.append(" item: ").append(type.getItemType().toString()).append(" sql: ")
-                        .append(type.getItemType().toSql());
-            }
-            if (type.getKeyType() != null) {
-                res.append(" key: ").append(type.getKeyType().toString()).append(" sql: ")
-                        .append(type.getKeyType().toSql());
-            }
-            if (type.getValueType() != null) {
-                res.append(" key: ").append(type.getValueType().toString()).append(" sql: ")
-                        .append(type.getValueType().toSql());
-            }
         }
-        res.append(" return type: ").append(retType.toString());
-        if (retType.getItemType() != null) {
-            res.append(" item: ").append(retType.getItemType().toString()).append(" sql: ")
-                    .append(retType.getItemType().toSql());
-        }
-        if (retType.getKeyType() != null) {
-            res.append(" key: ").append(retType.getKeyType().toString()).append(" sql: ")
-                    .append(retType.getKeyType().toSql());
-        }
-        if (retType.getValueType() != null) {
-            res.append(" key: ").append(retType.getValueType().toString()).append(" sql: ")
-                    .append(retType.getValueType().toSql());
-        }
-        res.append(" methodAccess: ").append(methodAccess.toString());
+        res.append(" return type: ").append(objCache.retType.toString());
+        res.append(" methodAccess: ").append(objCache.methodAccess.toString());
         res.append(" fn.toString(): ").append(fn.toString());
         return res.toString();
     }
 
-    protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
-            Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
+    protected void init(TJavaUdfExecutorCtorParams request, String jarPath,
+            Type funcRetType, Type... parameterTypes) throws UdfRuntimeException {
+        try {
+            isStaticLoad = request.getFn().isSetIsStaticLoad() && request.getFn().is_static_load;
+            long expirationTime = 360L; // default is 6 hours
+            if (request.getFn().isSetExpirationTime()) {
+                expirationTime = request.getFn().getExpirationTime();
+            }
+            objCache = getClassCache(jarPath, request.getFn().getSignature(), expirationTime,
+                    funcRetType, parameterTypes);
+            Constructor<?> ctor = objCache.udfClass.getConstructor();
+            udf = ctor.newInstance();
+        } catch (MalformedURLException e) {
+            throw new UdfRuntimeException("Unable to load jar.", e);
+        } catch (SecurityException e) {
+            throw new UdfRuntimeException("Unable to load function.", e);
+        } catch (ClassNotFoundException e) {
+            throw new UdfRuntimeException("Unable to find class.", e);
+        } catch (NoSuchMethodException e) {
+            throw new UdfRuntimeException(
+                    "Unable to find constructor with no arguments.", e);
+        } catch (IllegalArgumentException e) {
+            throw new UdfRuntimeException(
+                    "Unable to call UDF constructor with no arguments.", e);
+        } catch (Exception e) {
+            throw new UdfRuntimeException("Unable to call create UDF instance.", e);
+        }
+    }
+
+
+    public UdfClassCache getClassCache(String jarPath, String signature, long expirationTime,
+            Type funcRetType, Type... parameterTypes)
+            throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
+            UdfRuntimeException {
+        UdfClassCache cache = null;
+        if (isStaticLoad) {
+            cache = ScannerLoader.getUdfClassLoader(signature);
+        }
+        if (cache == null) {
+            ClassLoader loader;
+            if (Strings.isNullOrEmpty(jarPath)) {
+                // if jarPath is empty, which means the UDF jar is located in custom_lib
+                // and already be loaded when BE start.
+                // so here we use system class loader to load UDF class.
+                loader = ClassLoader.getSystemClassLoader();
+            } else {
+                ClassLoader parent = getClass().getClassLoader();
+                classLoader = UdfUtils.getClassLoader(jarPath, parent);
+                loader = classLoader;
+            }
+            cache = new UdfClassCache();
+            cache.allMethods = new HashMap<>();
+            cache.udfClass = Class.forName(className, true, loader);
+            cache.methodAccess = MethodAccess.get(cache.udfClass);
+            checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
+            if (isStaticLoad) {
+                ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
+            }
+        }
+        return cache;
+    }
+
+    protected abstract void checkAndCacheUdfClass(UdfClassCache cache, Type funcRetType, Type... parameterTypes)
+            throws InternalException, UdfRuntimeException;
 
     /**
      * Close the class loader we may have created.
@@ -150,10 +180,14 @@ public abstract class BaseExecutor {
                 }
             }
         }
+        // Close the output table if it exists.
+        if (outputTable != null) {
+            outputTable.close();
+        }
         // We are now un-usable (because the class loader has been
         // closed), so null out method_ and classLoader_.
         classLoader = null;
-        methodAccess = null;
+        objCache.methodAccess = null;
     }
 
     protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz) {
@@ -329,5 +363,24 @@ public abstract class BaseExecutor {
                 break;
         }
         return null;
+    }
+
+    // Add unified converter methods
+    protected Map<Integer, ColumnValueConverter> getInputConverters(int numColumns, boolean isUdaf) {
+        Map<Integer, ColumnValueConverter> converters = new HashMap<>();
+        for (int j = 0; j < numColumns; ++j) {
+            // For UDAF, we need to offset by 1 since first arg is state
+            int argIndex = isUdaf ? j + 1 : j;
+            ColumnValueConverter converter = getInputConverter(objCache.argTypes[j].getPrimitiveType(),
+                    objCache.argClass[argIndex]);
+            if (converter != null) {
+                converters.put(j, converter);
+            }
+        }
+        return converters;
+    }
+
+    protected ColumnValueConverter getOutputConverter() {
+        return getOutputConverter(objCache.retType, objCache.retClass);
     }
 }

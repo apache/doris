@@ -87,11 +87,13 @@ public:
                 // get val in aggregate_function_percentile_approx.h
                 return 0.0;
             }
-            if (quantile == 1 || _nums.size() == 1) {
-                return _nums.back();
-            }
+
             if (UNLIKELY(!std::is_sorted(_nums.begin(), _nums.end()))) {
                 pdqsort(_nums.begin(), _nums.end());
+            }
+
+            if (quantile == 1 || _nums.size() == 1) {
+                return _nums.back();
             }
 
             double u = (_nums.size() - 1) * quantile;

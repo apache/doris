@@ -21,10 +21,9 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
-#include "util/doris_metrics.h"
 #include "util/threadpool.h"
-#include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 class ExecEnv;
@@ -55,11 +54,12 @@ class SimplifiedScanScheduler;
 class ScannerScheduler {
 public:
     ScannerScheduler();
-    ~ScannerScheduler();
+    virtual ~ScannerScheduler();
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    Status submit(std::shared_ptr<ScannerContext> ctx, std::shared_ptr<ScanTask> scan_task);
+    MOCK_FUNCTION Status submit(std::shared_ptr<ScannerContext> ctx,
+                                std::shared_ptr<ScanTask> scan_task);
 
     void stop();
 
@@ -121,8 +121,10 @@ public:
               _sched_name(sched_name),
               _workload_group(workload_group) {}
 
-    ~SimplifiedScanScheduler() {
+    MOCK_FUNCTION ~SimplifiedScanScheduler() {
+#ifndef BE_TEST
         stop();
+#endif
         LOG(INFO) << "Scanner sche " << _sched_name << " shutdown";
     }
 
@@ -203,11 +205,17 @@ public:
         }
     }
 
-    int get_queue_size() { return _scan_thread_pool->get_queue_size(); }
+    MOCK_FUNCTION int get_queue_size() { return _scan_thread_pool->get_queue_size(); }
 
-    int get_active_threads() { return _scan_thread_pool->num_active_threads(); }
+    MOCK_FUNCTION int get_active_threads() { return _scan_thread_pool->num_active_threads(); }
+
+    int get_max_threads() { return _scan_thread_pool->max_threads(); }
 
     std::vector<int> thread_debug_info() { return _scan_thread_pool->debug_info(); }
+
+    MOCK_FUNCTION Status schedule_scan_task(std::shared_ptr<ScannerContext> scanner_ctx,
+                                            std::shared_ptr<ScanTask> current_scan_task,
+                                            std::unique_lock<std::mutex>& transfer_lock);
 
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
@@ -215,6 +223,7 @@ private:
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
     std::string _workload_group;
+    std::shared_mutex _lock;
 };
 
 } // namespace doris::vectorized

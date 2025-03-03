@@ -190,11 +190,16 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_get_token_limit, "0");
 
 CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_limit, "0");
 
 // The secondary package name of the MetaService.
@@ -252,4 +257,7 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+// Which vaults should be recycled. If empty, recycle all vaults.
+// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_white_list, "");
 } // namespace doris::cloud::config

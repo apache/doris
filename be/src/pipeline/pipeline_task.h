@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -136,11 +135,13 @@ public:
     void set_wake_up_early() { _wake_up_early = true; }
 
     void clear_blocking_state() {
-        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finalized) {
-            _execution_dep->set_always_ready();
+            for (auto* dep : _spill_dependencies) {
+                dep->set_always_ready();
+            }
+
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
             }
@@ -173,14 +174,6 @@ public:
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
     int get_queue_level() const { return this->_queue_level; }
 
-    /**
-     * Return true if:
-     * 1. `enable_force_spill` is true which forces this task to spill data.
-     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
-     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
-     */
-    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
-
     void put_in_runnable_queue() {
         _schedule_time++;
         _wait_worker_watcher.start();
@@ -189,7 +182,15 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    void set_running(bool running) { _running = running; }
+    bool is_revoking() {
+        for (auto* dep : _spill_dependencies) {
+            if (dep->is_blocked_by(nullptr) != nullptr) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool set_running(bool running) { return _running.exchange(running); }
 
     bool is_exceed_debug_timeout() {
         if (_has_exceed_timeout) {
@@ -230,8 +231,16 @@ public:
     }
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
+    [[nodiscard]] size_t get_revocable_size() const;
+    [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
+
+    void add_spill_dependency(Dependency* dependency) {
+        _spill_dependencies.emplace_back(dependency);
+    }
 
     bool wake_up_early() const { return _wake_up_early; }
+
+    void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
 
 private:
     friend class RuntimeFilterDependency;
@@ -250,7 +259,8 @@ private:
     RuntimeState* _state = nullptr;
     int _core_id = -1;
     uint32_t _schedule_time = 0;
-    std::unique_ptr<doris::vectorized::Block> _block;
+    std::unique_ptr<vectorized::Block> _block;
+
     PipelineFragmentContext* _fragment_context = nullptr;
     MultiCoreTaskQueue* _task_queue = nullptr;
 
@@ -280,6 +290,8 @@ private:
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts = nullptr;
     RuntimeProfile::Counter* _core_change_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
 
     MonotonicStopWatch _pipeline_task_watcher;
 
@@ -290,6 +302,7 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
+    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _filter_dependencies;
@@ -306,13 +319,28 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _execution_dep = nullptr;
+    Dependency* _memory_sufficient_dependency;
 
-    std::atomic<bool> _finalized = false;
+    std::atomic<bool> _finalized {false};
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running = false;
-    std::atomic<bool> _eos = false;
-    std::atomic<bool> _wake_up_early = false;
+    std::atomic<bool> _running {false};
+    std::atomic<bool> _eos {false};
+    std::atomic<bool> _wake_up_early {false};
+
+    /**
+     * State of this pipeline task.
+     * `NORMAL` means a task executes normally without spilling.
+     * `PENDING` means the last execute round is blocked by poor free memory.
+     * `EOS` means the last execute round is blocked by poor free memory and it is the last block.
+     */
+    enum class State : int {
+        NORMAL,
+        PENDING,
+        EOS,
+    };
+
+    State _exec_state = State::NORMAL;
 };
 
 } // namespace doris::pipeline

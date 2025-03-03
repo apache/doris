@@ -269,8 +269,8 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {

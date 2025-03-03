@@ -81,11 +81,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
-        return Status::OK();
-    }
-
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();
     }

@@ -20,6 +20,8 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
+import java.util.stream.Collectors;
+
 suite("test_routine_load_with_user","p0") {
     def kafkaCsvTpoics = [
                   "test_routine_load_with_user",

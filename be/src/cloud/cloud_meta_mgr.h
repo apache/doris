@@ -16,6 +16,8 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <string>
 #include <tuple>
@@ -57,6 +59,8 @@ public:
     CloudMetaMgr& operator=(const CloudMetaMgr&) = delete;
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
+
+    Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
 
     Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
                                bool sync_delete_bitmap = true, bool full_sync = false);
@@ -103,8 +107,8 @@ public:
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
 
-    Status remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
-                                            int64_t initiator);
+    void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
+                                          int64_t tablet_id);
 
     Status remove_old_version_delete_bitmap(
             int64_t tablet_id,

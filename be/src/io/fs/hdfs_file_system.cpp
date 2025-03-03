@@ -33,20 +33,22 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "runtime/exec_env.h"
 #include "util/obj_lru_cache.h"
 #include "util/slice.h"
 
 namespace doris::io {
 
-#ifndef CHECK_HDFS_HANDLE
-#define CHECK_HDFS_HANDLE(handle)                         \
-    if (!handle) {                                        \
-        return Status::IOError("init Hdfs handle error"); \
+#ifndef CHECK_HDFS_HANDLER
+#define CHECK_HDFS_HANDLER(handler)                        \
+    if (!handler) {                                        \
+        return Status::IOError("init Hdfs handler error"); \
     }
 #endif
 
@@ -88,17 +90,17 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_na
 HdfsFileSystem::~HdfsFileSystem() = default;
 
 Status HdfsFileSystem::init() {
-    RETURN_IF_ERROR(
-            HdfsHandlerCache::instance()->get_connection(_hdfs_params, _fs_name, &_fs_handle));
-    if (!_fs_handle) {
-        return Status::InternalError("failed to init Hdfs handle with, please check hdfs params.");
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(_hdfs_params, _fs_name,
+                                                                         &_fs_handler));
+    if (!_fs_handler) {
+        return Status::InternalError("failed to init Hdfs handler with, please check hdfs params.");
     }
     return Status::OK();
 }
 
 Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                         const FileWriterOptions* opts) {
-    auto res = io::HdfsFileWriter::create(file, _fs_handle, _fs_name, opts);
+    auto res = io::HdfsFileWriter::create(file, _fs_handler, _fs_name, opts);
     if (res.has_value()) {
         *writer = std::move(res).value();
         return Status::OK();
@@ -109,16 +111,16 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 
 Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                           const FileReaderOptions& opts) {
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     *reader =
-            DORIS_TRY(HdfsFileReader::create(file, _fs_handle->hdfs_fs, _fs_name, opts, _profile));
+            DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs, _fs_name, opts, _profile));
     return Status::OK();
 }
 
 Status HdfsFileSystem::create_directory_impl(const Path& dir, bool failed_if_exists) {
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(dir, _fs_name);
-    int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, real_path.string().c_str());
+    int res = hdfsCreateDirectory(_fs_handler->hdfs_fs, real_path.string().c_str());
     if (res == -1) {
         return Status::IOError("failed to create directory {}: {}", dir.native(), hdfs_error());
     }
@@ -146,9 +148,9 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
     if (!exists) {
         return Status::OK();
     }
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    int res = hdfsDelete(_fs_handle->hdfs_fs, real_path.string().c_str(), is_recursive);
+    int res = hdfsDelete(_fs_handler->hdfs_fs, real_path.string().c_str(), is_recursive);
     if (res == -1) {
         return Status::IOError("failed to delete directory {}: {}", path.native(), hdfs_error());
     }
@@ -156,9 +158,9 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
 }
 
 Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
+    int is_exists = hdfsExists(_fs_handler->hdfs_fs, real_path.string().c_str());
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
     // if errno is ENOENT, which means the file does not exist.
@@ -179,9 +181,9 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
 }
 
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, real_path.string().c_str());
+    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
     if (file_info == nullptr) {
         return Status::IOError("failed to get file size of {}: {}", path.native(), hdfs_error());
     }
@@ -197,11 +199,11 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
         return Status::OK();
     }
 
-    CHECK_HDFS_HANDLE(_fs_handle);
+    CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
     int numEntries = 0;
     hdfsFileInfo* hdfs_file_info =
-            hdfsListDirectory(_fs_handle->hdfs_fs, real_path.c_str(), &numEntries);
+            hdfsListDirectory(_fs_handler->hdfs_fs, real_path.c_str(), &numEntries);
     if (hdfs_file_info == nullptr) {
         return Status::IOError("failed to list files/directors {}: {}", path.native(),
                                hdfs_error());
@@ -225,7 +227,7 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
 Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
     Path normal_orig_name = convert_path(orig_name, _fs_name);
     Path normal_new_name = convert_path(new_name, _fs_name);
-    int ret = hdfsRename(_fs_handle->hdfs_fs, normal_orig_name.c_str(), normal_new_name.c_str());
+    int ret = hdfsRename(_fs_handler->hdfs_fs, normal_orig_name.c_str(), normal_new_name.c_str());
     if (ret == 0) {
         LOG(INFO) << "finished to rename file. orig: " << normal_orig_name
                   << ", new: " << normal_new_name;

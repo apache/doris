@@ -604,12 +604,6 @@ public class NereidsParserTest extends ParserTestBase {
 
         sql = "describe tbl all";
         nereidsParser.parseSingle(sql);
-
-        sql = "describe function tvf('a' = 'b')";
-        nereidsParser.parseSingle(sql);
-
-        sql = "describe function tvf('a' = 'b') as tvf";
-        nereidsParser.parseSingle(sql);
     }
 
     @Test

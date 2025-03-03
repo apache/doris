@@ -556,6 +556,7 @@ terminal String
     KW_QUANTILE_UNION,
     KW_AGG_STATE,
     KW_QUERY,
+    KW_QUEUED,
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
@@ -4721,7 +4722,7 @@ show_param ::=
     :}
     | KW_AUTO KW_JOBS opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAutoAnalyzeJobsStmt(tbl, parser.where);
+        RESULT = new ShowQueuedAnalyzeJobsStmt(tbl, parser.where);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:

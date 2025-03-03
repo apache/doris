@@ -13,6 +13,10 @@
 -- !predicate_changed_type3 --
 3	Charlie
 
+-- !predicate_null_aware_equal_in_rt --
+1	\N	1	\N
+3	\N	1	\N
+
 -- !predicate_fixed_char1 --
 1	a
 
@@ -26,4 +30,8 @@
 
 -- !predicate_changed_type3 --
 3	Charlie
+
+-- !predicate_null_aware_equal_in_rt --
+1	\N	1	\N
+3	\N	1	\N
 

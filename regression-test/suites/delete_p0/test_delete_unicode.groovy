@@ -17,7 +17,8 @@
 
 suite("test_delete_unicode") {
     sql "set enable_unicode_name_support=true;"
-
+    
+    sql "drop table if exists table_7298276;"
     sql """
         CREATE TABLE `table_7298276` (
         `中文列名1` date NOT NULL,

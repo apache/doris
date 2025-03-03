@@ -217,7 +217,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if partition_type is OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
@@ -379,6 +379,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::vector<int64_t> failed_node_ids;
     const auto* location = _location->find_tablet(tablet_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
@@ -398,6 +399,9 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
                       << ", stream_ok=" << (stream == nullptr ? "no" : "yes");
         });
         if (stream == nullptr) {
+            LOG(WARNING) << "skip writing tablet " << tablet_id << " to backend " << node_id
+                         << ": stream is not open";
+            failed_node_ids.push_back(node_id);
             continue;
         }
         streams.emplace_back(std::move(stream));
@@ -408,8 +412,21 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
                   << ", num_nodes=" << location->node_ids.size();
     });
     if (streams.size() <= location->node_ids.size() / 2) {
-        return Status::InternalError("not enough streams {}/{}", streams.size(),
-                                     location->node_ids.size());
+        std::ostringstream success_msg;
+        std::ostringstream failed_msg;
+        for (auto& s : streams) {
+            success_msg << ", " << s->dst_id();
+        }
+        for (auto id : failed_node_ids) {
+            failed_msg << ", " << id;
+        }
+        LOG(INFO) << "failed to write enough replicas " << streams.size() << "/"
+                  << location->node_ids.size() << " for tablet " << tablet_id
+                  << " due to connection errors; success nodes" << success_msg.str()
+                  << "; failed nodes" << failed_msg.str() << ".";
+        return Status::InternalError(
+                "failed to write enough replicas {}/{} for tablet {} due to connection errors",
+                streams.size(), location->node_ids.size(), tablet_id);
     }
     Status st;
     for (auto& stream : streams) {
@@ -469,6 +486,14 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
     }
 
+    COUNTER_SET(_input_rows_counter, _number_input_rows);
+    COUNTER_SET(_output_rows_counter, _number_output_rows);
+    COUNTER_SET(_filtered_rows_counter,
+                _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows());
+    COUNTER_SET(_send_data_timer, _send_data_ns);
+    COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
+    COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+
     return Status::OK();
 }
 
@@ -520,7 +545,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
+                _state->workload_group());
     }
     SCOPED_TIMER(_write_memtable_timer);
     st = delta_writer->write(block.get(), rows.row_idxes);

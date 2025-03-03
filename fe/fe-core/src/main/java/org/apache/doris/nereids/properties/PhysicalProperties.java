@@ -47,10 +47,10 @@ public class PhysicalProperties {
     public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
     public static PhysicalProperties TABLET_ID_SHUFFLE
-            = new PhysicalProperties(DistributionSpecTabletIdShuffle.INSTANCE);
+            = new PhysicalProperties(DistributionSpecOlapTableSinkHashPartitioned.INSTANCE);
 
     public static PhysicalProperties SINK_RANDOM_PARTITIONED
-            = new PhysicalProperties(DistributionSpecTableSinkRandomPartitioned.INSTANCE);
+            = new PhysicalProperties(DistributionSpecHiveTableSinkUnPartitioned.INSTANCE);
 
     private final OrderSpec orderSpec;
 

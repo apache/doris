@@ -70,6 +70,9 @@ Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -77,11 +80,17 @@ Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int6
     IPv4Value ipv4_value(data);
     std::string ipv4_str = ipv4_value.to_string();
     bw.write(ipv4_str.c_str(), ipv4_str.length());
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
 Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
     ReadBuffer rb(slice.data, slice.size);
     IPv4 val = 0;
@@ -128,10 +137,10 @@ void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullM
 }
 
 void DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                               int start, int end,
+                                               int64_t start, int64_t end,
                                                const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
-    int row_count = end - start;
+    int64_t row_count = end - start;
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const UInt32*>(buffer->data()) + start;

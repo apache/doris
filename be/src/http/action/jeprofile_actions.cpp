@@ -33,6 +33,19 @@
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
+const static std::string START_HEAP_PROFILE_NOTICE =
+        "`curl http://be_host:be_webport/jeheap/active/true` to start heap profiler, note that "
+        "`JEMALLOC_CONF` in `be/conf/be.conf` must contain `prof:true`, will only track and sample "
+        "the memory "
+        "allocated and freed after the heap profiler started, it cannot analyze the "
+        "memory allocated and freed before. Therefore, dumping the heap profile "
+        "immediately after start heap profiler may prompt `No nodes to print`, try rerun your "
+        "query and dump the heap profile. Sometimes restarting BE and then immediately executing "
+        "`curl http://be_host:be_webport/jeheap/active/true` makes it easier to analyze the "
+        "problem.\n"
+        "If you want to analyze the memory during the BE process startup, need to modify be.conf "
+        "and restart the BE process, open `be/conf/be.conf` and add `,prof_active:true` after "
+        "`JEMALLOC_CONF`, or modify `prof_active:false` to `prof:true`.\n";
 
 static bool compile_check(HttpRequest* req) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -49,19 +62,24 @@ static bool compile_check(HttpRequest* req) {
 #endif
 }
 
+static bool conf_check(HttpRequest* req) {
+    if (!HeapProfiler::instance()->check_heap_profiler()) {
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                "Jemalloc heap profiler is not enabled, refer to the following "
+                                "method to enable it.\n" +
+                                        START_HEAP_PROFILE_NOTICE);
+        return false;
+    }
+    return true;
+}
+
 void SetJeHeapProfileActiveActions::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     if (compile_check(req)) {
         if (req->param("prof_value") == "true") {
             HeapProfiler::instance()->heap_profiler_start();
-            HttpChannel::send_reply(
-                    req, HttpStatus::OK,
-                    "heap profiler started\nJemalloc will only track and sample the memory "
-                    "allocated and freed after the heap profiler started, it cannot analyze the "
-                    "memory allocated and freed before. Therefore, dumping the heap profile "
-                    "immediately after start heap profiler may prompt `No nodes to print`. If you "
-                    "want to analyze the memory that has been allocated in the past, you can only "
-                    "restart the BE process and start heap profiler immediately.\n");
+            HttpChannel::send_reply(req, HttpStatus::OK,
+                                    "Jemalloc heap profiler started\n" + START_HEAP_PROFILE_NOTICE);
         } else {
             HeapProfiler::instance()->heap_profiler_stop();
             HttpChannel::send_reply(req, HttpStatus::OK, "heap profiler stoped\n");
@@ -71,12 +89,7 @@ void SetJeHeapProfileActiveActions::handle(HttpRequest* req) {
 
 void DumpJeHeapProfileToDotActions::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    if (compile_check(req)) {
-        if (!HeapProfiler::instance()->check_heap_profiler()) {
-            HttpChannel::send_reply(
-                    req, HttpStatus::INTERNAL_SERVER_ERROR,
-                    "`curl http://be_host:be_webport/jeheap/prof/true` to start heap profiler\n");
-        }
+    if (compile_check(req) && conf_check(req)) {
         std::string dot = HeapProfiler::instance()->dump_heap_profile_to_dot();
         if (dot.empty()) {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
@@ -97,12 +110,7 @@ void DumpJeHeapProfileToDotActions::handle(HttpRequest* req) {
 
 void DumpJeHeapProfileActions::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
-    if (compile_check(req)) {
-        if (!HeapProfiler::instance()->check_heap_profiler()) {
-            HttpChannel::send_reply(
-                    req, HttpStatus::INTERNAL_SERVER_ERROR,
-                    "`curl http://be_host:be_webport/jeheap/prof/true` to start heap profiler\n");
-        }
+    if (compile_check(req) && conf_check(req)) {
         std::string profile_file_name = HeapProfiler::instance()->dump_heap_profile();
         if (profile_file_name.empty()) {
             HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,

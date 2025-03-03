@@ -27,7 +27,6 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -139,20 +138,6 @@ public class SessionVariablesTest extends TestWithFeService {
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
-    }
-
-    @Test
-    public void testForwardQueryOptions() {
-        TQueryOptions queryOptions = sessionVariable.getQueryOptionVariables();
-        Assertions.assertTrue(queryOptions.isSetMemLimit());
-        Assertions.assertFalse(queryOptions.isSetLoadMemLimit());
-        Assertions.assertTrue(queryOptions.isSetQueryTimeout());
-
-        queryOptions.setQueryTimeout(123);
-        queryOptions.setInsertTimeout(123);
-        sessionVariable.setForwardedSessionVariables(queryOptions);
-        Assertions.assertEquals(123, sessionVariable.getQueryTimeoutS());
-        Assertions.assertEquals(123, sessionVariable.getInsertTimeoutS());
     }
 
     @Test

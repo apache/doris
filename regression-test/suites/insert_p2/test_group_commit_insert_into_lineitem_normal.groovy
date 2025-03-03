@@ -109,6 +109,7 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                logger.info("sql: " + exp_str)
                 Thread.sleep(5000)
                 context.reconnectFe()
                 sql """ set group_commit = async_mode; """

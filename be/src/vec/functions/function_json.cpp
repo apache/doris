@@ -571,7 +571,7 @@ struct JsonParser<'1'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         DCHECK(data.size == 1 || strncmp(data.data, "true", 4) == 0 ||
                strncmp(data.data, "false", 5) == 0);
-        value.SetBool((*data.data == '1' || *data.data == 't') ? true : false);
+        value.SetBool(*data.data == '1' || *data.data == 't');
     }
 };
 
@@ -609,6 +609,18 @@ struct JsonParser<'5'> {
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
+    }
+};
+
+template <>
+struct JsonParser<'7'> {
+    // json string
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Document document;
+        JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        convert_jsonb_to_rapidjson(*json_val, document, allocator);
+        value.CopyFrom(document, allocator);
     }
 };
 
@@ -673,7 +685,8 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i + 1], objects, allocator,
+            // last is for old type definition
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i + 1], objects, allocator,
                                                         data_columns[i], data_columns[i + 1],
                                                         nullmaps[i + 1]);
         }

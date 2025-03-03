@@ -80,7 +80,6 @@ public:
     int32_t col_unique_id() const { return _col_unique_id; }
 
     bool is_key() const { return _is_key; }
-    bool need_materialize() const { return _need_materialize; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
     bool is_auto_increment() const { return _is_auto_increment; }
@@ -89,7 +88,7 @@ public:
     bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
-    PrimitiveType col_type() const { return _col_type; }
+    PrimitiveType col_type() const { return _type.type; }
 
 private:
     friend class DescriptorTbl;
@@ -110,7 +109,6 @@ private:
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
-    const PrimitiveType _col_type;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
@@ -124,7 +122,6 @@ private:
     const bool _is_materialized;
 
     const bool _is_key;
-    const bool _need_materialize;
     const std::vector<std::string> _column_paths;
 
     const bool _is_auto_increment;
@@ -522,5 +519,4 @@ private:
     int _num_materialized_slots = 0;
     int _num_slots = 0;
 };
-
 } // namespace doris

@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS routine_load_uniq_tbl_basic;
+DROP TABLE IF EXISTS routine_load_uniq_tbl_basic FORCE;

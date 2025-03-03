@@ -32,7 +32,12 @@ suite ("aggOnAggMV2") {
 
     
     sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,7,2);"""
     sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,7,2);"""
 
     explain {
@@ -46,7 +51,7 @@ suite ("aggOnAggMV2") {
     sleep(3000)
  
     sql "analyze table aggOnAggMV2 with sync;"
-    sql """alter table aggOnAggMV2 modify column time_col set stats ('row_count'='3');"""
+    sql """alter table aggOnAggMV2 modify column time_col set stats ('row_count'='8');"""
 
     sql """set enable_stats=false;"""
 

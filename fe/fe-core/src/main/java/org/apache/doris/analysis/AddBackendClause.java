@@ -21,7 +21,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 
@@ -43,6 +45,14 @@ public class AddBackendClause extends BackendClause {
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
+    }
+
+    public AddBackendClause(List<String> ids, List<HostInfo> hostPorts,
+            Map<String, String> tagMap) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
+        this.tagMap = tagMap;
     }
 
     @Override

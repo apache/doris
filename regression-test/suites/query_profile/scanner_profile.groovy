@@ -105,5 +105,5 @@ suite('scanner_profile') {
 
     def String profileWithLimit1 = getProfile(queryIdWithLimit1).toString()
     logger.info("Profile of ${queryIdWithLimit1} ${profileWithLimit1}")
-    assertTrue(profileWithLimit1.contains("- MaxScannerThreadNum: 1"))
+    assertTrue(profileWithLimit1.contains("- MaxScanConcurrency: 1"))
 }

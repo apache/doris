@@ -53,6 +53,18 @@ suite("test_create_vault", "nonConcurrent") {
            """
     }, "Incorrect vault name")
 
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT '@#¥%*&-+=null.'
+            PROPERTIES (
+                "type"="S3",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${exceed64LengthStr}",
+                "hadoop.username" = "${getHmsUser()}"
+            );
+           """
+    }, "Incorrect vault name")
+
     sql """
         CREATE STORAGE VAULT ${length64Str}
         PROPERTIES (
@@ -202,6 +214,17 @@ suite("test_create_vault", "nonConcurrent") {
             PROPERTIES (
                 "type"="hdfs",
                 "s3.bucket"="${getHmsHdfsFs()}",
+                "path_prefix" = "${hdfsVaultName}",
+                "hadoop.username" = "${getHmsUser()}"
+            );
+            """
+    }, "Invalid argument s3.bucket")
+
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type"="hdfs",
                 "path_prefix" = "${hdfsVaultName}",
                 "hadoop.username" = "${getHmsUser()}"
             );

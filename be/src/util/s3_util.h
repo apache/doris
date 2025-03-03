@@ -75,6 +75,8 @@ struct S3ClientConf {
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
+    // For aws s3, no need to override endpoint
+    bool need_override_endpoint = true;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;

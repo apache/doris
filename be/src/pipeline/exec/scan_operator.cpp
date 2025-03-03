@@ -502,9 +502,11 @@ bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VEx
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
-    // Variant slot cast could be eliminated
+    // only one level cast expr could push down for variant type
+    // check if expr is cast and it's children is slot
     if (slot->type().is_variant_type()) {
-        return true;
+        return expr->node_type() == TExprNodeType::CAST_EXPR &&
+               expr->children().at(0)->is_slot_ref();
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
@@ -981,9 +983,6 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_always_ready();
     } else {
-        for (auto& scanner : scanners) {
-            scanner->set_query_statistics(_query_statistics.get());
-        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
@@ -994,10 +993,18 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    const int parallism_of_scan_operator =
+            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.is_serial_operator(), p.is_file_scan_operator(),
-            p.query_parallel_instance_num());
+            _scan_dependency, parallism_of_scan_operator);
     return Status::OK();
 }
 
@@ -1050,10 +1057,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
@@ -1061,10 +1064,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
@@ -1146,8 +1150,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    OperatorX<LocalStateType>::_is_serial_operator =
-            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
@@ -1210,10 +1212,10 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
+Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 
     const auto slots = _output_tuple_desc->slots();
     for (auto* slot : slots) {
@@ -1283,6 +1285,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
+    DCHECK(local_state._scanner_ctx != nullptr);
     RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
@@ -1293,6 +1296,35 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }
 
     return Status::OK();
+}
+
+template <typename LocalStateType>
+size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+        return config::doris_scanner_row_bytes;
+    }
+
+    if (local_state.low_memory_mode()) {
+        return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
+               local_state._scanner_ctx->low_memory_mode_scanners();
+    } else {
+        const auto peak_usage = local_state._memory_used_counter->value();
+        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        if (peak_usage > 0) {
+            // It is only a safty check, to avoid some counter not right.
+            if (peak_usage > block_usage) {
+                return peak_usage - block_usage;
+            } else {
+                return config::doris_scanner_row_bytes;
+            }
+        } else {
+            // If the scan operator is first time to run, then we think it will occupy doris_scanner_row_bytes.
+            // It maybe a little smaller than actual usage.
+            return config::doris_scanner_row_bytes;
+            // return local_state._scanner_ctx->max_bytes_in_queue();
+        }
+    }
 }
 
 template class ScanOperatorX<OlapScanLocalState>;

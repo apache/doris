@@ -34,9 +34,11 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * LogicalRepeat.
@@ -196,7 +198,16 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public void computeEqualSet(DataTrait.Builder builder) {
+        Set<Expression> common = getCommonGroupingSetExpressions();
+        Set<Slot> slots = new HashSet<>();
+        for (Expression expr : common) {
+            if (!(expr instanceof Slot)) {
+                return;
+            }
+            slots.add((Slot) expr);
+        }
         builder.addEqualSet(child().getLogicalProperties().getTrait());
+        builder.pruneEqualSetSlots(slots);
     }
 
     @Override

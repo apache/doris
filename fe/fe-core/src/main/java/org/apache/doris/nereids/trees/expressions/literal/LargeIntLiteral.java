@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.LargeIntType;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Objects;
 
@@ -60,6 +61,11 @@ public class LargeIntLiteral extends IntegerLikeLiteral {
     @Override
     public double getDouble() {
         return value.doubleValue();
+    }
+
+    @Override
+    public BigDecimal getBigDecimalValue() {
+        return new BigDecimal(value);
     }
 
     @Override

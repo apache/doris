@@ -122,6 +122,7 @@ suite("alter_ttl_1") {
     }
     sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="140") """
     sleep(80000)
+    // after 110s, the first load has translate to normal
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -131,6 +132,15 @@ suite("alter_ttl_1") {
             for (String line in strs) {
                 if (flag1) break;
                 if (line.contains("ttl_cache_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    assertEquals(line.substring(i).toLong(), 0)
+
+                }
+                
+                if (line.contains("normal_queue_cache_size")) {
                     if (line.startsWith("#")) {
                         continue
                     }
@@ -158,6 +168,13 @@ suite("alter_ttl_1") {
                     }
                     def i = line.indexOf(' ')
                     assertEquals(line.substring(i).toLong(), 0)
+                }
+                if (line.contains("normal_queue_cache_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    assertEquals(line.substring(i).toLong(), ttl_cache_size)
                     flag1 = true
                 }
             }

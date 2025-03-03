@@ -20,6 +20,8 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags.h>
+
+#include "runtime/memory/jemalloc_control.h"
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
@@ -210,12 +212,12 @@ void refresh_process_memory_metrics() {
 
 void refresh_common_allocator_metrics() {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    doris::MemInfo::refresh_allocator_mem();
+    doris::JemallocControl::refresh_allocator_mem();
     if (config::enable_system_metrics) {
         DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
     }
 #endif
-    MemInfo::refresh_memory_bvar();
+    doris::GlobalMemoryArbitrator::refresh_memory_bvar();
 }
 
 void refresh_memory_state_after_memory_change() {
@@ -224,7 +226,7 @@ void refresh_memory_state_after_memory_change() {
         doris::MemTrackerLimiter::clean_tracker_limiter_group();
         doris::ProcessProfile::instance()->memory_profile()->enable_print_log_process_usage();
         doris::ProcessProfile::instance()->memory_profile()->refresh_memory_overview_profile();
-        doris::MemInfo::notify_je_purge_dirty_pages();
+        doris::JemallocControl::notify_je_purge_dirty_pages();
         LOG(INFO) << doris::GlobalMemoryArbitrator::
                         process_mem_log_str(); // print mem log when memory state by 256M
     }
@@ -263,14 +265,14 @@ void refresh_cache_capacity() {
 
 void je_reset_dirty_decay() {
 #ifdef USE_JEMALLOC
-    if (doris::MemInfo::je_reset_dirty_decay_notify.load(std::memory_order_relaxed)) {
+    if (doris::JemallocControl::je_reset_dirty_decay_notify.load(std::memory_order_relaxed)) {
         // if not return, je_enable_dirty_page may be modified, but notify is ignored.
         return;
     }
 
     if (je_reset_dirty_decay_sleep_time_ms <= 0) {
         bool new_je_enable_dirty_page = true;
-        if (doris::MemInfo::je_enable_dirty_page) {
+        if (doris::JemallocControl::je_enable_dirty_page) {
             // if Jemalloc dirty page is enabled and process memory exceed soft mem limit,
             // disable Jemalloc dirty page.
             new_je_enable_dirty_page = !GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
@@ -284,10 +286,10 @@ void je_reset_dirty_decay() {
                     int64_t(doris::MemInfo::soft_mem_limit() * 0.1));
         }
 
-        if (doris::MemInfo::je_enable_dirty_page != new_je_enable_dirty_page) {
+        if (doris::JemallocControl::je_enable_dirty_page != new_je_enable_dirty_page) {
             // `notify_je_reset_dirty_decay` only if `je_enable_dirty_page` changes.
-            doris::MemInfo::je_enable_dirty_page = new_je_enable_dirty_page;
-            doris::MemInfo::notify_je_reset_dirty_decay();
+            doris::JemallocControl::je_enable_dirty_page = new_je_enable_dirty_page;
+            doris::JemallocControl::notify_je_reset_dirty_decay();
             je_reset_dirty_decay_sleep_time_ms = config::memory_gc_sleep_time_ms;
         } else {
             je_reset_dirty_decay_sleep_time_ms = 0;
@@ -320,9 +322,8 @@ void Daemon::memory_maintenance_thread() {
         doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
-        // step 7. Analyze blocking queries.
-        // TODO sort the operators that can spill, wake up the pipeline task spill
-        // or continue execution according to certain rules or cancel query.
+        // step 7: handle paused queries(caused by memory insufficient)
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->handle_paused_queries();
 
         // step 8. Flush memtable
         doris::GlobalMemoryArbitrator::notify_memtable_memory_refresh();
@@ -490,17 +491,20 @@ void Daemon::report_runtime_query_statistics_thread() {
 
 void Daemon::je_reset_dirty_decay_thread() const {
     do {
-        std::unique_lock<std::mutex> l(doris::MemInfo::je_reset_dirty_decay_lock);
+        std::unique_lock<std::mutex> l(doris::JemallocControl::je_reset_dirty_decay_lock);
         while (_stop_background_threads_latch.count() != 0 &&
-               !doris::MemInfo::je_reset_dirty_decay_notify.load(std::memory_order_relaxed)) {
-            doris::MemInfo::je_reset_dirty_decay_cv.wait_for(l, std::chrono::milliseconds(100));
+               !doris::JemallocControl::je_reset_dirty_decay_notify.load(
+                       std::memory_order_relaxed)) {
+            doris::JemallocControl::je_reset_dirty_decay_cv.wait_for(
+                    l, std::chrono::milliseconds(100));
         }
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
 
         Defer defer {[&]() {
-            doris::MemInfo::je_reset_dirty_decay_notify.store(false, std::memory_order_relaxed);
+            doris::JemallocControl::je_reset_dirty_decay_notify.store(false,
+                                                                      std::memory_order_relaxed);
         }};
 #ifdef USE_JEMALLOC
         if (config::disable_memory_gc || !config::enable_je_purge_dirty_pages) {
@@ -524,10 +528,10 @@ void Daemon::je_reset_dirty_decay_thread() const {
         // as soon as possible, but no relevant experimental data can be found, so it is simple and safe
         // to adjust dirty_decay_ms only between zero and non-zero.
 
-        if (doris::MemInfo::je_enable_dirty_page) {
-            doris::MemInfo::je_reset_all_arena_dirty_decay_ms(config::je_dirty_decay_ms);
+        if (doris::JemallocControl::je_enable_dirty_page) {
+            doris::JemallocControl::je_reset_all_arena_dirty_decay_ms(config::je_dirty_decay_ms);
         } else {
-            doris::MemInfo::je_reset_all_arena_dirty_decay_ms(0);
+            doris::JemallocControl::je_reset_all_arena_dirty_decay_ms(0);
         }
 #endif
     } while (true);
@@ -542,7 +546,9 @@ void Daemon::cache_adjust_capacity_thread() {
             doris::GlobalMemoryArbitrator::cache_adjust_capacity_cv.wait_for(
                     l, std::chrono::milliseconds(100));
         }
-        double adjust_weighted = GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted;
+        double adjust_weighted = std::min<double>(
+                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted,
+                GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
@@ -562,6 +568,7 @@ void Daemon::cache_adjust_capacity_thread() {
         LOG(INFO) << fmt::format(
                 "[MemoryGC] refresh cache capacity end, free memory {}, details: {}",
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), ss.str());
+        GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted = adjust_weighted;
     } while (true);
 }
 

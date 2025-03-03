@@ -23,6 +23,7 @@
 #include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct TransactionalHive {
     static const std::string OPERATION;
     static const std::string ORIGINAL_TRANSACTION;
@@ -51,4 +52,5 @@ struct TransactionalHive {
     static const std::vector<std::string> ACID_COLUMN_NAMES;
     static const std::vector<std::string> ACID_COLUMN_NAMES_LOWER_CASE;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

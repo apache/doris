@@ -65,7 +65,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
-    if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
+    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
         // slot should be ignored manually
         _column_id = -1;
         _prepare_finished = true;

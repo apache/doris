@@ -67,7 +67,8 @@ public:
 
     Status close(RuntimeState* state) override { return _crc_partitioner->close(state); }
 
-    Status do_partitioning(RuntimeState* state, Block* block) const override {
+    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
+                           bool* already_sent) const override {
         _hash_vals.resize(block->rows());
         for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_row_counts[partition_id] = 0;

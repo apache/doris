@@ -26,7 +26,7 @@ suite("constant_group_key") {
     //reserve constant key in group by
     explain {
         sql("select 'oneline' from nation group by 'constant1'")
-        contains "group by: 'constant1'"
+        contains "limit: 1"
     }
 
     explain {

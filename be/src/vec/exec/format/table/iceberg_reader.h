@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -30,10 +29,8 @@
 #include "exec/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "table_format_reader.h"
-#include "util/runtime_profile.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
@@ -45,6 +42,7 @@ class KeyValue;
 } // namespace tparquet
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class SlotDescriptor;
@@ -80,9 +78,9 @@ public:
                        io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
+    Status init_row_filters() final;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
+    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) final;
@@ -101,8 +99,7 @@ protected:
     };
     using DeleteRows = std::vector<int64_t>;
     using DeleteFile = phmap::parallel_flat_hash_map<
-            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>,
-            std::equal_to<std::string>,
+            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>, std::equal_to<>,
             std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8,
             std::mutex>;
     /**
@@ -136,10 +133,6 @@ protected:
     // Remove the added delete columns
     Status _shrink_block_if_need(Block* block);
 
-    RuntimeProfile* _profile;
-    RuntimeState* _state;
-    const TFileScanRangeParams& _params;
-    const TFileRangeDesc& _range;
     // owned by scan node
     ShardedKVCache* _kv_cache;
     IcebergProfile _iceberg_profile;
@@ -154,7 +147,7 @@ protected:
     // copy from _colname_to_value_range with new column name that is in parquet/orc file, to support schema evolution.
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<int, std::string> _col_id_name_map;
+    std::unordered_map<uint64_t, std::string> _col_id_name_map;
     // col names in the parquet,orc file
     std::vector<std::string> _all_required_col_names;
     // col names in table but not in parquet,orc file
@@ -163,13 +156,9 @@ protected:
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
 
-    io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 
-    // the table level row count for optimizing query like:
-    // select count(*) from table;
-    int64_t _remaining_table_level_row_count;
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
@@ -204,7 +193,7 @@ public:
                                  kv_cache, io_ctx) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int, std::string>& col_id_name_map,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -213,9 +202,9 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) override;
+                                      DeleteFile* position_delete) final;
 
-    void set_delete_rows() override {
+    void set_delete_rows() final {
         auto* parquet_reader = (ParquetReader*)(_file_format_reader.get());
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
@@ -224,7 +213,7 @@ public:
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
-            const TFileRangeDesc& delete_desc) override {
+            const TFileRangeDesc& delete_desc) final {
         return ParquetReader::create_unique(
                 _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
                 const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
@@ -235,7 +224,7 @@ public:
     ENABLE_FACTORY_CREATOR(IcebergOrcReader);
 
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) override;
+                                      DeleteFile* position_delete) final;
 
     IcebergOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,
@@ -243,14 +232,14 @@ public:
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
                                  kv_cache, io_ctx) {}
 
-    void set_delete_rows() override {
+    void set_delete_rows() final {
         auto* orc_reader = (OrcReader*)_file_format_reader.get();
         orc_reader->set_position_delete_rowids(&_iceberg_delete_rows);
     }
 
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int, std::string>& col_id_name_map,
+            const std::unordered_map<uint64_t, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -272,4 +261,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris
