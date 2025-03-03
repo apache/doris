@@ -102,7 +102,7 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
         // test one backend open failure
         load_with_injection("VTabletWriterV2._open_streams.skip_one_backend", "success", true)
         // test two backend open failure
-        load_with_injection("VTabletWriterV2._open_streams.skip_two_backends", "not enough streams 1/3", false, "succ replica num 1 < load required replica num 2")
+        load_with_injection("VTabletWriterV2._open_streams.skip_two_backends", "failed to write enough replicas 1/3 for tablet", false, "succ replica num 1 < load required replica num 2")
         sql """ set enable_memtable_on_sink_node=false """
     }
 }

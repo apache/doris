@@ -30,6 +30,8 @@ import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 // CREATE [EXTERNAL] RESOURCE resource_name
@@ -69,8 +71,13 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void analyzeResourceType() throws UserException {
-        String type = properties.get(TYPE);
-        if (type == null) {
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(TYPE)) {
+                type = property.getValue();
+            }
+        }
+        if (Strings.isNullOrEmpty(type)) {
             throw new AnalysisException("Resource type can't be null");
         }
 

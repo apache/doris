@@ -108,6 +108,10 @@ public:
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
     void reserve(size_t n) override { data.reserve(n); }
     void resize(size_t n) override { data.resize(n); }
 
@@ -163,15 +167,14 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;

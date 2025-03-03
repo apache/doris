@@ -41,6 +41,8 @@ public class IcebergExternalCatalogFactory {
                 return new IcebergDLFExternalCatalog(catalogId, name, resource, props, comment);
             case IcebergExternalCatalog.ICEBERG_HADOOP:
                 return new IcebergHadoopExternalCatalog(catalogId, name, resource, props, comment);
+            case IcebergExternalCatalog.ICEBERG_S3_TABLES:
+                return new IcebergS3TablesExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE
                     + " value: " + catalogType);

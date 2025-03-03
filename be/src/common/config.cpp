@@ -16,6 +16,7 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -51,7 +52,7 @@ namespace doris::config {
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // Dir of jdbc drivers
-DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
@@ -118,7 +119,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
@@ -714,6 +715,8 @@ DEFINE_mInt32(es_http_timeout_ms, "5000");
 // TODO(cmy): use different config to set different client cache if necessary.
 DEFINE_Int32(max_client_cache_size_per_host, "10");
 
+DEFINE_Int32(max_master_fe_client_cache_size, "10");
+
 // Dir to save files downloaded by SmallFileMgr
 DEFINE_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 // path gc
@@ -1015,6 +1018,9 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable prefetch tablets before opening
+DEFINE_mBool(enable_prefetch_tablet, "true");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
@@ -1025,7 +1031,7 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict, "true");
+DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1052,6 +1058,12 @@ DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
+DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 // If true, evict the ttl cache using LRU when full.
@@ -1142,8 +1154,9 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
+DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1276,6 +1289,9 @@ DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
 });
 DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
+// paused query in queue timeout(ms) will be resumed or canceled
+DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
+
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
@@ -1284,14 +1300,22 @@ DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_limit, "0");
 
 DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1415,6 +1439,11 @@ DEFINE_mInt32(compaction_num_per_round, "1");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+DEFINE_mInt32(schema_dict_cache_capacity, "4096");
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 // clang-format off
 #ifdef BE_TEST

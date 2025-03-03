@@ -754,6 +754,8 @@ DECLARE_mInt32(es_http_timeout_ms);
 // TODO(cmy): use different config to set different client cache if necessary.
 DECLARE_Int32(max_client_cache_size_per_host);
 
+DECLARE_Int32(max_master_fe_client_cache_size);
+
 // Dir to save files downloaded by SmallFileMgr
 DECLARE_String(small_file_dir);
 // path gc
@@ -1064,6 +1066,9 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable prefetch tablets before opening
+DECLARE_mBool(enable_prefetch_tablet);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1092,6 +1097,11 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
+DECLARE_mBool(enable_evict_file_cache_in_advance);
+DECLARE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent);
+DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
+DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
+DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 // If true, evict the ttl cache using LRU when full.
@@ -1197,6 +1207,8 @@ DECLARE_mBool(allow_invalid_decimalv2_literal);
 DECLARE_mString(kerberos_ccache_path);
 // set krb5.conf path, use "/etc/krb5.conf" by default
 DECLARE_mString(kerberos_krb5_conf_path);
+// the interval for renew kerberos ticket cache
+DECLARE_mInt32(kerberos_refresh_interval_second);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1224,7 +1236,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
-DECLARE_mBool(variant_use_cloud_schema_dict);
+DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1354,6 +1366,7 @@ DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
+DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
@@ -1501,6 +1514,11 @@ DECLARE_mInt32(compaction_num_per_round);
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
+DECLARE_mInt32(schema_dict_cache_capacity);
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 #ifdef BE_TEST
 // test s3

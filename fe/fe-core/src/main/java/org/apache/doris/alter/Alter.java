@@ -68,7 +68,9 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
@@ -129,6 +131,18 @@ public class Alter {
 
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
+    }
+
+    public void processCreateMaterializedView(CreateMaterializedViewCommand command)
+            throws DdlException, AnalysisException, MetaNotFoundException {
+        String tableName = command.getBaseIndexName();
+        // check db
+        String dbName = command.getDBName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
+
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(command, db, olapTable);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
@@ -886,6 +900,10 @@ public class Alter {
 
     public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
         systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
+    }
+
+    public void processAlterSystem(AlterSystemCommand command) throws UserException {
+        systemHandler.processForNereids(Collections.singletonList(command), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
