@@ -2499,11 +2499,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             long partitionId = idGeneratorBuffer.getNextId();
             // use table name as single partition name
-            if (stmt.isTemp()) {
-                partitionNameToId.put(Util.getTempTableDisplayName(tableName), partitionId);
-            } else {
-                partitionNameToId.put(tableName, partitionId);
-            }
+            partitionNameToId.put(Util.getTempTableDisplayName(tableName), partitionId);
             partitionInfo = new SinglePartitionInfo();
         }
 
@@ -2934,11 +2930,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // use table name as this single partition name
             long partitionId = -1;
-            if (stmt.isTemp()) {
-                partitionId = partitionNameToId.get(Util.getTempTableDisplayName(tableName));
-            } else {
-                partitionId = partitionNameToId.get(tableName);
-            }
+            partitionId = partitionNameToId.get(Util.getTempTableDisplayName(tableName));
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),

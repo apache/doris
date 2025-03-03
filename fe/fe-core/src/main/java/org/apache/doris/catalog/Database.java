@@ -391,7 +391,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             Set<String> tableSet = ConnectContext.get().getDbToTempTableNamesMap().get(fullQualifiedName);
             return tableSet != null && tableSet.contains(tableName);
         } else {
-            return nameToTable.containsKey(tableName);
+            //return nameToTable.containsKey(tableName);
+            return isTableExist(tableName, isTemporary);
         }
     }
 
@@ -1036,7 +1037,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                         if (!olapTable.getBinlogConfig().isEnable()) {
                             String errMsg = String
                                     .format("binlog is not enable in table[%s] in db [%s]",
-                                            Util.getTempTableDisplayName(table.getName()), getFullName());
+                                        table.getDisplayName(), getFullName());
                             throw new DdlException(errMsg);
                         }
                     } finally {
