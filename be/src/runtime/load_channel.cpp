@@ -174,6 +174,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;
