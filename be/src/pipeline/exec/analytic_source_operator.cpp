@@ -34,8 +34,8 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
-    _filtered_rows_counter = ADD_COUNTER(profile(), "FilteredRows", TUnit::UNIT);
+    _get_next_timer = ADD_TIMER(custom_profile(), "GetNextTime");
+    _filtered_rows_counter = ADD_COUNTER(custom_profile(), "FilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 

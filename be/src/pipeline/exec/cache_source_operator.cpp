@@ -60,12 +60,12 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // 2. build cache key by digest_tablet_id
     RETURN_IF_ERROR(QueryCache::build_cache_key(scan_ranges, cache_param, &_cache_key, &_version));
-    _runtime_profile->add_info_string(
+    custom_profile()->add_info_string(
             "CacheTabletId", std::to_string(scan_ranges[0].scan_range.palo_scan_range.tablet_id));
 
     // 3. lookup the cache and find proper slot order
     hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
-    _runtime_profile->add_info_string("HitCache", std::to_string(hit_cache));
+    custom_profile()->add_info_string("HitCache", std::to_string(hit_cache));
     if (hit_cache && !cache_param.force_refresh_query_cache) {
         _hit_cache_results = _query_cache_handle.get_cache_result();
         auto hit_cache_slot_orders = _query_cache_handle.get_cache_slot_orders();
@@ -119,7 +119,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     if (local_state._hit_cache_results == nullptr) {
         Defer insert_cache([&] {
             if (*eos) {
-                local_state._runtime_profile->add_info_string(
+                local_state.custom_profile()->add_info_string(
                         "InsertCache", std::to_string(local_state._need_insert_cache));
                 if (local_state._need_insert_cache) {
                     local_state._global_cache->insert(local_state._cache_key, local_state._version,

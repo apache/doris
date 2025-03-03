@@ -243,10 +243,10 @@ Status GroupCommitBlockSinkLocalState::init(RuntimeState* state, LocalSinkStateI
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _init_load_queue_timer = ADD_TIMER(_profile, "InitLoadQueueTime");
-    _valid_and_convert_block_timer = ADD_TIMER(_profile, "ValidAndConvertBlockTime");
-    _find_partition_timer = ADD_TIMER(_profile, "FindPartitionTime");
-    _append_blocks_timer = ADD_TIMER(_profile, "AppendBlocksTime");
+    _init_load_queue_timer = ADD_TIMER(custom_profile(), "InitLoadQueueTime");
+    _valid_and_convert_block_timer = ADD_TIMER(custom_profile(), "ValidAndConvertBlockTime");
+    _find_partition_timer = ADD_TIMER(custom_profile(), "FindPartitionTime");
+    _append_blocks_timer = ADD_TIMER(custom_profile(), "AppendBlocksTime");
     return Status::OK();
 }
 

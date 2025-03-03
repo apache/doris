@@ -23,9 +23,10 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 std::string JDBCScanLocalState::name_suffix() const {
-    return fmt::format(" (id={}. nereids_id={} . table name = {})",
-                       std::to_string(_parent->node_id()), std::to_string(_parent->nereids_id()),
-                       _parent->cast<JDBCScanOperatorX>()._table_name);
+    return fmt::format("(nereids_id={} . table name = {})" + operator_name_suffix,
+                       std::to_string(_parent->nereids_id()),
+                       _parent->cast<JDBCScanOperatorX>()._table_name,
+                       std::to_string(_parent->node_id()));
 }
 
 Status JDBCScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {

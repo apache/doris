@@ -107,8 +107,8 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
-    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
-    _extract_probe_data_timer = ADD_TIMER(Base::profile(), "ExtractProbeDataTime");
+    _probe_timer = ADD_TIMER(Base::custom_profile(), "ProbeTime");
+    _extract_probe_data_timer = ADD_TIMER(Base::custom_profile(), "ExtractProbeDataTime");
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();

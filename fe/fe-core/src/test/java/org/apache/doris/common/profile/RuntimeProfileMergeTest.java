@@ -85,8 +85,8 @@ public class RuntimeProfileMergeTest {
         tRuntimeProfileTree.addToNodes(rootNode);
         TRuntimeProfileNode node1 = new TRuntimeProfileNode();
         TRuntimeProfileNode node2 = new TRuntimeProfileNode();
-        node1.name = "node1";
-        node2.name = "node2";
+        node1.name = "XXX_OPERATOR";
+        node2.name = "CommonCounters";
         node1.num_children = 0;
         node2.num_children = 0;
         tRuntimeProfileTree.addToNodes(node1);

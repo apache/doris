@@ -63,7 +63,7 @@ void ExchangeLocalState::create_stream_recvr(RuntimeState* state) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
-            p.num_senders(), profile(), p.is_merging(),
+            p.num_senders(), custom_profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
 }
@@ -77,19 +77,19 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     deps.resize(queues.size());
     metrics.resize(queues.size());
     static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
         deps[i] = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                             fmt::format("SHUFFLE_DATA_DEPENDENCY_{}", i));
         queues[i]->set_dependency(deps[i]);
-        metrics[i] = _runtime_profile->add_nonzero_counter(fmt::format("WaitForData{}", i),
+        metrics[i] = custom_profile()->add_nonzero_counter(fmt::format("WaitForData{}", i),
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
 
-    get_data_from_recvr_timer = ADD_TIMER(_runtime_profile, "GetDataFromRecvrTime");
-    filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    create_merger_timer = ADD_TIMER(_runtime_profile, "CreateMergerTime");
-    _runtime_profile->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
+    get_data_from_recvr_timer = ADD_TIMER(custom_profile(), "GetDataFromRecvrTime");
+    filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     return Status::OK();
 }

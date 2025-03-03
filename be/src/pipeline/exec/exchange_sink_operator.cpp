@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <string>
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
@@ -53,37 +54,41 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
 
-    _bytes_sent_counter = ADD_COUNTER(_profile, "BytesSent", TUnit::BYTES);
-    _uncompressed_bytes_counter = ADD_COUNTER(_profile, "UncompressedRowBatchSize", TUnit::BYTES);
-    _local_sent_rows = ADD_COUNTER(_profile, "LocalSentRows", TUnit::UNIT);
-    _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
-    _compress_timer = ADD_TIMER(_profile, "CompressTime");
-    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
-    _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
-    _distribute_rows_into_channels_timer = ADD_TIMER(_profile, "DistributeRowsIntoChannelsTime");
-    _send_new_partition_timer = ADD_TIMER(_profile, "SendNewPartitionTime");
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _overall_throughput = _profile->add_derived_counter(
+    _bytes_sent_counter = ADD_COUNTER(custom_profile(), "BytesSent", TUnit::BYTES);
+    _uncompressed_bytes_counter =
+            ADD_COUNTER(custom_profile(), "UncompressedRowBatchSize", TUnit::BYTES);
+    _local_sent_rows = ADD_COUNTER(custom_profile(), "LocalSentRows", TUnit::UNIT);
+    _serialize_batch_timer = ADD_TIMER(custom_profile(), "SerializeBatchTime");
+    _compress_timer = ADD_TIMER(custom_profile(), "CompressTime");
+    _local_send_timer = ADD_TIMER(custom_profile(), "LocalSendTime");
+    _split_block_hash_compute_timer = ADD_TIMER(custom_profile(), "SplitBlockHashComputeTime");
+    _distribute_rows_into_channels_timer =
+            ADD_TIMER(custom_profile(), "DistributeRowsIntoChannelsTime");
+    _send_new_partition_timer = ADD_TIMER(custom_profile(), "SendNewPartitionTime");
+    _blocks_sent_counter =
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "BlocksProduced", TUnit::UNIT, 1);
+    _overall_throughput = custom_profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             [this]() {
                 return RuntimeProfile::units_per_second(_bytes_sent_counter,
-                                                        _profile->total_time_counter());
+                                                        custom_profile()->total_time_counter());
             },
             "");
-    _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
+    _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlockTime");
+    _local_bytes_send_counter = ADD_COUNTER(custom_profile(), "LocalBytesSent", TUnit::BYTES);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(common_profile(), timer_name, 1);
     _wait_queue_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitForRpcBufferQueue", timer_name, 1);
+            ADD_CHILD_TIMER_WITH_LEVEL(common_profile(), "WaitForRpcBufferQueue", timer_name, 1);
 
     _create_channels();
     // Make sure brpc stub is ready before execution.
     for (int i = 0; i < channels.size(); ++i) {
         RETURN_IF_ERROR(channels[i]->init(state));
-        _wait_channel_timer.push_back(_profile->add_nonzero_counter(
+        _wait_channel_timer.push_back(common_profile()->add_nonzero_counter(
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
-    _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
+    _wait_broadcast_buffer_timer =
+            ADD_CHILD_TIMER(common_profile(), "WaitForBroadcastBuffer", timer_name);
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
@@ -120,8 +125,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                         channels.size());
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+        custom_profile()->add_info_string(
+                "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _partitioner =
@@ -129,12 +134,12 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                         channels.size());
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+        custom_profile()->add_info_string(
+                "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("TabletSinkHashPartitioner({})", _partition_count));
+        custom_profile()->add_info_string(
+                "Partitioner", fmt::format("TabletSinkHashPartitioner({})", _partition_count));
         _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
                 _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
@@ -160,8 +165,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("ScaleWriterPartitioner({})", _partition_count));
+        custom_profile()->add_info_string(
+                "Partitioner", fmt::format("ScaleWriterPartitioner({})", _partition_count));
     }
 
     return Status::OK();
@@ -249,11 +254,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 }
 
 std::string ExchangeSinkLocalState::name_suffix() {
-    std::string name = " (id=" + std::to_string(_parent->node_id());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    name += ",dst_id=" + std::to_string(p._dest_node_id);
-    name += ")";
-    return name;
+    return fmt::format(exchange_sink_name_suffix, std::to_string(p._dest_node_id));
 }
 
 segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
@@ -281,7 +283,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _fragment_instance_ids(fragment_instance_ids) {
 #ifndef BE_TEST
     DCHECK_GT(destinations.size(), 0);
-#endif
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::RANDOM ||
@@ -290,6 +291,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED);
+#endif
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
     if (sink.__isset.output_tuple_id) {
@@ -565,7 +567,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
                        _local_channels_dependency[i]->watcher_elapse_time());
     }
     if (_sink_buffer) {
-        _sink_buffer->update_profile(profile());
+        _sink_buffer->update_profile(custom_profile());
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);

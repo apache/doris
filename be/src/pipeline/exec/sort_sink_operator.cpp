@@ -32,9 +32,9 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _sort_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
-    _append_blocks_timer = ADD_TIMER(profile(), "AppendBlockTime");
-    _update_runtime_predicate_timer = ADD_TIMER(profile(), "UpdateRuntimePredicateTime");
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageSortBlocks", TUnit::BYTES, 1);
+    _append_blocks_timer = ADD_TIMER(custom_profile(), "AppendBlockTime");
+    _update_runtime_predicate_timer = ADD_TIMER(custom_profile(), "UpdateRuntimePredicateTime");
     return Status::OK();
 }
 
@@ -55,13 +55,13 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state, custom_profile());
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state, custom_profile());
         break;
     }
     default: {
@@ -69,10 +69,10 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     }
 
-    _shared_state->sorter->init_profile(_profile);
+    _shared_state->sorter->init_profile(custom_profile());
 
-    _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
-    _profile->add_info_string(
+    custom_profile()->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    custom_profile()->add_info_string(
             "SortAlgorithm",
             p._algorithm == TSortAlgorithm::HEAP_SORT
                     ? "HEAP_SORT"
