@@ -57,7 +57,6 @@ AttachTask::~AttachTask() {
 
 SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc) {
     DCHECK(rc != nullptr);
-    DCHECK(thread_context()->is_attach_task());
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     if (rc != thread_context()->resource_ctx()) {
         signal::set_signal_task_id(rc->task_controller()->task_id());
