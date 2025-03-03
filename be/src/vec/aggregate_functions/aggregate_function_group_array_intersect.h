@@ -77,7 +77,10 @@ class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
                                                   DynamicContainer<typename PrimitiveTypeTraits<
                                                           type_to_primitive_type<T>()>::CppType>> {
 public:
-    NullableNumericOrDateSet() { this->_null_aware = true; }
+    NullableNumericOrDateSet()
+            : HybridSet<type_to_primitive_type<T>(),
+                        DynamicContainer<typename PrimitiveTypeTraits<
+                                type_to_primitive_type<T>()>::CppType>>(true) {}
 
     void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
@@ -322,7 +325,7 @@ public:
 /// Generic implementation, it uses serialized representation as object descriptor.
 class NullableStringSet : public StringValueSet<DynamicContainer<StringRef>> {
 public:
-    NullableStringSet() { this->_null_aware = true; }
+    NullableStringSet() : StringValueSet<DynamicContainer<StringRef>>(true) {}
 
     void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };

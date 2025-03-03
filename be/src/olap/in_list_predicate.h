@@ -71,7 +71,7 @@ public:
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>();
+        _values = std::make_shared<HybridSetType>(false);
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
@@ -95,7 +95,7 @@ public:
         CHECK(hybrid_set != nullptr);
 
         if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
-            _values = std::make_shared<HybridSetType>();
+            _values = std::make_shared<HybridSetType>(false);
             if constexpr (is_string_type(Type)) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
