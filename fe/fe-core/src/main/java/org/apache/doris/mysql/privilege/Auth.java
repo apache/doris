@@ -262,7 +262,7 @@ public class Auth implements Writable {
     }
 
     // ==== Global ====
-    protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
