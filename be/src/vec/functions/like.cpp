@@ -573,7 +573,7 @@ Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
 
         /// Determine which index it refers to.
         /// begin + value_offsets[i] is the start offset of string at i+1
-        while (begin + value_offsets[i] < pos) {
+        while (i < value_offsets.size() && begin + value_offsets[i] < pos) {
             ++i;
         }
 
