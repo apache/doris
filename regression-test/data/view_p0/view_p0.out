@@ -30,3 +30,12 @@ internal	regression_test_view_p0	test_view	select 1,to_base64(AES_ENCRYPT('doris
 -- !show_aes --
 test_view_aes	CREATE VIEW `test_view_aes` AS SELECT aes_decrypt(from_base64("EXp7k7M9Zv1mIwPpno28Hg=="), '17IMZrGdwWf2Piy8', 'II2HLtihr5TQpQgR', 'AES_128_CBC');	utf8mb4	utf8mb4_0900_bin
 
+-- !desc_view_1 --
+c_date	varchar(50)	Yes	false	\N	
+
+-- !desc_view_2 --
+C_DatE	varchar(50)	Yes	false	\N	
+
+-- !desc_view_3 --
+c_dATE	varchar(65533)	Yes	false	\N	
+
