@@ -96,9 +96,8 @@ TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
     vectorized::VExprSPtr expr;
     TExprNode pred_node;
     TypeDescriptor type(PrimitiveType::TYPE_INT);
-    TExprOpcode op = TExprOpcode::EQ;
-    const int value = 1;
-    EXPECT_TRUE(create_vbin_predicate(type, expr, &pred_node, false).ok());
+    auto op = TExprOpcode::EQ;
+    EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
 }
 
 } // namespace doris
