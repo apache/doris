@@ -81,6 +81,7 @@ import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
+import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -214,6 +215,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CREATE_DB: {
                 data = Database.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_NEW_CREATE_DB: {
+                data = CreateDbInfo.read(in);
                 isRead = true;
                 break;
             }

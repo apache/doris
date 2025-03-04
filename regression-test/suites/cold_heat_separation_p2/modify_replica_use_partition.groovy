@@ -32,9 +32,9 @@ suite("modify_replica_use_partition") {
         }
     }
     // data_sizes is one arrayList<Long>, t is tablet
-    def fetchDataSize = { data_sizes, t ->
-        def tabletId = t[0]
-        String meta_url = t[17]
+    def fetchDataSize = {List<Long> data_sizes, Map<String, Object> t ->
+        def tabletId = t.TabletId
+        String meta_url = t.MetaUrl
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -105,13 +105,13 @@ suite("modify_replica_use_partition") {
     def load_lineitem_table = {
         stream_load_one_part("00")
         stream_load_one_part("01")
-        def tablets = sql """
+        def tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
-        while (tablets[0][8] == "0") {
+        while (tablets[0].LocalDataSize == "0") {
             log.info( "test local size is zero, sleep 10s")
             sleep(10000)
-            tablets = sql """
+            tablets = sql_return_maparray """
             SHOW TABLETS FROM ${tableName}
             """
         }
@@ -212,7 +212,7 @@ suite("modify_replica_use_partition") {
     sleep(600000)
 
 
-    def tablets = sql """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -220,7 +220,7 @@ suite("modify_replica_use_partition") {
     while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
@@ -253,13 +253,13 @@ suite("modify_replica_use_partition") {
     sleep(60000)
 
     // 对比所有tablets的replicas的rowsets meta是否相同
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     while (tablets.size() != 3 * originSize) {
         log.info( "tablets clone not finished, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
     }
@@ -268,12 +268,12 @@ suite("modify_replica_use_partition") {
     def iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][18]
+        def dst = tablets[idx].CompactionStatus
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][18]
+            dst = tablets[idx + x].CompactionStatus
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")
@@ -322,7 +322,7 @@ suite("modify_replica_use_partition") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     fetchDataSize(sizes, tablets[0])
@@ -339,7 +339,7 @@ suite("modify_replica_use_partition") {
     sleep(600000)
 
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -348,7 +348,7 @@ suite("modify_replica_use_partition") {
     while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
@@ -417,7 +417,7 @@ suite("modify_replica_use_partition") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     fetchDataSize(sizes, tablets[0])
@@ -434,7 +434,7 @@ suite("modify_replica_use_partition") {
     sleep(600000)
 
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -443,7 +443,7 @@ suite("modify_replica_use_partition") {
     while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
@@ -479,12 +479,12 @@ suite("modify_replica_use_partition") {
     // wait one minute for migration to be completed
     sleep(60000)
     // 对比3副本的partition中所有tablets的replicas的rowsets meta是否相同
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     """
     // sleep to wait for the report
     sleep(15000)
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     """
     compactionStatusIdx = tablets[0].size() - 1
@@ -492,12 +492,12 @@ suite("modify_replica_use_partition") {
     iterate_num = tablets.size() / 3;
     for (int i = 0; i < iterate_num; i++) {
         int idx = i * 3;
-        def dst = tablets[idx][18]
+        def dst = tablets[idx].CompactionStatus
         def text = get_meta(dst)
         def obj = new JsonSlurper().parseText(text)
         def rowsets = obj.rowsets
         for (x in [1,2]) {
-            dst = tablets[idx + x][18]
+            dst = tablets[idx + x].CompactionStatus
             text = get_meta(dst)
             obj = new JsonSlurper().parseText(text)
             log.info( "test rowset meta is the same")

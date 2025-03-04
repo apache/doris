@@ -20,23 +20,18 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
@@ -95,8 +90,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
+            .pColumnMeta = col_meta.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = UInt64(0),
     };
     TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
     auto col_meta6 = std::make_shared<PColumnMeta>();
@@ -115,9 +111,9 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .pColumnMeta = col_meta6.get()
-            //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
-    };
+            .pColumnMeta = col_meta6.get(),
+            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
+            .default_field = IPv6(0)};
     meta_info_assert(dt_ipv4, ipv4_meta_info_to_assert);
     meta_info_assert(dt_ipv6, ipv6_meta_info);
 }
@@ -125,8 +121,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
 TEST_F(DataTypeIPTest, CreateColumnTest) {
     Field default_field_ipv4 = IPv4(0);
     Field default_field_ipv6 = IPv6(0);
-    create_column_assert(dt_ipv4, default_field_ipv4);
-    create_column_assert(dt_ipv6, default_field_ipv6);
+    create_column_assert(dt_ipv4, default_field_ipv4, 17);
+    create_column_assert(dt_ipv6, default_field_ipv6, 17);
 }
 
 TEST_F(DataTypeIPTest, GetFieldTest) {
@@ -155,7 +151,7 @@ TEST_F(DataTypeIPTest, GetFieldTest) {
     node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
     for (size_t i = 0; i < ip_cols[1]->size(); ++i) {
         node_ipv6.ipv6_literal.value =
-                IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
+                doris::IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
         Field assert_field;
         ip_cols[1]->get(i, assert_field);
         get_field_assert(dt_ipv6, node_ipv6, assert_field);
@@ -245,6 +241,129 @@ TEST_F(DataTypeIPTest, SerdeJsonbTest) {
     DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
     CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
                                         CommonDataTypeSerdeTest::assert_jsonb_format);
+}
+
+TEST_F(DataTypeIPTest, SerdeMysqlAndArrowTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
+                                        CommonDataTypeSerdeTest::assert_mysql_format);
+
+    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, serde, {dt_ipv4, dt_ipv6});
+}
+
+TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
+    // make array<ip>
+    auto array_ipv4 = std::make_shared<DataTypeArray>(dt_ipv4);
+    auto array_ipv6 = std::make_shared<DataTypeArray>(dt_ipv6);
+    auto map_ipv4 = std::make_shared<DataTypeMap>(dt_ipv4, dt_ipv6);
+    auto map_ipv6 = std::make_shared<DataTypeMap>(dt_ipv6, dt_ipv4);
+    auto column_array_ipv4 = array_ipv4->create_column();
+    auto column_array_ipv6 = array_ipv6->create_column();
+    auto column_map_ipv4 = map_ipv4->create_column();
+    auto column_map_ipv6 = map_ipv6->create_column();
+    // struct
+    auto struct_ip = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {
+            dt_ipv4, dt_ipv6, array_ipv4, array_ipv6, map_ipv4, map_ipv6});
+    auto column_struct_ip = struct_ip->create_column();
+
+    // insert some data into column
+    std::vector<string> ipv4_data = {"190.0.0.1", "127.0.0.1", "10.0.0.1"};
+    std::vector<string> ipv6_data = {"2001:db8::1234", "2001:db8::1234:5678", "::"};
+    std::vector<IPv4> ipv4_values;
+    std::vector<IPv6> ipv6_values;
+    // put data into column
+    for (size_t i = 0; i < ipv4_data.size(); ++i) {
+        IPv4 ipv4_val = 0;
+        IPv6 ipv6_val = 0;
+        IPv4Value::from_string(ipv4_val, ipv4_data[i]);
+        ipv4_values.push_back(ipv4_val);
+        IPv6Value::from_string(ipv6_val, ipv6_data[i]);
+        ipv6_values.push_back(ipv6_val);
+    }
+
+    // pack array ipv4
+    Array ipv4_array;
+    for (auto& ipv4 : ipv4_values) {
+        ipv4_array.push_back(ipv4);
+    }
+    column_array_ipv4->insert(ipv4_array);
+
+    // pack array ipv6
+    Array ipv6_array;
+    for (auto& ipv6 : ipv6_values) {
+        ipv6_array.push_back(ipv6);
+    }
+    column_array_ipv6->insert(ipv6_array);
+
+    Map ipv4_map;
+    // pack map ipv4
+    ipv4_map.push_back(ipv4_array);
+    ipv4_map.push_back(ipv6_array);
+    column_map_ipv4->insert(ipv4_map);
+
+    // pack map ipv6
+    Map ipv6_map;
+    ipv6_map.push_back(ipv6_array);
+    ipv6_map.push_back(ipv4_array);
+    column_map_ipv6->insert(ipv6_map);
+
+    // pack struct
+    Tuple tuple;
+    tuple.push_back(ipv4_values[0]);
+    tuple.push_back(ipv6_values[0]);
+    tuple.push_back(ipv4_array);
+    tuple.push_back(ipv6_array);
+    tuple.push_back(ipv4_map);
+    tuple.push_back(ipv6_map);
+    column_struct_ip->insert(tuple);
+
+    auto assert_func = [](DataTypePtr dt, MutableColumnPtr& col, string assert_json_str) {
+        // serde to json
+        auto from_serde = dt->get_serde(1);
+        auto dst_str = ColumnString::create();
+        dst_str->clear();
+        dst_str->reserve(1);
+        VectorBufferWriter write_buffer(*dst_str.get());
+        DataTypeSerDe::FormatOptions options;
+        options.escape_char = '\\';
+        auto st = from_serde->serialize_column_to_json(*col, 0, 1, write_buffer, options);
+        ASSERT_TRUE(st.ok());
+        write_buffer.commit();
+        StringRef json_str = dst_str->get_data_at(0);
+        // print
+        ASSERT_EQ(json_str.to_string(), assert_json_str);
+    };
+
+    std::vector<string> assert_json_arr_str = {
+            "[\"190.0.0.1\", \"127.0.0.1\", \"10.0.0.1\"]",
+            "[\"2001:db8::1234\", \"2001:db8::1234:5678\", \"::\"]"};
+    std::vector<string> assert_json_map_str = {
+            "{\"190.0.0.1\":\"2001:db8::1234\", \"127.0.0.1\":\"2001:db8::1234:5678\", "
+            "\"10.0.0.1\":\"::\"}",
+            "{\"2001:db8::1234\":\"190.0.0.1\", \"2001:db8::1234:5678\":\"127.0.0.1\", "
+            "\"::\":\"10.0.0.1\"}"};
+    string assert_json_struct_str =
+            "{\"1\": \"190.0.0.1\", \"2\": \"2001:db8::1234\", \"3\": [\"190.0.0.1\", "
+            "\"127.0.0.1\", \"10.0.0.1\"], \"4\": [\"2001:db8::1234\", \"2001:db8::1234:5678\", "
+            "\"::\"], \"5\": {\"190.0.0.1\":\"2001:db8::1234\", "
+            "\"127.0.0.1\":\"2001:db8::1234:5678\", \"10.0.0.1\":\"::\"}, \"6\": "
+            "{\"2001:db8::1234\":\"190.0.0.1\", \"2001:db8::1234:5678\":\"127.0.0.1\", "
+            "\"::\":\"10.0.0.1\"}}";
+
+    assert_func(array_ipv4, column_array_ipv4, assert_json_arr_str[0]);
+    assert_func(array_ipv6, column_array_ipv6, assert_json_arr_str[1]);
+    assert_func(map_ipv4, column_map_ipv4, assert_json_map_str[0]);
+    assert_func(map_ipv6, column_map_ipv6, assert_json_map_str[1]);
+    assert_func(struct_ip, column_struct_ip, assert_json_struct_str);
 }
 
 } // namespace doris::vectorized

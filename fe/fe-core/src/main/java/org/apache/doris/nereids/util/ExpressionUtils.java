@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -273,6 +274,14 @@ public class ExpressionUtils {
             return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
         } else {
             return BooleanLiteral.TRUE;
+        }
+    }
+
+    public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
+        if (values.size() < 2) {
+            return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));
+        } else {
+            return new InPredicate(reference, ImmutableList.copyOf(values));
         }
     }
 
@@ -577,9 +586,9 @@ public class ExpressionUtils {
     /**
      * return true if all children are literal but not null literal.
      */
-    public static boolean isAllNonNullLiteral(List<Expression> children) {
+    public static boolean isAllNonNullComparableLiteral(List<Expression> children) {
         for (Expression child : children) {
-            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+            if ((!(child instanceof ComparableLiteral)) || (child instanceof NullLiteral)) {
                 return false;
             }
         }

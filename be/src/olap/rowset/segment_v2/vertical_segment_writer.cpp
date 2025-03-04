@@ -182,6 +182,10 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
+    if (opts.need_bloom_filter) {
+        opts.bf_options.fpp =
+                tablet_schema->has_bf_fpp() ? tablet_schema->bloom_filter_fpp() : 0.05;
+    }
     auto* tablet_index = tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;

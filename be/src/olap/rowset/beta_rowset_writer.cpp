@@ -277,6 +277,10 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
+
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -330,7 +334,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _context.tablet, rowset_ptr, segments, specified_rowsets,
-            _context.mow_context->delete_bitmap, _context.mow_context->max_version, nullptr));
+            _context.mow_context->delete_bitmap, _context.mow_context->max_version,
+            _calc_delete_bitmap_token.get()));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -347,6 +352,9 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
     if (_segcompaction_worker) {
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
+    }
+    if (_context.mow_context != nullptr) {
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
     }
     return Status::OK();
 }
@@ -652,8 +660,27 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
-    _total_data_size += rowset->rowset_meta()->data_disk_size();
-    _total_index_size += rowset->rowset_meta()->index_disk_size();
+    const auto& rowset_meta = rowset->rowset_meta();
+    auto index_size = rowset_meta->index_disk_size();
+    auto total_size = rowset_meta->total_disk_size();
+    auto data_size = rowset_meta->data_disk_size();
+    // corrupted index size caused by bug before 2.1.5 or 3.0.0 version
+    // try to get real index size from disk.
+    if (index_size < 0 || index_size > total_size * 2) {
+        LOG(ERROR) << "invalid index size:" << index_size << " total size:" << total_size
+                   << " data size:" << data_size << " tablet:" << rowset_meta->tablet_id()
+                   << " rowset:" << rowset_meta->rowset_id();
+        index_size = 0;
+        auto st = rowset->get_inverted_index_size(&index_size);
+        if (!st.ok()) {
+            if (!st.is<NOT_FOUND>()) {
+                LOG(ERROR) << "failed to get inverted index size. res=" << st;
+                return st;
+            }
+        }
+    }
+    _total_data_size += data_size;
+    _total_index_size += index_size;
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
@@ -782,6 +809,9 @@ Status BetaRowsetWriter::_close_file_writers() {
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    }
     RETURN_IF_ERROR(_close_file_writers());
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),

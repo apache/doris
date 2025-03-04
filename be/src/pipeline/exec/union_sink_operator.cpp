@@ -53,9 +53,9 @@ Status UnionSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
+UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                                        const TPlanNode& tnode, const DescriptorTbl& descs)
-        : Base(sink_id, tnode.node_id, tnode.node_id),
+        : Base(sink_id, tnode.node_id, dest_id),
           _first_materialized_child_idx(
                   cast_set<int>(tnode.union_node.first_materialized_child_idx)),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
@@ -76,8 +76,8 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::open(state));
+Status UnionSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
     // open const expr lists.
@@ -91,6 +91,9 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
+    if (local_state.low_memory_mode()) {
+        set_low_memory_mode(state);
+    }
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {

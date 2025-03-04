@@ -68,9 +68,9 @@ public:
     using typename Base::LocalState;
 
     friend class SetSinkLocalState<is_intersect>;
-    SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id),
+    SetSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                     const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, dest_id),
               _cur_child_id(child_id),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
@@ -87,13 +87,15 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     template <class HashTableContext, bool is_intersected>

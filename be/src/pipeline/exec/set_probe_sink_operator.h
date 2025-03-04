@@ -56,6 +56,8 @@ private:
     template <class HashTableContext, bool is_intersected>
     friend struct vectorized::HashTableProbe;
 
+    int64_t _estimate_memory_usage = 0;
+
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
     vectorized::ColumnRawPtrs _probe_columns;
@@ -75,9 +77,9 @@ public:
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;
-    SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                          const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id),
+    SetProbeSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                          const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(sink_id, tnode.node_id, dest_id),
               _cur_child_id(child_id),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
@@ -92,7 +94,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
@@ -101,6 +103,8 @@ public:
     }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

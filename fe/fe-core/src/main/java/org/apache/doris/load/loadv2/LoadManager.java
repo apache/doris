@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
@@ -415,6 +414,7 @@ public class LoadManager implements Writable {
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
 
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(operation.getId());
         // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
         if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
             removeOldLoadJob();
@@ -859,9 +859,7 @@ public class LoadManager implements Writable {
         }
     }
 
-    public void cleanLabel(CleanLabelStmt stmt) throws DdlException {
-        String dbName = stmt.getDb();
-        String label = stmt.getLabel();
+    public void cleanLabel(String dbName, String label) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         cleanLabelInternal(db.getId(), label, false);
     }

@@ -40,6 +40,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
+#include "cloud/schema_cloud_dictionary_cache.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -340,6 +341,10 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapUpdateLockRequest>) {
         return fmt::format(" table_id={}, tablet_id={}, lock_id={}", req.table_id(),
                            req.tablet_id(), req.lock_id());
+    } else if constexpr (is_any_v<Request, GetDeleteBitmapRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, GetSchemaDictRequest>) {
+        return fmt::format(" index_id={}", req.index_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -373,7 +378,11 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         std::shared_ptr<MetaService_Stub> stub;
         RETURN_IF_ERROR(proxy->get(&stub));
         brpc::Controller cntl;
-        cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
+        if (op_name == "get delete bitmap") {
+            cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
+        } else {
+            cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
+        }
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         (stub.get()->*method)(&cntl, &req, res, nullptr);
@@ -467,10 +476,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
-        // backend side use schema dict
-        if (config::variant_use_cloud_schema_dict) {
-            req.set_schema_op(GetRowsetRequest::RETURN_DICT);
-        }
+        // backend side use schema dict in cache if enable cloud schema dict cache
+        req.set_schema_op(config::variant_use_cloud_schema_dict_cache
+                                  ? GetRowsetRequest::NO_DICT
+                                  : GetRowsetRequest::RETURN_DICT);
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
@@ -586,8 +595,28 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(
-                        cloud_rs_meta_pb, resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
+                RowsetMetaPB meta_pb;
+                // Check if the rowset meta contains a schema dictionary key list.
+                if (cloud_rs_meta_pb.has_schema_dict_key_list() && !resp.has_schema_dict()) {
+                    // Use the locally cached dictionary.
+                    RowsetMetaCloudPB copied_cloud_rs_meta_pb = cloud_rs_meta_pb;
+                    CloudStorageEngine& engine =
+                            ExecEnv::GetInstance()->storage_engine().to_cloud();
+                    {
+                        wlock.unlock();
+                        RETURN_IF_ERROR(
+                                engine.get_schema_cloud_dictionary_cache()
+                                        .replace_dict_keys_to_schema(cloud_rs_meta_pb.index_id(),
+                                                                     &copied_cloud_rs_meta_pb));
+                        wlock.lock();
+                    }
+                    meta_pb = cloud_rowset_meta_to_doris(copied_cloud_rs_meta_pb);
+                } else {
+                    // Otherwise, use the schema dictionary from the response (if available).
+                    meta_pb = cloud_rowset_meta_to_doris(
+                            cloud_rs_meta_pb,
+                            resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
+                }
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
@@ -714,41 +743,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
 
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
-    int retry_times = 0;
-    MetaServiceProxy* proxy;
-    RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
     auto start = std::chrono::high_resolution_clock::now();
-    while (true) {
-        std::shared_ptr<MetaService_Stub> stub;
-        RETURN_IF_ERROR(proxy->get(&stub));
-        // When there are many delete bitmaps that need to be synchronized, it
-        // may take a longer time, especially when loading the tablet for the
-        // first time, so set a relatively long timeout time.
-        brpc::Controller cntl;
-        cntl.set_timeout_ms(3 * config::meta_service_brpc_timeout_ms);
-        cntl.set_max_retry(kBrpcRetryTimes);
-        res.Clear();
-        stub->get_delete_bitmap(&cntl, &req, &res, nullptr);
-        if (cntl.Failed()) [[unlikely]] {
-            LOG_INFO("failed to get delete bitmap")
-                    .tag("reason", cntl.ErrorText())
-                    .tag("tablet_id", tablet->tablet_id())
-                    .tag("partition_id", tablet->partition_id())
-                    .tag("tried", retry_times);
-            proxy->set_unhealthy();
-        } else {
-            break;
-        }
-
-        if (++retry_times > config::delete_bitmap_rpc_retry_times) {
-            if (cntl.Failed()) {
-                return Status::RpcError("failed to get delete bitmap, tablet={} err={}",
-                                        tablet->tablet_id(), cntl.ErrorText());
-            }
-            break;
-        }
-    }
+    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
     auto end = std::chrono::high_resolution_clock::now();
+    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
+        return st;
+    }
 
     if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
         return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
@@ -858,6 +858,14 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
+    // Replace schema dictionary keys based on the rowset's index ID to maintain schema consistency.
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    // if not enable dict cache, then directly return true to avoid refresh
+    bool replaced =
+            config::variant_use_cloud_schema_dict_cache
+                    ? engine.get_schema_cloud_dictionary_cache().replace_schema_to_dict_keys(
+                              rs_meta_pb.index_id(), req.mutable_rowset_meta())
+                    : true;
     Status st = retry_rpc("commit rowset", req, &resp, &MetaService_Stub::commit_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
@@ -867,6 +875,13 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
             (*existed_rs_meta)->init_from_pb(doris_rs_meta);
         }
         return Status::AlreadyExist("failed to commit rowset: {}", resp.status().msg());
+    }
+    // If dictionary replacement fails, it may indicate that the local schema dictionary is outdated.
+    // Refreshing the dictionary here ensures that the rowset metadata is updated with the latest schema definitions,
+    // which is critical for maintaining consistency between the rowset and its corresponding schema.
+    if (!replaced) {
+        RETURN_IF_ERROR(
+                engine.get_schema_cloud_dictionary_cache().refresh_dict(rs_meta_pb.index_id()));
     }
     return st;
 }
@@ -1070,7 +1085,12 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
     req.mutable_job()->CopyFrom(job);
     req.set_action(FinishTabletJobRequest::COMMIT);
     req.set_cloud_unique_id(config::cloud_unique_id);
-    return retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    auto st = retry_rpc("commit tablet job", req, res, &MetaService_Stub::finish_tablet_job);
+    if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when commit tablet job {}", job.ShortDebugString());
+    }
+    return st;
 }
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
@@ -1141,6 +1161,29 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         bitmap.write(bitmap_data.data());
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
+    DBUG_EXECUTE_IF("CloudMetaMgr::test_update_big_delete_bitmap", {
+        LOG(INFO) << "test_update_big_delete_bitmap for tablet " << tablet.tablet_id();
+        auto count = dp->param<int>("count", 30000);
+        if (!delete_bitmap->delete_bitmap.empty()) {
+            auto& key = delete_bitmap->delete_bitmap.begin()->first;
+            auto& bitmap = delete_bitmap->delete_bitmap.begin()->second;
+            for (int i = 1000; i < (1000 + count); i++) {
+                req.add_rowset_ids(std::get<0>(key).to_string());
+                req.add_segment_ids(std::get<1>(key));
+                req.add_versions(i);
+                // To save space, convert array and bitmap containers to run containers
+                bitmap.runOptimize();
+                std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+                bitmap.write(bitmap_data.data());
+                *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+            }
+        }
+    });
+    DBUG_EXECUTE_IF("CloudMetaMgr::test_update_delete_bitmap_fail", {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                "test update delete bitmap failed, tablet_id: {}, lock_id: {}", tablet.tablet_id(),
+                lock_id);
+    });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
@@ -1178,6 +1221,17 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& 
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
+    DBUG_EXECUTE_IF("get_delete_bitmap_update_lock.inject_fail", {
+        auto p = dp->param("percent", 0.01);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                    "injection error when get get_delete_bitmap_update_lock, "
+                    "tablet_id={}, lock_id={}, initiator={}",
+                    tablet.tablet_id(), lock_id, initiator);
+        }
+    });
     VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
                << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
@@ -1205,26 +1259,38 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    } else if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.table_id(), lock_id, initiator);
+    }
     return st;
 }
 
-Status CloudMetaMgr::remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
-                                                      int64_t initiator) {
-    VLOG_DEBUG << "remove_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
-               << ",lock_id:" << lock_id;
+void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id,
+                                                    int64_t initiator, int64_t tablet_id) {
+    LOG(INFO) << "remove_delete_bitmap_update_lock ,table_id: " << table_id
+              << ",lock_id:" << lock_id << ",initiator:" << initiator << ",tablet_id:" << tablet_id;
     RemoveDeleteBitmapUpdateLockRequest req;
     RemoveDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet.tablet_id());
+    req.set_table_id(table_id);
+    req.set_tablet_id(tablet_id);
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     auto st = retry_rpc("remove delete bitmap update lock", req, &res,
                         &MetaService_Stub::remove_delete_bitmap_update_lock);
     if (!st.ok()) {
-        LOG(WARNING) << "remove delete bitmap update lock fail,tablet_id=" << tablet.tablet_id()
-                     << " lock_id=" << lock_id << " st=" << st.to_string();
+        LOG(WARNING) << "remove delete bitmap update lock fail,table_id=" << table_id
+                     << ",tablet_id=" << tablet_id << ",lock_id=" << lock_id
+                     << ",st=" << st.to_string();
     }
-    return st;
 }
 
 Status CloudMetaMgr::remove_old_version_delete_bitmap(
@@ -1359,6 +1425,34 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
         }
     }
     return total_inverted_index_size;
+}
+
+Status CloudMetaMgr::get_schema_dict(int64_t index_id,
+                                     std::shared_ptr<SchemaCloudDictionary>* schema_dict) {
+    VLOG_DEBUG << "Sending GetSchemaDictRequest, index_id: " << index_id;
+
+    // Create the request and response objects.
+    GetSchemaDictRequest req;
+    GetSchemaDictResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_index_id(index_id);
+
+    // Invoke RPC via the retry_rpc helper function.
+    // It will call the MetaService_Stub::get_schema_dict method.
+    Status st = retry_rpc("get schema dict", req, &resp, &MetaService_Stub::get_schema_dict);
+    if (!st.ok()) {
+        return st;
+    }
+
+    // Optionally, additional checking of the response status can be done here.
+    // For example, if the returned status code indicates a parsing or not found error,
+    // you may return an error accordingly.
+
+    // Copy the retrieved schema dictionary from the response.
+    *schema_dict = std::make_shared<SchemaCloudDictionary>();
+    (*schema_dict)->Swap(resp.mutable_schema_dict());
+    VLOG_DEBUG << "Successfully obtained schema dict, index_id: " << index_id;
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

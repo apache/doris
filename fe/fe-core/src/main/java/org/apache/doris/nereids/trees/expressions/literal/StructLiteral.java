@@ -114,8 +114,8 @@ public class StructLiteral extends Literal {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), fields);
+    protected int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), fields);
     }
 
     @Override

@@ -45,6 +45,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -71,10 +72,10 @@ class VDataStreamRecvr;
 class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
-    VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::ExchangeLocalState* parent,
-                     RuntimeState* state, const RowDescriptor& row_desc,
-                     const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile);
+    VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeProfile::HighWaterMarkCounter* counter,
+                     RuntimeState* state, const TUniqueId& fragment_instance_id,
+                     PlanNodeId dest_node_id, int num_senders, bool is_merging,
+                     RuntimeProfile* profile, size_t data_queue_capacity);
 
     ~VDataStreamRecvr() override;
 
@@ -95,7 +96,6 @@ public:
 
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
-    const RowDescriptor& row_desc() const { return _row_desc; }
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
@@ -117,15 +117,19 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
+    void set_low_memory_mode() { _sender_queue_mem_limit = 1012 * 1024; }
+
 private:
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr = nullptr;
 
-    pipeline::ExchangeLocalState* _parent = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
+
+    std::shared_ptr<QueryContext> _query_context;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;
@@ -142,7 +146,8 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
-    size_t _sender_queue_mem_limit;
+
+    std::atomic<size_t> _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
@@ -169,14 +174,10 @@ private:
 
 class VDataStreamRecvr::SenderQueue {
 public:
-    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
+    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
                 std::shared_ptr<pipeline::Dependency> local_channel_dependency);
 
     ~SenderQueue();
-
-    std::shared_ptr<pipeline::Dependency> local_channel_dependency() {
-        return _local_channel_dependency;
-    }
 
     Status get_batch(Block* next_block, bool* eos);
 
@@ -196,15 +197,15 @@ public:
         _source_dependency = dependency;
     }
 
+protected:
     void add_blocks_memory_usage(int64_t size);
 
     void sub_blocks_memory_usage(int64_t size);
 
     bool exceeds_limit();
-
-protected:
     friend class pipeline::ExchangeLocalState;
-    void try_set_dep_ready_without_lock();
+
+    void set_source_ready(std::lock_guard<std::mutex>&);
 
     // To record information about several variables in the event of a DCHECK failure.
     //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)

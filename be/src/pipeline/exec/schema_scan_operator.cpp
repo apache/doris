@@ -135,8 +135,8 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status SchemaScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -155,13 +155,14 @@ Status SchemaScanOperatorX::open(RuntimeState* state) {
     }
 
     // new one scanner
-    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
+    auto temp_schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    if (nullptr == _schema_scanner) {
+    if (nullptr == temp_schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(
+            temp_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
     if (columns_desc.empty()) {
@@ -252,8 +253,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
+                                                     _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
     } while (block->rows() == 0 && !*eos);

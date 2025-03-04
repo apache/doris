@@ -85,11 +85,11 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
-                                                                   int operator_id,
+                                                                   int operator_id, int dest_id,
                                                                    const TPlanNode& tnode,
                                                                    const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
-                                                                    descs),
+        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, dest_id,
+                                                                    tnode, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -105,8 +105,8 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
+Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::prepare(state));
     size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
 
     for (size_t i = 0; i < num_build_tuples; ++i) {

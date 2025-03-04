@@ -17,39 +17,52 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.List;
 
 /**
  * Represents the command for SHOW COLLATION
  */
 public class ShowQueryProfileCommand extends ShowCommand {
-    String queryIdPath;
+    public static final ShowResultSetMetaData META_DATA_QUERY_IDS;
 
-    public ShowQueryProfileCommand(String queryIdPath) {
+    static {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String key : SummaryProfile.SUMMARY_CAPTIONS) {
+            if (key.equals(SummaryProfile.DISTRIBUTED_PLAN)) {
+                continue;
+            }
+            builder.addColumn(new Column(key, ScalarType.createStringType()));
+        }
+        META_DATA_QUERY_IDS = builder.build();
+    }
+
+    long limit = 20;
+
+    public ShowQueryProfileCommand(String queryIdPath, long limit) {
         super(PlanType.SHOW_QUERY_PROFILE_COMMAND);
-        this.queryIdPath = queryIdPath;
+        this.limit = limit;
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        String selfHost = Env.getCurrentEnv().getSelfNode().getHost();
-        int httpPort = Config.http_port;
-        String terminalMsg = String.format(
-                "try visit http://%s:%d/QueryProfile, show query/load profile syntax is a deprecated feature",
-                selfHost, httpPort);
-        throw new AnalysisException(terminalMsg);
+        List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(ProfileType.QUERY, this.limit);
+        return new ShowResultSet(META_DATA_QUERY_IDS, rows);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowQueryProfileCommand(this, context);
     }
-
 }

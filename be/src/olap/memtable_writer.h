@@ -69,7 +69,7 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -106,6 +106,14 @@ public:
 
     uint64_t flush_running_count() const;
 
+    uint64_t workload_group_id() const {
+        auto wg = _resource_ctx->workload_group();
+        if (wg != nullptr) {
+            return wg->id();
+        }
+        return 0;
+    }
+
 private:
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -132,7 +140,7 @@ private:
     std::vector<std::weak_ptr<MemTable>> _freezed_mem_tables;
     // The lock to protect _memtable and _freezed_mem_tables structure to avoid concurrency modification or read
     SpinLock _mem_table_ptr_lock;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::mutex _lock;
 

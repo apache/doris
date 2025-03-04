@@ -60,7 +60,7 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         int rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -76,7 +76,7 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -116,7 +116,7 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         int rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -132,7 +132,7 @@ suite("test_full_compaction_with_ordered_data","nonConcurrent") {
         rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())

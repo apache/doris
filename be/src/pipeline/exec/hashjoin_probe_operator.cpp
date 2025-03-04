@@ -252,7 +252,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx.template process(
+                            st = process_hashtable_ctx.process(
                                     arg,
                                     local_state._null_map_column
                                             ? &local_state._null_map_column->get_data()
@@ -299,6 +299,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return st;
     }
 
+    local_state._estimate_memory_usage += temp_block.allocated_bytes();
     RETURN_IF_ERROR(
             local_state.filter_data_and_build_output(state, output_block, eos, &temp_block));
     // Here make _join_block release the columns' ptr
@@ -381,11 +382,10 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
     }
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, temp_block,
-                                                               temp_block->columns()));
+        RETURN_IF_ERROR(filter_block(_conjuncts, temp_block, temp_block->columns()));
     }
 
-    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block));
     reached_limit(output_block, eos);
     return Status::OK();
 }
@@ -422,8 +422,12 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
     auto& local_state = get_local_state(state);
     local_state.prepare_for_next();
     local_state._probe_eos = eos;
-    if (input_block->rows() > 0) {
-        COUNTER_UPDATE(local_state._probe_rows_counter, input_block->rows());
+
+    const auto rows = input_block->rows();
+    size_t origin_size = input_block->allocated_bytes();
+
+    if (rows > 0) {
+        COUNTER_UPDATE(local_state._probe_rows_counter, rows);
         std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
@@ -433,6 +437,8 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         }
 
         RETURN_IF_ERROR(local_state._extract_join_column(*input_block, res_col_ids));
+
+        local_state._estimate_memory_usage += (input_block->allocated_bytes() - origin_size);
 
         if (&local_state._probe_block != input_block) {
             input_block->swap(local_state._probe_block);
@@ -487,8 +493,8 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status HashJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
+Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
@@ -498,7 +504,6 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
-                        _hash_output_slot_ids.empty() ||
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
             }

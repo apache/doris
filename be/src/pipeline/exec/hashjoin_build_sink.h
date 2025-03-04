@@ -56,6 +56,8 @@ public:
 
     Status disable_runtime_filters(RuntimeState* state);
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 protected:
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
@@ -79,6 +81,7 @@ protected:
     bool _should_build_hash_table = true;
 
     bool _runtime_filters_disabled = false;
+    size_t _evaluate_mem_usage = 0;
 
     size_t _build_side_rows = 0;
 
@@ -109,8 +112,8 @@ protected:
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
-    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                               const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -118,9 +121,15 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
+
+    std::string get_memory_usage_debug_str(RuntimeState* state) const;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()

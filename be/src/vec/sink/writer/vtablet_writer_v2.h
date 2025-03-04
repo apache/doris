@@ -89,7 +89,7 @@ class DeltaWriterV2Map;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<uint32_t> row_idxes;
+    DorisVector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;
@@ -217,8 +217,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     std::unordered_set<int64_t> _opened_partitions;
 

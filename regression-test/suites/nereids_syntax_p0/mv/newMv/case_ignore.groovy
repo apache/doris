@@ -45,6 +45,8 @@ suite ("case_ignore") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table case_ignore with sync;"
+    sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from case_ignore order by k1;"
@@ -56,7 +58,6 @@ suite ("case_ignore") {
     order_qt_select_mv "select K1,abs(K2) from case_ignore order by K1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,abs(k2) from case_ignore order by k1;", "k12a")
 
     mv_rewrite_success("select K1,abs(K2) from case_ignore order by K1;", "k12a")

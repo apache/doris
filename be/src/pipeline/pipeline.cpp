@@ -34,6 +34,9 @@ void Pipeline::_init_profile() {
 
 bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distribution,
                                       const int idx) const {
+    if (!target_data_distribution.need_local_exchange()) {
+        return false;
+    }
     // If serial operator exists after `idx`-th operator, we should not improve parallelism.
     if (std::any_of(_operators.begin() + idx, _operators.end(),
                     [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
@@ -83,8 +86,8 @@ Status Pipeline::add_operator(OperatorPtr& op, const int parallelism) {
 }
 
 Status Pipeline::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_operators.back()->open(state));
-    RETURN_IF_ERROR(_sink->open(state));
+    RETURN_IF_ERROR(_operators.back()->prepare(state));
+    RETURN_IF_ERROR(_sink->prepare(state));
     _name.append(std::to_string(id()));
     _name.push_back('-');
     for (auto& op : _operators) {
@@ -109,6 +112,15 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
 }
 
 void Pipeline::make_all_runnable() {
+    DBUG_EXECUTE_IF("Pipeline::make_all_runnable.sleep", {
+        auto pipeline_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "Pipeline::make_all_runnable.sleep", "pipeline_id", -1);
+        if (pipeline_id == id()) {
+            LOG(WARNING) << "Pipeline::make_all_runnable.sleep sleep 10s";
+            sleep(10);
+        }
+    });
+
     if (_sink->count_down_destination()) {
         for (auto* task : _tasks) {
             if (task) {

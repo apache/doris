@@ -20,6 +20,8 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <random>
+#include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
@@ -67,7 +69,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
-
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
     for (const auto& partition : _cal_delete_bitmap_req.partitions) {
         int64_t version = partition.version;
         bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
@@ -97,7 +99,6 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     }
     // wait for all finished
     token->wait();
-    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
@@ -192,6 +193,18 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     }
 
     int64_t t3 = MonotonicMicros();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, txn={}, tablet_id={}", sleep_time,
+                     _transaction_id, _tablet_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
     Status status;
     if (_sub_txn_ids.empty()) {
         status = _handle_rowset(tablet, _version);
@@ -262,7 +275,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         return status;
     }
 
-    int64_t t3 = MonotonicMicros();
     rowset->set_version(Version(version, version));
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
@@ -274,7 +286,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    int64_t update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
@@ -304,7 +315,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
                                                        txn_expiration, tablet_delete_bitmap);
         }
-        update_delete_bitmap_time_us = MonotonicMicros() - t3;
     }
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
@@ -314,11 +324,6 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     }
 
     _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);
-    LOG(INFO) << "calculate delete bitmap successfully on tablet"
-              << ", table_id=" << tablet->table_id() << ", " << txn_str
-              << ", tablet_id=" << tablet->tablet_id() << ", num_rows=" << rowset->num_rows()
-              << ", update_delete_bitmap_time_us=" << update_delete_bitmap_time_us
-              << ", res=" << status;
     if (invisible_rowsets != nullptr) {
         invisible_rowsets->push_back(rowset);
         // see CloudTablet::save_delete_bitmap

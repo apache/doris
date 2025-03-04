@@ -17,6 +17,8 @@
 
 #include "partition_sort_sink_operator.h"
 
+#include <glog/logging.h>
+
 #include <cstdint>
 
 #include "common/status.h"
@@ -47,6 +49,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
+    _sorted_data_timer = ADD_TIMER(_profile, "SortedDataTime");
     _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
     _sorted_partition_input_rows_counter =
             ADD_COUNTER(_profile, "SortedPartitionInputRows", TUnit::UNIT);
@@ -61,9 +64,9 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 }
 
 PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id,
-                                                       const TPlanNode& tnode,
+                                                       int dest_id, const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _limit(tnode.limit),
@@ -91,8 +94,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::open(state));
+Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
@@ -134,17 +137,23 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         //seems could free for hashtable
         local_state._agg_arena_pool.reset(nullptr);
         local_state._partitioned_data.reset(nullptr);
+        SCOPED_TIMER(local_state._sorted_data_timer);
+        for (auto& _value_place : local_state._value_places) {
+            _value_place->create_or_reset_sorter_state();
+            local_state._shared_state->partition_sorts.emplace_back(
+                    std::move(_value_place->_partition_topn_sorter));
+        }
+        // notice: need split two for loop, as maybe need check sorter early
         for (int i = 0; i < local_state._value_places.size(); ++i) {
-            local_state._value_places[i]->create_or_reset_sorter_state();
-            auto sorter = std::move(local_state._value_places[i]->_partition_topn_sorter);
-
-            //get blocks from every partition, and sorter get those data.
+            auto& sorter = local_state._shared_state->partition_sorts[i];
             for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
-            local_state._shared_state->partition_sorts.push_back(std::move(sorter));
+            // iff one sorter have data, then could set source ready to read
+            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            local_state._dependency->set_ready_to_read();
         }
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
@@ -154,6 +163,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         {
             std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
             local_state._shared_state->sink_eos = true;
+            // this ready is also need, as source maybe block by self in some case
             local_state._dependency->set_ready_to_read();
         }
         local_state._profile->add_info_string("HasPassThrough",
@@ -175,6 +185,19 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
     RETURN_IF_ERROR(_emplace_into_hash_table(local_state._partition_columns, input_block,
                                              local_state, eos));
     return Status::OK();
+}
+
+size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    auto rows = state->batch_size();
+    size_t reserve_mem_size = std::visit(
+            vectorized::Overload {[&](std::monostate&) -> size_t { return 0; },
+                                  [&](auto& agg_method) -> size_t {
+                                      return agg_method.hash_table->estimate_memory(rows);
+                                  }},
+            local_state._partitioned_data->method_variant);
+    reserve_mem_size += rows * sizeof(size_t); // hash values
+    return reserve_mem_size;
 }
 
 Status PartitionSortSinkOperatorX::_emplace_into_hash_table(

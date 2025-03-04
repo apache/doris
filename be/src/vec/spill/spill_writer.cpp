@@ -46,14 +46,20 @@ Status SpillWriter::close() {
 
     // meta: block1 offset, block2 offset, ..., blockn offset, max_sub_block_size, n
     {
-        SCOPED_TIMER(write_timer_);
+        SCOPED_TIMER(_write_file_timer);
         RETURN_IF_ERROR(file_writer_->append(meta_));
     }
 
     total_written_bytes_ += meta_.size();
-    COUNTER_UPDATE(write_bytes_counter_, meta_.size());
-
+    COUNTER_UPDATE(_write_file_total_size, meta_.size());
+    if (_resource_ctx) {
+        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(meta_.size());
+    }
+    if (_write_file_current_size) {
+        COUNTER_UPDATE(_write_file_current_size, meta_.size());
+    }
     data_dir_->update_spill_data_usage(meta_.size());
+    ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_write_bytes(meta_.size());
 
     RETURN_IF_ERROR(file_writer_->close());
 
@@ -65,6 +71,8 @@ Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& writt
     written_bytes = 0;
     DCHECK(file_writer_);
     auto rows = block.rows();
+    COUNTER_UPDATE(_write_rows_counter, rows);
+    COUNTER_UPDATE(_write_block_bytes_counter, block.bytes());
     // file format: block1, block2, ..., blockn, meta
     if (rows <= batch_size_) {
         return _write_internal(block, written_bytes);
@@ -75,7 +83,7 @@ Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& writt
         for (size_t row_idx = 0; row_idx < rows && !state->is_cancelled();) {
             tmp_block.clear_column_data();
 
-            auto& dst_data = tmp_block.get_columns_with_type_and_name();
+            const auto& dst_data = tmp_block.get_columns_with_type_and_name();
 
             size_t block_rows = std::min(rows - row_idx, batch_size_);
             RETURN_IF_CATCH_EXCEPTION({
@@ -85,6 +93,9 @@ Status SpillWriter::write(RuntimeState* state, const Block& block, size_t& writt
                 }
             });
 
+            int64_t tmp_blcok_mem = tmp_block.allocated_bytes();
+            COUNTER_UPDATE(_memory_used_counter, tmp_blcok_mem);
+            Defer defer {[&]() { COUNTER_UPDATE(_memory_used_counter, -tmp_blcok_mem); }};
             RETURN_IF_ERROR(_write_internal(tmp_block, written_bytes));
 
             row_idx += block_rows;
@@ -98,22 +109,29 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
 
     Status status;
     std::string buff;
+    int64_t buff_size {0};
 
     if (block.rows() > 0) {
         {
             PBlock pblock;
-            SCOPED_TIMER(serialize_timer_);
+            SCOPED_TIMER(_serialize_timer);
             status = block.serialize(
                     BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
                     &compressed_bytes,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
             RETURN_IF_ERROR(status);
+            int64_t pblock_mem = pblock.ByteSizeLong();
+            COUNTER_UPDATE(_memory_used_counter, pblock_mem);
+            Defer defer {[&]() { COUNTER_UPDATE(_memory_used_counter, -pblock_mem); }};
             if (!pblock.SerializeToString(&buff)) {
                 return Status::Error<ErrorCode::SERIALIZE_PROTOBUF_ERROR>(
                         "serialize spill data error. [path={}]", file_path_);
             }
+            buff_size = buff.size();
+            COUNTER_UPDATE(_memory_used_counter, buff_size);
+            Defer defer2 {[&]() { COUNTER_UPDATE(_memory_used_counter, -buff_size); }};
         }
-        if (data_dir_->reach_capacity_limit(buff.size())) {
+        if (data_dir_->reach_capacity_limit(buff_size)) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                     "size: {}",
@@ -123,30 +141,37 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
         }
 
         {
-            auto buff_size = buff.size();
             Defer defer {[&]() {
                 if (status.ok()) {
                     data_dir_->update_spill_data_usage(buff_size);
+                    ExecEnv::GetInstance()->spill_stream_mgr()->update_spill_write_bytes(buff_size);
 
                     written_bytes += buff_size;
-                    max_sub_block_size_ = std::max(max_sub_block_size_, buff_size);
+                    max_sub_block_size_ = std::max(max_sub_block_size_, (size_t)buff_size);
 
                     meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
-                    COUNTER_UPDATE(write_bytes_counter_, buff_size);
-                    COUNTER_UPDATE(write_block_counter_, 1);
+                    COUNTER_UPDATE(_write_file_total_size, buff_size);
+                    if (_resource_ctx) {
+                        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
+                                buff_size);
+                    }
+                    if (_write_file_current_size) {
+                        COUNTER_UPDATE(_write_file_current_size, buff_size);
+                    }
+                    COUNTER_UPDATE(_write_block_counter, 1);
                     total_written_bytes_ += buff_size;
                     ++written_blocks_;
                 }
             }};
             {
-                SCOPED_TIMER(write_timer_);
+                SCOPED_TIMER(_write_file_timer);
                 status = file_writer_->append(buff);
                 RETURN_IF_ERROR(status);
             }
         }
     }
 
-    return Status::OK();
+    return status;
 }
 
 } // namespace doris::vectorized

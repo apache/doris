@@ -43,7 +43,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
     // this field will be visited by multi-threads, better use volatile qualifier
     protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
     private final ReentrantLock fsLock = new ReentrantLock();
-    protected static final AtomicBoolean closed = new AtomicBoolean(false);
+    protected AtomicBoolean closed = new AtomicBoolean(false);
 
     public RemoteFileSystem(String name, StorageBackend.StorageType type) {
         super(name, type);

@@ -37,6 +37,8 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 private:
     friend class SortSinkOperatorX;
 
@@ -53,7 +55,7 @@ private:
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
-    SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                       const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -62,7 +64,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
@@ -79,6 +81,8 @@ public:
     bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    size_t get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos);
 
     Status prepare_for_spill(RuntimeState* state);
 

@@ -21,10 +21,12 @@ import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
+import org.apache.doris.nereids.rules.expression.rules.InPredicateExtractNonConstant;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -79,6 +81,49 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("not (a and b and (c or d))", "(not a) or (not b) or ((not c) and (not d))");
 
+    }
+
+    @Test
+    void testSimplifyConflictPredicate() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyConflictCompound.INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("a > b and not(a > b)",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("not(a > b) and a > b",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and a > b and not(a > b)",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and not (not (a > b)) ",
+                "(a > b) IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("a > c and a > b and not(a > b) and a > d",
+                "a > c AND (a > b) IS NULL AND NULL and a > d");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b)",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("not(a > b) or a > b",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b) or a > b or not(a > b)",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > b or not(a > b) or not (not (a > b)) ",
+                "NOT (a > b) IS NULL OR NULL");
+        assertRewriteAfterTypeCoercion("a > c or a > b or not(a > b) or a > d",
+                "a > c OR NOT (a > b) IS NULL OR NULL OR a > d");
+        assertRewriteAfterTypeCoercion("a > b and (c > d or not (c > d))",
+                "a > b AND (NOT (c > d) IS NULL OR NULL)");
+        assertRewriteAfterTypeCoercion("(a > b or not(a > b)) and (c > d or not (c > d))",
+                "(NOT (a > b) IS NULL OR NULL) AND (NOT (c > d) IS NULL OR NULL)");
+        assertRewriteAfterTypeCoercion("a > b or (c > d and not (c > d))",
+                "a > b OR ((c > d) IS NULL AND NULL)");
+        assertRewriteAfterTypeCoercion("(a > b and not(a > b)) or (c > d and not (c > d))",
+                "((a > b) IS NULL AND NULL) OR ((c > d) IS NULL AND NULL)");
+
+        assertRewriteAfterTypeCoercion("a is null and not a is null", "FALSE");
+        assertRewriteAfterTypeCoercion("a is null or not a is null", "TRUE");
+
+        // random is non-foldable expression, the two RANDOM are not equals
+        assertRewriteAfterTypeCoercion("a > b and not(a > b) and c > random(1, 10) and not (c > random(1, 10))",
+                "(a > b) IS NULL AND NULL AND c > random(1, 10) AND NOT (c > random(1, 10))");
     }
 
     @Test
@@ -311,6 +356,10 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "(TA + TC > 10 or TB > 20) AND TB > 10");
         assertRewriteAfterTypeCoercion("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
                 "((TA + TC > 10 or TA + TC > 5) or (TB > 20 or TB < 10)) and TB > 10");
+        assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 or TA < 8 and TB <= 10",
+                "TA >= 8 and TB >= 1 or TA < 8 and TB <= 10");
+        assertRewriteAfterTypeCoercion("TA >= 8 and TB >= 1 and TA < 8 and TB <= 10",
+                "TA >= 8 and TB >= 1 and TA < 8 and TB <= 10");
         assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
                 "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
         assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
@@ -360,5 +409,19 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 "TB IS NULL AND NULL and (TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
         assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 30 and 40 and TB between 30 and 40 or TA between 60 and 50 and TB between 60 and 50",
                 "(TA <= 20 and TB <= 20 or TA >= 30 and TB >= 30 or TA is null and null and TB is null) and TA >= 10 and TA <= 40 and TB >= 10 and TB <= 40");
+    }
+
+    @Test
+    public void testInPredicateExtractNonConstant() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        InPredicateExtractNonConstant.INSTANCE
+                )
+        ));
+
+        assertRewriteAfterTypeCoercion("TA in (3, 2, 1)", "TA in (3, 2, 1)");
+        assertRewriteAfterTypeCoercion("TA in (TB, TC, TB)", "TA = TB or TA = TC");
+        assertRewriteAfterTypeCoercion("TA in (3, 2, 1, TB, TC, TB)", "TA in (3, 2, 1) or TA = TB or TA = TC");
+        assertRewriteAfterTypeCoercion("IA in (1 + 2, 2 + 3, 3 + TB)", "IA in (cast(1 + 2 as int), cast(2 + 3 as int)) or IA = cast(3 + TB as int)");
     }
 }

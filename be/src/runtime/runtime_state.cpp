@@ -79,7 +79,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_mem_tracker = query_mem_tracker;
     } else {
         DCHECK(ctx != nullptr);
-        _query_mem_tracker = ctx->query_mem_tracker;
+        _query_mem_tracker = ctx->query_mem_tracker();
     }
 #ifdef BE_TEST
     if (_query_mem_tracker == nullptr) {
@@ -114,7 +114,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _query_mem_tracker = ctx->query_mem_tracker;
+    _query_mem_tracker = ctx->query_mem_tracker();
 #ifdef BE_TEST
     if (_query_mem_tracker == nullptr) {
         init_mem_trackers();
@@ -145,7 +145,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    _query_mem_tracker = ctx->query_mem_tracker;
+    _query_mem_tracker = ctx->query_mem_tracker();
 #ifdef BE_TEST
     if (_query_mem_tracker == nullptr) {
         init_mem_trackers();
@@ -260,6 +260,8 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
 
+    _profile_level = query_options.__isset.profile_level ? query_options.profile_level : 2;
+
     return Status::OK();
 }
 
@@ -275,6 +277,10 @@ void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& i
 std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
     CHECK(_query_mem_tracker != nullptr);
     return _query_mem_tracker;
+}
+
+WorkloadGroupPtr RuntimeState::workload_group() {
+    return _query_ctx->workload_group();
 }
 
 bool RuntimeState::log_error(const std::string& error) {
@@ -438,7 +444,8 @@ void RuntimeState::resize_op_id_to_local_state(int operator_size) {
 void RuntimeState::emplace_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
     id = -id;
-    DCHECK(id < _op_id_to_local_state.size());
+    DCHECK_LT(id, _op_id_to_local_state.size())
+            << state->parent()->get_name() << " node id = " << state->parent()->node_id();
     DCHECK(!_op_id_to_local_state[id]);
     _op_id_to_local_state[id] = std::move(state);
 }
@@ -535,6 +542,15 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         }
     }
     return _pipeline_id_to_profile;
+}
+
+bool RuntimeState::low_memory_mode() const {
+#ifdef BE_TEST
+    if (!_query_ctx) {
+        return false;
+    }
+#endif
+    return _query_ctx->low_memory_mode();
 }
 
 } // end namespace doris

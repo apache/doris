@@ -40,11 +40,11 @@ class VSortExecExprs;
 
 namespace doris::vectorized {
 
-PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                                  ObjectPool* pool, std::vector<bool>& is_asc_order,
                                  std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                                  RuntimeState* state, RuntimeProfile* profile,
-                                 bool has_global_limit, int partition_inner_limit,
+                                 bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
@@ -74,6 +74,7 @@ Status PartitionSorter::prepare_for_read() {
     }
     queue = MergeSorterQueue(cursors);
     blocks.clear();
+    _prepared_finish = true;
     return Status::OK();
 }
 
@@ -90,6 +91,7 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
     }
     _output_total_rows = 0;
     _output_distinct_rows = 0;
+    _prepared_finish = false;
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
