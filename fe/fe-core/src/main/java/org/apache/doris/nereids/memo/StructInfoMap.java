@@ -20,11 +20,14 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -42,6 +45,8 @@ import javax.annotation.Nullable;
  * Representation for group in cascades optimizer.
  */
 public class StructInfoMap {
+
+    public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;
@@ -60,7 +65,7 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, cascadesContext);
+            refresh(group, cascadesContext, new HashSet<>());
             group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
@@ -116,13 +121,13 @@ public class StructInfoMap {
      * @param group the root group
      *
      */
-    public void refresh(Group group, CascadesContext cascadesContext) {
+    public void refresh(Group group, CascadesContext cascadesContext, Set<Integer> refreshedGroup) {
+        refreshedGroup.add(group.getGroupId().asInt());
         StructInfoMap structInfoMap = group.getstructInfoMap();
         long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
-        Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
@@ -136,10 +141,9 @@ public class StructInfoMap {
             for (Group child : groupExpression.children()) {
                 StructInfoMap childStructInfoMap = child.getstructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext);
+                    childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                refreshedGroup.add(child.getGroupId().asInt());
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
@@ -156,12 +160,38 @@ public class StructInfoMap {
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
             Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
+            long maxCombineCount = cascadesContext.getConnectContext()
+                    .getSessionVariable().materializedViewStructInfoMaxCombineCount;
+            if (bitSetWithChildren.size() > maxCombineCount) {
+                LOG.warn("StructInfoMap refresh bitSetWithChildren is larger than threshold,"
+                                + "bitSetWithChildren size is {}, sql hash is {}, current groupExpression plan is {}",
+                        bitSetWithChildren.size(),
+                        cascadesContext.getConnectContext().getSqlHash(),
+                        groupExpression.getPlan().treeString());
+                // calc sqrt to reduce the number of combinations
+                long maxCombineCountSqrt = (long) Math.sqrt(bitSetWithChildren.size());
+                bitSetWithChildren = pruneStructInfoBitsets(bitSetWithChildren, (int) maxCombineCountSqrt,
+                        cascadesContext.getStatementContext());
+            }
             for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
                 groupExpressionMap.putIfAbsent(bitSetWithChild.first,
                         Pair.of(groupExpression, bitSetWithChild.second));
             }
-
         }
+    }
+
+    // Get struct info bit set according to size
+    private static List<Pair<BitSet, List<BitSet>>> pruneStructInfoBitsets(
+            Collection<Pair<BitSet, List<BitSet>>> allBitsets, int size, StatementContext context) {
+        int pruneSize = Math.min(allBitsets.size(), size);
+        List<Pair<BitSet, List<BitSet>>> prunedStructInfos = new ArrayList<>();
+        for (Pair<BitSet, List<BitSet>> pair : allBitsets) {
+            if (prunedStructInfos.size() >= pruneSize) {
+                break;
+            }
+            prunedStructInfos.add(pair);
+        }
+        return prunedStructInfos;
     }
 
     private BitSet constructLeaf(GroupExpression groupExpression, CascadesContext cascadesContext) {
