@@ -18,14 +18,18 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -36,6 +40,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
@@ -70,7 +75,7 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
         Alias alias = new Alias(new ExprId(1), window, "window");
         ConnectContext context = MemoTestUtils.createConnectContext();
 
-        // filter -> limit -> project(windows)
+        // filter -> project(windows)
         LogicalPlan plan = new LogicalPlanBuilder(scan)
                 .projectExprs(ImmutableList.of(alias))
                 .filter(new IsNull(alias.toSlot()))
@@ -90,6 +95,47 @@ class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
         PlanChecker.from(context, plan)
                 .applyTopDown(new PushDownFilterThroughProject())
                 .matches(logicalFilter(logicalLimit(logicalProject())));
+    }
+
+    @Test
+    void notPushDownFilterThroughNonfoldable() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        Alias foldableAlias = new Alias(new ExprId(1), scan.getOutput().get(0), "a");
+        Alias nonfoldableAlias = new Alias(new ExprId(2),
+                new Random(new BigIntLiteral(1L), new BigIntLiteral(10L)), "b");
+        Expression nonfoldableAdd = new Add(foldableAlias.toSlot(),
+                new Random(new BigIntLiteral(1L), new BigIntLiteral(2L)));
+        Expression condition = new And(Lists.newArrayList(new IsNull(foldableAlias.toSlot()),
+                new IsNull(nonfoldableAlias.toSlot()), new IsNull(nonfoldableAdd)));
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(foldableAlias, nonfoldableAlias))
+                .filter(condition)
+                .build();
+
+        PlanChecker.from(context, plan)
+                .applyTopDown(new PushDownFilterThroughProject())
+                .matches(
+                        logicalFilter(
+                                logicalProject(
+                                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                                "AND[id IS NULL,(id + random(1, 2)) IS NULL]"))))
+                                .when(f -> f.getPredicate().toSql().equals("b IS NULL")));
+
+        plan = new LogicalPlanBuilder(scan)
+                .projectExprs(ImmutableList.of(foldableAlias, nonfoldableAlias))
+                .limit(1)
+                .filter(condition)
+                .build();
+
+        PlanChecker.from(context, plan)
+                .applyTopDown(new PushDownFilterThroughProject())
+                .matches(
+                        logicalFilter(
+                                logicalProject(
+                                        logicalFilter(logicalLimit())
+                                                .when(f -> f.getPredicate().toSql().equals(
+                                                        "AND[id IS NULL,(id + random(1, 2)) IS NULL]"))))
+                                .when(f -> f.getPredicate().toSql().equals("b IS NULL")));
     }
 
     @Test

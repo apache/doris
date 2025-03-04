@@ -46,6 +46,7 @@ namespace doris {
 namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
+[[maybe_unused]] std::once_flag g_jvm_conf_once;
 
 const std::string GetDorisJNIDefaultClasspath() {
     const auto* doris_home = getenv("DORIS_HOME");
@@ -97,23 +98,11 @@ const std::string GetKerb5ConfPath() {
 }
 
 [[maybe_unused]] void SetEnvIfNecessary() {
-    const auto* doris_home = getenv("DORIS_HOME");
-    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
-
-    // CLASSPATH
-    const std::string original_classpath = getenv("CLASSPATH") ? getenv("CLASSPATH") : "";
-    static const std::string classpath = fmt::format(
-            "{}/conf:{}:{}", doris_home, GetDorisJNIDefaultClasspath(), original_classpath);
-    setenv("CLASSPATH", classpath.c_str(), 0);
-
-    // LIBHDFS_OPTS
-    const std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
-    std::string libhdfs_opts =
-            fmt::format("{} -Djava.library.path={}/lib/hadoop_hdfs/native:{} ", java_opts,
-                        getenv("DORIS_HOME"), getenv("DORIS_HOME") + std::string("/lib"));
-    libhdfs_opts += fmt::format("{} ", GetKerb5ConfPath());
-
+    std::string libhdfs_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
+    CHECK(libhdfs_opts != "") << "LIBHDFS_OPTS is not set";
+    libhdfs_opts += fmt::format(" {} ", GetKerb5ConfPath());
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
+    LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
 }
 
 // Only used on non-x86 platform
@@ -277,7 +266,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
-    SetEnvIfNecessary();
+    std::call_once(g_jvm_conf_once, SetEnvIfNecessary);
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;

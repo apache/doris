@@ -180,10 +180,10 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
+
+    void deserialize_vec(StringRef* keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -324,9 +324,6 @@ public:
     bool is_nullable() const override { return true; }
     bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
-    bool is_column_array() const override { return get_nested_column().is_column_array(); }
-    bool is_column_map() const override { return get_nested_column().is_column_map(); }
-    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&

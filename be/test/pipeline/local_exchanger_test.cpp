@@ -78,6 +78,11 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         shuffle_idx_to_instance_idx[i] = i;
     }
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit =
+            (num_partitions - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::pair<std::vector<uint32_t>, int>> hash_vals_and_value;
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
@@ -124,6 +129,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -141,10 +148,6 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit =
-            (num_partitions - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue 2 blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_partitions; i++) {
@@ -173,8 +176,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                                    _sink_local_states[i]->_partitioner.get(),
                                    _sink_local_states[i].get(), &shuffle_idx_to_instance_idx}),
                           Status::OK());
-                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), i < num_partitions - 1);
                 EXPECT_EQ(_sink_local_states[i]->_channel_id, i);
+                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), i < num_partitions - 1);
             }
         }
     }
@@ -320,6 +323,10 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = num_sources + 1;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -345,6 +352,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -362,9 +371,6 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = num_sources + 1;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -446,7 +452,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : 10);
-                EXPECT_EQ(eos, false);
+                EXPECT_FALSE(eos);
                 EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
             }
         }
@@ -511,6 +517,10 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -536,6 +546,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -553,9 +565,6 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -645,7 +654,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : 10);
-                EXPECT_EQ(eos, false);
+                EXPECT_FALSE(eos);
                 EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
             }
         }
@@ -710,6 +719,10 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -735,6 +748,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -752,9 +767,6 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
     }
 
-    const auto expect_block_bytes = 128;
-    const auto num_blocks = 2;
-    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -799,7 +811,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_blocks * num_sources ? 0 : 10);
-                EXPECT_EQ(eos, false);
+                EXPECT_FALSE(eos);
                 EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_blocks * num_sources);
             }
         }
@@ -836,7 +848,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == num_sources ? 0 : 10);
-                EXPECT_EQ(eos, false);
+                EXPECT_FALSE(eos);
                 EXPECT_EQ(_local_states[i]->_dependency->ready(), j != num_sources);
             }
         }
@@ -901,6 +913,13 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     int num_sources = 4;
     int free_block_limit = 0;
 
+    const auto expect_block_bytes = 128;
+    const auto splited_block_bytes = 64;
+    const auto num_blocks = num_sources;
+    const auto num_rows_per_block = num_sources * 3;
+    config::local_exchange_buffer_mem_limit = splited_block_bytes * num_sources * num_blocks +
+                                              (num_sources - 2) * num_blocks * expect_block_bytes;
+
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
     _sink_local_states.resize(num_sink);
@@ -926,6 +945,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -944,12 +965,6 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     }
 
     EXPECT_EQ(exchanger->_is_pass_through, false);
-    const auto expect_block_bytes = 128;
-    const auto splited_block_bytes = 64;
-    const auto num_blocks = num_sources;
-    const auto num_rows_per_block = num_sources * 3;
-    config::local_exchange_buffer_mem_limit = splited_block_bytes * num_sources * num_blocks +
-                                              (num_sources - 2) * num_blocks * expect_block_bytes;
     {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
@@ -1038,7 +1053,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
                                               _local_states[i].get()}),
                         Status::OK());
                 EXPECT_EQ(block.rows(), j == 1 ? 0 : num_rows_per_block);
-                EXPECT_EQ(eos, false);
+                EXPECT_FALSE(eos);
                 EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 1);
             }
         }
@@ -1160,6 +1175,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
@@ -1254,6 +1271,144 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
     int free_block_limit = 0;
     const auto expect_block_bytes = 128;
     const auto num_blocks = 2;
+    config::local_exchange_buffer_mem_limit = expect_block_bytes * num_partitions;
+    std::vector<bool> is_asc_order;
+    std::vector<bool> nulls_first;
+    vectorized::VExprContextSPtrs ordering_expr_ctxs;
+    auto texpr = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                  TTypeDescBuilder()
+                                          .set_types(TTypeNodeBuilder()
+                                                             .set_type(TTypeNodeType::SCALAR)
+                                                             .set_scalar_type(TPrimitiveType::INT)
+                                                             .build())
+                                          .build(),
+                                  0)
+                         .set_slot_ref(TSlotRefBuilder(0, 0).build())
+                         .build();
+    auto slot = doris::vectorized::VSlotRef::create_shared(texpr);
+    slot->_column_id = 0;
+    slot->_prepare_finished = true;
+    ordering_expr_ctxs.push_back(std::make_shared<doris::vectorized::VExprContext>(slot));
+    is_asc_order.push_back(true);
+    nulls_first.push_back(true);
+    ordering_expr_ctxs[0]->_prepared = true;
+    ordering_expr_ctxs[0]->_opened = true;
+
+    std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
+    std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
+    _sink_local_states.resize(num_sink);
+    _local_states.resize(num_sources);
+    auto profile = std::make_shared<RuntimeProfile>("");
+    auto shared_state = LocalMergeExchangeSharedState::create_shared(num_partitions);
+    shared_state->exchanger = LocalMergeSortExchanger::create_unique(
+            LocalMergeSortExchanger::MergeInfo {is_asc_order, nulls_first, -1, 0,
+                                                ordering_expr_ctxs},
+            num_sink, num_partitions, free_block_limit);
+    auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
+    sink_dep->set_shared_state(shared_state.get());
+    shared_state->sink_deps.push_back(sink_dep);
+    shared_state->create_dependencies(0);
+    auto& sink_deps = shared_state->sink_deps;
+    EXPECT_EQ(sink_deps.size(), num_sink);
+
+    auto* exchanger = (LocalMergeSortExchanger*)shared_state->exchanger.get();
+    for (size_t i = 0; i < num_sink; i++) {
+        auto compute_hash_value_timer =
+                ADD_TIMER(profile, "ComputeHashValueTime" + std::to_string(i));
+        auto distribute_timer = ADD_TIMER(profile, "distribute_timer" + std::to_string(i));
+        _sink_local_states[i].reset(new LocalExchangeSinkLocalState(nullptr, nullptr));
+        _sink_local_states[i]->_exchanger = shared_state->exchanger.get();
+        _sink_local_states[i]->_compute_hash_value_timer = compute_hash_value_timer;
+        _sink_local_states[i]->_distribute_timer = distribute_timer;
+        _sink_local_states[i]->_channel_id = i;
+        _sink_local_states[i]->_shared_state = shared_state.get();
+        _sink_local_states[i]->_dependency = sink_deps[i].get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
+    }
+    for (size_t i = 0; i < num_sources; i++) {
+        auto get_block_failed_counter =
+                ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
+        auto copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
+        _local_states[i].reset(new LocalExchangeSourceLocalState(nullptr, nullptr));
+        _local_states[i]->_runtime_profile =
+                std::make_unique<RuntimeProfile>("source_profile " + std::to_string(i));
+        _local_states[i]->_exchanger = shared_state->exchanger.get();
+        _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
+        _local_states[i]->_copy_data_timer = copy_data_timer;
+        _local_states[i]->_channel_id = i;
+        _local_states[i]->_shared_state = shared_state.get();
+        _local_states[i]->_dependency = shared_state->get_dep_by_channel_id(i).front().get();
+        _local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "MemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
+        shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
+    }
+    _local_states[0]->_local_merge_deps = shared_state->source_deps;
+    {
+        // Enqueue 2 blocks with 10 rows for each data queue.
+        for (size_t i = 0; i < num_partitions; i++) {
+            for (size_t j = 0; j < num_blocks; j++) {
+                vectorized::Block in_block;
+                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
+                auto int_col0 = vectorized::ColumnInt32::create();
+                int_col0->insert_many_vals(i, 10);
+
+                in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
+                EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
+                bool in_eos = j == num_blocks - 1;
+                EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
+                                          {_sink_local_states[i]->_compute_hash_value_timer,
+                                           _sink_local_states[i]->_distribute_timer, nullptr},
+                                          {&_sink_local_states[i]->_channel_id,
+                                           _sink_local_states[i]->_partitioner.get(),
+                                           _sink_local_states[i].get(), nullptr}),
+                          Status::OK());
+                EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), j == 0);
+                EXPECT_EQ(_sink_local_states[i]->_channel_id, i);
+            }
+        }
+    }
+    for (size_t i = 0; i < num_sink; i++) {
+        shared_state->sub_running_sink_operators();
+    }
+
+    {
+        for (size_t i = 0; i < num_sources; i++) {
+            EXPECT_EQ(shared_state->mem_counters[i]->value(), expect_block_bytes * num_blocks);
+            EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
+        }
+        // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
+        EXPECT_EQ(exchanger->_merger, nullptr);
+        for (size_t i = 0; i < num_sources; i++) {
+            for (size_t j = 0; j < num_sink * num_blocks + 1; j++) {
+                bool eos = false;
+                vectorized::Block block;
+                EXPECT_EQ(
+                        exchanger->get_block(_runtime_state.get(), &block, &eos,
+                                             {nullptr, nullptr, _local_states[i]->_copy_data_timer},
+                                             {cast_set<int>(_local_states[i]->_channel_id),
+                                              _local_states[i].get()}),
+                        Status::OK());
+                EXPECT_TRUE(exchanger->_merger != nullptr);
+                EXPECT_EQ(block.rows(), i > 0 || j == num_sink * num_blocks ? 0 : 10);
+                EXPECT_EQ(eos, i > 0 || j == num_sink * num_blocks);
+                EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < num_sink; i++) {
+        EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
+    }
+}
+
+TEST_F(LocalExchangerTest, LocalMergeSortExchangerWithEmptyBlock) {
+    int num_sink = 4;
+    int num_sources = 4;
+    int num_partitions = 4;
+    int free_block_limit = 0;
+    const auto expect_block_bytes = 128;
+    const auto num_blocks = 2;
     std::vector<bool> is_asc_order;
     std::vector<bool> nulls_first;
     vectorized::VExprContextSPtrs ordering_expr_ctxs;
@@ -1306,7 +1461,10 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_deps[i].get();
+        _sink_local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
+                "SinkMemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
     }
+    LocalExchangeSourceOperatorX op;
     for (size_t i = 0; i < num_sources; i++) {
         auto get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
@@ -1323,7 +1481,9 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
         _local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
                 "MemoryUsage" + std::to_string(i), TUnit::BYTES, "", 1);
         shared_state->mem_counters[i] = _local_states[i]->_memory_used_counter;
+        _local_states[i]->_parent = &op;
     }
+    _local_states[0]->_local_merge_deps = shared_state->source_deps;
     {
         // Enqueue 2 blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_partitions; i++) {
@@ -1335,7 +1495,7 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
 
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
-                bool in_eos = j == num_blocks - 1;
+                bool in_eos = false;
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -1348,37 +1508,69 @@ TEST_F(LocalExchangerTest, LocalMergeSortExchanger) {
             }
         }
     }
+
+    for (size_t i = 0; i < num_sources; i++) {
+        EXPECT_EQ(shared_state->mem_counters[i]->value(), expect_block_bytes * num_blocks);
+        EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
+    }
+    // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
+    EXPECT_EQ(exchanger->_merger, nullptr);
+    for (size_t i = 0; i < num_sources; i++) {
+        for (size_t j = 0; j < num_blocks; j++) {
+            bool eos = false;
+            vectorized::Block block;
+            EXPECT_EQ(exchanger->get_block(_runtime_state.get(), &block, &eos,
+                                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
+                                           {cast_set<int>(_local_states[i]->_channel_id),
+                                            _local_states[i].get()}),
+                      Status::OK());
+        }
+    }
+
+    bool error = false;
+    try {
+        vectorized::Block block;
+        bool eos = false;
+        EXPECT_TRUE(exchanger
+                            ->get_block(_runtime_state.get(), &block, &eos,
+                                        {nullptr, nullptr, _local_states[0]->_copy_data_timer},
+                                        {cast_set<int>(_local_states[0]->_channel_id),
+                                         _local_states[0].get()})
+                            .is<ErrorCode::INTERNAL_ERROR>());
+    } catch (const Exception& e) {
+        error = true;
+        EXPECT_TRUE(e.to_status().is<ErrorCode::INTERNAL_ERROR>());
+    }
+    EXPECT_TRUE(error);
     for (size_t i = 0; i < num_sink; i++) {
         shared_state->sub_running_sink_operators();
     }
 
     {
         for (size_t i = 0; i < num_sources; i++) {
-            EXPECT_EQ(shared_state->mem_counters[i]->value(), shared_state->_queues_mem_usage[i]);
-            EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
-        }
-        // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
-        EXPECT_EQ(exchanger->_merger, nullptr);
-        for (size_t i = 0; i < num_sources; i++) {
-            for (size_t j = 0; j < num_sink * num_blocks + 1; j++) {
+            for (size_t j = 0; j < num_sink * num_blocks - num_blocks; j++) {
                 bool eos = false;
+                error = false;
                 vectorized::Block block;
-                EXPECT_EQ(
-                        exchanger->get_block(_runtime_state.get(), &block, &eos,
-                                             {nullptr, nullptr, _local_states[i]->_copy_data_timer},
-                                             {cast_set<int>(_local_states[i]->_channel_id),
-                                              _local_states[i].get()}),
-                        Status::OK());
+                try {
+                    EXPECT_EQ(exchanger->get_block(
+                                      _runtime_state.get(), &block, &eos,
+                                      {nullptr, nullptr, _local_states[i]->_copy_data_timer},
+                                      {cast_set<int>(_local_states[i]->_channel_id),
+                                       _local_states[i].get()}),
+                              Status::OK());
+                } catch (const Exception& e) {
+                    error = true;
+                    EXPECT_TRUE(e.to_status().is<ErrorCode::INTERNAL_ERROR>());
+                }
+                // error is true when we get another block after all blocks in one queue are exhausted.
+                EXPECT_EQ(error, i == 0 && (j % (num_blocks + 1) == 0)) << i << " " << j;
                 EXPECT_TRUE(exchanger->_merger != nullptr);
-                EXPECT_EQ(block.rows(), i > 0 || j == num_sink * num_blocks ? 0 : 10);
-                EXPECT_EQ(eos, i > 0 || j == num_sink * num_blocks);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
+                EXPECT_EQ(block.rows(), i > 0 || (j % (num_blocks + 1) == 0) ? 0 : 10)
+                        << i << " " << j;
+                EXPECT_EQ(eos, i > 0 || j == num_sink * num_blocks - num_blocks) << i << " " << j;
             }
         }
-    }
-
-    for (size_t i = 0; i < num_sink; i++) {
-        EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
     }
 }
 

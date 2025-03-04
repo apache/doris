@@ -418,6 +418,7 @@ fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
+export JAVA_OPTS="${final_java_opt}"
 
 # log "CLASSPATH: ${CLASSPATH}"
 # log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"

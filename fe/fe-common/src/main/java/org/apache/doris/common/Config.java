@@ -81,8 +81,11 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
-    @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
-            "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
+    @ConfField(description = {"FE 在 sys_log_roll_interval （日志滚动间隔）内允许保留的最大日志文件数。"
+            + "默认值为 10，意味着在每个日志滚动周期内，系统最多会保留 10 个日志文件。",
+            "This parameter defines the maximum number of FE log files that can be retained within the "
+            + "sys_log_roll_interval (log roll interval). The default value is 10, which means the system"
+            + " will keep up to 10 log files during each log roll interval."})
     public static int sys_log_roll_num = 10;
 
     @ConfField(description = {
@@ -140,6 +143,11 @@ public class Config extends ConfigBase {
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"PreparedStatement stmtId 起始位置，仅用于测试",
+                    "PreparedStatement stmtId starting position, used for testing onl"})
+    public static long prepared_stmt_start_id = -1;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
@@ -189,6 +197,12 @@ public class Config extends ConfigBase {
             "针对 ALTER, EXPORT 作业，如果作业已经完成，且超过这个时间后，会被删除。",
             "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
+            "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
+                    + "the oldest records will be deleted."})
+    public static int max_export_history_job_num = 1000;
 
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "
@@ -2626,11 +2640,6 @@ public class Config extends ConfigBase {
     public static int maximum_parallelism_of_export_job = 50;
 
     @ConfField(mutable = true, description = {
-            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
-            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
-    public static int maximum_tablets_of_outfile_in_export = 10;
-
-    @ConfField(mutable = true, description = {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
@@ -3224,6 +3233,15 @@ public class Config extends ConfigBase {
             "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
+
+    @ConfField(mutable = true, description = {
+            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
+            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
+            "This parameter controls whether to force the use of the Azure global endpoint. "
+            + "The default is false, meaning the system will use the user-specified endpoint. "
+            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+    })
+    public static boolean force_azure_blob_global_endpoint = false;
 
     @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"

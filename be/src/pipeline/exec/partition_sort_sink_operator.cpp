@@ -94,8 +94,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::open(state));
+Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
@@ -185,6 +185,19 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
     RETURN_IF_ERROR(_emplace_into_hash_table(local_state._partition_columns, input_block,
                                              local_state, eos));
     return Status::OK();
+}
+
+size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    auto rows = state->batch_size();
+    size_t reserve_mem_size = std::visit(
+            vectorized::Overload {[&](std::monostate&) -> size_t { return 0; },
+                                  [&](auto& agg_method) -> size_t {
+                                      return agg_method.hash_table->estimate_memory(rows);
+                                  }},
+            local_state._partitioned_data->method_variant);
+    reserve_mem_size += rows * sizeof(size_t); // hash values
+    return reserve_mem_size;
 }
 
 Status PartitionSortSinkOperatorX::_emplace_into_hash_table(

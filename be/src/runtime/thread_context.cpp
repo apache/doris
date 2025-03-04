@@ -42,11 +42,11 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     signal::set_signal_is_nereids(runtime_state->is_nereids());
-    init(runtime_state->get_query_ctx()->resource_ctx);
+    init(runtime_state->get_query_ctx()->resource_ctx());
 }
 
 AttachTask::AttachTask(QueryContext* query_ctx) {
-    init(query_ctx->resource_ctx);
+    init(query_ctx->resource_ctx());
 }
 
 AttachTask::~AttachTask() {
@@ -57,15 +57,13 @@ AttachTask::~AttachTask() {
 
 SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc) {
     DCHECK(rc != nullptr);
-    DCHECK(thread_context()->is_attach_task());
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     if (rc != thread_context()->resource_ctx()) {
         signal::set_signal_task_id(rc->task_controller()->task_id());
         old_resource_ctx_ = thread_context()->resource_ctx();
         thread_context()->resource_ctx_ = rc;
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
-                rc->memory_context()->mem_tracker(),
-                rc->workload_group_context()->workload_group());
+                rc->memory_context()->mem_tracker(), rc->workload_group());
     }
 }
 

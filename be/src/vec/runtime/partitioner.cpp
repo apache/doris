@@ -27,7 +27,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <typename ChannelIds>
-Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block) const {
+Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
+                                                         bool eos, bool* already_sent) const {
     size_t rows = block->rows();
 
     if (rows > 0) {
@@ -68,6 +69,7 @@ template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
+
     partitioner.reset(new_partitioner);
     new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
     for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {

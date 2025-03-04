@@ -70,6 +70,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -1021,14 +1022,24 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(), stmt.isSetIfExists(),
+                stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                          boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");
             return;
         }
         try {
-            metadataOps.dropTable(stmt);
-            DropInfo info = new DropInfo(getName(), stmt.getDbName(), stmt.getTableName());
+            metadataOps.dropTable(dbName, tableName, ifExists);
+            DropInfo info = new DropInfo(getName(), dbName, tableName);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
@@ -1167,5 +1178,22 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalCatalog)) {
+            return false;
+        }
+        ExternalCatalog that = (ExternalCatalog) o;
+        return Objects.equal(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
     }
 }

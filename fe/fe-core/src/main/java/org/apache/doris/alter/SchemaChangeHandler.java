@@ -85,6 +85,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -2182,6 +2183,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    @Override
+    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+                               OlapTable olapTable) throws UserException {
+        // TODO: convert alterClauses to alterSystemCommands for schema change
+    }
+
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
@@ -2944,8 +2951,10 @@ public class SchemaChangeHandler extends AlterHandler {
                     olapTable.getName(), jobId, isReplay);
         } else {
             if (!isReplay) {
-                TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
-                        indexSchemaMap, oldIndexSchemaMap, indexes, jobId);
+                Map<String, Long> indexNameToId = new HashMap<>(olapTable.getIndexNameToId());
+                TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(
+                        rawSql, db.getId(), olapTable.getId(), olapTable.getBaseIndexId(),
+                        indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
