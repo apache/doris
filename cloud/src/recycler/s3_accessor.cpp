@@ -21,6 +21,7 @@
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/HeadBucketRequest.h>
 #include <bvar/reducer.h>
 #include <cpp/sync_point.h>
 #include <gen_cpp/cloud.pb.h>
@@ -240,7 +241,93 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 
 static std::shared_ptr<SimpleThreadPool> worker_pool;
 
+// Enum to represent connection test results
+enum class ConnectionTestResult {
+    SUCCESS,       // Connection successful
+    NETWORK_ERROR, // Network-related connection failure
+    AUTH_ERROR,    // Authentication or permission related error
+    TIMEOUT_ERROR, // Connection timeout
+    UNKNOWN_ERROR  // Other unexpected errors
+};
+
+// Perform connection test for Azure Blob Storage
+ConnectionTestResult testAzureConnection(
+        const std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient>& container_client,
+        const std::string& bucket) {
+    try {
+        // Use GetProperties() as a lightweight connection verification
+        auto properties = container_client->GetProperties();
+        return ConnectionTestResult::SUCCESS;
+    } catch (const Azure::Core::RequestFailedException& e) {
+        // Log detailed Azure-specific error information
+        LOG(WARNING) << ("Azure S3 connection test failed: {} (Status Code: {})", e.what(),
+                         static_cast<int>(e.StatusCode));
+
+        // Categorize errors based on status code
+        switch (e.StatusCode) {
+        case Azure::Core::Http::HttpStatusCode::Unauthorized:
+        case Azure::Core::Http::HttpStatusCode::Forbidden:
+            return ConnectionTestResult::AUTH_ERROR;
+
+        case Azure::Core::Http::HttpStatusCode::RequestTimeout:
+        case Azure::Core::Http::HttpStatusCode::GatewayTimeout:
+            return ConnectionTestResult::TIMEOUT_ERROR;
+
+        default:
+            return ConnectionTestResult::NETWORK_ERROR;
+        }
+    } catch (const std::exception& e) {
+        // Catch any other unexpected exceptions
+        LOG(WARNING) << ("Unexpected Azure connection error: {}", e.what());
+        return ConnectionTestResult::UNKNOWN_ERROR;
+    }
+}
+
+// Perform connection test for AWS S3
+ConnectionTestResult testAwsS3Connection(const std::shared_ptr<Aws::S3::S3Client>& s3_client,
+                                         const std::string& bucket) {
+    try {
+        // Prepare lightweight HeadBucket request
+        Aws::S3::Model::HeadBucketRequest head_request;
+        head_request.SetBucket(bucket);
+
+        // Perform connection test
+        auto outcome = s3_client->HeadBucket(head_request);
+
+        // Check connection status
+        if (!outcome.IsSuccess()) {
+            auto error = outcome.GetError();
+            LOG(WARNING) << "S3 connection test failed: " << error.GetMessage()
+                         << ", code: " << static_cast<int>(error.GetErrorType());
+
+            // Categorize errors
+            switch (error.GetErrorType()) {
+            case Aws::S3::S3Errors::NETWORK_CONNECTION:
+                return ConnectionTestResult::NETWORK_ERROR;
+
+            case Aws::S3::S3Errors::REQUEST_TIMEOUT:
+                return ConnectionTestResult::TIMEOUT_ERROR;
+
+            case Aws::S3::S3Errors::ACCESS_DENIED:
+            case Aws::S3::S3Errors::INVALID_ACCESS_KEY_ID:
+            case Aws::S3::S3Errors::SIGNATURE_DOES_NOT_MATCH:
+                return ConnectionTestResult::AUTH_ERROR;
+
+            default:
+                return ConnectionTestResult::UNKNOWN_ERROR;
+            }
+        }
+
+        return ConnectionTestResult::SUCCESS;
+    } catch (const std::exception& e) {
+        // Catch any unexpected exceptions
+        LOG(WARNING) << ("Unexpected AWS S3 connection error: {}", e.what());
+        return ConnectionTestResult::UNKNOWN_ERROR;
+    }
+}
+
 int S3Accessor::init() {
+    // Ensure thread-safe initialization of worker pool
     static std::once_flag log_annotated_tags_key_once;
     std::call_once(log_annotated_tags_key_once, [&]() {
         LOG_INFO("start s3 accessor parallel worker pool");
@@ -250,6 +337,7 @@ int S3Accessor::init() {
     switch (conf_.provider) {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
+        // Configure Azure Blob Storage client options
         Azure::Storage::Blobs::BlobClientOptions options;
         options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
         options.Retry.MaxRetries = config::max_s3_client_retry;
@@ -263,8 +351,25 @@ int S3Accessor::init() {
         // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
         options.PerRetryPolicies.emplace_back(
                 std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
+
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
+
+        // Test Azure connection
+        auto connection_result = testAzureConnection(container_client, conf_.bucket);
+        switch (connection_result) {
+        case ConnectionTestResult::SUCCESS:
+            break;
+        case ConnectionTestResult::AUTH_ERROR:
+            LOG(WARNING) << ("Azure S3 authentication failed");
+            return -1;
+        case ConnectionTestResult::TIMEOUT_ERROR:
+            LOG(WARNING) << ("Azure S3 connection timed out");
+            return -1;
+        default:
+            LOG(WARNING) << ("Azure S3 connection failed");
+            return -1;
+        }
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
         uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
@@ -298,6 +403,23 @@ int S3Accessor::init() {
                 std::move(aws_cred), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
+
+        // Test AWS S3 connection
+        auto connection_result = testAwsS3Connection(s3_client, conf_.bucket);
+        switch (connection_result) {
+        case ConnectionTestResult::SUCCESS:
+            break;
+        case ConnectionTestResult::AUTH_ERROR:
+            LOG(WARNING) << "AWS S3 authentication failed";
+            return -1;
+        case ConnectionTestResult::TIMEOUT_ERROR:
+            LOG(WARNING) << "AWS S3 connection timed out";
+            return -1;
+        default:
+            LOG(WARNING) << "AWS S3 connection failed";
+            return -1;
+        }
+
         obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
         return 0;
     }
