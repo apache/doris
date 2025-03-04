@@ -94,6 +94,7 @@ suite("test_ddl_view_auth","p0,auth_call") {
         assertTrue(res.size() == 1)
     }
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
                 AS
