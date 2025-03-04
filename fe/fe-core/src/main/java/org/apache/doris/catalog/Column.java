@@ -851,8 +851,6 @@ public class Column implements GsonPostProcessable {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
-        ColumnType.checkForTypeLengthChange(type, other.type);
-
         if (type.isNumericType() && other.type.isStringType()) {
             try {
                 Integer lSize = type.getColumnStringRepSize();
@@ -883,6 +881,10 @@ public class Column implements GsonPostProcessable {
             if (!this.getDefaultValue().equals(other.getDefaultValue())) {
                 throw new DdlException("Can not change default value");
             }
+        }
+
+        if (type.isStringType() && other.type.isStringType) {
+            ColumnType.checkForTypeLengthChange(type, other.type);
         }
 
         // Nested types only support changing the order and increasing the length of the nested char type
