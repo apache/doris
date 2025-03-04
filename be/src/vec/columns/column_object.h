@@ -196,6 +196,8 @@ public:
 
         bool is_empty_nested(size_t row) const;
 
+        Subcolumn clone() const;
+
     private:
         class LeastCommonType {
         public:
@@ -401,6 +403,8 @@ public:
         static_cast<ColumnObject*>(finalized.get())->finalize();
         return finalized;
     }
+
+    MutableColumnPtr clone() const override;
 
     void clear() override;
 
