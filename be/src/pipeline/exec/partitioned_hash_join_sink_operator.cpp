@@ -80,7 +80,7 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
                 state, spilling_stream, print_id(state->query_id()),
                 fmt::format("hash_build_sink_{}", i), _parent->node_id(),
                 std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-                custom_profile()));
+                operator_profile()));
     }
     return p._partitioner->clone(state, _partitioner);
 }
