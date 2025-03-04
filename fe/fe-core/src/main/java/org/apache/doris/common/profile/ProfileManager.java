@@ -479,7 +479,6 @@ public class ProfileManager extends MasterDaemon {
         loadProfilesFromStorageIfFirstTime(false);
         writeProfileToStorage();
         deleteBrokenProfiles();
-        deleteOutdatedProfilesFromMemory(0);
         deleteOutdatedProfilesFromStorage();
         preventExecutionProfileLeakage();
     }

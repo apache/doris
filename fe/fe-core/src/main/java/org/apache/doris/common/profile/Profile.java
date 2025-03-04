@@ -445,13 +445,6 @@ public class Profile {
             return false;
         }
 
-        if (this.executionProfiles.isEmpty()) {
-            // Query finished, but no execution profile.
-            // 1. Query is executed on FE.
-            // 2. Not a SELECT query, just a DDL.
-            return false;
-        }
-
         if (this.queryFinishTimestamp == Long.MAX_VALUE) {
             LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
             return false;
