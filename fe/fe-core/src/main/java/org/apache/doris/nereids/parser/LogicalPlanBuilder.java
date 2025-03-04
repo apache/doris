@@ -1128,8 +1128,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
-        return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                comment);
+        return new SimpleColumnDefinition(ctx.colName.getText(), comment);
     }
 
     /**
