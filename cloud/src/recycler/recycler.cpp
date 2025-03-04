@@ -274,6 +274,8 @@ void Recycler::recycle_callback() {
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         g_bvar_recycler_task_concurrency << 1;
+        g_bvar_recycler_instance_running.put({instance_id}, 1);
+        g_bvar_recycler_instance_recycle_times.put({instance_id}, 1);
         ret = instance_recycler->do_recycle();
         g_bvar_recycler_task_concurrency << -1;
         // If instance recycler has been aborted, don't finish this job
@@ -285,9 +287,11 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             recycling_instance_map_.erase(instance_id);
         }
-        auto elpased_ms =
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
-                ctime_ms;
+        auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        auto elpased_ms = now - ctime_ms;
+        g_bvar_recycler_instance_last_recycle_duration.put({instance_id}, elpased_ms);
+        g_bvar_recycler_instance_next_time.put({instance_id},
+                                               now / 1000 + config::recycle_interval_seconds);
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);

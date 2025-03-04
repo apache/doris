@@ -125,8 +125,9 @@ have different behaviors for how values are processed and retrieved.
 template <typename BvarType>
 class mBvarWrapper {
 public:
-    mBvarWrapper(const std::string& metric_name, const std::initializer_list<std::string>& dim_names)
-            : counter_(metric_name, std::vector<std::string>(dim_names)) {
+    mBvarWrapper(const std::string& metric_name,
+                 const std::initializer_list<std::string>& dim_names)
+            : counter_(metric_name, std::list<std::string>(dim_names)) {
         static_assert(is_valid_bvar_type<BvarType>::value,
                       "BvarType must be one of the supported bvar types (Adder, IntRecorder, "
                       "LatencyRecorder, Maxer, Status)");
@@ -255,7 +256,10 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earl
 
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
-
+extern mBvarIntStatus g_bvar_recycler_instance_running;
+extern mBvarIntStatus g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarIntStatus g_bvar_recycler_instance_next_time;
+extern mBvarIntAdder g_bvar_recycler_instance_recycle_times;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
