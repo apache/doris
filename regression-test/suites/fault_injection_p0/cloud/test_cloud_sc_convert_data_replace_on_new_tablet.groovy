@@ -75,11 +75,16 @@ suite("test_cloud_sc_convert_data_replace_on_new_tablet", "nonConcurrent") {
                 break
             }
         }
-        logger.info("new_tablet_id=${newTabletId}")
+        logger.info("new_tablet_id: ${newTabletId}")
 
         sql "insert into ${table1} values(1,99,99,99);"
-        sql "insert into ${table1} values(1,88,88,88);"
-        sql "insert into ${table1} values(2,99,99,99);"
+        // sql "insert into ${table1} values(1,88,88,88);"
+        // sql "insert into ${table1} values(2,99,99,99);"
+
+
+        // to trigger sync_rowsets() on old tablet to let its max_version be 5
+        Thread.sleep(1000)
+        order_qt_sql "select * from ${table1};"
 
         Thread.sleep(1000)
         // alter version should be 5
@@ -96,6 +101,10 @@ suite("test_cloud_sc_convert_data_replace_on_new_tablet", "nonConcurrent") {
             sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             time 1000
         }
+
+        // to trigger sync_rowsets() on new tablet to let its max_version be 5
+        Thread.sleep(1000)
+        order_qt_sql "select * from ${table1};"
 
         sql "insert into ${table1} values(1,77,77,77);"
 
