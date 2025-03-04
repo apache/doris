@@ -45,8 +45,6 @@ import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 
 public class QueryProcessor extends AbstractJobProcessor {
@@ -56,17 +54,13 @@ public class QueryProcessor extends AbstractJobProcessor {
     private final long limitRows;
 
     // mutable field
-    private final List<ResultReceiver> runningReceivers;
     private ResultReceiverConsumer receiverConsumer;
 
     private long numReceivedRows;
 
-    public QueryProcessor(CoordinatorContext coordinatorContext, List<ResultReceiver> runningReceivers) {
+    public QueryProcessor(CoordinatorContext coordinatorContext, ResultReceiverConsumer consumer) {
         super(coordinatorContext);
-        this.runningReceivers = new CopyOnWriteArrayList<>(
-                Objects.requireNonNull(runningReceivers, "runningReceivers can not be null")
-        );
-        receiverConsumer = new ResultReceiverConsumer(runningReceivers);
+        receiverConsumer = consumer;
 
         this.limitRows = coordinatorContext.fragments.get(0)
                 .getPlanRoot()
@@ -105,7 +99,9 @@ public class QueryProcessor extends AbstractJobProcessor {
                     )
             );
         }
-        return new QueryProcessor(coordinatorContext, receivers);
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(receivers,
+                coordinatorContext.timeoutDeadline.get());
+        return new QueryProcessor(coordinatorContext, consumer);
     }
 
     @Override
@@ -114,7 +110,7 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public boolean isEos() {
-        return runningReceivers.isEmpty();
+        return receiverConsumer.isEos();
     }
 
     public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
@@ -162,9 +158,7 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public void cancel(Status cancelReason) {
-        for (ResultReceiver receiver : runningReceivers) {
-            receiver.cancel(cancelReason);
-        }
+        receiverConsumer.cancel(cancelReason);
 
         this.executionTask.ifPresent(sqlPipelineTask -> {
             for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
