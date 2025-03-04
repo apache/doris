@@ -38,7 +38,7 @@ suite("test_array_orderby_limit", "query") {
     // prepare data
     sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
     sql '''
-        alter table test_array_char_orderby modify column k1 set stats ('ndv'='1491920000', 'num_nulls'='0', 'min_value'='1', 'max_value'='6000000000', 'row_count'='1500000000');
+        alter table test_array_char_orderby modify column k1 set stats ('ndv'='10', 'num_nulls'='0', 'min_value'='1', 'max_value'='6000000000', 'row_count'='100');
         '''
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
