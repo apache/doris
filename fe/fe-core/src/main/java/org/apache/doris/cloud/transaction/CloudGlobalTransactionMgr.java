@@ -811,8 +811,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         Lists.newArrayList(tabletList));
                 if (!lockContext.getBaseCompactionCnts().isEmpty()
                         && !lockContext.getCumulativeCompactionCnts().isEmpty()
-                        && !lockContext.getCumulativePoints().isEmpty()
-                        && !lockContext.getTabletStates().isEmpty()) {
+                        && !lockContext.getCumulativePoints().isEmpty()) {
+                    boolean hasTabletStats = !lockContext.getTabletStates().isEmpty();
+
                     List<Long> reqBaseCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativeCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativePoints = Lists.newArrayList();
@@ -821,12 +822,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         reqBaseCompactionCnts.add(lockContext.getBaseCompactionCnts().get(tabletId));
                         reqCumulativeCompactionCnts.add(lockContext.getCumulativeCompactionCnts().get(tabletId));
                         reqCumulativePoints.add(lockContext.getCumulativePoints().get(tabletId));
-                        reqTabletStates.add(lockContext.getTabletStates().get(tabletId));
+                        if (hasTabletStats) {
+                            reqTabletStates.add(lockContext.getTabletStates().get(tabletId));
+                        }
                     }
                     partitionInfo.setBaseCompactionCnts(reqBaseCompactionCnts);
                     partitionInfo.setCumulativeCompactionCnts(reqCumulativeCompactionCnts);
                     partitionInfo.setCumulativePoints(reqCumulativePoints);
-                    partitionInfo.setTabletStates(reqTabletStates);
+                    if (hasTabletStats) {
+                        partitionInfo.setTabletStates(reqTabletStates);
+                    }
                     if (partitionToSubTxnIds != null) {
                         List<Long> subTxnIds = partitionToSubTxnIds.get(partitionId);
                         if (subTxnIds != null && !subTxnIds.isEmpty()) {
@@ -979,7 +984,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             int size3 = respCumulativePoints.size();
             int size4 = respTabletStates.size();
             if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()
-                    || size4 != tabletList.size()) {
+                    || (size4 > 0 && size4 != tabletList.size())) {
                 throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
                         + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
                         + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3
