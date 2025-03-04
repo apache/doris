@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,14 +36,23 @@ import java.util.List;
 
 public class EncryptSQLTest extends ParserTestBase {
 
-    NereidsParser parser = new NereidsParser();
     ConnectContext ctx = ConnectContext.get();
     WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
     List<AuditEvent> auditEvents = Deencapsulation.getField(mgr, "queryAuditEventList");
+    MysqlConnectProcessor processor = new MysqlConnectProcessor(ctx);
+    Env env = AccessTestUtil.fetchAdminCatalog();
 
     @Test
-    public void testEncryption() {
+    public void testEncryption() throws Exception {
         ctx.setDatabase("test");
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public boolean isForwardToMaster() {
+                return false;
+            }
+        };
+        ctx.setEnv(env);
+        Config.enable_nereids_load = true;
 
         String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
                 + "PROPERTIES("
@@ -256,11 +269,23 @@ public class EncryptSQLTest extends ParserTestBase {
         sql = "SET PASSWORD FOR 'admin' = PASSWORD('123456')";
         res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
         parseAndCheck(sql, res);
+
+        sql = "selected * from tbl";
+        res = "errCode = 2, detailMessage = \\nmismatched input 'selected' expecting {<EOF>, ';', '(', 'ADMIN', 'ALTER', 'ANALYZE', 'BACKUP', 'BEGIN', 'BUILD', 'CALL', 'CANCEL', 'CLEAN', 'COMMIT', 'COPY', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXPLAIN', 'EXPORT', 'GRANT', 'HELP', 'INSERT', 'INSTALL', 'KILL', 'LOAD', 'LOCK', 'PAUSE', 'PLAN', 'RECOVER', 'REFRESH', 'REPLACE', 'RESTORE', 'RESUME', 'REVOKE', 'ROLLBACK', 'SELECT', 'SET', 'SHOW', 'START', 'STOP', 'SWITCH', 'SYNC', 'TRUNCATE', 'UNINSTALL', 'UNLOCK', 'UNSET', 'UPDATE', 'USE', 'VALUES', 'WARM', 'WITH'}(line 1, pos 0)\\n";
+        parseAndCheck(sql, res);
+
+        sql = "select * from tbl";
+        res = "select * from tbl";
+        processor.executeQuery(sql);
+        AuditEvent event = auditEvents.get(auditEvents.size() - 1);
+        Assertions.assertEquals(res, event.stmt);
+
+        String errorMsg = "errCode = 2, detailMessage = Database [test] does not exist.";
+        Assertions.assertEquals(errorMsg, event.errorMessage);
     }
 
-    private void parseAndCheck(String sql, String expected) {
-        StatementBase parsedStmt = parser.parseSQL(sql).get(0);
-        AuditLogHelper.logAuditLog(ctx, sql, parsedStmt, null, false);
+    private void parseAndCheck(String sql, String expected) throws Exception {
+        processor.executeQuery(sql);
         AuditEvent event = auditEvents.get(auditEvents.size() - 1);
         Assertions.assertEquals(expected, event.stmt);
     }
