@@ -63,6 +63,7 @@ public enum RuleType {
     BINDING_UNBOUND_TVF_RELATION_FUNCTION(RuleTypeClass.REWRITE),
     BINDING_SET_OPERATION_SLOT(RuleTypeClass.REWRITE),
     BINDING_INLINE_TABLE_SLOT(RuleTypeClass.REWRITE),
+    BINDING_SELECT_HINT(RuleTypeClass.REWRITE),
     LOGICAL_INLINE_TABLE_TO_LOGICAL_UNION_OR_ONE_ROW_RELATION(RuleTypeClass.REWRITE),
 
     COUNT_LITERAL_REWRITE(RuleTypeClass.REWRITE),
@@ -384,6 +385,8 @@ public enum RuleType {
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
     // short circuit rule
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
+    // skew rewrtie
+    JOIN_SKEW_ADD_SALT(RuleTypeClass.REWRITE),
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),
