@@ -274,7 +274,7 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
 
     if (probe_spilling_stream) {
         RETURN_IF_ERROR(probe_spilling_stream->spill_eof());
-        probe_spilling_stream->set_read_counters(custom_profile());
+        probe_spilling_stream->set_read_counters(operator_profile());
     }
 
     return Status::OK();
@@ -292,7 +292,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
     if (!spilled_stream) {
         return Status::OK();
     }
-    spilled_stream->set_read_counters(custom_profile());
+    spilled_stream->set_read_counters(operator_profile());
 
     auto query_id = state->query_id();
 
@@ -427,7 +427,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
         return Status::OK();
     }
 
-    spilled_stream->set_read_counters(custom_profile());
+    spilled_stream->set_read_counters(operator_profile());
     auto& blocks = _probe_blocks[partition_index];
 
     auto query_id = state->query_id();
