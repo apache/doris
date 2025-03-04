@@ -399,13 +399,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             );
         }
 
+        boolean isSkew = window.isSkew();
         if (windowFrameGroup.getPartitionKeys().isEmpty() && windowFrameGroup.getOrderKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
         } else if (windowFrameGroup.getPartitionKeys().isEmpty() && !windowFrameGroup.getOrderKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
         } else if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
             addRequestPropertyToChildren(PhysicalProperties.createHash(
-                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
+                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE, isSkew)
                     .withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
         }
         return null;
@@ -445,11 +446,19 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     private void addShuffleJoinRequestProperty(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin) {
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = hashJoin.getHashConjunctsExprIds();
         // shuffle join
-        addRequestPropertyToChildren(
-                PhysicalProperties.createHash(
-                        new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE)),
-                PhysicalProperties.createHash(
-                        new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE)));
+        if (hashJoin.getDistributeHint().getSkewInfo() != null) {
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE_EQUAL)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE_EQUAL)));
+        } else {
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.REQUIRE)),
+                    PhysicalProperties.createHash(
+                            new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.REQUIRE)));
+        }
     }
 
     /**
