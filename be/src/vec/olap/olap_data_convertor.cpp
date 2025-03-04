@@ -233,9 +233,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
                                                 size_t num_rows) {
     DCHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
-           block->columns() == _convertors.size()) << "block=" << block->dump_structure() << ", block rows=" << block->rows()
-                                                   << ", row_pos=" << row_pos << ", num_rows=" << num_rows
-                                                   << ", convertors.size=" << _convertors.size();
+           block->columns() == _convertors.size())
+            << "block=" << block->dump_structure() << ", block rows=" << block->rows()
+            << ", row_pos=" << row_pos << ", num_rows=" << num_rows
+            << ", convertors.size=" << _convertors.size();
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
@@ -677,7 +678,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                             "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
-                if (_is_jsonb && !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
+                if (_is_jsonb &&
+                    !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
                     return Status::InvalidArgument("invalid json binary value: {}",
                                                    std::string_view(slice->data, slice->size));
                 }
@@ -703,7 +705,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                         " in vec engine.");
             }
             // Make sure that the json binary data written in is the correct jsonb value.
-            if (_is_jsonb && !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
+            if (_is_jsonb &&
+                !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
                 return Status::InvalidArgument("invalid json binary value: {}",
                                                std::string_view(slice->data, slice->size));
             }

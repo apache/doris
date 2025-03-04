@@ -1409,7 +1409,8 @@ struct JsonbLengthUtil {
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(jsonb_value.data, jsonb_value.size);
+            JsonbDocument* doc =
+                    JsonbDocument::checkAndCreateDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(!value)) {
                 null_map->get_data()[i] = 1;
