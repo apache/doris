@@ -204,18 +204,22 @@ public class ProfileManager extends MasterDaemon {
             return;
         }
 
-        ProfileElement element = createElement(profile);
-        // 'insert into' does have job_id, put all profiles key with query_id
-        String key = profile.getSummaryProfile().getProfileId();
-        // check when push in, which can ensure every element in the list has QUERY_ID column,
-        // so there is no need to check when remove element from list.
-        if (Strings.isNullOrEmpty(key)) {
-            LOG.warn("the key or value of Map is null, "
-                    + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
-        }
-
         writeLock.lock();
         try {
+            if (!queryIdToProfileMap.containsKey(profile.getId())) {
+                deleteOutdatedProfilesFromMemory(1);
+            }
+
+            ProfileElement element = createElement(profile);
+            // 'insert into' does have job_id, put all profiles key with query_id
+            String key = profile.getSummaryProfile().getProfileId();
+            // check when push in, which can ensure every element in the list has QUERY_ID column,
+            // so there is no need to check when remove element from list.
+            if (Strings.isNullOrEmpty(key)) {
+                LOG.warn("the key or value of Map is null, "
+                        + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
+            }
+
             // a profile may be updated multiple times in queryIdToProfileMap,
             // and only needs to be inserted into the queryIdDeque for the first time.
             queryIdToProfileMap.put(key, element);
@@ -475,7 +479,6 @@ public class ProfileManager extends MasterDaemon {
         loadProfilesFromStorageIfFirstTime(false);
         writeProfileToStorage();
         deleteBrokenProfiles();
-        deleteOutdatedProfilesFromMemory();
         deleteOutdatedProfilesFromStorage();
         preventExecutionProfileLeakage();
     }
@@ -954,36 +957,12 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    protected void deleteOutdatedProfilesFromMemory() {
+    protected void deleteOutdatedProfilesFromMemory(int numOfNewProfiles) {
         StringBuilder stringBuilder = new StringBuilder();
-        StringBuilder stringBuilderTTL = new StringBuilder();
         writeLock.lock();
 
         try {
-            // Remove profiles that costs less than auto_profile_threshold_ms
-            List<String> profilesToRemove = Lists.newArrayList();
-
-            for (ProfileElement profileElement : this.queryIdToProfileMap.values()) {
-                if (profileElement.profile.shouldBeRemoveFromMemory()) {
-                    String profileId = profileElement.profile.getSummaryProfile().getProfileId();
-                    profilesToRemove.add(profileId);
-                    stringBuilder.append(profileId).append(",");
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Profile {} should be filtered from memory, information {}", profileId,
-                                profileElement.profile.debugInfo());
-                    }
-                }
-            }
-
-            for (String profileId : profilesToRemove) {
-                ProfileElement profileElement = queryIdToProfileMap.get(profileId);
-                queryIdToProfileMap.remove(profileId);
-                for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
-                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                }
-            }
-
-            if (this.queryIdToProfileMap.size() <= Config.max_query_profile_num) {
+            if (this.queryIdToProfileMap.size() + numOfNewProfiles <= Config.max_query_profile_num) {
                 return;
             }
 
@@ -992,10 +971,10 @@ public class ProfileManager extends MasterDaemon {
             // query finished time of unfinished query is INT_MAX, so they will be on the bottom of the heap.
             PriorityQueue<ProfileElement> queueIdDeque = getProfileOrderByQueryFinishTime();
 
-            while (queueIdDeque.size() > Config.max_query_profile_num && !queueIdDeque.isEmpty()) {
+            while (queueIdDeque.size() + numOfNewProfiles > Config.max_query_profile_num && !queueIdDeque.isEmpty()) {
                 ProfileElement profileElement = queueIdDeque.poll();
                 String profileId = profileElement.profile.getSummaryProfile().getProfileId();
-                stringBuilderTTL.append(profileId).append(",");
+                stringBuilder.append(profileId).append(",");
                 queryIdToProfileMap.remove(profileId);
                 for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                     queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
@@ -1010,10 +989,9 @@ public class ProfileManager extends MasterDaemon {
             int profileNum = queryIdToProfileMap.size();
             writeLock.unlock();
 
-            if (stringBuilder.length() != 0 || stringBuilderTTL.length() != 0) {
-                LOG.info("Filtered profiles {}, outdated profiles {}, they are removed from memory,"
-                                + " current profile map size {}",
-                        stringBuilder.toString(), stringBuilderTTL.toString(), profileNum);
+            if (stringBuilder.length() != 0) {
+                LOG.info("Outdated profiles {}, they are removed from memory, current profile map size {}",
+                        stringBuilder.toString(), profileNum);
             }
         }
     }
@@ -1062,6 +1040,20 @@ public class ProfileManager extends MasterDaemon {
             return isProfileLoaded;
         } finally {
             isProfileLoadedLock.readLock().unlock();
+        }
+    }
+
+    public void removeProfile(String profileId) {
+        writeLock.lock();
+        try {
+            ProfileElement profileToRemove = this.queryIdToProfileMap.remove(profileId);
+            if (profileToRemove != null) {
+                for (ExecutionProfile executionProfile : profileToRemove.profile.getExecutionProfiles()) {
+                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
+            }
+        } finally {
+            writeLock.unlock();
         }
     }
 }

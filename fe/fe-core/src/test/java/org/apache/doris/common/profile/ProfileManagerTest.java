@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.io.File;
 import java.io.IOException;
@@ -45,12 +46,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@ResourceLock("global")
 class ProfileManagerTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
 
     private static ProfileManager profileManager;
     private File tempDir;
     private String originalPath;
+    private int originMaxProfiles;
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -64,12 +67,14 @@ class ProfileManagerTest {
         ProfileManager.PROFILE_STORAGE_PATH = tempDir.getAbsolutePath();
         profileManager.cleanProfile();
         profileManager.isProfileLoaded = false;
+        originMaxProfiles = Config.max_query_profile_num;
     }
 
     @AfterEach
     void cleanup() {
         ProfileManager.PROFILE_STORAGE_PATH = originalPath;
         FileUtils.deleteQuietly(tempDir);
+        Config.max_query_profile_num = originMaxProfiles;
     }
 
     @Test
@@ -731,7 +736,7 @@ class ProfileManagerTest {
         }
 
         // Trigger cleanup
-        profileManager.deleteOutdatedProfilesFromMemory();
+        profileManager.deleteOutdatedProfilesFromMemory(0);
 
         // Verify memory profile count is within limit
         Assertions.assertEquals(Config.max_query_profile_num, profileManager.queryIdToProfileMap.size());
@@ -739,6 +744,105 @@ class ProfileManagerTest {
         // Verify newest profiles are kept
         for (String profileId : profilesToKeep) {
             Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profileId));
+        }
+    }
+
+    @Test
+    public void testDeleteOutdatedProfilesWhenExceedLimit() {
+        List<Profile> profiles = new ArrayList<>();
+
+        Config.max_query_profile_num = 3;
+        for (int i = 0; i < 5; i++) {
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            String profileId = DebugUtil.printId(queryId);
+            Profile profile = constructProfile(profileId);
+            profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
+            profiles.add(profile);
+        }
+        for (int i = 0; i < 3; i++) {
+            Profile profile = profiles.get(i);
+            profileManager.pushProfile(profile);
+        }
+        // Verify profile count
+        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+
+        // Try to delete outdated profiles
+        profileManager.deleteOutdatedProfilesFromMemory(0);
+
+        // Verify no profiles were deleted
+        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+
+        for (int i = 3; i < 5; i++) {
+            Profile profile = profiles.get(i);
+            profileManager.pushProfile(profile);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            Profile profile = profiles.get(i);
+            if (i <= 1) {
+                Assertions.assertFalse(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            } else {
+                Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            }
+        }
+
+        profiles.clear();
+
+        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        for (Profile profile : profiles) {
+            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+        }
+    }
+
+    @Test
+    public void testUnfinishedProfilesNotDeleted() {
+        // Create an unfinished profile (finish time = Long.MAX_VALUE)
+        List<Profile> profileUnfinished = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            String profileId = DebugUtil.printId(queryId);
+            Profile profile = constructProfile(profileId);
+            profileUnfinished.add(profile);
+            profileManager.pushProfile(profile);
+        }
+
+        List<Profile> profileFinished = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            String profileId = DebugUtil.printId(queryId);
+            Profile profile = constructProfile(profileId);
+            profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
+            profileFinished.add(profile);
+            profileManager.pushProfile(profile);
+        }
+
+        // Try to delete outdated profiles
+        profileManager.deleteOutdatedProfilesFromMemory(0);
+
+        // Verify unfinished profile was not deleted
+        for (Profile profile : profileUnfinished) {
+            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+        }
+
+        Assertions.assertEquals(5, profileManager.queryIdToProfileMap.size());
+
+        profileFinished.clear();
+        for (int i = 0; i < 5; i++) {
+            UUID taskId = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            String profileId = DebugUtil.printId(queryId);
+            Profile profile = constructProfile(profileId);
+            profile.setQueryFinishTimestamp(System.currentTimeMillis() + i * 1000); // Different finish times
+            profileFinished.add(profile);
+            profileManager.pushProfile(profile);
+        }
+
+        // Verify unfinished profile was not deleted
+        for (Profile profile : profileUnfinished) {
+            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
         }
     }
 }
