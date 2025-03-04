@@ -111,8 +111,8 @@ public:
             env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
             env->DeleteLocalRef(ctor_params_bytes);
         }
-        RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
+        RETURN_ERROR_IF_EXC(env);
         return Status::OK();
     }
 
@@ -207,9 +207,8 @@ public:
         jobject output_map = JniUtil::convert_to_java_map(env, output_params);
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         env->DeleteLocalRef(output_map);
-
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
