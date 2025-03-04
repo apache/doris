@@ -75,12 +75,12 @@ public class DropDbStmt extends DdlStmt {
                     analyzer.getQualifiedUser(), dbName);
         }
 
+        String effectiveCatalog = StringUtils.isEmpty(ctlName) ? ConnectContext.get().getCurrentCatalog().getName()
+                : ctlName;
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(),
-                        StringUtils.isEmpty(ctlName) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctlName, dbName,
-                        PrivPredicate.DROP)) {
+                .checkDbPriv(ConnectContext.get(), effectiveCatalog, dbName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
+                    ConnectContext.get().getQualifiedUser(), effectiveCatalog + "." + dbName);
         }
     }
 
