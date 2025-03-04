@@ -77,7 +77,7 @@ public:
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeProfile* _operator_profile = nullptr; // not owned, set when open
 
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
