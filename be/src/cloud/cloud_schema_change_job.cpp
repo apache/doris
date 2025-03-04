@@ -89,10 +89,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                 "built on base_tablet=",
                 request.base_tablet_id);
     }
-    LOG_INFO(
-            "[xxx] before _base_tablet->sync_rowsets, base_tablet_id={}, max_version={}, "
-            "request.alter_version={}",
-            _base_tablet->tablet_id(), _base_tablet->max_version_unlocked(), request.alter_version);
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
     SyncOptions options;
     options.query_version = request.alter_version;
