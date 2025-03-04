@@ -479,7 +479,7 @@ public:
 
     OS_TYPE* getOutput() { return os_; }
     JsonbDocument* getDocument() {
-        return JsonbDocument::createDocument(getOutput()->getBuffer(), getOutput()->getSize());
+        return JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(), getOutput()->getSize());
     }
 
     JsonbValue* getValue() {
