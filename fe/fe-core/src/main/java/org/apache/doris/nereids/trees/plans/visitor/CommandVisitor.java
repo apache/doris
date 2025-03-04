@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -143,6 +144,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
@@ -617,6 +619,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(whiteListCommand, context);
     }
 
+    default R visitAlterCatalogPropertiesCommand(AlterCatalogPropertiesCommand alterCatalogPropsCmd, C context) {
+        return visitCommand(alterCatalogPropsCmd, context);
+    }
+
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
         return visitCommand(recoverDatabaseCommand, context);
     }
@@ -807,5 +813,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
         return visitCommand(describeCommand, context);
+    }
+
+    default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
+        return visitCommand(showTableCommand, context);
     }
 }

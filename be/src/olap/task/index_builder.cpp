@@ -17,6 +17,8 @@
 
 #include "olap/task/index_builder.h"
 
+#include <mutex>
+
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_define.h"
@@ -448,14 +450,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
-            if (return_columns.empty()) {
-                // no columns to read
-                break;
-            }
-
+            // DO NOT forget inverted_index_file_writer for the segment, otherwise, original inverted index will be deleted.
             _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                  std::move(inverted_index_file_writer));
-
+            if (return_columns.empty()) {
+                // no columns to read
+                continue;
+            }
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
@@ -722,11 +723,16 @@ Status IndexBuilder::do_build_inverted_index() {
         return Status::OK();
     }
 
-    std::unique_lock<std::mutex> schema_change_lock(_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::ObtainLockFailed("try schema_change_lock failed. tablet={} ",
-                                        _tablet->tablet_id());
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        return Status::ObtainLockFailed(
+                "try schema_change_lock failed. There might be schema change or cooldown running "
+                "on "
+                "tablet={} ",
+                _tablet->tablet_id());
     }
     // Check executing serially with compaction task.
     std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(),
@@ -840,10 +846,12 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 
+#ifndef BE_TEST
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+#endif
     return Status::OK();
 }
 
