@@ -64,8 +64,6 @@ Status RuntimeFilterWrapper::_change_to_bloom_filter() {
     }
     if (_bloom_filter_func->get_size() != 0) {
         _bloom_filter_func->insert_set(_hybrid_set);
-    } else if (_hybrid_set != nullptr && _hybrid_set->size() != 0) {
-        return Status::InternalError("change to bloom filter need empty set, {}", debug_string());
     }
 
     // release in filter to change real type to bloom
@@ -142,8 +140,8 @@ Status RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t 
         break;
     }
     default:
-        DCHECK(false);
-        break;
+        return Status::InternalError("`RuntimeFilterWrapper::insert` is not supported for RF {}",
+                                     int(_filter_type));
     }
     return Status::OK();
 }
@@ -570,10 +568,6 @@ bool RuntimeFilterWrapper::contain_null() const {
         return _bloom_filter_func->contain_null();
     }
     if (_hybrid_set) {
-        if (get_real_type() != RuntimeFilterType::IN_FILTER) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "rf has hybrid_set but real type is {}",
-                            int(get_real_type()));
-        }
         return _hybrid_set->contain_null();
     }
     if (_minmax_func) {
@@ -611,24 +605,41 @@ std::string RuntimeFilterWrapper::debug_string() const {
     return result + "]";
 }
 
-void RuntimeFilterWrapper::to_protobuf(PInFilter* filter) {
+Status RuntimeFilterWrapper::to_protobuf(PInFilter* filter) {
+    if (get_real_type() != RuntimeFilterType::IN_FILTER) {
+        return Status::InternalError("Runtime filter {} cannot serialize to PInFilter",
+                                     int(get_real_type()));
+    }
     filter->set_column_type(
             PColumnType::
                     COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _hybrid_set->to_pb(filter);
+    return Status::OK();
 }
 
-void RuntimeFilterWrapper::to_protobuf(PMinMaxFilter* filter) {
+Status RuntimeFilterWrapper::to_protobuf(PMinMaxFilter* filter) {
+    if (get_real_type() != RuntimeFilterType::MINMAX_FILTER &&
+        get_real_type() != RuntimeFilterType::MIN_FILTER &&
+        get_real_type() != RuntimeFilterType::MAX_FILTER) {
+        return Status::InternalError("Runtime filter {} cannot serialize to PMinMaxFilter",
+                                     int(get_real_type()));
+    }
     filter->set_column_type(
             PColumnType::
                     COLUMN_TYPE_BOOL); // set deprecated field coz it is required and we can't delete it
     _minmax_func->to_pb(filter);
+    return Status::OK();
 }
 
-void RuntimeFilterWrapper::to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
+Status RuntimeFilterWrapper::to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
+    if (get_real_type() != RuntimeFilterType::BLOOM_FILTER) {
+        return Status::InternalError("Runtime filter {} cannot serialize to PBloomFilter",
+                                     int(get_real_type()));
+    }
     _bloom_filter_func->get_data(data, filter_length);
     filter->set_filter_length(*filter_length);
     filter->set_always_true(false);
+    return Status::OK();
 }
 
 template <class T>

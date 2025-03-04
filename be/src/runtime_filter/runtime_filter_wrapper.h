@@ -76,9 +76,9 @@ public:
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func() const { return _bloom_filter_func; }
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func() const { return _bitmap_filter_func; }
 
-    void to_protobuf(PInFilter* filter);
-    void to_protobuf(PMinMaxFilter* filter);
-    void to_protobuf(PBloomFilter* filter, char** data, int* filter_length);
+    Status to_protobuf(PInFilter* filter);
+    Status to_protobuf(PMinMaxFilter* filter);
+    Status to_protobuf(PBloomFilter* filter, char** data, int* filter_length);
 
     PrimitiveType column_type() const { return _column_return_type; }
 
