@@ -22,11 +22,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboUtils;
+import org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
@@ -34,22 +37,17 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.planner.PlanNodeAndHash;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
-import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
-import org.apache.doris.statistics.HboPlanInfoProvider;
 import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
-import org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.PlanStatisticsWithInputInfo;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import com.google.common.collect.ImmutableMap;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -73,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
@@ -384,12 +383,12 @@ public class Profile {
     }
 
     public PlanStatistics getPlanStatistics(int nodeId, List<TPlanNodeRuntimeStatsItem> itemList,
-            boolean isScanPlanStatistics, PhysicalOlapScan scan, boolean isPartitionedTable, Set<Expression> tableFilterSet, PartitionInfo partitionInfo,
-            List<Long> selectedPartitionIds) {
+            boolean isScanPlanStatistics, PhysicalOlapScan scan, boolean isPartitionedTable,
+            Set<Expression> tableFilterSet, PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
         for (TPlanNodeRuntimeStatsItem item : itemList) {
             if (item.node_id == nodeId) {
-                return PlanStatistics.buildFromStatsItem(item, isScanPlanStatistics, scan, isPartitionedTable, tableFilterSet, partitionInfo,
-                        selectedPartitionIds);
+                return PlanStatistics.buildFromStatsItem(item, isScanPlanStatistics, scan, isPartitionedTable,
+                        tableFilterSet, partitionInfo, selectedPartitionIds);
             }
         }
         return PlanStatistics.EMPTY;
@@ -407,7 +406,8 @@ public class Profile {
             // TODO: optimize the search logic to make a map to speed up the searching from runtimeStatsItem
             PlanStatistics planStatistics = getPlanStatistics(nodeId, runtimeStatsItem, true, scan,
                     scan.getTable().isPartitionedTable(),
-                    tableToExprMap.get(scan.getRelationId()), scan.getTable().getPartitionInfo(), scan.getSelectedPartitionIds());
+                    tableToExprMap.get(scan.getRelationId()), scan.getTable().getPartitionInfo(),
+                    scan.getSelectedPartitionIds());
             if (!planStatistics.equals(PlanStatistics.EMPTY)) {
                 inputTableStatisticsBuilder.add(planStatistics);
             }
@@ -435,14 +435,14 @@ public class Profile {
                 isOlapScan = true;
                 isPartitionedTable = ((PhysicalOlapScan) planNode).getTable().isPartitionedTable();
             }
-            PlanStatistics planStatistics = PlanStatistics.buildFromStatsItem(nodeStats,
-                    isOlapScan, isOlapScan ? (PhysicalOlapScan) planNode : null, isPartitionedTable, tableFilterSet, partitionInfo,
+            PlanStatistics planStatistics = PlanStatistics.buildFromStatsItem(nodeStats, isOlapScan,
+                    isOlapScan ? (PhysicalOlapScan) planNode : null, isPartitionedTable, tableFilterSet, partitionInfo,
                     isOlapScan ? ((PhysicalOlapScan) planNode).getSelectedPartitionIds() : ImmutableList.of());
             if (planNode != null) {
                 InputTableStatisticsInfo inputTableStatisticsInfo = buildHboPlanCanonicalInfo(
                         planNode, planToIdMap, tableToExprMap, planNodeRuntimeStatsItems);
                 String hash = inputTableStatisticsInfo.getHash().get();
-                PlanNodeAndHash PlanNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode,
+                PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode,
                         Optional.of(hash));
                 //List<PlanStatistics> inputTableStatistics = inputTableStatisticsInfo
                 //        .getInputTableStatistics().get();
@@ -451,7 +451,7 @@ public class Profile {
                 PlanStatisticsWithInputInfo planStatsWithSourceInfo = new PlanStatisticsWithInputInfo(
                         nodeId, planStatistics, inputTableStatisticsInfo);
 
-                planStatisticsMap.put(PlanNodeAndHash, planStatsWithSourceInfo);
+                planStatisticsMap.put(planNodeAndHash, planStatsWithSourceInfo);
             }
         }
         return ImmutableMap.copyOf(planStatisticsMap);
@@ -472,24 +472,25 @@ public class Profile {
                     planToIdMap, tableToExprMap, planNodeRuntimeStatsItems);
             Map<PlanNodeAndHash, RecentRunsPlanStatistics> hboPlanStatisticsMap =
                     hboPlanStatisticsProvider.getHboStats(
-                            planStatistics.keySet().stream().collect(toImmutableList()));
+                            planStatistics.keySet().stream().collect(Collectors.toList()));
 
             // update plan statistics
             Map<PlanNodeAndHash, RecentRunsPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
-                    .filter(entry -> entry.getKey().getHash().isPresent() &&
-                            entry.getValue().getSourceInfo().getInputTableStatistics().isPresent())
-                    .collect(toImmutableMap(
+                    .filter(entry -> entry.getKey().getHash().isPresent()
+                            && entry.getValue().getInputTableInfo().getInputTableStatistics().isPresent())
+                    .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             entry -> {
                                 RecentRunsPlanStatistics oldPlanStatistics = Optional.ofNullable(
                                                 hboPlanStatisticsMap.get(entry.getKey()))
                                         .orElseGet(RecentRunsPlanStatistics::empty);
-                                InputTableStatisticsInfo InputTableStatisticsInfo = entry.getValue().getSourceInfo();
+                                InputTableStatisticsInfo inputTableStatisticsInfo = entry
+                                        .getValue().getInputTableInfo();
                                 // NOTE: find the most matching entry to do the replacement
                                 // especially for retry handling
                                 return updatePlanStatistics(
                                         oldPlanStatistics,
-                                        InputTableStatisticsInfo.getInputTableStatistics().get(),
+                                        inputTableStatisticsInfo.getInputTableStatistics().get(),
                                         entry.getValue().getPlanStatistics());
                             }));
 
@@ -503,8 +504,7 @@ public class Profile {
     private RecentRunsPlanStatistics updatePlanStatistics(
             RecentRunsPlanStatistics oldHboPlanStatistics,
             List<PlanStatistics> newInputTableStatistics,
-            PlanStatistics newPlanStatistics)
-    {
+            PlanStatistics newPlanStatistics) {
         List<RecentRunsPlanStatisticsEntry> lastRunsStatistics = oldHboPlanStatistics.getLastRunsStatistics();
         List<RecentRunsPlanStatisticsEntry> newLastRunsStatistics = new ArrayList<>(lastRunsStatistics);
         // firstly full matching, i.e, the same partition ids,
@@ -897,7 +897,7 @@ public class Profile {
 
     private boolean isHealthy() {
         if (this.summaryProfile.getAsInfoStings() == null
-            || this.summaryProfile.getAsInfoStings().isEmpty()) {
+                || this.summaryProfile.getAsInfoStings().isEmpty()) {
             return false;
         } else {
             boolean isOk = this.summaryProfile.getAsInfoStings().get(SummaryProfile.TASK_STATE)

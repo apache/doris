@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics.hbo;
 
-import static java.util.Objects.requireNonNull;
-
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,30 +24,25 @@ import java.util.Optional;
 /**
  * Describes plan statistics which are derived from history based optimizer.
  */
-public class InputTableStatisticsInfo
-{
+public class InputTableStatisticsInfo {
     private final Optional<String> hash;
     private final Optional<List<PlanStatistics>> inputTableStatistics;
 
-    public InputTableStatisticsInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics)
-    {
-        this.hash = requireNonNull(hash, "hash is null");
-        this.inputTableStatistics = requireNonNull(inputTableStatistics, "inputTableStatistics is null");
+    public InputTableStatisticsInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics) {
+        this.hash = Objects.requireNonNull(hash, "hash is null");
+        this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics, "inputTableStatistics is null");
     }
 
-    public Optional<String> getHash()
-    {
+    public Optional<String> getHash() {
         return hash;
     }
 
-    public Optional<List<PlanStatistics>> getInputTableStatistics()
-    {
+    public Optional<List<PlanStatistics>> getInputTableStatistics() {
         return inputTableStatistics;
     }
 
     @Override
-    public boolean equals(Object o)
-    {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -61,8 +54,7 @@ public class InputTableStatisticsInfo
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return Objects.hash(hash, inputTableStatistics);
     }
 }

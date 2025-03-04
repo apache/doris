@@ -463,5 +463,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return true;
     }
 
-    public String toHboString() { return "NOT_IMPLEMENTED"; }
+    public String toHboString() {
+        return "NOT_IMPLEMENTED";
+    }
 }

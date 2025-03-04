@@ -17,39 +17,32 @@
 
 package org.apache.doris.statistics.hbo;
 
-import static java.util.Collections.emptyList;
-import static java.util.Collections.unmodifiableList;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public class RecentRunsPlanStatistics
-{
-    private static final RecentRunsPlanStatistics EMPTY = new RecentRunsPlanStatistics(emptyList());
+public class RecentRunsPlanStatistics {
+    private static final RecentRunsPlanStatistics EMPTY = new RecentRunsPlanStatistics(null);
 
     // Output plan statistics from previous runs
     private final List<RecentRunsPlanStatisticsEntry> lastRunsStatistics;
 
-    public RecentRunsPlanStatistics(List<RecentRunsPlanStatisticsEntry> lastRunsStatistics)
-    {
+    public RecentRunsPlanStatistics(List<RecentRunsPlanStatisticsEntry> lastRunsStatistics) {
         // Check for nulls, to make it thrift backwards compatible
-        this.lastRunsStatistics = unmodifiableList(lastRunsStatistics == null ? emptyList() : lastRunsStatistics);
+        this.lastRunsStatistics = lastRunsStatistics == null ? new ArrayList<>() : lastRunsStatistics;
     }
 
-    public List<RecentRunsPlanStatisticsEntry> getLastRunsStatistics()
-    {
+    public List<RecentRunsPlanStatisticsEntry> getLastRunsStatistics() {
         return lastRunsStatistics;
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return String.format("RecentRunsPlanStatistics{lastRunsStatistics=%s}", lastRunsStatistics);
     }
 
     @Override
-    public boolean equals(Object o)
-    {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -63,13 +56,11 @@ public class RecentRunsPlanStatistics
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return Objects.hash(lastRunsStatistics);
     }
 
-    public static RecentRunsPlanStatistics empty()
-    {
+    public static RecentRunsPlanStatistics empty() {
         return EMPTY;
     }
 }

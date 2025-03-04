@@ -17,57 +17,41 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
-import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.planner.PlanNodeAndHash;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
-import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.hbo.PlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
-import static java.util.Objects.requireNonNull;
-
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.Objects;
 
 /**
  * HboStatsCalculator
  */
 public class HboStatsCalculator extends StatsCalculator {
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
+
     public HboStatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         super(groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump,
                 cteIdToStats, context);
-        this.hboPlanStatisticsProvider = requireNonNull(HboPlanStatisticsManager.getInstance()
+        this.hboPlanStatisticsProvider = Objects.requireNonNull(HboPlanStatisticsManager.getInstance()
                         .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
@@ -113,10 +97,11 @@ public class HboStatsCalculator extends StatsCalculator {
 
     private boolean isLogicalFilterOnLogicalScan(Filter filter) {
         if (filter instanceof LogicalFilter
-            && ((LogicalFilter) filter).child() instanceof GroupPlan
-            && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup() != null
-            && !((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().isEmpty()
-            && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+                && ((LogicalFilter) filter).child() instanceof GroupPlan
+                && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup() != null
+                && !((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().isEmpty()
+                && ((GroupPlan) ((LogicalFilter) filter).child()).getGroup().getLogicalExpressions().get(0)
+                    .getPlan() instanceof LogicalOlapScan) {
             return true;
         } else {
             return false;
@@ -128,7 +113,8 @@ public class HboStatsCalculator extends StatsCalculator {
                 && ((PhysicalFilter) filter).child() instanceof GroupPlan
                 && ((GroupPlan) ((PhysicalFilter) filter).child()).getGroup() != null
                 && !((GroupPlan) ((PhysicalFilter) filter).child()).getGroup().getPhysicalExpressions().isEmpty()
-                && ((GroupPlan) ((PhysicalFilter) filter).child()).getGroup().getPhysicalExpressions().get(0).getPlan() instanceof PhysicalOlapScan) {
+                && ((GroupPlan) ((PhysicalFilter) filter).child()).getGroup().getPhysicalExpressions().get(0)
+                .getPlan() instanceof PhysicalOlapScan) {
             return true;
         } else {
             return false;
@@ -148,8 +134,8 @@ public class HboStatsCalculator extends StatsCalculator {
                 throw new AnalysisException("unexpected filter type");
             }
         }
-        PlanNodeAndHash PlanNodeAndHash = HboUtils.getPlanNodeHash(planNode);
-        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(PlanNodeAndHash);
+        PlanNodeAndHash planNodeAndHash = HboUtils.getPlanNodeHash(planNode);
+        RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(planNodeAndHash);
         PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                 cascadesContext.getConnectContext());
         if (matchedPlanStatistics != null) {
@@ -159,15 +145,16 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     /*
-    private List<PlanStatistics> updateCurrentInputTableStatisticsByTableExprMap(List<PlanStatistics> currentInputTableStatistics) {
+    private List<PlanStatistics> updateCurrentInputTableStatisticsByTableExprMap(
+        List<PlanStatistics>currentInputTableStatistics) {
         HboPlanStatisticsManager hboManager = HboPlanStatisticsManager.getInstance();
         HboPlanInfoProvider idToMapProvider = hboManager.getHboPlanInfoProvider();
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
         Map<TableIf, Set<Expression>> tableToExprMap = idToMapProvider.getTableToExprMap(queryId);
     }
 
-    private List<PlanStatistics> updateCurrentInputTableStatisticsWithFilter(List<PlanStatistics> currentInputTableStatistics,
-            Filter filter, OlapScan scan) {
+    private List<PlanStatistics> updateCurrentInputTableStatisticsWithFilter(
+        List<PlanStatistics> currentInputTableStatistics, Filter filter, OlapScan scan) {
         if (currentInputTableStatistics.size() != 1) {
             throw new AnalysisException("unexpected status that filter's inputPlanStatistics doesn't have 1 entry");
         }
@@ -175,12 +162,11 @@ public class HboStatsCalculator extends StatsCalculator {
         Set<Expression> tableFilterSet = filter.getConjuncts();
         PlanStatistics inputPlanStatistics = currentInputTableStatistics.get(0);
         ScanPlanStatistics newInputPlanStatistics = new ScanPlanStatistics(inputPlanStatistics, tableFilterSet,
-                scan.getTable().isPartitionedTable(), scan.getTable().getPartitionInfo(), scan.getSelectedPartitionIds());
+                scan.getTable().isPartitionedTable(), scan.getTable().getPartitionInfo(),
+                scan.getSelectedPartitionIds());
         outputTableStatisticsBuilder.add(newInputPlanStatistics);
         return outputTableStatisticsBuilder.build();
     }*/
-
-
 
     /*
     private Optional<List<PlanStatistics>> getPlanNodeInputTableStatistics(AbstractPlan planNode,
@@ -203,7 +189,8 @@ public class HboStatsCalculator extends StatsCalculator {
             } else {
                 // TODO: first match checking based on accurate partition info
                 // otherwise, use the entry 0 since the param number has been considered in plan hash
-                // note: next round, the accurate matching entry will be added into and will be matched next time (TODO: testing)
+                // note: next round, the accurate matching entry will be added into and will be matched next time
+                // (TODO: testing)
                 PlanStatistics planStatistics = RecentRunsPlanStatistics.getLastRunsStatistics()
                         .get(0).getPlanStatistics();
                 inputTableStatisticsBuilder.add(planStatistics);

@@ -19,21 +19,24 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
-import org.apache.doris.planner.PlanNodeAndHash;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-public class MemoryHboPlanStatisticsProvider
-        implements HboPlanStatisticsProvider {
+/**
+ * MemoryHboPlanStatisticsProvider
+ */
+public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvider {
     private volatile Cache<String, RecentRunsPlanStatistics> hboCache;
+
     public MemoryHboPlanStatisticsProvider() {
         hboCache = buildHboCaches(
                 Config.hbo_cache_manage_num,
@@ -42,30 +45,31 @@ public class MemoryHboPlanStatisticsProvider
     }
 
     @Override
-    public RecentRunsPlanStatistics getHboStats(PlanNodeAndHash PlanNodeAndHash) {
-        if (PlanNodeAndHash.getHash().isPresent()) {
-             return hboCache.asMap().getOrDefault(PlanNodeAndHash.getHash().get(), RecentRunsPlanStatistics.empty());
+    public RecentRunsPlanStatistics getHboStats(PlanNodeAndHash planNodeAndHash) {
+        if (planNodeAndHash.getHash().isPresent()) {
+            return hboCache.asMap().getOrDefault(planNodeAndHash.getHash().get(), RecentRunsPlanStatistics.empty());
         }
         return RecentRunsPlanStatistics.empty();
     }
 
     @Override
     public Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboStats(List<PlanNodeAndHash> planNodeHashes) {
-        return planNodeHashes.stream().collect(toImmutableMap(
-                PlanNodeAndHash -> PlanNodeAndHash,
-                PlanNodeAndHash -> {
-                    if (PlanNodeAndHash.getHash().isPresent()) {
-                        return hboCache.asMap().getOrDefault(PlanNodeAndHash.getHash().get(), RecentRunsPlanStatistics.empty());
+        return planNodeHashes.stream().collect(Collectors.toMap(
+                planNodeAndHash -> planNodeAndHash,
+                planNodeAndHash -> {
+                    if (planNodeAndHash.getHash().isPresent()) {
+                        return hboCache.asMap().getOrDefault(planNodeAndHash.getHash().get(),
+                                RecentRunsPlanStatistics.empty());
                     }
                     return RecentRunsPlanStatistics.empty();
                 }));
     }
 
     @Override
-    public void putHboStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesStatisticsMap) {
-        hashesStatisticsMap.forEach((PlanNodeAndHash, RecentRunsPlanStatistics) -> {
-            if (PlanNodeAndHash.getHash().isPresent()) {
-                hboCache.put(PlanNodeAndHash.getHash().get(), RecentRunsPlanStatistics);
+    public void putHboStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashStatisticsMap) {
+        hashStatisticsMap.forEach((planNodeAndHash, recentRunsPlanStatistics) -> {
+            if (planNodeAndHash.getHash().isPresent()) {
+                hboCache.put(planNodeAndHash.getHash().get(), recentRunsPlanStatistics);
             }
         });
     }
@@ -85,9 +89,11 @@ public class MemoryHboPlanStatisticsProvider
         return cacheBuilder.build();
     }
 
-    // NOTE: used in Config.sql_cache_manage_num.callbackClassString and
-    //       Config.cache_last_version_interval_second.callbackClassString,
-    //       don't remove it!
+    /**
+     * NOTE: used in Config.sql_cache_manage_num.callbackClassString and
+     * Config.cache_last_version_interval_second.callbackClassString,
+     * don't remove it!
+     */
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
@@ -96,6 +102,11 @@ public class MemoryHboPlanStatisticsProvider
         }
     }
 
+    /**
+     * NOTE: used in Config.sql_cache_manage_num.callbackClassString and
+     * Config.cache_last_version_interval_second.callbackClassString,
+     * don't remove it!
+     */
     public static synchronized void updateConfig() {
         HboPlanStatisticsManager hboManger = HboPlanStatisticsManager.getInstance();
         if (hboManger == null) {

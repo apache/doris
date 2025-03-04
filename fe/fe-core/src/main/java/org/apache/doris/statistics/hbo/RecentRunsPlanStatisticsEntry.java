@@ -17,37 +17,31 @@
 
 package org.apache.doris.statistics.hbo;
 
-import static java.util.Collections.emptyList;
-import static java.util.Collections.unmodifiableList;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public class RecentRunsPlanStatisticsEntry
-{
+public class RecentRunsPlanStatisticsEntry {
     private final PlanStatistics planStatistics;
     // Size of input tables when plan statistics was recorded. This list will be sorted by input tables canonical order.
     private final List<PlanStatistics> inputTableStatistics;
-    public RecentRunsPlanStatisticsEntry(PlanStatistics planStatistics, List<PlanStatistics> inputTableStatistics)
-    {
+
+    public RecentRunsPlanStatisticsEntry(PlanStatistics planStatistics, List<PlanStatistics> inputTableStatistics) {
         // Check for nulls, to make it thrift backwards compatible
         this.planStatistics = planStatistics == null ? PlanStatistics.EMPTY : planStatistics;
-        this.inputTableStatistics = unmodifiableList(inputTableStatistics == null ? emptyList() : inputTableStatistics);
+        this.inputTableStatistics = inputTableStatistics == null ? new ArrayList<>() : inputTableStatistics;
     }
 
-    public PlanStatistics getPlanStatistics()
-    {
+    public PlanStatistics getPlanStatistics() {
         return planStatistics;
     }
 
-    public List<PlanStatistics> getInputTableStatistics()
-    {
+    public List<PlanStatistics> getInputTableStatistics() {
         return inputTableStatistics;
     }
 
     @Override
-    public boolean equals(Object o)
-    {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -55,18 +49,17 @@ public class RecentRunsPlanStatisticsEntry
             return false;
         }
         RecentRunsPlanStatisticsEntry that = (RecentRunsPlanStatisticsEntry) o;
-        return Objects.equals(planStatistics, that.planStatistics) && Objects.equals(inputTableStatistics, that.inputTableStatistics);
+        return Objects.equals(planStatistics, that.planStatistics)
+                && Objects.equals(inputTableStatistics, that.inputTableStatistics);
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return Objects.hash(planStatistics, inputTableStatistics);
     }
 
     @Override
-    public String toString()
-    {
+    public String toString() {
         return String.format("RecentRunsPlanStatisticsEntry{planStatistics=%s, inputTableStatistics=%s}",
                 planStatistics, inputTableStatistics);
     }

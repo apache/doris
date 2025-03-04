@@ -437,7 +437,7 @@ public class NereidsPlanner extends Planner {
     private void collectExecStatsIds(String queryId, PhysicalPlan root, PlanFragment fragment,
             PlanTranslatorContext context) {
         if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
-            || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
+                || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
             return;
         }
         for (Object child : root.children()) {

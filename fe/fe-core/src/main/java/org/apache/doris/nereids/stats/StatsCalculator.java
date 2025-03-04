@@ -200,12 +200,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     /**
      * StatsCalculator
-     * @param groupExpression
-     * @param forbidUnknownColStats
-     * @param columnStatisticMap
-     * @param isPlayNereidsDump
-     * @param cteIdToStats
-     * @param context
+     * @param groupExpression group Expression
+     * @param forbidUnknownColStats forbid UnknownColStats
+     * @param columnStatisticMap columnStatisticMap
+     * @param isPlayNereidsDump isPlayNereidsDump
+     * @param cteIdToStats cteIdToStats
+     * @param context CascadesContext
      */
     public StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
@@ -289,6 +289,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return Optional.empty();
     }
 
+    /**
+     * estimate
+     */
     public void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);

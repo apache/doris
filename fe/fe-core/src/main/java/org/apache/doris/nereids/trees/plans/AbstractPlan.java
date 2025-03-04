@@ -46,7 +46,6 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -126,7 +125,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     /**
      * hboTreeString
-     * @return
      */
     public String hboTreeString() {
         StringBuilder builder = new StringBuilder();
@@ -156,7 +154,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                     } else if (plan1 instanceof AbstractLogicalPlan && plan2 instanceof AbstractLogicalPlan) {
                         return ((AbstractLogicalPlan) plan1).getId() - ((AbstractLogicalPlan) plan2).getId();
                     } else if (plan1 instanceof AbstractPhysicalPlan && plan2 instanceof AbstractPhysicalPlan) {
-                        // TODO: if we won't to change the generation side's sort but only sort the matching side, just return 0 is ok;
+                        // TODO: if we won't to change the generation side's sort but only sort the matching side,
+                        //    just return 0 is ok;
                         return ((AbstractPhysicalPlan) plan1).getId() - ((AbstractPhysicalPlan) plan2).getId();
                     } else {
                         return 0;

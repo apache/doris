@@ -368,7 +368,9 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toHboString() { return "?"; }
+    public String toHboString() {
+        return "?";
+    }
 
     public abstract LiteralExpr toLegacyLiteral();
 

@@ -856,6 +856,8 @@ public class RuntimeProfile {
                             item.setJoinProberSkewRatio((int) (value.max.getValue() / avgProbeValue));
                         }
                         break;
+                    default:
+                        break;
                 }
             }
         }
@@ -907,7 +909,8 @@ public class RuntimeProfile {
         return item;
     }
 
-    public static List<TPlanNodeRuntimeStatsItem> toTPlanNodeRuntimeStatsItem(RuntimeProfile profile, List<TPlanNodeRuntimeStatsItem> itemsFromParent) {
+    public static List<TPlanNodeRuntimeStatsItem> toTPlanNodeRuntimeStatsItem(RuntimeProfile profile,
+            List<TPlanNodeRuntimeStatsItem> itemsFromParent) {
         if (itemsFromParent == null) {
             itemsFromParent = new ArrayList<>();
         }
@@ -950,7 +953,8 @@ public class RuntimeProfile {
         return itemsFromParent;
     }
 
-    public static List<TPlanNodeRuntimeStatsItem> mergeTPlanNodeRuntimeStatsItem(List<TPlanNodeRuntimeStatsItem> items) {
+    public static List<TPlanNodeRuntimeStatsItem> mergeTPlanNodeRuntimeStatsItem(
+            List<TPlanNodeRuntimeStatsItem> items) {
         Map<Integer, TPlanNodeRuntimeStatsItem> itemMap = new HashMap<>();
         for (TPlanNodeRuntimeStatsItem item : items) {
             int nodeId = item.getNodeId();

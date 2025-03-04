@@ -1,9 +1,24 @@
-package org.apache.doris.statistics;
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
-import org.apache.doris.catalog.TableIf;
+package org.apache.doris.nereids.stats;
+
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
-import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -17,10 +32,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * HboPlanInfoProvider
+ */
 public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache;
     private volatile Cache<String, Map<PhysicalPlan, Integer>> planToIdCache;
     private volatile Cache<String, Map<RelationId, Set<Expression>>> tableToFilterCache;
+
+    /**
+     * HboPlanInfoProvider
+     */
     public HboPlanInfoProvider() {
         idToPlanCache = buildHboIdToPlanCache(
                 Config.hbo_cache_manage_num,
@@ -51,6 +73,12 @@ public class HboPlanInfoProvider {
         return cacheBuilder.build();
     }
 
+    /**
+     * buildHboIdToPlanCache
+     * @param: hbo cache Num
+     * @param: expireAfterAccessSeconds
+     * @return: buildHboIdToPlanCache
+     */
     private static Cache<String, Map<Integer, PhysicalPlan>> buildHboIdToPlanCache(int hboCacheNum,
             long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
@@ -66,6 +94,12 @@ public class HboPlanInfoProvider {
         return cacheBuilder.build();
     }
 
+    /**
+     * buildHboPlanToIdCache
+     * @param hboCacheNum hbo cache number
+     * @param expireAfterAccessSeconds  expire After Access Seconds
+     * @return cache
+     */
     private static Cache<String, Map<PhysicalPlan, Integer>> buildHboPlanToIdCache(int hboCacheNum,
             long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
@@ -80,7 +114,6 @@ public class HboPlanInfoProvider {
 
         return cacheBuilder.build();
     }
-
 
     public Map<Integer, PhysicalPlan> getIdToPlanMap(String queryId) {
         return idToPlanCache.asMap().getOrDefault(queryId, new ConcurrentHashMap<>());
@@ -106,6 +139,9 @@ public class HboPlanInfoProvider {
         tableToFilterCache.put(queryId, tableToExprMap);
     }
 
+    /**
+     * UpdateConfig
+     */
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
@@ -114,6 +150,9 @@ public class HboPlanInfoProvider {
         }
     }
 
+    /**
+     * UpdateConfig
+     */
     public static synchronized void updateConfig() {
         HboPlanStatisticsManager hboManger = HboPlanStatisticsManager.getInstance();
         if (hboManger == null) {

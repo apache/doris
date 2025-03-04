@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics.hbo;
 
-import static java.util.Objects.requireNonNull;
-
 import java.util.Objects;
 
 
@@ -26,34 +24,29 @@ public class PlanStatisticsWithInputInfo {
     private final int nodeId;
     private final PlanStatistics planStatistics;
 
-    private final InputTableStatisticsInfo sourceInfo;
+    private final InputTableStatisticsInfo inputTableInfo;
 
-    public PlanStatisticsWithInputInfo(int id, PlanStatistics planStatistics, InputTableStatisticsInfo sourceInfo)
-    {
+    public PlanStatisticsWithInputInfo(int id, PlanStatistics planStatistics, InputTableStatisticsInfo inputTableInfo) {
         this.nodeId = id;
-        this.planStatistics = requireNonNull(planStatistics, "planStatistics is null");
-        this.sourceInfo = sourceInfo;
+        this.planStatistics = Objects.requireNonNull(planStatistics, "planStatistics is null");
+        this.inputTableInfo = inputTableInfo;
     }
 
 
-    public int getId()
-    {
+    public int getId() {
         return nodeId;
     }
 
-    public PlanStatistics getPlanStatistics()
-    {
+    public PlanStatistics getPlanStatistics() {
         return planStatistics;
     }
 
-    public InputTableStatisticsInfo getSourceInfo()
-    {
-        return sourceInfo;
+    public InputTableStatisticsInfo getInputTableInfo() {
+        return inputTableInfo;
     }
 
     @Override
-    public boolean equals(Object o)
-    {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -61,14 +54,13 @@ public class PlanStatisticsWithInputInfo {
             return false;
         }
         PlanStatisticsWithInputInfo that = (PlanStatisticsWithInputInfo) o;
-        return nodeId == that.nodeId && planStatistics.equals(that.planStatistics) && sourceInfo.equals(that.sourceInfo);
+        return nodeId == that.nodeId && planStatistics.equals(that.planStatistics)
+                && inputTableInfo.equals(that.inputTableInfo);
     }
 
     @Override
-    public int hashCode()
-    {
-        return Objects.hash(nodeId, planStatistics, sourceInfo);
+    public int hashCode() {
+        return Objects.hash(nodeId, planStatistics, inputTableInfo);
     }
-
 
 }

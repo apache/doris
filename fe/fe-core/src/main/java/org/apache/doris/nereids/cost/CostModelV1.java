@@ -30,6 +30,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -60,22 +62,20 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.planner.PlanNodeAndHash;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
-import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
-import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.hbo.PlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
-import static java.util.Objects.requireNonNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -99,7 +99,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
         this.isHboEnabled = sessionVariable.isEnableHboOptimization();
         this.isHboInfoCollected = sessionVariable.isEnableHboInfoCollection();
-        this.hboPlanStatisticsProvider = requireNonNull(HboPlanStatisticsManager.getInstance()
+        this.hboPlanStatisticsProvider = Objects.requireNonNull(HboPlanStatisticsManager.getInstance()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
@@ -484,8 +484,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             if (context.getSessionVariable() != null
                     && context.getSessionVariable().isEnableHboOptimization()
                     && context.getSessionVariable().isEnableHboInfoCollection()) {
-                PlanNodeAndHash PlanNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
-                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(PlanNodeAndHash);
+                PlanNodeAndHash planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(planNodeAndHash);
                 PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                         context.getStatementContext().getConnectContext());
                 if (matchedPlanStatistics != null) {

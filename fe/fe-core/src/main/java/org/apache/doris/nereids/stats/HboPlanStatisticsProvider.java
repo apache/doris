@@ -17,14 +17,16 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.planner.PlanNodeAndHash;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
 import java.util.List;
 import java.util.Map;
 
-public interface HboPlanStatisticsProvider
-{
+/**
+ * HboPlanStatisticsProvider
+ */
+public interface HboPlanStatisticsProvider {
     /**
      * Given a list of plan node hashes, returns historical statistics for them.
      * Some entries in return value may be missing if no corresponding history exists.
@@ -34,7 +36,7 @@ public interface HboPlanStatisticsProvider
      */
     Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboStats(List<PlanNodeAndHash> nodeIds);
 
-    RecentRunsPlanStatistics getHboStats(PlanNodeAndHash PlanNodeAndHash);
+    RecentRunsPlanStatistics getHboStats(PlanNodeAndHash planNodeAndHash);
 
     /**
      * Given plan hashes and corresponding statistics after a query is run, store them for future retrieval.

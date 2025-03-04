@@ -18,42 +18,36 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanNode.java
 // and modified by Doris
 
-package org.apache.doris.planner;
-
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+package org.apache.doris.nereids.trees.plans;
 
 import java.util.Objects;
 import java.util.Optional;
 
-import static java.lang.String.format;
-import static java.util.Objects.requireNonNull;
-
-public class PlanNodeAndHash
-{
+/**
+ * PlanNode with plan hash.
+ */
+public class PlanNodeAndHash {
     private final AbstractPlan planNode;
-    // An optional canonical hash of the corresponding plan node. Hash strategy is part of `CanonicalPlan` which gets hashed, hence different strategies gives different hash
+    // An optional canonical hash of the corresponding plan node.
+    // Hash strategy is part of `CanonicalPlan` which gets hashed,
+    // hence different strategies gives different hash
     private final Optional<String> hash;
 
-    public PlanNodeAndHash(AbstractPlan planNode, Optional<String> hash)
-    {
-        this.planNode = requireNonNull(planNode, "planNode is null");
-        this.hash = requireNonNull(hash, "hash is null");
+    public PlanNodeAndHash(AbstractPlan planNode, Optional<String> hash) {
+        this.planNode = Objects.requireNonNull(planNode, "planNode is null");
+        this.hash = Objects.requireNonNull(hash, "hash is null");
     }
 
-    public AbstractPlan getPlanNode()
-    {
+    public AbstractPlan getPlanNode() {
         return planNode;
     }
 
-    public Optional<String> getHash()
-    {
+    public Optional<String> getHash() {
         return hash;
     }
 
     @Override
-    public boolean equals(Object o)
-    {
+    public boolean equals(Object o) {
         if (this == o) {
             return true;
         }
@@ -67,14 +61,12 @@ public class PlanNodeAndHash
     }
 
     @Override
-    public int hashCode()
-    {
+    public int hashCode() {
         return Objects.hash(System.identityHashCode(planNode), hash);
     }
 
     @Override
-    public String toString()
-    {
-        return format("plan: %s, hash: %s", planNode, hash);
+    public String toString() {
+        return String.format("plan: %s, hash: %s", planNode, hash);
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;

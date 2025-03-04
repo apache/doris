@@ -19,18 +19,13 @@ package org.apache.doris.statistics.hbo;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,8 +44,9 @@ public class ScanPlanStatistics extends PlanStatistics {
 
     public ScanPlanStatistics(int nodeId, long inputRows, long outputRows, long commonFilteredRows,
             long commonFilterInputRows, long runtimeFilteredRows, long runtimeFilterInputRows, long joinBuilderRows,
-            long joinProbeRows, int joinBuilderSkewRatio, int joinProbeSkewRatio, int instanceNum, PhysicalOlapScan table,
-            Set<Expression> tableFilterSet, boolean isPartitionedTable, PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
+            long joinProbeRows, int joinBuilderSkewRatio, int joinProbeSkewRatio, int instanceNum,
+            PhysicalOlapScan table, Set<Expression> tableFilterSet, boolean isPartitionedTable,
+            PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
         super(nodeId, inputRows, outputRows, commonFilteredRows, commonFilterInputRows, runtimeFilteredRows,
                 runtimeFilterInputRows, joinBuilderRows, joinProbeRows, joinBuilderSkewRatio, joinProbeSkewRatio,
                 instanceNum);
@@ -64,9 +60,9 @@ public class ScanPlanStatistics extends PlanStatistics {
 
     public ScanPlanStatistics(PlanStatistics other, PhysicalOlapScan table, Set<Expression> tableFilterSet,
             boolean isPartitionedTable, PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
-        super(other.nodeId, other.inputRows, other.outputRows, other.commonFilteredRows, other.commonFilterInputRows, other.runtimeFilteredRows,
-                other.runtimeFilterInputRows, other.joinBuilderRows, other.joinProbeRows, other.joinBuilderSkewRatio, other.joinProbeSkewRatio,
-                other.instanceNum);
+        super(other.nodeId, other.inputRows, other.outputRows, other.commonFilteredRows, other.commonFilterInputRows,
+                other.runtimeFilteredRows, other.runtimeFilterInputRows, other.joinBuilderRows, other.joinProbeRows,
+                other.joinBuilderSkewRatio, other.joinProbeSkewRatio, other.instanceNum);
         this.table = table;
         this.tableFilterSet = tableFilterSet;
         this.isPartitionedTable = isPartitionedTable;
