@@ -52,7 +52,8 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                             .filter(function -> function instanceof Avg && function.isDistinct())
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                                 Sum sum = (Sum) TypeCoercionUtils.processBoundFunction(
-                                        new Sum(true, ((Avg) function).isAlwaysNullable(), ((Avg) function).child()));
+                                        new Sum(true, ((Avg) function).isAlwaysNullable(), false,
+                                                ((Avg) function).child()));
                                 Count count = (Count) TypeCoercionUtils.processBoundFunction(
                                         new Count(true, ((Avg) function).child()));
                                 return TypeCoercionUtils.processDivide(new Divide(sum, count));
