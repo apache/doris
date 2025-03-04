@@ -1522,6 +1522,8 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 // ATTN: this config is only for test
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
+DECLARE_mBool(enable_mow_verbose_log);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
