@@ -168,23 +168,14 @@ struct TypeDescriptor {
         return result;
     }
 
-    bool operator==(const TypeDescriptor& o) const {
-        if (type != o.type) {
-            return false;
-        }
-        if (children != o.children) {
-            return false;
-        }
-        if (type == TYPE_CHAR) {
-            return len == o.len;
-        }
-        if (type == TYPE_DECIMALV2) {
-            return precision == o.precision && scale == o.scale;
-        }
-        return true;
+    template <PrimitiveType o>
+    bool is() const {
+        return this->type == o;
     }
 
-    bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }
+    bool operator==(const TypeDescriptor& o) = delete;
+
+    bool operator!=(const TypeDescriptor& other) = delete;
 
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
