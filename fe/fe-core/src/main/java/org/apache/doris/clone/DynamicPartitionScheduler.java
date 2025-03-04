@@ -674,7 +674,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         addPartitionClauses, db, olapTable, indexIds, tableName);
 
                 // ATTN: Breaking up dynamic partition table scheduling, consuming peak CPU consumption
-                if (!executeFirstTime && Config.dynamic_partition_step_interval_ms > 0) {
+                if (!executeFirstTime && !addPartitionClauses.isEmpty()
+                        && Config.dynamic_partition_step_interval_ms > 0) {
                     long sleep = Config.dynamic_partition_step_interval_ms;
                     if (sleep > 1800 * 1000) {
                         LOG.warn("fe conf dynamic_partition_step_interval_ms bigger than 1800s, plz check it");
