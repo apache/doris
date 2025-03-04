@@ -35,9 +35,9 @@
 #include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -240,6 +240,7 @@ public:
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
+    const TQueryOptions& query_options() const { return _query_options; }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -270,6 +271,9 @@ public:
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
+    }
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
+        return _merge_controller_handler;
     }
 
     bool is_nereids() const { return _is_nereids; }

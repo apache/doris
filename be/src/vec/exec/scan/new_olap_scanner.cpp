@@ -246,7 +246,8 @@ Status NewOlapScanner::open(RuntimeState* state) {
 
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
-        const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
+        const std::vector<OlapScanRange*>& key_ranges,
+        const std::vector<FilterOlapParam<TCondition>>& filters,
         const pipeline::FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty

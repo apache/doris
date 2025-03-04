@@ -77,9 +77,12 @@ class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
                                                   DynamicContainer<typename PrimitiveTypeTraits<
                                                           type_to_primitive_type<T>()>::CppType>> {
 public:
-    NullableNumericOrDateSet() { this->_null_aware = true; }
+    NullableNumericOrDateSet()
+            : HybridSet<type_to_primitive_type<T>(),
+                        DynamicContainer<typename PrimitiveTypeTraits<
+                                type_to_primitive_type<T>()>::CppType>>(true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
 template <typename T>
@@ -206,7 +209,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const void* value = it->get_value();
@@ -226,8 +229,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -240,9 +243,9 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
+        write_pod_binary(is_set_contain_null, buf);
         write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
         HybridSetBase::IteratorBase* it = set->begin();
@@ -257,10 +260,10 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
+        read_pod_binary(is_set_contain_null, buf);
+        data.value->change_contain_null_value(is_set_contain_null);
         read_pod_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
@@ -322,9 +325,9 @@ public:
 /// Generic implementation, it uses serialized representation as object descriptor.
 class NullableStringSet : public StringValueSet<DynamicContainer<StringRef>> {
 public:
-    NullableStringSet() { this->_null_aware = true; }
+    NullableStringSet() : StringValueSet<DynamicContainer<StringRef>>(true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
 struct AggregateFunctionGroupArrayIntersectGenericData {
@@ -443,7 +446,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
@@ -462,8 +465,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -476,9 +479,9 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
+        write_pod_binary(is_set_contain_null, buf);
         write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
 
@@ -493,10 +496,10 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
+        read_pod_binary(is_set_contain_null, buf);
+        data.value->change_contain_null_value(is_set_contain_null);
         read_pod_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
