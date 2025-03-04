@@ -29,6 +29,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -47,9 +48,10 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           batch_bytes_(batch_bytes),
           query_id_(state->query_id()),
           profile_(profile) {
-    _total_file_count = profile_->get_counter("SpillWriteFileTotalCount");
-    _current_file_count = profile_->get_counter("SpillWriteFileCurrentCount");
-    _current_file_size = profile_->get_counter("SpillWriteFileCurrentBytes");
+    RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
+    _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
+    _current_file_count = custom_profile->get_counter("SpillWriteFileCurrentCount");
+    _current_file_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
 }
 
 void SpillStream::update_shared_profiles(RuntimeProfile* source_op_profile) {
