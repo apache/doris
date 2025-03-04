@@ -730,6 +730,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String JOIN_SKEW_ADD_SALT_EXPLODE_FACTOR = "join_skew_add_salt_explode_factor";
+
+    public static final String AGG_DISTINCT_SKEW_BUCKET_NUM = "agg_distinct_skew_bucket_num";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2272,6 +2276,14 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
 
+    @VariableMgr.VarAttr(name = AGG_DISTINCT_SKEW_BUCKET_NUM, needForward = true,
+            description = {"agg distinct 倾斜场景的聚合分桶数"})
+    public int aggDistinctSkewBucketNum = 1024;
+
+    public void setAggDistinctSkewBucketNum(int num) {
+        this.aggDistinctSkewBucketNum = num;
+    }
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -2570,6 +2582,12 @@ public class SessionVariable implements Serializable, Writable {
             "Skip checking transactional hive version file '_orc_acid_version.'"
     })
     public boolean skipCheckingAcidVersionFile = false;
+
+    @VariableMgr.VarAttr(name = JOIN_SKEW_ADD_SALT_EXPLODE_FACTOR, description = {
+            "join 加盐优化的扩展因子",
+            "join skew add salt explode factor"
+    })
+    public int joinSkewAddSaltExplodeFactor = -1;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;

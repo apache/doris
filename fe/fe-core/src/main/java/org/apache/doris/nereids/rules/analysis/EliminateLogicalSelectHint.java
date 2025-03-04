@@ -82,7 +82,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
                                     StatementContext statementContext, LogicalSelectHint<Plan> selectHintPlan) {
-        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
+        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString(),
+                selectHint.getStrToHint());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             context.getHintMap().get("Leading").setStatus(Hint.HintStatus.UNUSED);
