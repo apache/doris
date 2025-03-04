@@ -92,7 +92,9 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // so we need to setupt the profile and memory counter here,
     // or else the counter can be nullptr when AsyncResultWriter::sink is called.
     _operator_profile = operator_profile;
-    _memory_used_counter = _operator_profile->get_counter("MemoryUsage");
+    DCHECK(_operator_profile->get_child("CommonCounters") != nullptr);
+    _memory_used_counter =
+            _operator_profile->get_child("CommonCounters")->get_counter("MemoryUsage");
 
     // Should set to false here, to
     DCHECK(_finish_dependency);
