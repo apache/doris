@@ -723,6 +723,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String JOIN_SKEW_ADD_SALT_EXPLODE_FACTOR = "join_skew_add_salt_explode_factor";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2491,6 +2493,12 @@ public class SessionVariable implements Serializable, Writable {
             "Skip checking transactional hive version file '_orc_acid_version.'"
     })
     public boolean skipCheckingAcidVersionFile = false;
+
+    @VariableMgr.VarAttr(name = JOIN_SKEW_ADD_SALT_EXPLODE_FACTOR, description = {
+            "join 加盐优化的扩展因子",
+            "join skew add salt explode factor"
+    })
+    public int joinSkewAddSaltExplodeFactor = 1000;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;

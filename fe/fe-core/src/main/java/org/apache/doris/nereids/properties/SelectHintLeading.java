@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.hint.DistributeHint;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -27,14 +30,20 @@ import java.util.stream.Collectors;
 public class SelectHintLeading extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
+    private final Map<String, DistributeHint> strToHint;
 
-    public SelectHintLeading(String hintName, List<String> parameters) {
+    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint) {
         super(hintName);
         this.parameters = parameters;
+        this.strToHint = strToHint;
     }
 
     public List<String> getParameters() {
         return parameters;
+    }
+
+    public Map<String, DistributeHint> getStrToHint() {
+        return strToHint;
     }
 
     @Override

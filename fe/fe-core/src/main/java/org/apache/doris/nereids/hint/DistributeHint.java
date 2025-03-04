@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
+
+import java.util.List;
 
 /**
  * Hints for join.
@@ -30,13 +33,51 @@ public class DistributeHint extends Hint {
 
     private boolean isSuccessInLeading = false;
 
+    private final Expression skewExpr;
+
+    private final List<Expression> skewValues;
+
+    private boolean isSuccessInSkew = false;
+
     public DistributeHint(DistributeType distributeType) {
+        this(distributeType, null, null);
+    }
+
+    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues) {
+        this(distributeType, skewExpr, skewValues, false);
+    }
+
+    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues,
+            boolean isSuccessInSkew) {
         super("Distribute");
         this.distributeType = distributeType;
+        this.skewExpr = skewExpr;
+        this.skewValues = skewValues;
+        this.isSuccessInSkew = isSuccessInSkew;
+    }
+
+    public DistributeHint withSkewExpr(Expression expr) {
+        return new DistributeHint(distributeType, expr, skewValues);
+    }
+
+    public DistributeHint withSuccessInSkew(boolean success) {
+        return new DistributeHint(distributeType, skewExpr, skewValues, success);
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
         isSuccessInLeading = successInLeading;
+    }
+
+    public Expression getSkewExpr() {
+        return skewExpr;
+    }
+
+    public List<Expression> getSkewValues() {
+        return skewValues;
+    }
+
+    public boolean isSuccessInSkew() {
+        return isSuccessInSkew;
     }
 
     /**
@@ -71,6 +112,21 @@ public class DistributeHint extends Hint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return this.distributeType == ((DistributeHint) o).distributeType;
+        if (this.distributeType != ((DistributeHint) o).distributeType) {
+            return false;
+        }
+        if (skewExpr == null && ((DistributeHint) o).skewExpr != null) {
+            return false;
+        }
+        if (skewExpr != null && !skewExpr.equals(((DistributeHint) o).skewExpr)) {
+            return false;
+        }
+        if (skewValues == null && ((DistributeHint) o).skewValues != null) {
+            return false;
+        }
+        if (skewValues != null && !skewValues.equals(((DistributeHint) o).skewValues)) {
+            return false;
+        }
+        return true;
     }
 }
