@@ -508,6 +508,8 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
@@ -6054,6 +6056,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException(e.getDetailMessage());
         }
         return new DescribeCommand(tableValuedFunctionRef);
+    }
+
+    @Override
+    public LogicalPlan visitAlterTableStats(DorisParser.AlterTableStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterColumnStats(DorisParser.AlterColumnStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+
+        String index = ctx.indexName != null ? ctx.indexName.getText() : null;
+        String columnName = ctx.columnName.getText();
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AlterColumnStatsCommand(tableNameInfo,
+            partitionNamesInfo,
+            index,
+            columnName,
+            properties);
     }
 }
 
