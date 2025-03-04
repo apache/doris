@@ -77,7 +77,8 @@ public class HdfsStorageVault extends StorageVault {
      * such as `type`, `path_prefix`, etc.
      */
     private static final Set<String> nonHdfsConfPropertyKeys =
-            ImmutableSet.of(VAULT_TYPE, VAULT_PATH_PREFIX, CHECK_CONNECTIVITY).stream().map(String::toLowerCase)
+            ImmutableSet.of(VAULT_TYPE, VAULT_PATH_PREFIX, S3Properties.VALIDITY_CHECK)
+                    .stream().map(String::toLowerCase)
                     .collect(ImmutableSet.toImmutableSet());
 
     @SerializedName(value = "properties")
@@ -102,8 +103,8 @@ public class HdfsStorageVault extends StorageVault {
     }
 
     public static void checkConnectivity(Map<String, String> newProperties) throws DdlException {
-        if (newProperties.containsKey(CHECK_CONNECTIVITY)
-                && newProperties.get(CHECK_CONNECTIVITY).equalsIgnoreCase("false")) {
+        if (newProperties.containsKey(S3Properties.VALIDITY_CHECK)
+                && newProperties.get(S3Properties.VALIDITY_CHECK).equalsIgnoreCase("false")) {
             return;
         }
 
