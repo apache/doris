@@ -401,12 +401,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        List<Object> arguments = unboundFunction.isDistinct()
-                ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                    .add(unboundFunction.isDistinct())
-                    .addAll(unboundFunction.getArguments())
-                    .build()
-                : (List) unboundFunction.getArguments();
+        List<Object> arguments = unboundFunction.getArgumentsForBuilder();
 
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
