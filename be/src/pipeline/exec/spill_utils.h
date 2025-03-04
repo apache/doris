@@ -138,9 +138,16 @@ public:
             return;
         }
 
+        Defer set_ready_defer([&] {
+            if (_spill_dependency) {
+                _spill_dependency->set_ready();
+            }
+        });
+
         if (_state->is_cancelled()) {
             return;
         }
+
         auto status = _spill_exec_func();
         if (!status.ok()) {
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status);
@@ -152,10 +159,6 @@ public:
             if (!status2.ok()) {
                 ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status2);
             }
-        }
-
-        if (_spill_dependency) {
-            _spill_dependency->set_ready();
         }
     }
 

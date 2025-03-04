@@ -188,7 +188,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
                        -(inner_sink_state->_hash_table_memory_usage->value() +
                          inner_sink_state->_build_arena_memory_usage->value()));
     }
-    auto row_desc = p._child->row_desc();
+    const auto& row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
     int64_t block_old_mem = 0;

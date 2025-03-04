@@ -284,7 +284,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
 
-        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
         init_spill_read_counters();
 
         return Status::OK();
@@ -317,6 +316,8 @@ public:
     }
 
     void init_spill_read_counters() {
+        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
+
         // Spill read counters
         _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
 
@@ -669,7 +670,11 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
+        init_spill_counters();
+        return Status::OK();
+    }
 
+    void init_spill_counters() {
         _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
 
         _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
@@ -696,7 +701,6 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
         _spill_min_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
-        return Status::OK();
     }
 
     std::vector<Dependency*> dependencies() const override {
