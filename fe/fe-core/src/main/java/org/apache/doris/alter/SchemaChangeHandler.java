@@ -1260,7 +1260,12 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+                           Map<String, String> propertyMap, List<Index> indexes,
+                           boolean isBuildIndex) throws UserException {
+        if (isBuildIndex) {
+            // remove the index which is not the base index, only base index can be built index
+            indexSchemaMap.entrySet().removeIf(entry -> !entry.getKey().equals(olapTable.getBaseIndexId()));
+        }
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -1296,7 +1301,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
         Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
-        if (!newSet.equals(oriSet)) {
+        if (!newSet.equals(oriSet) || isBuildIndex) {
             hasIndexChange = true;
         }
 
@@ -1312,7 +1317,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
-        // check bloom filter has change
+        // check bloom filter has been changed
         boolean hasBfChange = false;
         Set<String> oriBfColumns = olapTable.getCopiedBfColumns();
         double oriBfFpp = olapTable.getBfFpp();
@@ -1939,7 +1944,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             List<Index> newIndexes = olapTable.getCopiedIndexes();
             List<Index> alterIndexes = new ArrayList<>();
-            Map<Long, Set<String>> invertedIndexOnPartitions = new HashMap<>();
+            Map<Long, Set<String>> indexOnPartitions = new HashMap<>();
             boolean isDropIndex = false;
             Map<String, String> propertyMap = new HashMap<>();
             for (AlterClause alterClause : alterClauses) {
@@ -2077,55 +2082,29 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    if (index.isLightIndexChangeSupported() && !Config.isCloudMode()) {
+                    // ngram_bf index can do light_schema_change in both local and cloud mode
+                    // inverted index can only do light_schema_change in local mode
+                    if (index.isLightIndexChangeSupported()) {
                         alterIndexes.add(index);
                         isDropIndex = false;
-                        // now only support light index change for inverted index
                         lightIndexChange = true;
                     }
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode()) {
+                    if (Config.isCloudMode() && index.getIndexType() == IndexDef.IndexType.INVERTED) {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
-                    if (!olapTable.isPartitionedTable()) {
-                        List<String> specifiedPartitions = indexDef.getPartitionNames();
-                        if (!specifiedPartitions.isEmpty()) {
-                            throw new DdlException("table " + olapTable.getName()
-                                    + " is not partitioned, cannot build index with partitions.");
-                        }
-                    }
-                    List<Index> existedIndexes = olapTable.getIndexes();
-                    boolean found = false;
-                    for (Index existedIdx : existedIndexes) {
-                        if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
-                            found = true;
-                            if (!existedIdx.isLightIndexChangeSupported()) {
-                                throw new DdlException("BUILD INDEX operation failed: The index "
-                                        + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
-                                        + " does not support lightweight index changes.");
-                            }
-                            index = existedIdx.clone();
-                            if (indexDef.getPartitionNames().isEmpty()) {
-                                invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
-                            } else {
-                                invertedIndexOnPartitions.put(
-                                        index.getIndexId(), new HashSet<>(indexDef.getPartitionNames()));
-                            }
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        throw new DdlException("index " + indexDef.getIndexName()
-                                + " not exist, cannot build it with defferred.");
+                    if (indexDef.getPartitionNames().isEmpty()) {
+                        indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
+                    } else {
+                        indexOnPartitions.put(
+                                index.getIndexId(), new HashSet<>(indexDef.getPartitionNames()));
                     }
 
-                    if (indexDef.isInvertedIndex()) {
-                        alterIndexes.add(index);
-                    }
+                    alterIndexes.add(index);
                     buildIndexChange = true;
                     lightSchemaChange = false;
                 } else if (alterClause instanceof DropIndexClause) {
@@ -2143,7 +2122,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    if (found.isLightIndexChangeSupported() && !Config.isCloudMode()) {
+                    if (found.isLightIndexChangeSupported()) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -2167,16 +2146,24 @@ public class SchemaChangeHandler extends AlterHandler {
                                              null, isDropIndex, jobId, false);
             } else if (Config.enable_light_index_change && lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index optimize, direct modify table meta firstly.
+                //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, false);
             } else if (buildIndexChange) {
+                if (alterIndexes.isEmpty()) {
+                    throw new DdlException("Altered index is empty. please check your alter stmt.");
+                }
+                IndexDef.IndexType indexType = alterIndexes.get(0).getIndexType();
                 if (Config.enable_light_index_change) {
-                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                                      alterIndexes, invertedIndexOnPartitions, false);
+                    if (indexType == IndexDef.IndexType.INVERTED) {
+                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                                alterIndexes, indexOnPartitions, false);
+                    } else {
+                        createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, true);
+                    }
                 }
             } else {
-                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, false);
             }
         } finally {
             olapTable.writeUnlock();
