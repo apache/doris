@@ -343,19 +343,18 @@ int S3Accessor::init() {
         options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
         options.Retry.MaxRetries = config::max_s3_client_retry;
 
-        // Create Azure credentials
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
 
-        // Construct Azure URI
         uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
                            conf_.ak, conf_.bucket);
-
-        // Add retry policies
+        // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
+        // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
+        // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
+        // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
         options.PerRetryPolicies.emplace_back(
                 std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
 
-        // Create container client
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
 
@@ -379,7 +378,7 @@ int S3Accessor::init() {
             LOG(WARNING) << ("Azure initialization failed: {}", e.what());
             return -1;
         }
-
+        // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
         uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
@@ -393,13 +392,13 @@ int S3Accessor::init() {
 
         static S3Environment s3_env;
 
-        // Configure AWS S3 client credentials and options
+        // S3Conf::S3
         Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
 
-        // Adjust max connections
+        // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck
         aws_config.maxConnections = std::max((long)(config::recycle_pool_parallelism +
                                                     config::instance_recycler_worker_pool_size),
                                              (long)aws_config.maxConnections);
@@ -408,10 +407,8 @@ int S3Accessor::init() {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
 
-        // Set retry strategy
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry /*scaleFactor = 25*/
-        );
+                config::max_s3_client_retry /*scaleFactor = 25*/);
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 std::move(aws_cred), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
