@@ -25,28 +25,28 @@ namespace doris {
 std::string filter_type_to_string(RuntimeFilterType type) {
     switch (type) {
     case RuntimeFilterType::IN_FILTER: {
-        return "in";
+        return "IN_FILTER";
     }
     case RuntimeFilterType::BLOOM_FILTER: {
-        return "bloomfilter";
+        return "BLOOM_FILTER";
     }
     case RuntimeFilterType::MIN_FILTER: {
-        return "only_min";
+        return "MIN_FILTER";
     }
     case RuntimeFilterType::MAX_FILTER: {
-        return "only_max";
+        return "MAX_FILTER";
     }
     case RuntimeFilterType::MINMAX_FILTER: {
-        return "minmax";
+        return "MINMAX_FILTER";
     }
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        return "in_or_bloomfilter";
+        return "IN_OR_BLOOM_FILTER";
     }
     case RuntimeFilterType::BITMAP_FILTER: {
-        return "bitmapfilter";
+        return "BITMAP_FILTER";
     }
     default:
-        return "unknown";
+        return "UNKNOWN_FILTER";
     }
 }
 
@@ -96,6 +96,8 @@ RuntimeFilterType get_type(int filter_type) {
         return RuntimeFilterType::MIN_FILTER;
     case PFilterType::MAX_FILTER:
         return RuntimeFilterType::MAX_FILTER;
+    case PFilterType::IN_OR_BLOOM_FILTER:
+        return RuntimeFilterType::IN_OR_BLOOM_FILTER;
     default:
         return RuntimeFilterType::UNKNOWN_FILTER;
     }
@@ -117,7 +119,7 @@ PFilterType get_type(RuntimeFilterType type) {
     case RuntimeFilterType::IN_OR_BLOOM_FILTER:
         return PFilterType::IN_OR_BLOOM_FILTER;
     default:
-        return PFilterType::UNKNOW_FILTER;
+        return PFilterType::UNKNOWN_FILTER;
     }
 }
 
