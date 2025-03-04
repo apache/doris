@@ -311,7 +311,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         // set unique_id and parent_unique_id, will use unique_id to get iterator correct
         auto column = vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name,
-                vectorized::schema_util::ExtraInfo {.unique_id = _tablet_column->unique_id(),
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
                                                     .parent_unique_id = _tablet_column->unique_id(),
                                                     .path_info = full_path});
         return column;
@@ -649,7 +649,7 @@ Status VariantSubcolumnWriter::finalize() {
     TabletColumn flush_column = vectorized::schema_util::get_column_by_type(
             ptr->get_root_type(), _tablet_column->name(),
             vectorized::schema_util::ExtraInfo {
-                    .unique_id = _tablet_column->unique_id(),
+                    .unique_id = -1,
                     .parent_unique_id = _tablet_column->parent_unique_id(),
                     .path_info = *_tablet_column->path_info_ptr()});
     ColumnWriterOptions opts = _opts;

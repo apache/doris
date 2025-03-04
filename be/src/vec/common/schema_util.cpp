@@ -686,33 +686,42 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
     return Status::OK();
 }
 
+// get the subpaths and sparse paths for the variant column
 void get_subpaths(const TabletColumn& variant,
                   const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
                   std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info) {
-    for (const auto& [uid, stats] : path_stats) {
-        if (stats.size() > variant.variant_max_subcolumns_count()) {
-            // 按非空值数量排序
-            std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
-            paths_with_sizes.reserve(stats.size());
-            for (const auto& [path, size] : stats) {
-                paths_with_sizes.emplace_back(size, path);
-            }
-            std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
+    if (path_stats.find(variant.unique_id()) == path_stats.end()) {
+        return;
+    }
+    // get the stats for the variant column
+    const auto& stats = path_stats.at(variant.unique_id());
+    int32_t uid = variant.unique_id();
+    if (stats.size() > variant.variant_max_subcolumns_count()) {
+        // 按非空值数量排序
+        std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+        paths_with_sizes.reserve(stats.size());
+        for (const auto& [path, size] : stats) {
+            paths_with_sizes.emplace_back(size, path);
+        }
+        std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
 
-            // 选取前N个路径作为子列，其余路径作为稀疏列
-            for (const auto& [size, path] : paths_with_sizes) {
-                if (uid_to_paths_set_info[uid].sub_path_set.size() <
-                    variant.variant_max_subcolumns_count()) {
-                    uid_to_paths_set_info[uid].sub_path_set.emplace(path);
-                } else {
-                    uid_to_paths_set_info[uid].sparse_path_set.emplace(path);
-                }
-            }
-        } else {
-            // 使用所有路径
-            for (const auto& [path, _] : stats) {
+        // Select top N paths as subcolumns, remaining paths as sparse columns
+        for (const auto& [size, path] : paths_with_sizes) {
+            if (uid_to_paths_set_info[uid].sub_path_set.size() <
+                variant.variant_max_subcolumns_count()) {
                 uid_to_paths_set_info[uid].sub_path_set.emplace(path);
+            } else {
+                uid_to_paths_set_info[uid].sparse_path_set.emplace(path);
             }
+        }
+        LOG(INFO) << "subpaths " << uid_to_paths_set_info[uid].sub_path_set.size()
+                  << " sparse paths " << uid_to_paths_set_info[uid].sparse_path_set.size()
+                  << " variant max subcolumns count " << variant.variant_max_subcolumns_count()
+                  << " stats size " << paths_with_sizes.size();
+    } else {
+        // Apply all paths as subcolumns
+        for (const auto& [path, _] : stats) {
+            uid_to_paths_set_info[uid].sub_path_set.emplace(path);
         }
     }
 }
@@ -728,12 +737,12 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
                              TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, PathToNoneNullValues> uid_to_path_stats;
 
-    // 收集统计信息
+    // collect path stats from all rowsets and segments
     for (const auto& rs : rowsets) {
         RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats));
     }
 
-    // 构建输出schema
+    // build the output schema
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
@@ -742,14 +751,15 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         if (!column->is_variant_type()) {
             continue;
         }
+        VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
-        // 获取子路径
+        // get the subpaths
         get_subpaths(*column, uid_to_path_stats, uid_to_paths_set_info);
         std::vector<StringRef> sorted_subpaths(
                 uid_to_paths_set_info[column->unique_id()].sub_path_set.begin(),
                 uid_to_paths_set_info[column->unique_id()].sub_path_set.end());
         std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
-        // 添加子列
+        // append subcolumns
         for (const auto& subpath : sorted_subpaths) {
             TabletColumn subcolumn;
             subcolumn.set_name(column->name() + "." + subpath.to_string());
@@ -761,7 +771,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
             subcolumn.set_is_nullable(true);
             output_schema->append_column(subcolumn);
         }
-        // 添加稀疏列
+        // append sparse column
         TabletColumn sparse_column = create_sparse_column(*column);
         output_schema->append_column(sparse_column);
     }
