@@ -62,7 +62,7 @@ public:
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
+    virtual Status open(RuntimeState* state, RuntimeProfile* operator_profile) = 0;
 
     // sink the block data to data queue, it is async
     Status sink(Block* block, bool eos);
@@ -82,7 +82,7 @@ protected:
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
 private:
-    void process_block(RuntimeState* state, RuntimeProfile* profile);
+    void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
