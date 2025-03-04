@@ -194,7 +194,9 @@ void LruMultiCache<KeyType, ValueType>::release(ValueType_internal* p_value_inte
     // Has to be currently not available
     DCHECK(!p_value_internal->is_available());
 
-    p_value_internal->timestamp_seconds = MonotonicSeconds();
+    // DO NOT update timestamp_seconds when release.
+    // Because we are about to evict cache value after a certain period.
+    // p_value_internal->timestamp_seconds = MonotonicSeconds();
 
     Container& container = p_value_internal->container;
 
