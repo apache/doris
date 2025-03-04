@@ -65,6 +65,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
             exception "denied"
@@ -125,6 +126,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     }
     sql """grant load_priv on ${dbName}.${tableName1} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false;"""
         test {
             sql """DELETE FROM ${dbName}.${tableName1} 
                 USING ${dbName}.${tableName2} INNER JOIN ${dbName}.${tableName3} 
