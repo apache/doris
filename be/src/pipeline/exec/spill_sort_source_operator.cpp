@@ -189,7 +189,7 @@ Status SpillSortLocalState::_create_intermediate_merger(
     _current_merging_streams.clear();
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {
         auto stream = _shared_state->sorted_streams.front();
-        stream->set_read_counters(custom_profile());
+        stream->set_read_counters(operator_profile());
         _current_merging_streams.emplace_back(stream);
         child_block_suppliers.emplace_back(
                 std::bind(std::mem_fn(&vectorized::SpillStream::read_next_block_sync), stream.get(),
