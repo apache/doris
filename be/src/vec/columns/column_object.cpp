@@ -651,8 +651,11 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
             continue;
         }
         auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
-        res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
-                            subcolumn->data.get_least_common_type());
+        if (!res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
+                                 subcolumn->data.get_least_common_type())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error",
+                                   subcolumn->path.get_path());
+        }
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
@@ -2365,6 +2368,17 @@ ColumnObject::Subcolumn ColumnObject::Subcolumn::cut(size_t start, size_t length
     return new_subcolumn;
 }
 
+ColumnObject::Subcolumn ColumnObject::Subcolumn::clone() const {
+    Subcolumn new_column(*this);
+    std::vector<WrappedPtr> new_data;
+    for (const auto& part : data) {
+        auto&& column = part->get_ptr();
+        new_data.emplace_back(std::move(*column).mutate());
+    }
+    new_column.data = std::move(new_data);
+    return new_column;
+}
+
 const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
         const Subcolumns::NodePtr& entry) const {
     const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
@@ -2511,6 +2525,30 @@ void ColumnObject::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullM
             null_map->push_back(is_null);
         }
     }
+}
+
+MutableColumnPtr ColumnObject::clone() const {
+    auto res = ColumnObject::create(_max_subcolumns_count);
+    Subcolumns new_subcolumns;
+    for (const auto& subcolumn : subcolumns) {
+        auto new_subcolumn = subcolumn->data.clone();
+        if (subcolumn->data.is_root) {
+            new_subcolumns.create_root(std::move(new_subcolumn));
+        } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
+                                   subcolumn->path.get_path());
+        }
+    }
+    if (!new_subcolumns.get_root()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
+    }
+    res->subcolumns = std::move(new_subcolumns);
+    auto&& column = serialized_sparse_column->get_ptr();
+    auto sparse_column = std::move(*column).mutate();
+    res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->set_num_rows(num_rows);
+    res->check_consistency();
+    return res;
 }
 
 } // namespace doris::vectorized

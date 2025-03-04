@@ -158,6 +158,7 @@ TEST(ColumnVariantTest, basic_inset_range_from) {
     // sparse_column->subcolumn      v.b.d v.c.d
     // sparse_column->sparse_column  v.d.d
     dst->insert_range_from(*src, 0, 10);
+    dst->finalize();
     EXPECT_EQ(dst->size(), 10);
 
     // 5 subcolumn
@@ -498,6 +499,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
     // sparse_column->subcolumn      v.b.d v.c.d
     // sparse_column->sparse_column  v.d.d
     dst->insert_range_from(*src, 0, src->size());
+    dst->finalize();
     EXPECT_EQ(dst->size(), 15);
 
     EXPECT_EQ(dst->subcolumns.size(), 6);
@@ -791,5 +793,62 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         EXPECT_EQ(data3, StringRef("v.d.d", 5));
         EXPECT_EQ(pair3.first.get<String>(), "50");
         EXPECT_EQ(start, end);
+    }
+}
+
+auto construct_varint_column() {
+    // 1. create an empty variant column
+    auto variant = ColumnObject::create(5);
+
+    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+
+    // 2. subcolumn path
+    data.emplace_back("v.a", 20);
+    data.emplace_back("v.b", "20");
+    data.emplace_back("v.c", 20);
+    data.emplace_back("v.f", 20);
+    data.emplace_back("v.e", "50");
+    for (int i = 0; i < 5; ++i) {
+        auto field = construct_variant_map(data);
+        variant->try_insert(field);
+    }
+
+    // 3. subcolumn path
+    data.emplace_back("v.a", "20");
+    data.emplace_back("v.b", 20);
+    data.emplace_back("v.c", "20");
+    data.emplace_back("v.f", "20");
+    data.emplace_back("v.e", 50);
+    for (int i = 0; i < 5; ++i) {
+        auto field = construct_variant_map(data);
+        variant->try_insert(field);
+    }
+    return variant;
+}
+
+TEST(ColumnVariantTest, clone_resized) {
+    auto variant = construct_varint_column();
+
+    for (const auto& column : variant->subcolumns) {
+        for (const auto& part : column->data.data) {
+            EXPECT_EQ(part->use_count(), 1);
+        }
+    }
+
+    auto finalized = variant->clone_finalized();
+    auto& other_variant = assert_cast<ColumnObject&>(*finalized);
+    variant->check_consistency();
+    EXPECT_EQ(variant->subcolumns.size(), 6);
+    for (const auto& column : variant->subcolumns) {
+        for (const auto& part : column->data.data) {
+            EXPECT_EQ(part->use_count(), 1);
+        }
+    }
+
+    EXPECT_EQ(other_variant.subcolumns.size(), 6);
+    for (const auto& column : other_variant.subcolumns) {
+        for (const auto& part : column->data.data) {
+            EXPECT_EQ(part->use_count(), 1);
+        }
     }
 }
