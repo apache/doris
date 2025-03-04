@@ -46,7 +46,7 @@ suite("test_group_commit_insert_into_lineitem_normal") {
         }
     }
     def insert_table = "test_insert_into_lineitem_normal"
-    def batch = 100;
+    def batch = 90;
     def count = 0;
     def total = 0;
 
