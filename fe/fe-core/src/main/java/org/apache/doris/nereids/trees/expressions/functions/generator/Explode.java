@@ -21,27 +21,27 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * explode([1, 2, 3]), generate 3 lines include 1, 2 and 3.
  */
-public class Explode extends TableGeneratingFunction implements CustomSignature, AlwaysNullable {
+public class Explode extends TableGeneratingFunction implements ExplicitlyCastableSignature, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more argument.
      */
     public Explode(Expression[] args) {
         super("explode", args);
@@ -52,14 +52,14 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
      */
     @Override
     public Explode withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
+        Preconditions.checkArgument(!children.isEmpty());
         return new Explode(children.toArray(new Expression[0]));
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (Expression child : children) {
-            if (!(child.getDataType() instanceof ArrayType)) {
+            if (!child.isNullLiteral() && !(child.getDataType() instanceof ArrayType)) {
                 throw new AnalysisException("only support array type for explode function but got "
                         + child.getDataType());
             }
@@ -67,23 +67,26 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
     }
 
     @Override
-    public FunctionSignature customSignature() {
-        List<DataType> fieldTypes = children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
+    public List<FunctionSignature> getSignatures() {
+        List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-        for (int i = 0; i < fieldTypes.size(); i++) {
-            structFields.add(
-                    new StructField("col" + (i + 1), ((ArrayType) (fieldTypes.get(i))).getItemType(), true, ""));
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).isNullLiteral()) {
+                arguments.add(ArrayType.of(NullType.INSTANCE));
+                structFields.add(
+                    new StructField("col" + (i + 1), ArrayType.of(NullType.INSTANCE).getItemType(), true, ""));
+            } else {
+                structFields.add(
+                    new StructField("col" + (i + 1),
+                        ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            }
         }
-        return FunctionSignature.of(new StructType(structFields.build()), fieldTypes);
+        return ImmutableList.of(FunctionSignature.of(new StructType(structFields.build()), arguments));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplode(this, context);
-    }
-
-    @Override
-    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        return super.searchSignature(signatures);
     }
 }
