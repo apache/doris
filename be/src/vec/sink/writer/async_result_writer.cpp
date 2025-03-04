@@ -89,7 +89,7 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
     // Attention!!!
     // AsyncResultWriter::open is called asynchronously,
-    // so we need to setupt the profile and memory counter here,
+    // so we need to setupt the operator_profile and memory counter here,
     // or else the counter can be nullptr when AsyncResultWriter::sink is called.
     _operator_profile = operator_profile;
     DCHECK(_operator_profile->get_child("CommonCounters") != nullptr);
@@ -99,7 +99,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
+    // This is a async thread, should lock the task ctx, to make sure runtimestate and operator_profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
@@ -113,9 +113,9 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     return Status::OK();
 }
 
-void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
+void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* operator_profile) {
     SCOPED_ATTACH_TASK(state);
-    if (auto status = open(state, profile); !status.ok()) {
+    if (auto status = open(state, operator_profile); !status.ok()) {
         force_close(status);
     }
 
