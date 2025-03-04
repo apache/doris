@@ -381,7 +381,12 @@ Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& 
                         // b maybe in sparse column, and b.c is in subolumn, put `b` into root column to distinguish
                         // from "" which is empty path and root
                         if (container_variant.is_null_root()) {
-                            container_variant.add_sub_column({}, sparse_data_offsets.size());
+                            // root was created with nrows with Nothing type, resize it to fit the size of sparse column
+                            container_variant.get_root()->resize(sparse_data_offsets.size());
+                            // bool added = container_variant.add_sub_column({}, sparse_data_offsets.size());
+                            // if (!added) {
+                            //     return Status::InternalError("Failed to add subcolumn for sparse column");
+                            // }
                         }
                         const auto& data = ColumnObject::deserialize_from_sparse_column(
                                 &src_sparse_data_values, lower_bound_index);
@@ -435,16 +440,12 @@ Status HierarchicalDataReader::_init_null_map_and_clear_columns(
     return Status::OK();
 }
 
-Status SparseColumnExtractReader::init(const ColumnIteratorOptions& opts) {
-    return _sparse_column_reader->init(opts);
-}
-
-Status SparseColumnExtractReader::seek_to_first() {
-    return _sparse_column_reader->seek_to_first();
-}
-
-Status SparseColumnExtractReader::seek_to_ordinal(ordinal_t ord) {
-    return _sparse_column_reader->seek_to_ordinal(ord);
+bool is_compaction_type(ReaderType type) {
+    return type == ReaderType::READER_BASE_COMPACTION ||
+           type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+           type == ReaderType::READER_COLD_DATA_COMPACTION ||
+           type == ReaderType::READER_SEGMENT_COMPACTION ||
+           type == ReaderType::READER_FULL_COMPACTION;
 }
 
 void SparseColumnExtractReader::_fill_path_column(vectorized::MutableColumnPtr& dst) {
@@ -469,39 +470,147 @@ void SparseColumnExtractReader::_fill_path_column(vectorized::MutableColumnPtr& 
 #ifndef NDEBUG
     var.check_consistency();
 #endif
-    _sparse_column->clear();
+    // _sparse_column->clear();
 }
 
-Status SparseColumnExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                             bool* has_null) {
-    _sparse_column->clear();
-    RETURN_IF_ERROR(_sparse_column_reader->next_batch(n, _sparse_column, has_null));
-    const auto& offsets = assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();
-    // Check if we don't have any paths in shared data in current range.
-    if (offsets.back() == offsets[-1]) {
-        dst->insert_many_defaults(*n);
-    } else {
-        _fill_path_column(dst);
+Status SparseColumnMergeReader::seek_to_first() {
+    RETURN_IF_ERROR(_sparse_column_reader->seek_to_first());
+    for (auto& entry : _src_subcolumns_for_sparse) {
+        RETURN_IF_ERROR(entry->data.iterator->seek_to_first());
     }
     return Status::OK();
 }
 
-Status SparseColumnExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                 vectorized::MutableColumnPtr& dst) {
-    _sparse_column->clear();
-    RETURN_IF_ERROR(_sparse_column_reader->read_by_rowids(rowids, count, _sparse_column));
-    const auto& offsets = assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();
-    // Check if we don't have any paths in shared data in current range.
-    if (offsets.back() == offsets[-1]) {
-        dst->insert_many_defaults(count);
-    } else {
-        _fill_path_column(dst);
+Status SparseColumnMergeReader::seek_to_ordinal(ordinal_t ord) {
+    RETURN_IF_ERROR(_sparse_column_reader->seek_to_ordinal(ord));
+    for (auto& entry : _src_subcolumns_for_sparse) {
+        RETURN_IF_ERROR(entry->data.iterator->seek_to_ordinal(ord));
     }
     return Status::OK();
 }
 
-ordinal_t SparseColumnExtractReader::get_current_ordinal() const {
-    return _sparse_column_reader->get_current_ordinal();
+Status SparseColumnMergeReader::init(const ColumnIteratorOptions& opts) {
+    RETURN_IF_ERROR(_sparse_column_reader->init(opts));
+    for (auto& entry : _src_subcolumns_for_sparse) {
+        entry->data.serde = entry->data.type->get_serde();
+        RETURN_IF_ERROR(entry->data.iterator->init(opts));
+        const auto& path = entry->path.get_path();
+        _sorted_src_subcolumn_for_sparse.emplace_back(StringRef(path.data(), path.size()), entry);
+    }
+
+    // sort src subcolumns by path
+    std::sort(
+            _sorted_src_subcolumn_for_sparse.begin(), _sorted_src_subcolumn_for_sparse.end(),
+            [](const auto& lhsItem, const auto& rhsItem) { return lhsItem.first < rhsItem.first; });
+    return Status::OK();
+}
+
+void SparseColumnMergeReader::_serialize_nullable_column_to_sparse(
+        const SubstreamReaderTree::Node* src_subcolumn,
+        vectorized::ColumnString& dst_sparse_column_paths,
+        vectorized::ColumnString& dst_sparse_column_values, const StringRef& src_path, size_t row) {
+    // every subcolumn is always Nullable
+    const auto& nullable_serde =
+            assert_cast<vectorized::DataTypeNullableSerDe&>(*src_subcolumn->data.serde);
+    const auto& nullable_col =
+            assert_cast<const vectorized::ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                    *src_subcolumn->data.column);
+    if (nullable_col.is_null_at(row)) {
+        return;
+    }
+    // insert key
+    dst_sparse_column_paths.insert_data(src_path.data, src_path.size);
+    // insert value
+    vectorized::ColumnString::Chars& chars = dst_sparse_column_values.get_chars();
+    nullable_serde.get_nested_serde()->write_one_cell_to_binary(nullable_col.get_nested_column(),
+                                                                chars, row);
+    dst_sparse_column_values.get_offsets().push_back(chars.size());
+}
+
+void SparseColumnMergeReader::_process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
+                                                                  size_t num_rows) {
+    if (_src_subcolumns_for_sparse.empty()) {
+        dst->insert_many_defaults(num_rows);
+    } else {
+        // merge subcolumns to sparse column
+        // Otherwise insert required src dense columns into sparse column.
+        auto& map_column = assert_cast<vectorized::ColumnMap&>(*dst);
+        auto& sparse_column_keys = assert_cast<vectorized::ColumnString&>(map_column.get_keys());
+        auto& sparse_column_values =
+                assert_cast<vectorized::ColumnString&>(map_column.get_values());
+        auto& sparse_column_offsets = map_column.get_offsets();
+        for (size_t i = 0; i != num_rows; ++i) {
+            // Paths in sorted_src_subcolumn_for_sparse_column are already sorted.
+            for (const auto& entry : _sorted_src_subcolumn_for_sparse) {
+                const auto& path = entry.first;
+                _serialize_nullable_column_to_sparse(entry.second.get(), sparse_column_keys,
+                                                     sparse_column_values, path, i);
+            }
+            sparse_column_offsets.push_back(sparse_column_keys.size());
+        }
+    }
+}
+
+void SparseColumnMergeReader::_merge_to(vectorized::MutableColumnPtr& dst) {
+    auto& column_map = assert_cast<vectorized::ColumnMap&>(*dst);
+    auto& dst_sparse_column_paths = assert_cast<vectorized::ColumnString&>(column_map.get_keys());
+    auto& dst_sparse_column_values =
+            assert_cast<vectorized::ColumnString&>(column_map.get_values());
+    auto& dst_sparse_column_offsets = column_map.get_offsets();
+
+    const auto& src_column_map = assert_cast<const vectorized::ColumnMap&>(*_sparse_column);
+    const auto& src_sparse_column_paths =
+            assert_cast<const vectorized::ColumnString&>(*src_column_map.get_keys_ptr());
+    const auto& src_sparse_column_values =
+            assert_cast<const vectorized::ColumnString&>(*src_column_map.get_values_ptr());
+    const auto& src_serialized_sparse_column_offsets = src_column_map.get_offsets();
+    DCHECK_EQ(src_sparse_column_paths.size(), src_sparse_column_values.size());
+    // Src object column contains some paths in serialized sparse column in specified range.
+    // Iterate over this range and insert all required paths into serialized sparse column or subcolumns.
+    for (size_t row = 0; row != _sparse_column->size(); ++row) {
+        // Use separate index to iterate over sorted sorted_src_subcolumn_for_sparse_column.
+        size_t sorted_src_subcolumn_for_sparse_column_idx = 0;
+        size_t sorted_src_subcolumn_for_sparse_column_size = _src_subcolumns_for_sparse.size();
+
+        size_t offset = src_serialized_sparse_column_offsets[row - 1];
+        size_t end = src_serialized_sparse_column_offsets[row];
+        // Iterator over [path, binary value]
+        for (size_t i = offset; i != end; ++i) {
+            const StringRef src_sparse_path_string = src_sparse_column_paths.get_data_at(i);
+            // Check if we have this path in subcolumns. This path already materialized in subcolumns.
+            // So we don't need to insert it into sparse column.
+            if (!_src_subcolumn_map.contains(src_sparse_path_string)) {
+                // Before inserting this path into sparse column check if we need to
+                // insert subcolumns from sorted_src_subcolumn_for_sparse_column before.
+                while (sorted_src_subcolumn_for_sparse_column_idx <
+                               sorted_src_subcolumn_for_sparse_column_size &&
+                       _sorted_src_subcolumn_for_sparse[sorted_src_subcolumn_for_sparse_column_idx]
+                                       .first < src_sparse_path_string) {
+                    auto& [src_path, src_subcolumn] = _sorted_src_subcolumn_for_sparse
+                            [sorted_src_subcolumn_for_sparse_column_idx++];
+                    _serialize_nullable_column_to_sparse(src_subcolumn.get(),
+                                                         dst_sparse_column_paths,
+                                                         dst_sparse_column_values, src_path, row);
+                }
+
+                /// Insert path and value from src sparse column to our sparse column.
+                dst_sparse_column_paths.insert_from(src_sparse_column_paths, i);
+                dst_sparse_column_values.insert_from(src_sparse_column_values, i);
+            }
+        }
+
+        // Insert remaining dynamic paths from src_dynamic_paths_for_sparse_data.
+        while (sorted_src_subcolumn_for_sparse_column_idx <
+               sorted_src_subcolumn_for_sparse_column_size) {
+            auto& [src_path, src_subcolumn] =
+                    _sorted_src_subcolumn_for_sparse[sorted_src_subcolumn_for_sparse_column_idx++];
+            _serialize_nullable_column_to_sparse(src_subcolumn.get(), dst_sparse_column_paths,
+                                                 dst_sparse_column_values, src_path, row);
+        }
+
+        // All the sparse columns in this row are null.
+        dst_sparse_column_offsets.push_back(dst_sparse_column_paths.size());
+    }
 }
 
 } // namespace doris::segment_v2

@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-suite("update_test_index_load", "p0") {
+ 
+suite("update_test_index_load", "nonConcurrent,p0") {
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -61,7 +61,8 @@ suite("update_test_index_load", "p0") {
             "replication_num" = "1",
             "disable_auto_compaction" = "true",
             "bloom_filter_columns" = "v",
-            "inverted_index_storage_format" = ${format}
+            "inverted_index_storage_format" = ${format},
+             "variant_max_subcolumns_count" = "9999"
             );
         """
 
@@ -70,6 +71,7 @@ suite("update_test_index_load", "p0") {
         }
         try {
             GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+            sql "set enable_common_expr_pushdown = true"
             sql """set enable_match_without_inverted_index = false""" 
             sql """ set inverted_index_skip_threshold = 0 """
             sql """ set enable_inverted_index_query = true """ 
@@ -104,3 +106,4 @@ suite("update_test_index_load", "p0") {
     create_table_load_data.call("test_update_index_compact2_v1", "V1")
     create_table_load_data.call("test_update_index_compact2_v2", "V2")
 }
+ 

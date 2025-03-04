@@ -135,6 +135,9 @@ public:
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
+    Status get_compaction_schema(const std::vector<RowsetMetaSharedPtr>& rowset_metas,
+                                 TabletSchemaSPtr& target_schema);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////

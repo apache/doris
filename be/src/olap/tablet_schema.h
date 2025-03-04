@@ -165,7 +165,9 @@ public:
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
-    };
+    }
+    // If it is sparse column of variant type
+    bool is_sparse_column() const;
     std::string suffix_path() const {
         return is_extracted_column() ? _column_path->get_path() : "";
     }
@@ -404,6 +406,19 @@ public:
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
 
+    // Currently if variant_max_subcolumns_count = 0, then we need to record variant extended schema
+    // for compability reason
+    bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }
+
+    int32_t variant_max_subcolumns_count() const {
+        for (const auto& col : _cols) {
+            if (col->is_variant_type()) {
+                return col->variant_max_subcolumns_count();
+            }
+        }
+        return 0;
+    }
+
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
         for (const auto& index : _indexes) {
@@ -537,6 +552,21 @@ public:
 
     int64_t get_metadata_size() const override;
 
+    using PathSet = phmap::flat_hash_set<std::string>;
+
+    struct PathsSetInfo {
+        PathSet sub_path_set;    // extracted columns
+        PathSet sparse_path_set; // sparse columns
+    };
+
+    const PathsSetInfo& path_set_info(int32_t unique_id) const {
+        return _path_set_info_map.at(unique_id);
+    }
+
+    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>& path_set_info_map) {
+        _path_set_info_map = path_set_info_map;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -591,6 +621,10 @@ private:
     bool _variant_enable_flatten_nested = false;
 
     int64_t _vl_field_mem_size {0}; // variable length field
+
+    // key: unique_id of column
+    // value: extracted path set and sparse path set
+    std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -19,6 +19,9 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <string_view>
+#include <unordered_map>
+
 #include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/storage_policy.h"

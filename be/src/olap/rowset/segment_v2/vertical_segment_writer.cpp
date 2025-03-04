@@ -164,7 +164,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
-    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    }
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -1025,8 +1027,7 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 //    which will be used to contruct the new schema for rowset
 Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock& data) {
     if (_tablet_schema->num_variant_columns() == 0 ||
-        std::any_of(_tablet_schema->columns().begin(), _tablet_schema->columns().end(),
-                    [](const auto& col) { return col->variant_max_subcolumns_count() > 0; })) {
+        !_tablet_schema->need_record_variant_extended_schema()) {
         return Status::OK();
     }
     size_t column_id = _tablet_schema->num_columns();

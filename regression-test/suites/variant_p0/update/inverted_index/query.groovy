@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("update_test_index_query", "p0") {
+suite("update_test_index_query", "nonConcurrent,p0") {
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -103,6 +103,7 @@ suite("update_test_index_query", "p0") {
     def normal_check = {check_table_name->
         try {
             GetDebugPoint().enableDebugPointForAllBEs("segment_iterator.apply_inverted_index")
+            sql "set enable_common_expr_pushdown = true"
             sql """set enable_match_without_inverted_index = false""" 
             sql """ set inverted_index_skip_threshold = 0 """
             sql """ set enable_inverted_index_query = true """ 

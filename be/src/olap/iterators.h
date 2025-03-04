@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 
@@ -119,6 +120,8 @@ public:
     std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+    // Cache for sparse column data to avoid redundant reads
+    vectorized::ColumnPtr sparse_column_cache;
 };
 
 struct CompactionSampleInfo {

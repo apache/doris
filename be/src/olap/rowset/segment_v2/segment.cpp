@@ -583,7 +583,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                                              ->get_reader_by_path(relative_path)
                                    : nullptr;
         if (node) {
-            if (read_flat_leaves || (node->children.empty())) {
+            bool exist_in_sparse = ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
+                                           ->exist_in_sparse_column(relative_path);
+            if (read_flat_leaves || (node->children.empty() && !exist_in_sparse)) {
                 return node->data.file_column_type;
             }
         }
@@ -591,7 +593,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
         if (read_flat_leaves && !node) {
             return nullptr;
         }
-        // it contains children or column missing in storage, so treat it as variant
+        // it contains children, exist in sparse column or column missing in storage, so treat it as variant
         return column.is_nullable()
                        ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
                                  column.variant_max_subcolumns_count()))
