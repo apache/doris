@@ -156,11 +156,15 @@ suite("test_routine_load_condition","p0") {
                     continue;
                 }
                 log.info("reason of state changed: ${res[0][11].toString()}".toString())
+                log.info("routine load progress: ${res[0][15].toString()}".toString())
+                log.info("routine load lag: ${res[0][16].toString()}".toString())
                 def json = parseJson(res[0][11])
                 assertEquals("(`k12` >= date_sub(curdate(), INTERVAL 2 DAY))", json.whereExpr.toString())
                 break;
             }
             while (true) {
+                log.info("routine load progress: ${res[0][15].toString()}".toString())
+                log.info("routine load lag: ${res[0][16].toString()}".toString())
                 sleep(1000)
                 def res = sql "show routine load for ${jobName}"
                 log.info("routine load statistic: ${res[0][14].toString()}".toString())
