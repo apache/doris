@@ -52,22 +52,13 @@ protected:
         EXPECT_TRUE(tmp_file_dirs->init().ok());
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
 
-        // use memory limit
-        int64_t inverted_index_cache_limit = 0;
-        _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
-                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit,
-                                                                   256));
-
-        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
-                _inverted_index_searcher_cache.get());
         doris::EngineOptions options;
         options.store_paths = paths;
 
-        auto engine = std::make_unique<StorageEngine>(options);
-        _engine_ref = engine.get();
-        _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
+        _engine = std::make_unique<StorageEngine>(options);
+        _data_dir = std::make_unique<DataDir>(_absolute_dir);
         ASSERT_TRUE(_data_dir->update_capacity().ok());
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        ExecEnv::GetInstance()->set_storage_engine(_engine.get());
 
         _tablet_meta = create_tablet_meta();
 
@@ -76,7 +67,7 @@ protected:
         _tablet_schema = std::make_shared<TabletSchema>();
         create_tablet_schema(_tablet_schema, KeysType::DUP_KEYS);
         // Initialize tablet
-        _tablet = std::make_shared<Tablet>(*_engine_ref, _tablet_meta, _data_dir.get());
+        _tablet = std::make_shared<Tablet>(*_engine, _tablet_meta, _data_dir.get());
         ASSERT_TRUE(_tablet->init().ok());
     }
 
@@ -143,7 +134,7 @@ protected:
         rs_meta->set_tablet_schema(tablet_schema);
     }
 
-    StorageEngine* _engine_ref = nullptr;
+    std::unique_ptr<StorageEngine> _engine;
     TabletSharedPtr _tablet;
     TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _tablet_schema;
@@ -152,11 +143,14 @@ protected:
     std::unique_ptr<DataDir> _data_dir = nullptr;
     std::string _current_dir;
     std::string _absolute_dir;
-    std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
-
     constexpr static uint32_t MAX_PATH_LEN = 1024;
     constexpr static std::string_view dest_dir = "./ut_dir/index_builder_test";
     constexpr static std::string_view tmp_dir = "./ut_dir/index_builder_test";
+
+    std::string local_segment_path(const std::string& tablet_path, const std::string& rowset_id,
+                                   int segment_id) {
+        return tablet_path + "/" + rowset_id + "_" + std::to_string(segment_id);
+    }
 };
 
 TEST_F(IndexBuilderTest, BasicBuildTest) {
@@ -167,8 +161,7 @@ TEST_F(IndexBuilderTest, BasicBuildTest) {
     _alter_indexes.push_back(index);
 
     // 2. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 3. Verify initialization
     auto status = builder.init();
@@ -202,18 +195,18 @@ TEST_F(IndexBuilderTest, DropIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 4. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 5. Write data to the rowset
     {
@@ -248,7 +241,7 @@ TEST_F(IndexBuilderTest, DropIndexTest) {
 
     // 6. Verify index exists before dropping
     EXPECT_TRUE(_tablet_schema->has_inverted_index());
-    EXPECT_TRUE(_tablet_schema->has_inverted_index_with_index_id(1));
+    EXPECT_TRUE(_tablet_schema->has_inverted_index_with_index_id(1, ""));
 
     // 7. Prepare index for dropping
     TOlapTableIndex drop_index;
@@ -257,11 +250,10 @@ TEST_F(IndexBuilderTest, DropIndexTest) {
     _alter_indexes.push_back(drop_index);
 
     // 8. Create IndexBuilder with drop operation
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, true);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, true);
 
     // 9. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
@@ -329,18 +321,18 @@ TEST_F(IndexBuilderTest, BuildIndexAfterWritingDataTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15673);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15673);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write data to the rowset
     {
@@ -389,11 +381,10 @@ TEST_F(IndexBuilderTest, BuildIndexAfterWritingDataTest) {
     _alter_indexes.push_back(index2);
 
     // 6. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 7. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 2);
 
@@ -484,18 +475,18 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15675);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15675);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 4. Create rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 5. Write data to rowset
     {
@@ -537,11 +528,10 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
     _alter_indexes.push_back(new_index);
 
     // 7. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 8. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1); // Only one new index needs to be built
 
@@ -634,7 +624,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
     _tablet_meta->init_from_pb(tablet_meta_pb);
 
     // Reinitialize tablet to use new schema
-    _tablet = std::make_shared<Tablet>(*_engine_ref, _tablet_meta, _data_dir.get());
+    _tablet = std::make_shared<Tablet>(*_engine, _tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
     auto tablet_path = _absolute_dir + "/" + std::to_string(14674);
     _tablet->_tablet_path = tablet_path;
@@ -652,18 +642,18 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15674);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15674);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = v1_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 7. Create rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 8. Write data to rowset
     {
@@ -708,11 +698,10 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
     _alter_indexes.push_back(new_index);
 
     // 11. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 12. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1); // Only one new index needs to be built
 
@@ -799,7 +788,7 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15677);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15677);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
@@ -807,12 +796,12 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
     // Set small segment size to ensure we create multiple segments
     writer_context.max_rows_per_segment = rows_per_segment;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write data to the rowset in multiple batches to ensure we get multiple segments
     for (int segment = 0; segment < num_segments; segment++) {
@@ -866,11 +855,10 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
     _alter_indexes.push_back(index2);
 
     // 8. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 9. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 2);
 
@@ -951,18 +939,18 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15678);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15678);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write data to the rowset
     {
@@ -1007,11 +995,10 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
     _alter_indexes.push_back(index2);
 
     // 6. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 7. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     // The init should succeed, as we'll skip non-existent columns later
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -1103,18 +1090,18 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15679);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15679);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 4. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 5. Write data to the rowset
     {
@@ -1159,11 +1146,10 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
     _alter_indexes.push_back(index2);
 
     // 7. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 8. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1); // Only k1 is considered for building
 
@@ -1257,7 +1243,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
     _tablet_meta->init_from_pb(tablet_meta_pb);
 
     // 5. Reinitialize tablet to use new schema
-    _tablet = std::make_shared<Tablet>(*_engine_ref, _tablet_meta, _data_dir.get());
+    _tablet = std::make_shared<Tablet>(*_engine, _tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
     auto tablet_path = _absolute_dir + "/" + std::to_string(14680);
     _tablet->_tablet_path = tablet_path;
@@ -1275,18 +1261,18 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15680);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15680);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = v1_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 8. Create rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 9. Write data to rowset
     {
@@ -1338,11 +1324,10 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
     _columns.push_back(non_existent_column);
 
     // 11. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 12. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
     // 13. Build indexes - should only build for existing columns
@@ -1425,18 +1410,18 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15681);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15681);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer with non-null values
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write non-null data to the rowset
     {
@@ -1485,11 +1470,10 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     k2_column.set_is_nullable(false);
 
     // 7. Create IndexBuilder with the modified schema
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 8. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
@@ -1549,18 +1533,18 @@ TEST_F(IndexBuilderTest, NonExistentColumnUniqueIdTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15682);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15682);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write data to the rowset
     {
@@ -1612,11 +1596,10 @@ TEST_F(IndexBuilderTest, NonExistentColumnUniqueIdTest) {
     _alter_indexes.push_back(drop_index);
 
     // 7. Create IndexBuilder with drop operation
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, true);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, true);
 
     // 8. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
@@ -1662,7 +1645,7 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
     _tablet_meta->init_from_pb(tablet_meta_pb);
 
     // 5. Reinitialize tablet to use new schema
-    _tablet = std::make_shared<Tablet>(*_engine_ref, _tablet_meta, _data_dir.get());
+    _tablet = std::make_shared<Tablet>(*_engine, _tablet_meta, _data_dir.get());
     ASSERT_TRUE(_tablet->init().ok());
     auto tablet_path = _absolute_dir + "/" + std::to_string(15683);
     _tablet->_tablet_path = tablet_path;
@@ -1680,18 +1663,18 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = v1_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 8. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 9. Write data to the rowset
     {
@@ -1734,11 +1717,10 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
     _alter_indexes.push_back(drop_index);
 
     // 11. Create IndexBuilder with drop operation
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, true);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, true);
 
     // 12. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
@@ -1804,18 +1786,18 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 3. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 4. Write data to the rowset
     {
@@ -1859,11 +1841,10 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
     // Create a custom IndexBuilder with a spy function to test resource cleanup
     class TestIndexBuilder : public IndexBuilder {
     public:
-        TestIndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
-                         const std::vector<TColumn>& columns,
+        TestIndexBuilder(TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                          const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                          bool is_drop_op)
-                : IndexBuilder(engine, tablet, columns, alter_inverted_indexes, is_drop_op) {}
+                : IndexBuilder(tablet, columns, alter_inverted_indexes, is_drop_op) {}
 
         ~TestIndexBuilder() override = default;
         // Override update_inverted_index_info to inject failure
@@ -1875,11 +1856,10 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
     };
 
     // 6. Create our test builder
-    TestIndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                             _alter_indexes, false);
+    TestIndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 7. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
@@ -1896,7 +1876,7 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
     EXPECT_TRUE(exists);
 
     auto rowset_id = extract_rowset_id("020000000000000100000000000000000000000000000000_0.dat");
-    EXPECT_TRUE(_engine_ref->check_rowset_id_in_unused_rowsets(rowset_id))
+    EXPECT_TRUE(_engine->check_rowset_id_in_unused_rowsets(rowset_id))
             << "Rowset id should be in unused rowsets";
 }
 
@@ -1932,7 +1912,7 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
 
     // 3. Create tablet
     auto tablet_meta = create_tablet_meta();
-    auto tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get());
     tablet->_tablet_path = tablet_path;
     ASSERT_TRUE(tablet->init().ok());
 
@@ -1958,18 +1938,18 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = tablet_schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 6. Create rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 7. Create data block and write data
     {
@@ -2013,8 +1993,8 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
     ASSERT_TRUE(tablet->add_rowset(rowset).ok());
 
     // 9. Initialize and build inverted index
-    IndexBuilder builder(*_engine_ref, tablet, _columns, _alter_indexes, false);
-    auto status = builder.init();
+    IndexBuilder builder(tablet, _columns, _alter_indexes, false);
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
     status = builder.do_build_inverted_index();
@@ -2028,15 +2008,16 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
 
     if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         // V1 format
-        auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
-                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), 1, "");
+        auto index_path = InvertedIndexDescriptor::inverted_index_file_path(
+                tablet->tablet_path(),
+                extract_rowset_id("020000000000000100000000000000000000000000000000_0.dat"), 0, 1,
+                "");
         bool exists = false;
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
     } else {
         // V2+ format
-        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(
-                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+        auto index_path = InvertedIndexDescriptor::get_index_file_name(segment_path);
         bool exists = false;
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
@@ -2064,7 +2045,7 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = _tablet_schema;
     writer_context.version.first = 10;
@@ -2072,11 +2053,11 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
     // Set small segment size to ensure we create multiple segments
     writer_context.max_rows_per_segment = rows_per_segment;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     {
         vectorized::Block block = _tablet_schema->create_block();
@@ -2111,11 +2092,10 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
     // 6. Create test class that overrides methods to simulate unique key table behavior
     class TestIndexBuilder : public IndexBuilder {
     public:
-        TestIndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
-                         const std::vector<TColumn>& columns,
+        TestIndexBuilder(TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                          const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                          bool is_drop_op)
-                : IndexBuilder(engine, tablet, columns, alter_inverted_indexes, is_drop_op) {}
+                : IndexBuilder(tablet, columns, alter_inverted_indexes, is_drop_op) {}
 
         ~TestIndexBuilder() override = default;
 
@@ -2135,8 +2115,8 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
     tt_index.index_type = TIndexType::type::INVERTED;
     _alter_indexes.push_back(tt_index);
     // 7. Initialize and build inverted index
-    TestIndexBuilder builder(*_engine_ref, _tablet, _columns, _alter_indexes, false);
-    auto status = builder.init();
+    TestIndexBuilder builder(_tablet, _columns, _alter_indexes, false);
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
     // 8. Execute build index, which should go through UNIQUE_KEYS path in modify_rowsets
@@ -2150,14 +2130,15 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
             0);
 
     if (_tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-        auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
-                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), 1, "");
+        auto index_path = InvertedIndexDescriptor::inverted_index_file_path(
+                _tablet->tablet_path(),
+                extract_rowset_id("020000000000000100000000000000000000000000000000_0.dat"), 0, 1,
+                "");
         bool exists = false;
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
     } else {
-        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(
-                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+        auto index_path = InvertedIndexDescriptor::get_index_file_name(segment_path);
         bool exists = false;
         EXPECT_TRUE(io::global_local_filesystem()->exists(index_path, &exists).ok());
         EXPECT_TRUE(exists) << "Index file not found: " << index_path;
@@ -2168,11 +2149,10 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
     // 1. Create a test class that overrides handle_single_rowset to simulate error scenarios
     class TestIndexBuilder : public IndexBuilder {
     public:
-        TestIndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
-                         const std::vector<TColumn>& columns,
+        TestIndexBuilder(TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                          const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                          bool is_drop_op, bool simulate_non_local_rowset_error = false)
-                : IndexBuilder(engine, tablet, columns, alter_inverted_indexes, is_drop_op),
+                : IndexBuilder(tablet, columns, alter_inverted_indexes, is_drop_op),
                   _simulate_non_local_rowset_error(simulate_non_local_rowset_error) {}
 
         ~TestIndexBuilder() override = default;
@@ -2205,7 +2185,7 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
 
     auto tablet_meta = create_tablet_meta();
     tablet_meta->_schema = tablet_schema;
-    auto tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get());
     tablet->_tablet_path = tablet_path;
     ASSERT_TRUE(tablet->init().ok());
 
@@ -2221,9 +2201,9 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
 
     // 5. Create a rowset
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = _engine_ref->next_rowset_id();
+    writer_context.rowset_id = _engine->next_rowset_id();
     writer_context.tablet_id = 14687;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.tablet_schema_hash = 1111;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
@@ -2268,7 +2248,7 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
     }
 
     // 6. Test error scenario with non-local rowset
-    TestIndexBuilder builder(*_engine_ref, tablet, _columns, _alter_indexes, false, true);
+    TestIndexBuilder builder(tablet, _columns, _alter_indexes, false, true);
     auto status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -2285,11 +2265,10 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
     // 1. Create a test class that overrides update_inverted_index_info to simulate error scenarios
     class TestIndexBuilder : public IndexBuilder {
     public:
-        TestIndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
-                         const std::vector<TColumn>& columns,
+        TestIndexBuilder(TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                          const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                          bool is_drop_op, int error_type = 0)
-                : IndexBuilder(engine, tablet, columns, alter_inverted_indexes, is_drop_op),
+                : IndexBuilder(tablet, columns, alter_inverted_indexes, is_drop_op),
                   _error_type(error_type) {}
 
         ~TestIndexBuilder() override = default;
@@ -2324,7 +2303,7 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
 
     auto tablet_meta = create_tablet_meta();
     tablet_meta->_schema = tablet_schema;
-    auto tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get());
     tablet->_tablet_path = tablet_path;
     ASSERT_TRUE(tablet->init().ok());
 
@@ -2340,9 +2319,9 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
 
     // 5. Create a rowset
     RowsetWriterContext writer_context;
-    writer_context.rowset_id = _engine_ref->next_rowset_id();
+    writer_context.rowset_id = _engine->next_rowset_id();
     writer_context.tablet_id = 14688;
-    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_dir = tablet_path;
     writer_context.tablet_schema_hash = 1111;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
@@ -2390,7 +2369,7 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
 
     // 6.1 Test non-local rowset error
     {
-        TestIndexBuilder builder(*_engine_ref, tablet, _columns, _alter_indexes, false, 1);
+        TestIndexBuilder builder(tablet, _columns, _alter_indexes, false, 1);
         auto status = builder.init();
         EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -2405,7 +2384,7 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
 
     // 6.2 Test size retrieval error
     {
-        TestIndexBuilder builder(*_engine_ref, tablet, _columns, _alter_indexes, false, 2);
+        TestIndexBuilder builder(tablet, _columns, _alter_indexes, false, 2);
         auto status = builder.init();
         EXPECT_TRUE(status.ok()) << status.to_string();
 
