@@ -150,7 +150,12 @@ public:
 
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
-    virtual StringRef get_data_at(size_t n) const = 0;
+    /// this function is used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
+    /// and should be pair with insert_data
+    virtual StringRef get_data_at(size_t n) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
+    }
 
     virtual Int64 get_int(size_t /*n*/) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -229,10 +234,14 @@ public:
                                      const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
+    /// used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
     /// Is used to optimize some computations (in aggregation, for example).
     /// Parameter length could be ignored if column values have fixed size.
     /// All data will be inserted as single element
-    virtual void insert_data(const char* pos, size_t length) = 0;
+    virtual void insert_data(const char* pos, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_data is not supported for " + get_name());
+    }
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
         throw doris::Exception(
@@ -638,12 +647,6 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
-    virtual bool is_column_array() const { return false; }
-
-    virtual bool is_column_map() const { return false; }
-
-    virtual bool is_column_struct() const { return false; }
-
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
@@ -744,12 +747,12 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
-bool check_column(const IColumn& column) {
+bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }
 
 template <typename Type>
-bool check_column(const IColumn* column) {
+bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
 }
 
