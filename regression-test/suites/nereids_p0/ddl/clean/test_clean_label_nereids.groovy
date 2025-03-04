@@ -77,7 +77,7 @@ suite("test_clean_label_nereids") {
     //
     def totalLabel = sql """show load from ${dbName}"""
     println totalLabel
-    assert totalLabel.size() == 4
+    assert totalLabel.size() == isGroupCommitMode() ? 1 : 4
     // clean label
     checkNereidsExecute("clean label ${insertLabel} from ${dbName};")
     checkNereidsExecute("clean label  from ${dbName};")
