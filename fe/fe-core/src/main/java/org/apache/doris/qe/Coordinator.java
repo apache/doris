@@ -753,7 +753,7 @@ public class Coordinator implements CoordInterface {
                             toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
             }
-            receiverConsumer = new ResultReceiverConsumer(receivers);
+            receiverConsumer = new ResultReceiverConsumer(receivers, timeoutDeadline);
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                     topParams.instanceExecParams.get(0).host);
