@@ -63,9 +63,17 @@ struct FunctionFakeBaseImpl {
 
 struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
-        return make_nullable(
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+        DataTypes fieldTypes(arguments.size());
+        for (int i=0;i<arguments.size();i++) {
+            auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
+            if (nestedType->is_nullable()) {
+                fieldTypes[i] = nestedType;
+            } else {
+                fieldTypes[i] = make_nullable(nestedType);
+            }
+        }
+
+        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
