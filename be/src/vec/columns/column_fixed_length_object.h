@@ -184,14 +184,11 @@ public:
         hash.update(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size);
     }
 
-    ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
+    ColumnPtr filter(const IColumn::Filter& filter, size_t result_size_hint) const override {
         column_match_filter_size(size(), filter.size());
         auto res = create(_item_size);
-        size_t column_size = size();
-        if (result_size_hint > 0) {
-            res->reserve(result_size_hint);
-        }
-        res->resize(column_size);
+        DCHECK_GE(result_size_hint, 0);
+        res->resize(result_size_hint);
         size_t pos = 0;
         for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
