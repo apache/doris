@@ -288,8 +288,8 @@ private:
 
     std::vector<std::string> _missing_cols;
     // Flag for hive engine.
-    // 1. True if the external table engine is Hive1.x with orc col name as _col1, col2, ...
-    // 2. If true, use indexes instead of column names when reading orc tables.
+    // 1. True if the external table engine is Hive1.x with parquet col name as _col1, col2, ...
+    // 2. If true, use indexes instead of column names when reading parquet tables.
     bool _is_hive1_parquet_or_use_idx = false;
     Statistics _statistics;
     ParquetColumnReader::Statistics _column_statistics;

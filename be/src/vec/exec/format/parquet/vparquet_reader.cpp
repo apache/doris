@@ -342,27 +342,41 @@ Status ParquetReader::init_reader(
     std::vector<std::string> parquet_cols;
     bool is_hive1_parquet = false;
     _init_parquet_cols(parquet_cols, &is_hive1_parquet);
+
     _is_hive1_parquet_or_use_idx = (is_hive1_parquet || _is_hive1_parquet_or_use_idx);
+    std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
     for (size_t i = 0; i < _column_names->size(); ++i) {
-        std::string col_name = (*_column_names)[i];
+        std::string table_col_name = (*_column_names)[i];
         if (_is_hive1_parquet_or_use_idx) {
-            auto iter = colname_to_slot_id->find(col_name);
+            auto iter = colname_to_slot_id->find(table_col_name);
             if (iter != colname_to_slot_id->end()) {
                 int pos = iter->second;
                 if (pos < parquet_cols.size()) {
-                    col_name = parquet_cols[pos];
-                    _table_col_to_file_col[iter->first] = col_name;
+                    String file_col = parquet_cols[pos];
+                    auto iter_value_range = _colname_to_value_range->find(table_col_name);
+                    if (iter_value_range != _colname_to_value_range->end()) {
+                        continue;
+                    }
+
+                    new_colname_to_value_range[file_col] = iter_value_range->second;
+                    _colname_to_value_range->erase(iter_value_range->first);
+
+                    table_col_name = file_col;
+                    _table_col_to_file_col[iter->first] = table_col_name;
                 }
             }
         }
-        auto iter = std::find(parquet_cols.begin(), parquet_cols.end(), col_name);
+
+        auto iter = std::find(parquet_cols.begin(), parquet_cols.end(), table_col_name);
         if (iter == parquet_cols.end()) {
-            _missing_cols.emplace_back(col_name);
+            _missing_cols.emplace_back(table_col_name);
         } else {
-            int pos = std::distance(parquet_cols.begin(), iter);
-            std::string read_col = parquet_cols[pos];
-            _read_columns.emplace_back(read_col);
+            _read_columns.emplace_back(table_col_name);
         }
+    }
+
+    for (auto it : new_colname_to_value_range) {
+        _colname_to_value_range->emplace(it.first, std::move(it.second));
     }
 
     // build column predicates for column lazy read
@@ -555,6 +569,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
                 continue;
             }
 
+            /// block convert table col name -> file col name
             if (_table_col_to_file_col.contains(col.name)) {
                 col.name = _table_col_to_file_col[col.name];
             }
@@ -581,9 +596,8 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
                 continue;
             }
 
-            if (_table_col_to_file_col.contains(col.name)) {
-                col.name = _table_col_to_file_col[col.name];
-            }
+            /// block convert file col name -> table col name
+            col.name = (*_column_names)[i];
         }
         block->initialize_index_by_name();
     }
