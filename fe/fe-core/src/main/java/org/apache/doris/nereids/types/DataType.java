@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -91,7 +92,9 @@ public abstract class DataType {
      * create a specific Literal for a given dataType
      */
     public static Literal promoteLiteral(Object value, DataType dataType) {
-        if (dataType.equals(SmallIntType.INSTANCE)) {
+        if (dataType.equals(TinyIntType.INSTANCE)) {
+            return new TinyIntLiteral(((Number) value).byteValue());
+        } else if (dataType.equals(SmallIntType.INSTANCE)) {
             return new SmallIntLiteral(((Number) value).shortValue());
         } else if (dataType.equals(IntegerType.INSTANCE)) {
             return new IntegerLiteral(((Number) value).intValue());

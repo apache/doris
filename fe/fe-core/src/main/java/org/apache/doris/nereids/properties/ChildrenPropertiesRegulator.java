@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -300,7 +301,26 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();
 
-        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+        // when salting join, the salting column need to be added to shuffle expr
+        // to make sure data can be shuffled to different instances
+        if (hashJoin.getDistributeHint() != null
+                && hashJoin.getDistributeHint().distributeType.equals(DistributeType.SHUFFLE_RIGHT)
+                && hashJoin.getDistributeHint().getSkewInfo() != null
+                && (leftHashSpec.getOrderedShuffledColumns().size() != ((DistributionSpecHash) requiredProperties.get(0)
+                .getDistributionSpec()).getOrderedShuffledColumns().size()
+                || rightHashSpec.getOrderedShuffledColumns().size() != ((DistributionSpecHash) requiredProperties.get(1)
+                .getDistributionSpec()).getOrderedShuffledColumns().size())) {
+            List<ExprId> orderedShuffledColumnsLeft = ((DistributionSpecHash) requiredProperties.get(0)
+                    .getDistributionSpec()).getOrderedShuffledColumns();
+            List<ExprId> orderedShuffledColumnsRight = ((DistributionSpecHash) requiredProperties.get(1)
+                    .getDistributionSpec()).getOrderedShuffledColumns();
+            updatedForLeft = Optional.of(new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumnsLeft,
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec.getTableId(), leftHashSpec.getSelectedIndexId(),
+                    leftHashSpec.getPartitionIds())));
+            updatedForRight = Optional.of(new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumnsRight,
+                    ShuffleType.EXECUTION_BUCKETED, rightHashSpec.getTableId(), rightHashSpec.getSelectedIndexId(),
+                    rightHashSpec.getPartitionIds())));
+        } else if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
             // check colocate join with scan
             return ImmutableList.of(originChildrenProperties);
         } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {

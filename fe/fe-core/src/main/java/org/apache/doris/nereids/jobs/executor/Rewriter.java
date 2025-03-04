@@ -139,6 +139,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -362,7 +363,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // need to adjust min/max/sum nullable attribute after merge aggregate
                                 new AdjustAggregateNullableForEmptySet())
                 ),
-
                 topic("Eager aggregation",
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),
@@ -378,6 +378,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
+                topic("join skew salting rewrite",
+                        topDown(new SaltJoin())),
                 topic("eliminate Aggregate according to fd items",
                         custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
                         topDown(new EliminateGroupByKey()),
