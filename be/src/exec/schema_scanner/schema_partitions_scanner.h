@@ -21,6 +21,7 @@
 
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 
@@ -52,6 +53,7 @@ private:
     int _total_rows = 0;
     std::unique_ptr<vectorized::Block> _partitions_block = nullptr;
     int _rpc_timeout_ms = 3000;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris
