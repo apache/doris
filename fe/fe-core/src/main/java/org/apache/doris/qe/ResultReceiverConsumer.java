@@ -19,17 +19,17 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.FutureCallback;
 import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 public class ResultReceiverConsumer {
     class ReceiverContext {
@@ -43,48 +43,50 @@ public class ResultReceiverConsumer {
                 return;
             }
             try {
-                future = executor.submit(() -> {
-                    RowBatch rowBatch = null;
-                    try {
-                        rowBatch = receiver.getNext(status);
-                    } catch (TException e) {
-                        setErrMsg(e.getMessage());
+                receiver.createFuture(new FutureCallback<InternalService.PFetchDataResult>() {
+                    @Override
+                    public void onSuccess(InternalService.PFetchDataResult result) {
+                        readyOffsets.offer(offset);
                     }
-                    readyOffsets.offer(offset);
-                    return rowBatch;
+
+                    @Override
+                    public void onFailure(Throwable t) {
+                        readyOffsets.offer(offset);
+                    }
                 });
-            } catch (Throwable e) {
+            } catch (RpcException e) {
                 setErrMsg(e.getMessage());
                 readyOffsets.offer(offset);
             }
         }
 
         ResultReceiver receiver;
-        Status status = new Status();
-        Future<RowBatch> future;
         final int offset;
     }
 
-    private final ExecutorService executor;
     private List<ReceiverContext> contexts = Lists.newArrayList();
     private boolean futureInitialized = false;
     private String errMsg;
+    private final long timeoutTs;
 
     void setErrMsg(String errMsg) {
         this.errMsg = errMsg;
-        executor.shutdownNow();
     }
 
     BlockingQueue<Integer> readyOffsets;
     int finishedReceivers = 0;
 
-    public ResultReceiverConsumer(List<ResultReceiver> resultReceivers) {
+    public ResultReceiverConsumer(List<ResultReceiver> resultReceivers, long timeoutDeadline) {
         for (int i = 0; i < resultReceivers.size(); i++) {
             ReceiverContext context = new ReceiverContext(resultReceivers.get(i), i);
             contexts.add(context);
         }
-        this.executor = Executors.newFixedThreadPool(resultReceivers.size());
         this.readyOffsets = new ArrayBlockingQueue<>(resultReceivers.size());
+        timeoutTs = timeoutDeadline;
+    }
+
+    public boolean isEos() {
+        return finishedReceivers == contexts.size();
     }
 
     public RowBatch getNext(Status status) throws TException, InterruptedException, ExecutionException, UserException {
@@ -95,30 +97,33 @@ public class ResultReceiverConsumer {
             }
         }
 
-        ReceiverContext context = contexts.get(readyOffsets.take());
+        Integer offset = readyOffsets.poll(timeoutTs - System.currentTimeMillis(),
+                java.util.concurrent.TimeUnit.MILLISECONDS);
+        if (offset == null) {
+            throw new TException("query timeout");
+        }
         if (errMsg != null) {
             throw new UserException(errMsg);
         }
-        RowBatch rowBatch = context.future.get();
-        if (errMsg != null) {
-            throw new UserException(errMsg);
-        }
-        if (!context.status.ok()) {
-            setErrMsg(context.status.getErrorMsg());
-            status.updateStatus(context.status.getErrorCode(), context.status.getErrorMsg());
+
+        ReceiverContext context = contexts.get(offset);
+        RowBatch rowBatch = context.receiver.getNext(status);
+        if (!status.ok() || rowBatch == null) {
             return rowBatch;
         }
         if (rowBatch.isEos()) {
             finishedReceivers++;
-            if (finishedReceivers != contexts.size()) {
-                rowBatch.setEos(false);
-            } else {
-                executor.shutdownNow();
-            }
+            rowBatch.setEos(isEos());
         } else {
             context.createFuture();
         }
 
         return rowBatch;
+    }
+
+    public synchronized void cancel(Status reason) {
+        for (ReceiverContext context : contexts) {
+            context.receiver.cancel(reason);
+        }
     }
 }

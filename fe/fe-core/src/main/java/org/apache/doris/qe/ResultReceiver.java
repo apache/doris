@@ -29,6 +29,8 @@ import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.FutureCallback;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -76,6 +78,22 @@ public class ResultReceiver {
         return finstId;
     }
 
+    public void createFuture(
+            FutureCallback<InternalService.PFetchDataResult> callback) throws RpcException {
+        InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
+                .setFinstId(getRealFinstId())
+                .setRespInAttachment(false)
+                .build();
+        try {
+            fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsyncWithCallback(address, request,
+                    callback);
+        } catch (RpcException e) {
+            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
+            SimpleScheduler.addToBlacklist(backendId, e.getMessage());
+            throw e;
+        }
+    }
+
     public RowBatch getNext(Status status) throws TException {
         if (isDone) {
             return null;
@@ -83,13 +101,8 @@ public class ResultReceiver {
         final RowBatch rowBatch = new RowBatch();
         try {
             while (!isDone && runStatus.ok()) {
-                InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
-                        .setFinstId(getRealFinstId())
-                        .setRespInAttachment(false)
-                        .build();
-
                 currentThread = Thread.currentThread();
-                fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                Preconditions.checkNotNull(fetchDataAsyncFuture);
                 InternalService.PFetchDataResult pResult = null;
 
                 while (pResult == null) {
@@ -172,10 +185,6 @@ public class ResultReceiver {
                     return rowBatch;
                 }
             }
-        } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
-            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-            SimpleScheduler.addToBlacklist(backendId, e.getMessage());
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
             if (e.getMessage().contains("time out")) {
