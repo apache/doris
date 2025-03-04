@@ -169,16 +169,7 @@ public class ShowColumnHistogramStatsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
-
         // TODO: support histogram in the future.
-        // CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
-        //         .getCatalogOrAnalysisException(tableNameInfo.getCtl());
-        // DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
-        // for (String columnName : getColumnNames()) {
-        //     Histogram histogram = StatisticsRepository.queryColumnHistogramByName(catalog.getId(), db.getId(),
-        //             table.getId(), -1, columnName);
-        //     columnStatistics.add(Pair.of(columnName, histogram));
-        // }
         return constructResultSet(columnStatistics);
     }
 
