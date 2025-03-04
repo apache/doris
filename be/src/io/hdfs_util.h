@@ -47,6 +47,7 @@ public:
     std::string principal;
     std::string keytab_path;
     std::string fs_name;
+    uint64_t create_time;
     std::atomic<uint64_t> last_access_time;
     std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
 
@@ -58,6 +59,7 @@ public:
               principal(principal_),
               keytab_path(keytab_path_),
               fs_name(fs_name_),
+              create_time(std::time(nullptr)),
               last_access_time(std::time(nullptr)),
               ticket_cache(ticket_cache_) {}
 

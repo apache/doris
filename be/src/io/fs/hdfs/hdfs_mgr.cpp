@@ -74,13 +74,20 @@ void HdfsMgr::_cleanup_loop() {
 
                 // Find expired handlers
                 for (const auto& entry : _fs_handlers) {
-                    if (current_time - entry.second->last_access_time >=
-                        _instance_timeout_seconds) {
+                    bool is_expired = current_time - entry.second->last_access_time >=
+                                      _instance_timeout_seconds;
+                    bool is_krb_expired =
+                            entry.second->is_kerberos_auth &&
+                            (current_time - entry.second->create_time >=
+                             entry.second->ticket_cache->get_ticket_lifetime_sec() / 2);
+                    if (is_expired || is_krb_expired) {
                         LOG(INFO) << "Found expired HDFS handler, hash_code=" << entry.first
                                   << ", last_access_time=" << entry.second->last_access_time
                                   << ", is_kerberos=" << entry.second->is_kerberos_auth
                                   << ", principal=" << entry.second->principal
-                                  << ", fs_name=" << entry.second->fs_name;
+                                  << ", fs_name=" << entry.second->fs_name
+                                  << ", is_expired=" << is_expired
+                                  << ", is_krb_expire=" << is_krb_expired;
                         to_remove.push_back(entry.first);
                         handlers_to_cleanup.push_back(entry.second);
                     }
