@@ -44,7 +44,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
                                      const tparquet::OffsetIndex* offset_index,
@@ -353,4 +353,5 @@ bool has_dict_page(const tparquet::ColumnMetaData& column) {
            column.dictionary_page_offset < column.data_page_offset;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

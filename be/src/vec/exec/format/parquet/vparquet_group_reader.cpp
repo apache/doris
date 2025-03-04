@@ -73,7 +73,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
@@ -450,7 +450,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     size_t pre_read_rows;
     bool pre_eof;
     std::vector<uint32_t> columns_to_filter;
-    size_t origin_column_num = block->columns();
+    uint32_t origin_column_num = block->columns();
     columns_to_filter.resize(origin_column_num);
     for (uint32_t i = 0; i < origin_column_num; ++i) {
         columns_to_filter[i] = i;
@@ -1040,5 +1040,6 @@ ParquetColumnReader::Statistics RowGroupReader::statistics() {
     }
     return st;
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

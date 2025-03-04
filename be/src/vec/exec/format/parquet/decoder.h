@@ -42,7 +42,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -145,7 +145,7 @@ protected:
 
     Status skip_values(size_t num_values) override {
         _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(_indexes.data(), num_values);
+        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(num_values));
         return Status::OK();
     }
 
@@ -154,5 +154,6 @@ protected:
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

@@ -24,7 +24,7 @@
 #include "vec/exec/format/parquet/decoder.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FixLengthDictDecoder final : public BaseDictDecoder {
 public:
     FixLengthDictDecoder() = default;
@@ -51,10 +51,11 @@ public:
                 dict_items.emplace_back(_dict_items[i], _type_length);
             }
             assert_cast<ColumnDictI32&>(*doris_column)
-                    .insert_many_dict_data(dict_items.data(), dict_items.size());
+                    .insert_many_dict_data(dict_items.data(),
+                                           cast_set<uint32_t>(dict_items.size()));
         }
         _indexes.resize(non_null_size);
-        _index_batch_decoder->GetBatch(_indexes.data(), non_null_size);
+        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
         if (doris_column->is_column_dictionary() || is_dict_filter) {
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
@@ -142,5 +143,6 @@ protected:
     // For dictionary encoding
     std::vector<char*> _dict_items;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
