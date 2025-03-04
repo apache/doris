@@ -258,6 +258,21 @@ Status OrcReader::_create_file_reader() {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
     }
     // create orc reader
+    Status st = _create_file_reader_inner();
+    // try to update file length and retry
+    if (!st.ok() && st.msg().find("Failed to parse the postscript") != std::string::npos) {
+        auto before_file_length = _file_input_stream->getLength();
+        RETURN_IF_ERROR(_file_input_stream->updateLength());
+        auto after_file_length = _file_input_stream->getLength();
+        LOG(WARNING) << "File length updated in OrcReader::_create_file_reader, before: "
+                     << before_file_length << ", after: " << after_file_length;
+        return _create_file_reader_inner();
+    } else {
+        return st;
+    }
+}
+
+Status OrcReader::_create_file_reader_inner() {
     try {
         orc::ReaderOptions options;
         options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
