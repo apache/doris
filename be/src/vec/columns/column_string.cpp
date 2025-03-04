@@ -52,6 +52,20 @@ void ColumnStr<T>::sanity_check() const {
 }
 
 template <typename T>
+void ColumnStr<T>::sanity_check_simple() const {
+#ifndef NDEBUG
+    auto count = offsets.size();
+    if (chars.size() != offsets[count - 1]) {
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
+    }
+    if (offsets[-1] != 0) {
+        throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
+    }
+#endif
+}
+
+template <typename T>
 MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
     auto res = ColumnStr<T>::create();
     if (to_size == 0) {
@@ -75,6 +89,8 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
 
         res->offsets.resize_fill(to_size, chars.size());
     }
+
+    res->sanity_check_simple();
 
     return res;
 }
@@ -134,6 +150,7 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -177,6 +194,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
     } else {
         do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -220,6 +238,7 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
     } else {
         do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -273,7 +292,9 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
     }
 
     if constexpr (std::is_same_v<UInt32, T>) {
-        return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+        auto res = filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+        sanity_check_simple();
+        return res;
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "should not call filter in ColumnStr<UInt64>");
@@ -349,7 +370,7 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
         current_new_offset += string_size;
         res_offsets[i] = current_new_offset;
     }
-
+    sanity_check_simple();
     return res;
 }
 
@@ -381,6 +402,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
     memcpy(chars.data() + old_size, pos, string_size);
 
     offsets.push_back(new_size);
+    sanity_check_simple();
     return pos + string_size;
 }
 
@@ -446,6 +468,7 @@ void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
             insert_default();
         }
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -558,6 +581,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
             res_chars.resize(res_chars.size() + string_size);
             memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
                                                      &chars[prev_string_offset], string_size);
+            check_chars_length(res_chars.size(), res_offsets.size());
         }
 
         prev_replicate_offset = replicate_offsets[i];
@@ -565,6 +589,7 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     }
 
     check_chars_length(res_chars.size(), res_offsets.size());
+    sanity_check_simple();
     return res;
 }
 
@@ -572,6 +597,7 @@ template <typename T>
 void ColumnStr<T>::reserve(size_t n) {
     offsets.reserve(n);
     chars.reserve(n);
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -579,9 +605,11 @@ void ColumnStr<T>::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
+        chars.resize(offsets[n - 1]);
     } else if (origin_size < n) {
         insert_many_defaults(n - origin_size);
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -645,6 +673,7 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
         }
 
         offsets.clear();
+        new_col->sanity_check_simple();
         return new_col;
     }
     return this->get_ptr();
