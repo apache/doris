@@ -242,7 +242,7 @@ public:
                          std::function<Status()> spill_fin_cb = {})
             : SpillRunnable(state, nullptr, spill_dependency, operator_profile, shared_state, false,
                             spill_exec_func, spill_fin_cb) {
-        RuntimeProfile* custom_profile = operator_profile->get_child("CustomProfile");
+        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
         DCHECK(custom_profile != nullptr);
         _spill_revover_timer = custom_profile->get_counter("SpillRecoverTime");
         _spill_read_wait_in_queue_timer =
