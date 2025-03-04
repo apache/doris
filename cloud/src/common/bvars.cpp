@@ -106,7 +106,7 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts(
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
 bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
 // recycler's mbvars
-bvar::MultiDimension<bvar::Status<int> > g_bvar_recycler_instance_running("recycler_instance_running", {"instance"});
+mBvarIntStatus g_bvar_recycler_instance_running("recycler_instance_running",{});
 
 
 // txn_kv's bvars

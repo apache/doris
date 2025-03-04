@@ -99,11 +99,34 @@ template <typename T>
     requires std::is_integral_v<T>
 using BvarStatusWithTag = BvarWithTag<bvar::Status<T>, true>;
 
+/**
+@brief: A wrapper class for multidimensional bvar metrics.
+This template class provides a convenient interface for managing multidimensional
+bvar metrics. It supports various bvar types including Adder, IntRecorder,
+LatencyRecorder, Maxer, and Status.
+@param: BvarType The type of bvar metric to use (must be one of the supported types)
+@output: Based on the bvar multidimensional counter implementation,
+the metrics output format would typically follow this structure:
+{metric_name}{dimension1="value1",dimension2="value2",...} value
+@example: Basic usage with an Adder:
+// Create a 2-dimensional counter with dimensions "region" and "service"
+mBvarWrapper<bvar::Adder<int>> request_counter("xxx_request_count", {"region", "service"});
+// Increment the counter for specific dimension values
+request_counter.put({"east", "login"}, 1);
+request_counter.put({"west", "search"}, 1);
+request_counter.put({"east", "login"}, 1); // Now east/login has value 2
+// the output of above metrics:
+xxx_request_count{region="east",service="login"} 2
+xxx_request_count{region="west",service="search"} 1
+@note: The dimensions provided in the constructor and the values provided to
+put() and get() methods must match in count. Also, all supported bvar types
+have different behaviors for how values are processed and retrieved.
+*/
 template <typename BvarType>
 class mBvarWrapper {
 public:
-    mBvarWrapper(const std::string& name, const std::initializer_list<std::string>& dim_names)
-            : counter_(name, std::vector<std::string>(dim_names)) {
+    mBvarWrapper(const std::string& metric_name, const std::initializer_list<std::string>& dim_names)
+            : counter_(metric_name, std::vector<std::string>(dim_names)) {
         static_assert(is_valid_bvar_type<BvarType>::value,
                       "BvarType must be one of the supported bvar types (Adder, IntRecorder, "
                       "LatencyRecorder, Maxer, Status)");
@@ -133,19 +156,14 @@ public:
 private:
     template <typename T>
     struct is_valid_bvar_type : std::false_type {};
-
     template <typename T>
     struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
-
     template <>
     struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
-
     template <typename T>
     struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
-
     template <typename T>
     struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
-
     template <>
     struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
 
@@ -237,7 +255,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earl
 
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
-extern bvar::MultiDimension<bvar::Status<int>> g_bvar_recycler_instance_running;
+
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
