@@ -319,6 +319,22 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
         return;
     }
 
+    {
+        std::string msg {fmt::format(
+                "[xxx CloudTablet::add_rowsets] tablet_id={}\n_rs_version_map:\n", tablet_id())};
+        for (const auto& [version, rowset] : _rs_version_map) {
+            msg += fmt::format("    version={}, rowset_version={}, rowset={}, txn_id={}\n",
+                               version.to_string(), rowset->version().to_string(),
+                               rowset->rowset_id().to_string(), rowset->txn_id());
+        }
+        msg += "to_add:\n";
+        for (const auto& rs : to_add) {
+            msg += fmt::format("    version={}, rowset={}\n", rs->version().to_string(),
+                               rs->rowset_id().to_string());
+        }
+        LOG_INFO(msg);
+    }
+
     // Filter out existed rowsets
     auto remove_it =
             std::remove_if(to_add.begin(), to_add.end(), [this](const RowsetSharedPtr& rs) {
