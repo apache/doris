@@ -36,9 +36,9 @@ suite("load_colddata_to_hdfs") {
         }
     }
     // data_sizes is one arrayList<Long>, t is tablet
-    def fetchDataSize = { data_sizes, t ->
-        def tabletId = t[0]
-        String meta_url = t[17]
+    def fetchDataSize = {List<Long> data_sizes, Map<String, Object> t ->
+        def tabletId = t.TabletId
+        String meta_url = t.MetaUrl
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -191,7 +191,7 @@ suite("load_colddata_to_hdfs") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -203,7 +203,7 @@ suite("load_colddata_to_hdfs") {
     sleep(600000)
 
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -211,7 +211,7 @@ suite("load_colddata_to_hdfs") {
     while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
