@@ -883,7 +883,7 @@ public class Column implements GsonPostProcessable {
             }
         }
 
-        if (type.isStringType() && other.type.isStringType) {
+        if (type.isStringType() && other.type.isStringType()) {
             ColumnType.checkForTypeLengthChange(type, other.type);
         }
 
