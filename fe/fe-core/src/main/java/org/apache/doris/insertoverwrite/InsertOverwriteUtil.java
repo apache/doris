@@ -69,6 +69,11 @@ public class InsertOverwriteUtil {
      */
     public static void replacePartition(TableIf olapTable, List<String> partitionNames,
             List<String> tempPartitionNames) throws DdlException {
+        replacePartition(olapTable, partitionNames, tempPartitionNames, false);
+    }
+
+    public static void replacePartition(TableIf olapTable, List<String> partitionNames,
+            List<String> tempPartitionNames, boolean isForce) throws DdlException {
         if (olapTable instanceof OlapTable) {
             try {
                 if (!olapTable.writeLockIfExist()) {
@@ -78,7 +83,7 @@ public class InsertOverwriteUtil {
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
                 ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
                         new PartitionNames(false, partitionNames),
-                        new PartitionNames(true, tempPartitionNames), false, properties);
+                        new PartitionNames(true, tempPartitionNames), isForce, properties);
                 if (replacePartitionClause.getTempPartitionNames().isEmpty()) {
                     return;
                 }
