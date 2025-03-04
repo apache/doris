@@ -596,6 +596,7 @@ Status MaterializationSharedState::init_multi_requests(
     PMultiGetRequestV2 multi_get_request;
     // Initialize the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
+    multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
     auto query_id = multi_get_request.mutable_query_id();
     query_id->set_hi(state->query_id().hi);
     query_id->set_lo(state->query_id().lo);

@@ -797,6 +797,7 @@ message PMultiGetRequestV2 {
     optional int32 be_exec_version = 2;
     optional PUniqueId query_id = 3;
     optional bool gc_id_map = 4;
+    optional uint64 wg_id = 5;
 };
 
 message PMultiGetBlockV2 {
