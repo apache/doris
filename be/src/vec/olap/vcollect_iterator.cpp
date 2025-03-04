@@ -734,12 +734,10 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -770,11 +768,9 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
             _children.pop_front();
             return _normal_next(ref);
         } else {
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -877,10 +873,8 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        _cur_child.reset();
         return Status::Error<END_OF_FILE>("");
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }

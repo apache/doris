@@ -230,7 +230,7 @@ public:
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
-    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    virtual void update_profile(RuntimeProfile* profile) {}
     static Status init_reader_params_and_create_block(
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
