@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
@@ -645,6 +646,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowLoadProfileCommand(ShowLoadProfileCommand showLoadProfileCommand, C context) {
         return visitCommand(showLoadProfileCommand, context);
+    }
+
+    default R visitAlterStoragePolicyCommand(AlterStoragePolicyCommand alterStoragePolicyCommand, C context) {
+        return visitCommand(alterStoragePolicyCommand, context);
     }
 
     default R visitAlterSqlBlockRuleCommand(AlterSqlBlockRuleCommand cmd, C context) {
