@@ -162,6 +162,7 @@ TEST_F(ColumnIPTest, SerDeVecTest) {
     ip_cols.push_back(column_ipv6->get_ptr());
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     ser_deser_vec(ip_cols, {dt_ipv4, dt_ipv6});
+    ser_deser_vec(ip_cols, {dt_ipv4, dt_ipv6});
 }
 
 TEST_F(ColumnIPTest, serDeserializeWithArenaImpl) {
@@ -305,11 +306,15 @@ TEST_F(ColumnIPTest, HashTest) {
 
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     // update_hashes_with_value
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
-               assert_update_hashes_with_value_callback);
+    auto root_dir = std::string(getenv("ROOT"));
+    auto test_data_dir = root_dir + "/be/test/data/vec/columns";
+    auto test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
+    assert_update_hashes_with_value_callback(
+            ip_cols, serde, test_result_dir + "/column_ip_update_hashes_with_value.out");
     // CrcHash
     std::vector<PrimitiveType> pts = {PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV6};
-    assert_update_crc_hashes_callback(ip_cols, serde, pts);
+    assert_update_crc_hashes_callback(ip_cols, serde, pts,
+                                      test_result_dir + "/column_ip_update_crc_hashes.out");
 };
 
 } // namespace doris::vectorized

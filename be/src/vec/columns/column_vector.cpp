@@ -448,7 +448,6 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Size of permutation ({}) is less than required ({})", perm.size(),
                                limit);
-        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

@@ -229,6 +229,7 @@ public:
     void insert_many_strings_without_reserve(const StringRef* strings, size_t num) {
         Char* data = chars.data();
         size_t offset = chars.size();
+        data += offset;
         size_t length = 0;
 
         const char* ptr = strings[0].data;
@@ -541,7 +542,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Method replace_column_data is not supported for ColumnString");
-        __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

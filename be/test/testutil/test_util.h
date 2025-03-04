@@ -20,7 +20,11 @@
 #include <cstdlib>
 #include <string>
 
+#include "gflags/gflags.h"
 #include "gtest/gtest.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+DECLARE_bool(gen_out);
 
 struct TestCaseInfo {
     inline static int arg_const_info {};
@@ -75,5 +79,15 @@ int rand_rng_int(int l, int r);
 char rand_rng_char();
 std::string rand_rng_string(size_t length = 8);
 std::string rand_rng_by_type(FieldType fieldType);
+
+void load_columns_data_from_file(vectorized::MutableColumns& columns,
+                                 vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
+                                 std::set<int> idxes, const std::string& column_data_file);
+void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
+                        vectorized::MutableColumns& columns, const std::string& file_path,
+                        const char spliter = ';', const std::set<int> idxes = {0});
+void check_or_generate_res_file(const std::string& res_file_path,
+                                const std::vector<std::vector<std::string>>& res,
+                                bool is_binary = false);
 
 } // namespace doris
