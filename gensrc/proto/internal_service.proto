@@ -551,7 +551,7 @@ message PInFilter {
 }
 
 enum PFilterType {
-    UNKNOW_FILTER = 0;
+    UNKNOWN_FILTER = 0;
     BLOOM_FILTER = 1;
     MINMAX_FILTER = 2;
     IN_FILTER = 3;

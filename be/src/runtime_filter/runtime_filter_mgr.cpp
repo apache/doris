@@ -411,6 +411,10 @@ RuntimeFilterMgr* RuntimeFilterParamsContext::global_runtime_filter_mgr() {
 }
 
 RuntimeFilterMgr* RuntimeFilterParamsContext::local_runtime_filter_mgr() {
+    if (_state == nullptr) {
+        throw Exception(Status::InternalError("Can not get a local runtime filter mgr by query {}",
+                                              print_id(_query_ctx->query_id())));
+    }
     return _state->local_runtime_filter_mgr();
 }
 
