@@ -530,20 +530,11 @@ public:
         return typeid(rhs) == typeid(ColumnStr<T>);
     }
 
-    Chars& get_chars() {
-        sanity_check_simple();
-        return chars;
-    }
+    Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }
 
-    auto& get_offsets() {
-        sanity_check_simple();
-        return offsets;
-    }
-    const auto& get_offsets() const {
-        sanity_check_simple();
-        return offsets;
-    }
+    auto& get_offsets() { return offsets; }
+    const auto& get_offsets() const { return offsets; }
 
     void clear() override {
         chars.clear();

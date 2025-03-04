@@ -61,6 +61,10 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
+        if (const auto* column_str = check_and_get_column<ColumnString>(
+                    block->get_by_position(*result_column_id).column.get())) {
+            column_str->sanity_check();
+        }
     });
     return st;
 }
