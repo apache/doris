@@ -66,15 +66,15 @@ public:
 
         if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {
             auto in_filter = request->mutable_in_filter();
-            _to_protobuf(in_filter);
+            RETURN_IF_ERROR(_to_protobuf(in_filter));
         } else if (real_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER) {
             DCHECK(data != nullptr);
-            _to_protobuf(request->mutable_bloom_filter(), (char**)data, len);
+            RETURN_IF_ERROR(_to_protobuf(request->mutable_bloom_filter(), (char**)data, len));
         } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER ||
                    real_runtime_filter_type == RuntimeFilterType::MIN_FILTER ||
                    real_runtime_filter_type == RuntimeFilterType::MAX_FILTER) {
             auto minmax_filter = request->mutable_minmax_filter();
-            _to_protobuf(minmax_filter);
+            RETURN_IF_ERROR(_to_protobuf(minmax_filter));
         } else {
             return Status::InternalError("not implemented !");
         }
@@ -95,11 +95,11 @@ protected:
     virtual Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
 
     template <typename T>
-    void _to_protobuf(T* filter) {
-        _wrapper->to_protobuf(filter);
+    Status _to_protobuf(T* filter) {
+        return _wrapper->to_protobuf(filter);
     }
-    void _to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
-        _wrapper->to_protobuf(filter, data, filter_length);
+    Status _to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
+        return _wrapper->to_protobuf(filter, data, filter_length);
     }
 
     Status _push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
