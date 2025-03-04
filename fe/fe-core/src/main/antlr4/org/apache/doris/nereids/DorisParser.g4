@@ -313,6 +313,8 @@ supportedShowStatement
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW STAGES                                                                   #showStages
@@ -385,8 +387,6 @@ unsupportedShowStatement
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?

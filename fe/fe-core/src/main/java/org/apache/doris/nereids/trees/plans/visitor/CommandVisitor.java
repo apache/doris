@@ -348,6 +348,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showWarnErrorCountCommand, context);
     }
 
+    default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
+        return visitCommand(showLoadWarningsCommand, context);
+    }
+    
     default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
         return visitCommand(showSyncJobCommand, context);
     }
