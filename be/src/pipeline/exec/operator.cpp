@@ -657,7 +657,7 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    RETURN_IF_ERROR(_writer->start_writer(state, common_profile()));
+    RETURN_IF_ERROR(_writer->start_writer(state, operator_profile()));
     return Status::OK();
 }
 
