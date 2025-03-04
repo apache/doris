@@ -124,6 +124,13 @@ public class InPredicate extends Expression {
     }
 
     @Override
+    public String toHboString() {
+        return compareExpr + " IN " + options.stream()
+                .map(Expression::toHboString)
+                .collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
     public String computeToSql() {
         return compareExpr.toSql() + " IN " + options.stream()
             .map(Expression::toSql).sorted()

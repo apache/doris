@@ -1465,6 +1465,22 @@ public class Config extends ConfigBase {
     )
     public static int expire_sql_cache_in_fe_second = 300;
 
+    /**
+     *  Expire hbo cache in frontend time
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
+                    "The current default setting is 300, which is used to control the expiration time of SQL cache"
+                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed"
+            }
+    )
+    // TODO: consider the cache active timing, 300s is too short
+    public static int expire_hbo_cache_in_fe_second = 300000;
 
     /**
      *  Expire sql sql in frontend time
@@ -2350,6 +2366,21 @@ public class Config extends ConfigBase {
             }
     )
     public static int cache_partition_meta_table_manage_num = 100;
+
+
+    /**
+     * the hbo cache num which can be reused for the next query
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 1000，用来控制控制HboCacheManager管理的sql cache数量。",
+                    "Now default set to 1000, this config is used to control the number of "
+                            + "hbo cache managed by 用来控制控制HboCacheManager管理的sql"
+            }
+    )
+    public static int hbo_cache_manage_num = 1000;
 
     /**
      * Maximum number of events to poll in each RPC.

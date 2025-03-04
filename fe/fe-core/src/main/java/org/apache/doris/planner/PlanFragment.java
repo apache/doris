@@ -164,6 +164,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
 
+    private List<Integer> collectExecStatsIds;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -175,6 +177,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.transferQueryStatisticsWithEveryBatch = false;
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
+        this.collectExecStatsIds = new ArrayList<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
@@ -320,6 +323,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public int getParallelExecNum() {
         return parallelExecNum;
+    }
+
+    public List<Integer> getCollectExecStatsIds() {
+        return collectExecStatsIds;
+    }
+
+    public void setCollectExecStatsIds(List<Integer> collectExecStatsIds) {
+        this.collectExecStatsIds = collectExecStatsIds;
     }
 
     public TPlanFragment toThrift() {

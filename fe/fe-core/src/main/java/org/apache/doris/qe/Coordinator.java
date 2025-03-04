@@ -3226,6 +3226,7 @@ public class Coordinator implements CoordInterface {
                     }
                     localParams.setTopnFilterDescs(filterDescs);
                 }
+                //localParams.setExecStatsNodeIds(fragment.getCollectExecStatsIds());
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
                             .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());

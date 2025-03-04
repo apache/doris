@@ -47,6 +47,7 @@ public class Statistics {
     private double deltaRowCount = 0.0;
 
     private long actualRowCount = -1L;
+    private boolean isFromHbo = false;
 
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
@@ -54,6 +55,7 @@ public class Statistics {
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
         this.tupleSize = another.tupleSize;
         this.deltaRowCount = another.getDeltaRowCount();
+        this.isFromHbo = another.isFromHbo;
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
@@ -99,6 +101,12 @@ public class Statistics {
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
         statistics.normalizeColumnStatistics();
+        return statistics;
+    }
+
+    public Statistics withRowCountAndHboFlag(double rowCount) {
+        Statistics statistics = withRowCountAndEnforceValid(rowCount);
+        statistics.setFromHbo(true);
         return statistics;
     }
 
@@ -210,6 +218,9 @@ public class Statistics {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
+        if (isFromHbo) {
+            builder.append("(hbo)");
+        }
         if (Double.isNaN(rowCount)) {
             builder.append("NaN");
         } else if (Double.POSITIVE_INFINITY == rowCount) {
@@ -292,5 +303,13 @@ public class Statistics {
 
     public void setActualRowCount(long actualRowCount) {
         this.actualRowCount = actualRowCount;
+    }
+
+    public boolean isFromHbo() {
+        return isFromHbo;
+    }
+
+    public void setFromHbo(boolean isFromHbo) {
+        this.isFromHbo = isFromHbo;
     }
 }

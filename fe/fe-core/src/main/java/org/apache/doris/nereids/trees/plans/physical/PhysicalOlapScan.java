@@ -117,6 +117,22 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     }
 
     @Override
+    public String toHboString() {
+        //StringBuilder builder = new StringBuilder();
+        //if (!getAppliedRuntimeFilters().isEmpty()) {
+        //    getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+        //}
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]" + "@" + getTable().getVisibleVersion());
+        //+ getGroupIdWithPrefix(),"RFs", builder
+        //);
+    }
+
+    @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {

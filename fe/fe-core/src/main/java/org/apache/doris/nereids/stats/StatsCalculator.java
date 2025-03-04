@@ -178,27 +178,36 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
-    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
-    private final GroupExpression groupExpression;
+    protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
+    protected final GroupExpression groupExpression;
 
-    private boolean forbidUnknownColStats = false;
+    protected boolean forbidUnknownColStats = false;
 
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+    protected Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
-    private boolean isPlayNereidsDump = false;
+    protected boolean isPlayNereidsDump = false;
 
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+    protected Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
-    private Map<CTEId, Statistics> cteIdToStats;
+    protected Map<CTEId, Statistics> cteIdToStats;
 
-    private CascadesContext cascadesContext;
+    protected CascadesContext cascadesContext;
 
-    private StatsCalculator(CascadesContext context) {
+    public StatsCalculator(CascadesContext context) {
         this.groupExpression = null;
         this.cascadesContext = context;
     }
 
-    private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
+    /**
+     * StatsCalculator
+     * @param groupExpression
+     * @param forbidUnknownColStats
+     * @param columnStatisticMap
+     * @param isPlayNereidsDump
+     * @param cteIdToStats
+     * @param context
+     */
+    public StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
@@ -271,7 +280,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         LOG.info("disable join reorder since col stats invalid: "
                                 + reason.get());
                     } catch (Exception e) {
-                        LOG.info("disableNereidsJoinReorderOnce failed");
+                        LOG.info("disable NereidsJoinReorderOnce failed");
                     }
                     return reason;
                 }
@@ -280,26 +289,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return Optional.empty();
     }
 
-    /**
-     * estimate stats
-     */
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
-        StatsCalculator statsCalculator = new StatsCalculator(
-                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
-        statsCalculator.estimate();
-        return statsCalculator;
-    }
-
-    // For unit test only
-    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.emptyMap(), context);
-        statsCalculator.estimate();
-    }
-
-    private void estimate() {
+    public void estimate() {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
         newStats.normalizeColumnStatistics();
@@ -326,6 +316,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
+    }
+
+    // For unit test only
+    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
+                new HashMap<>(), false, Collections.emptyMap(), context);
+        statsCalculator.estimate();
     }
 
     @Override
@@ -1061,7 +1058,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new StatisticsBuilder(newStatistics).setWidthInJoinCluster(1).build();
     }
 
-    private Statistics computeFilter(Filter filter) {
+    protected Statistics computeFilter(Filter filter) {
         Statistics stats = groupExpression.childStatistics(0);
         if (groupExpression.getFirstChildPlan(OlapScan.class) != null) {
             return new FilterEstimation(true).estimate(filter.getPredicate(), stats);
@@ -1325,7 +1322,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return builder.setRowCount(tableRowCount).build();
     }
 
-    private Statistics computeJoin(Join join) {
+    protected Statistics computeJoin(Join join) {
         return JoinEstimation.estimate(groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
     }
@@ -1412,7 +1409,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
-    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
+    protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         Statistics childStats = groupExpression.childStatistics(0);
         double rowCount = estimateGroupByRowCount(groupByExpressions, childStats);

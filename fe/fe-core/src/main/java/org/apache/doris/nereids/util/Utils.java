@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -188,7 +189,7 @@ public class Utils {
         return stringBuilder.append(" )").toString();
     }
 
-    private static String toStringOrNull(Object obj) {
+    public static String toStringOrNull(Object obj) {
         return obj == null ? "null" : obj.toString();
     }
 

@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.proto.Types;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -235,5 +236,37 @@ public class DebugUtil {
         }
 
         return output.toString();
+    }
+
+    public static String prettyPrintPlanNodeRuntimeStatsItems(
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems) {
+        StringBuilder result = new StringBuilder();
+        if (planNodeRuntimeStatsItems == null || planNodeRuntimeStatsItems.isEmpty()) {
+            result.append("The list is empty or null.\n");
+            return result.toString();
+        }
+
+        result.append(String.format("%-10s %-10s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-15s %-10s %-10s\n",
+                "NodeID", "InstanceNum", "InputRows", "OutputRows", "CommonFilterRows", "CommonFilterInputRows",
+                "RuntimeFilterRows", "RuntimeFilterInputRows", "JoinBuilderRows", "JoinProbeRows",
+                "JoinBuilderSkewRatio", "JoinProbeSkewRatio"));
+
+        for (TPlanNodeRuntimeStatsItem item : planNodeRuntimeStatsItems) {
+            result.append(String.format("%-10d %-10d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-15d %-10d %-10d\n",
+                    item.getNodeId(),
+                    item.getInstanceNum(),
+                    item.getInputRows(),
+                    item.getOutputRows(),
+                    item.getCommonFilterRows(),
+                    item.getCommonFilterInputRows(),
+                    item.getRuntimeFilterRows(),
+                    item.getRuntimeFilterInputRows(),
+                    item.getJoinBuilderRows(),
+                    item.getJoinProbeRows(),
+                    item.getJoinBuilderSkewRatio(),
+                    item.getJoinProberSkewRatio()
+            ));
+        }
+        return result.toString();
     }
 }

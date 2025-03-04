@@ -29,6 +29,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -58,13 +60,18 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.PlanNodeAndHash;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
+import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import static java.util.Objects.requireNonNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,6 +83,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
     private final int parallelInstance;
+    private final boolean isHboEnabled;
+    private final boolean isHboInfoCollected;
+    private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -87,6 +97,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
             parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
+        this.isHboEnabled = sessionVariable.isEnableHboOptimization();
+        this.isHboInfoCollected = sessionVariable.isEnableHboInfoCollection();
+        this.hboPlanStatisticsProvider = requireNonNull(HboPlanStatisticsManager.getInstance()
+                .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
     public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {
@@ -465,6 +479,25 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
                 }
             }
+
+            // hbo to adjust bc cost parameter to reduce bc cost
+            if (context.getSessionVariable() != null
+                    && context.getSessionVariable().isEnableHboOptimization()
+                    && context.getSessionVariable().isEnableHboInfoCollection()) {
+                PlanNodeAndHash PlanNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(PlanNodeAndHash);
+                PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
+                        context.getStatementContext().getConnectContext());
+                if (matchedPlanStatistics != null) {
+                    int builderSkewRatio = matchedPlanStatistics.getJoinBuilderSkewRatio();
+                    int probeSkewRatio = matchedPlanStatistics.getJoinProbeSkewRatio();
+                    // TODO: add into session variable
+                    if (builderSkewRatio > 5 || probeSkewRatio > 5) {
+                        probeShortcutFactor = probeShortcutFactor * 0.1;
+                    }
+                }
+            }
+
             return CostV1.of(context.getSessionVariable(),
                     leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor * buildSideFactor
                             + outputRowCount * probeSideFactor,

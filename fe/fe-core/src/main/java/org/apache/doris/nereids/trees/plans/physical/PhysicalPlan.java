@@ -34,4 +34,8 @@ public interface PhysicalPlan extends Plan {
     default PhysicalPlan resetLogicalProperties() {
         return this;
     }
+
+    default boolean needCollectExecStats() {
+        return false;
+    }
 }

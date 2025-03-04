@@ -86,6 +86,14 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
+    public String toHboString() {
+        // id.asInt() is different from logical filter and physical filter
+        return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
+                "predicates", getPredicate().toHboString()
+        );
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -161,6 +169,11 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalFilter<Plan> resetLogicalProperties() {
         return new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
                 statistics, child());
+    }
+
+    @Override
+    public boolean needCollectExecStats() {
+        return true;
     }
 
     @Override
