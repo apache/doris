@@ -321,6 +321,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterato
             return Status::InternalError("Failed to add node path {}", path);
         }
     }
+    VLOG_DEBUG << "subcolumns to merge " << src_subcolumns_for_sparse.size();
 
     // Create sparse column merge reader
     *iterator = new SparseColumnMergeReader(
