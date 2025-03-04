@@ -65,6 +65,7 @@ import org.apache.doris.plsql.executor.QueryExecutor;
 import org.apache.doris.plsql.executor.QueryResult;
 import org.apache.doris.plsql.executor.ResultListener;
 import org.apache.doris.plsql.objects.Table;
+import org.apache.doris.qe.ConnectContext;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 
@@ -111,8 +112,9 @@ public class Stmt {
             trace(ctx, "Not executed - offline mode set");
             return 0;
         }
-
+        ConnectContext.get().getSessionVariable().setEnablePlSql(false);
         QueryResult query = queryExecutor.executeQuery(exec.logicalPlanBuilder.getOriginSql(ctx), ctx);
+        ConnectContext.get().getSessionVariable().setEnablePlSql(true);
         resultListener.setProcessor(query.processor());
 
         if (query.error()) {

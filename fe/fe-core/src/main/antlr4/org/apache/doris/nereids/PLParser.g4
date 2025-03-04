@@ -717,7 +717,7 @@ expr_dot_property_access :
       ;
 
 expr_func_params :
-       func_param (COMMA func_param)*
+       '@' ? func_param (COMMA '@' ? func_param)*
      ;
 
 func_param :

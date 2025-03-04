@@ -4165,7 +4165,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         final Set<Expression> whereExprConst = whereExpr;
-        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand(whereExprConst));
+        return ParserUtils.withOrigin(ctx, () -> new ShowProcedureStatusCommand(
+                    whereExprConst, ctx.FUNCTION() != null));
     }
 
     @Override

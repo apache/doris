@@ -35,6 +35,7 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -2466,6 +2467,16 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean skipCheckingAcidVersionFile = false;
 
+    /**
+     * set true when call procedure.
+     */
+    private Boolean enablePlSql = false;
+
+    /**
+     * store plsql variables.
+     */
+    private Map<String, Expression> plsqlExpressions = new HashMap();
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -4679,5 +4690,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public Boolean getEnablePlSql() {
+        return enablePlSql;
+    }
+
+    public void setEnablePlSql(Boolean enablePlSql) {
+        this.enablePlSql = enablePlSql;
+    }
+
+    public Map<String, Expression> getPlsqlExpressions() {
+        return plsqlExpressions;
     }
 }

@@ -42,7 +42,7 @@ public interface FunctionRegistry {
 
     void removeCached(String name);
 
-    void showProcedure(List<List<String>> columns, String dbFilter, String procFilter);
+    void showProcedure(List<List<String>> columns, String dbFilter, String procFilter, boolean isFunction);
 
     void showCreateProcedure(FuncNameInfo procedureName, List<List<String>> columns);
 }

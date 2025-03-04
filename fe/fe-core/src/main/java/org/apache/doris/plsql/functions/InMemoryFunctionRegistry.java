@@ -72,7 +72,7 @@ public class InMemoryFunctionRegistry implements FunctionRegistry {
         procMap.remove(procedureName.toString());
     }
 
-    public void showProcedure(List<List<String>> columns, String dbFilter, String procFilter) {
+    public void showProcedure(List<List<String>> columns, String dbFilter, String procFilter, boolean isFunction) {
 
     }
 

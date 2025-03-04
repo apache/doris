@@ -51,20 +51,22 @@ import java.util.stream.Collectors;
  */
 public class ShowProcedureStatusCommand extends Command implements NoForward {
     public static final Logger LOG = LogManager.getLogger(ShowProcedureStatusCommand.class);
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ProcedureName")
-            .add("CatalogId").add("DbId").add("DbName").add("PackageName").add("OwnerName").add("CreateTime")
-            .add("ModifyTime").build();
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("name")
+            .add("CatalogId").add("DbId").add("db").add("PackageName").add("OwnerName").add("CreateTime")
+            .add("ModifyTime").add("type").add("comment").build();
     private static final String colDb = "db";
     private static final String colProcName = "procedurename";
     private static final String colName = "name";
     private final Set<Expression> whereExpr;
+    private boolean isFunction = false;
 
     /**
      * constructor
      */
-    public ShowProcedureStatusCommand(final Set<Expression> whereExpr) {
+    public ShowProcedureStatusCommand(final Set<Expression> whereExpr, Boolean isFunction) {
         super(PlanType.SHOW_PROCEDURE_COMMAND);
         this.whereExpr = Objects.requireNonNull(whereExpr, "whereExpr should not be null");
+        this.isFunction = isFunction;
     }
 
     public ShowResultSetMetaData getMetaData() {
@@ -127,7 +129,8 @@ public class ShowProcedureStatusCommand extends Command implements NoForward {
         validateAndExtractFilters(dbFilter, procFilter);
 
         List<List<String>> results = new ArrayList<>();
-        ctx.getPlSqlOperation().getExec().functions.showProcedure(results, dbFilter.toString(), procFilter.toString());
+        ctx.getPlSqlOperation().getExec().functions.showProcedure(
+                results, dbFilter.toString(), procFilter.toString(), isFunction);
         ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
         executor.sendResultSet(commonResultSet);
     }

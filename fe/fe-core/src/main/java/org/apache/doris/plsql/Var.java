@@ -631,4 +631,12 @@ public class Var {
     public String getName() {
         return name;
     }
+
+    public int getLen() {
+        return len;
+    }
+
+    public int getScale() {
+        return scale;
+    }
 }

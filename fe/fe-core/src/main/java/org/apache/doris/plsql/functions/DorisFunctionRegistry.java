@@ -30,6 +30,7 @@ import org.apache.doris.nereids.PLParser.Create_procedure_stmtContext;
 import org.apache.doris.nereids.PLParser.Expr_func_paramsContext;
 import org.apache.doris.nereids.PLParserBaseVisitor;
 import org.apache.doris.nereids.parser.CaseInsensitiveStream;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.Scope;
@@ -37,6 +38,7 @@ import org.apache.doris.plsql.Var;
 import org.apache.doris.plsql.metastore.PlsqlMetaClient;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
+import org.apache.doris.plsql.util.TypeUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import org.antlr.v4.runtime.CharStreams;
@@ -117,7 +119,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     }
 
     @Override
-    public void showProcedure(List<List<String>> columns, String dbFilter, String procFilter) {
+    public void showProcedure(List<List<String>> columns, String dbFilter, String procFilter, boolean isFunction) {
         Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = client.getAllPlsqlStoredProcedures();
         for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
             List<String> row = new ArrayList<>();
@@ -129,6 +131,13 @@ public class DorisFunctionRegistry implements FunctionRegistry {
             if (!applyFilter(dbName, dbFilter)) {
                 continue;
             }
+            // TODO should make stricter judgment
+            if (isFunction) {
+                if (proc.getSource().toUpperCase().contains("PROCEDURE")) {
+                    continue;
+                }
+            }
+            // satisfy the format of MySQL
             row.add(proc.getName());
             row.add(Long.toString(proc.getCatalogId()));
             row.add(Long.toString(proc.getDbId()));
@@ -137,7 +146,9 @@ public class DorisFunctionRegistry implements FunctionRegistry {
             row.add(proc.getOwnerName());
             row.add(proc.getCreateTime());
             row.add(proc.getModifyTime());
-            row.add(proc.getSource());
+            boolean isFunc = proc.getSource().toUpperCase().contains("FUNCTION");
+            row.add(isFunc ? "FUNCTION" : "PROCEDURE");
+            row.add("");
             columns.add(row);
         }
     }
@@ -189,6 +200,18 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         for (Map.Entry<String, Var> i : out.entrySet()) { // Set OUT parameters
             exec.setVariable(i.getKey(), i.getValue());
         }
+        // set out parameters of definition in session variables
+        if (exec.getInSubFuncOrProc() != null &&  exec.getInSubFuncOrProc().isEmpty()) {
+            ConnectContext.get().getSessionVariable().setEnablePlSql(true);
+            Map<String, Expression> outParams = ConnectContext.get().getSessionVariable().getPlsqlExpressions();
+            outParams.clear();
+            for (Var var : actualParams) {
+                Var outVar = out.get(var.getName());
+                if (outVar != null) {
+                    outParams.put(var.getName(), TypeUtil.castForDorisExpr(outVar));
+                }
+            }
+        }
     }
 
     private void callWithParameters(Expr_func_paramsContext ctx, ParserRuleContext procCtx, HashMap<String, Var> out,
@@ -205,6 +228,9 @@ public class DorisFunctionRegistry implements FunctionRegistry {
             Create_procedure_stmtContext proc = (Create_procedure_stmtContext) procCtx;
             InMemoryFunctionRegistry.setCallParameters(proc.multipartIdentifier().getText(), ctx, actualParams,
                     proc.create_routine_params(), out, exec);
+            if (proc.declare_block_inplace() != null) {
+                exec.visit(proc.declare_block_inplace());
+            }
             exec.visit(proc.procedure_block());
         }
     }

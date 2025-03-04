@@ -69,7 +69,7 @@ public class DorisRowResult implements RowResult {
                 index = 0;
                 if (batch.isEos()) {
                     eof = true;
-                    return false;
+                    return true;
                 }
             } else {
                 ++index;

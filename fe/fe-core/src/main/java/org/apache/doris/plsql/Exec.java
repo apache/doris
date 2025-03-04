@@ -108,6 +108,7 @@ import org.apache.doris.nereids.parser.plsql.PLSqlLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.plsql.Var.Type;
+import org.apache.doris.plsql.exception.CustomErrorListener;
 import org.apache.doris.plsql.exception.PlValidationException;
 import org.apache.doris.plsql.exception.QueryException;
 import org.apache.doris.plsql.exception.TypeException;
@@ -204,6 +205,8 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     Stack<Scope> scopes = new Stack<>();
     Scope globalScope;
     Scope currentScope;
+    // determine if current scope is a function or procedure
+    Stack<Boolean> inSubFuncOrProc = new Stack<>();
 
     Stack<Var> stack = new Stack<>();
     Stack<String> labels = new Stack<>();
@@ -851,7 +854,7 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         return getProgramReturnCode();
     }
 
-    public Var parseAndEval(Arguments arguments) throws IOException {
+    public Var parseAndEval(Arguments arguments) throws Exception {
         ParseTree tree;
         try {
             CharStream input = sourceStream(arguments);
@@ -942,11 +945,17 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         registerBuiltins();
     }
 
-    private ParseTree parse(CharStream input) throws IOException {
+    private ParseTree parse(CharStream input) throws Exception {
         PLLexer lexer = new PLLexer(new CaseInsensitiveStream(input));
         CommonTokenStream tokens = new CommonTokenStream(lexer);
+        CustomErrorListener errorListener = new CustomErrorListener();
         PLParser parser = newParser(tokens);
+        parser.removeErrorListeners();
+        parser.addErrorListener(errorListener);
         ParseTree tree = parser.program();
+        if (errorListener.hasErrors()) {
+            throw new Exception(errorListener.getErrorsString());
+        }
         if (trace) {
             console.printLine("Parser tree: " + tree.toStringTree(parser));
         }
@@ -1626,7 +1635,15 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
      */
     @Override
     public Integer visitExpr_func(Expr_funcContext ctx) {
-        return functionCall(ctx, ctx.multipartIdentifier(), ctx.expr_func_params());
+        try {
+            // mark subFunction or subProcedure
+            exec.inSubFuncOrProc.push(true);
+            return functionCall(ctx, ctx.multipartIdentifier(), ctx.expr_func_params());
+        } finally {
+            if (exec.inSubFuncOrProc.peek()) {
+                exec.inSubFuncOrProc.pop();
+            }
+        }
     }
 
     private int functionCall(ParserRuleContext ctx, MultipartIdentifierContext ident,
@@ -2439,7 +2456,12 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         return console;
     }
 
+    public Stack<Boolean> getInSubFuncOrProc() {
+        return inSubFuncOrProc;
+    }
+
     public void setQueryExecutor(QueryExecutor queryExecutor) {
         this.queryExecutor = queryExecutor;
     }
+
 }
