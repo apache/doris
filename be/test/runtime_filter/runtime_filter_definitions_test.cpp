@@ -47,7 +47,7 @@ TEST_F(RuntimeFilterDefinitionTest, TestErrorPath) {
         EXPECT_NE(res->get_query_ctx(), nullptr);
         EXPECT_NE(res->get_runtime_state(), nullptr);
         EXPECT_NE(res->global_runtime_filter_mgr(), nullptr);
-        EXPECT_NE(res->local_runtime_filter_mgr(), nullptr);
+        EXPECT_EQ(res->local_runtime_filter_mgr(), nullptr);
     }
     {
         auto* res = RuntimeFilterParamsContext::create(ctx.get());
@@ -63,7 +63,7 @@ TEST_F(RuntimeFilterDefinitionTest, TestErrorPath) {
         EXPECT_TRUE(ex);
         res->set_state(&state);
         EXPECT_NE(res->get_runtime_state(), nullptr);
-        EXPECT_NE(res->local_runtime_filter_mgr(), nullptr);
+        EXPECT_EQ(res->local_runtime_filter_mgr(), nullptr);
     }
 }
 
