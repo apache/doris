@@ -273,7 +273,9 @@ void Recycler::recycle_callback() {
         if (stopped()) return;
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        g_bvar_recycler_task_concurrency << 1;
         ret = instance_recycler->do_recycle();
+        g_bvar_recycler_task_concurrency << -1;
         // If instance recycler has been aborted, don't finish this job
         if (!instance_recycler->stopped()) {
             finish_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
@@ -342,6 +344,7 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
+    g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
