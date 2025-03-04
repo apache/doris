@@ -60,8 +60,8 @@ public:
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
-        if (_rf_state == State::READY_TO_PUBLISH || _rf_state == State::PUBLISHED) {
-            DCHECK(!_wrapper->is_valid());
+        if (!_wrapper->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
+            _rf_state == State::PUBLISHED) {
             return Status::OK();
         }
         _check_state({State::WAITING_FOR_DATA});

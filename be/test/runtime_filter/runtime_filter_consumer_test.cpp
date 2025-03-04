@@ -136,4 +136,53 @@ TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {
     ASSERT_TRUE(consumer->is_applied());
 }
 
+TEST_F(RuntimeFilterConsumerTest, wait_infinity) {
+    std::shared_ptr<RuntimeFilterConsumer> consumer;
+    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
+    const_cast<TQueryOptions&>(_query_ctx->_query_options)
+            .__set_runtime_filter_wait_infinitely(true);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterConsumer::create(
+            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer, &_profile));
+
+    std::shared_ptr<RuntimeFilterConsumer> registed_consumer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
+            desc, true, 0, &registed_consumer, &_profile));
+}
+
+TEST_F(RuntimeFilterConsumerTest, aquire_disabled) {
+    std::shared_ptr<RuntimeFilterConsumer> consumer;
+    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterConsumer::create(
+            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer, &_profile));
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &producer, &_profile));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+
+    std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+    consumer->signal(producer.get());
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
+    ASSERT_EQ(push_exprs.size(), 0);
+    ASSERT_TRUE(consumer->is_applied());
+}
+
+TEST_F(RuntimeFilterConsumerTest, aquire_ignored) {
+    std::shared_ptr<RuntimeFilterConsumer> consumer;
+    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterConsumer::create(
+            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer, &_profile));
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &producer, &_profile));
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::IGNORED);
+
+    std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+    consumer->signal(producer.get());
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(consumer->acquire_expr(push_exprs));
+    ASSERT_EQ(push_exprs.size(), 0);
+    ASSERT_TRUE(consumer->is_applied());
+}
+
 } // namespace doris
