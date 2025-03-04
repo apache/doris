@@ -33,7 +33,6 @@ suite("test_array_with_inverted_index_all_type"){
     sql """ set enable_profile = true;"""
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
-//    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
 
     // duplicate key table with all type using standard parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[0]}"

@@ -48,6 +48,18 @@ void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t
     vectorized::PathInData col_path(path);
     subcol.set_path_info(col_path);
     subcol.set_name(col_path.get_path());
+
+    if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        TabletColumn array_item_col;
+        // double not support inverted index
+        array_item_col.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
+        array_item_col.set_is_nullable(true);
+        array_item_col.set_unique_id(-1);
+        array_item_col.set_parent_unique_id(col_unique_id);
+
+        subcol.add_sub_column(array_item_col);
+    }
+
     schema->append_column(subcol);
     subcolumns->emplace_back(std::move(subcol));
 }
