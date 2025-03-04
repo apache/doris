@@ -557,7 +557,7 @@ TEST(VTimestampFunctionsTest, week_test) {
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
 
-    InputTypeSet new_input_types = {TypeIndex::Date};
+    InputTypeSet new_input_types = {TypeIndex::DateV2};
     DataSet new_data_set = {{{std::string("1989-03-21")}, int8_t {12}},
                             {{std::string("")}, Null()},
                             {{std::string("9999-12-12")}, int8_t {50}}};
@@ -576,7 +576,7 @@ TEST(VTimestampFunctionsTest, yearweek_test) {
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
-    InputTypeSet new_input_types = {TypeIndex::Date};
+    InputTypeSet new_input_types = {TypeIndex::DateV2};
     DataSet new_data_set = {{{std::string("1989-03-21")}, 198912},
                             {{std::string("")}, Null()},
                             {{std::string("9999-12-12")}, 999950}};
@@ -614,7 +614,7 @@ TEST(VTimestampFunctionsTest, weekday_test) {
 
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
-    InputTypeSet input_types = {TypeIndex::Date};
+    InputTypeSet input_types = {TypeIndex::DateV2};
 
     DataSet data_set = {{{std::string("2001-02-03")}, int8_t {5}},
                         {{std::string("2019-06-25")}, int8_t {1}},
@@ -1439,23 +1439,23 @@ TEST(VTimestampFunctionsTest, from_days_test) {
     InputTypeSet input_types = {TypeIndex::Int32};
 
     {
-        DataSet data_set = {{{730669}, str_to_date_time("2000-07-03", false)}, {{0}, Null()}};
+        DataSet data_set = {{{730669}, str_to_date_v2("2000-07-03", "%Y-%m-%d")}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
         std::cout << "test date 0000-02-28" << std::endl;
-        DataSet data_set = {{{59}, str_to_date_time("0000-02-28", false)}, {{0}, Null()}};
+        DataSet data_set = {{{59}, str_to_date_v2("0000-02-28", "%Y-%m-%d")}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
         std::cout << "test date 0000-03-01" << std::endl;
-        DataSet data_set = {{{60}, str_to_date_time("0000-03-01", false)}, {{0}, Null()}};
+        DataSet data_set = {{{60}, str_to_date_v2("0000-03-01", "%Y-%m-%d")}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 }
 
@@ -1501,15 +1501,6 @@ TEST(VTimestampFunctionsTest, dayname_test) {
 
         DataSet data_set = {{{std::string("2007-02-03 00:00:00")}, std::string("Saturday")},
                             {{std::string("2020-01-00 00:00:00")}, Null()}};
-
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {TypeIndex::Date};
-
-        DataSet data_set = {{{std::string("2007-02-03")}, std::string("Saturday")},
-                            {{std::string("2020-01-00")}, Null()}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -1816,6 +1807,86 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
 
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VTimestampFunctionTest, not_found_function_test) {
+    {
+        std::string func_name = "date";
+
+        InputTypeSet input_types = {TypeIndex::DateTime};
+
+        DataSet data_set = {
+                {{std::string("2021-01-01 06:00:00")}, str_to_date_time("2021-01-01", false)},
+                {{std::string("")}, Null()},
+                {{Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set,
+                                                                 true, true));
+    }
+    {
+        std::string func_name = "date";
+
+        InputTypeSet input_types = {TypeIndex::DateTimeV2};
+
+        DataSet data_set = {
+                {{std::string("2021-01-01 06:00:00")}, str_to_date_time("2021-01-01", false)},
+                {{std::string("")}, Null()},
+                {{Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set,
+                                                                   true, true));
+    }
+    {
+        std::string func_name = "from_days";
+
+        InputTypeSet input_types = {TypeIndex::Int32};
+
+        {
+            DataSet data_set = {{{730669}, str_to_date_time("2000-07-03", false)}, {{0}, Null()}};
+
+            static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set,
+                                                                 true, true));
+        }
+    }
+    {
+        std::string func_name = "makedate";
+
+        InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+
+        DataSet data_set = {{{2021, 3}, str_to_date_time("2021-01-03", false)},
+                            {{2021, 95}, str_to_date_time("2021-04-05", false)},
+                            {{2021, 400}, str_to_date_time("2022-02-04", false)},
+                            {{2021, 0}, Null()},
+                            {{2021, -10}, Null()},
+                            {{-1, 3}, Null()},
+                            {{12345, 3}, Null()}};
+
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set,
+                                                                 true, true));
+    }
+    {
+        std::string func_name = "week";
+
+        InputTypeSet input_types = {TypeIndex::Date};
+        DataSet data_set = {{{std::string("1989-03-21")}, int8_t {12}},
+                            {{std::string("")}, Null()},
+                            {{std::string("9999-12-12")}, int8_t {50}}};
+
+        static_cast<void>(
+                check_function<DataTypeInt8, true>(func_name, input_types, data_set, true, true));
+    }
+    {
+        std::string func_name = "dayname";
+        {
+            InputTypeSet input_types = {TypeIndex::Date};
+
+            DataSet data_set = {{{std::string("2007-02-03")}, std::string("Saturday")},
+                                {{std::string("2020-01-00")}, Null()}};
+
+            static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set,
+                                                                   true, true));
+        }
     }
 }
 

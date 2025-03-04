@@ -51,9 +51,9 @@ using FunctionSecond = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondI
 using FunctionSecondV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<UInt32>>;
 using FunctionToDays = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<Int64>>;
 using FunctionToDaysV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt32>>;
-using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDateImpl<Int64>>;
+using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDate, ToDateImpl<Int64>>;
 using FunctionToDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<UInt32>>;
-using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl<Int64>>;
+using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDate, DateImpl<Int64>>;
 using FunctionDateV2 = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt32>>;
 
 using FunctionDateTimeV2Year = FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<UInt64>>;

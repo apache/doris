@@ -56,14 +56,18 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DCHECK(is_string(arguments[0].type))
                 << "first argument for function: " << name << " should be string"
-                << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+                << " and arguments[0] is " << arguments[0].type->get_name();
+        DCHECK(is_string(arguments[1].type))
                 << "second argument for function: " << name << " should be string"
-                << " and arguments[1] is " << arguments[1]->get_name();
-        return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
+                << " and arguments[1] is " << arguments[1].type->get_name();
+        return std::make_shared<DataTypeArray>(make_nullable(arguments[0].type));
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
     }
     void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
                       IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,

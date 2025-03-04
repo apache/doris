@@ -978,6 +978,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (OpTraits::has_variadic_argument) {
             return OpTraits::Op::get_variadic_argument_types();
