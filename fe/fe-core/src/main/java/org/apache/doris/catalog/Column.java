@@ -851,8 +851,6 @@ public class Column implements GsonPostProcessable {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
-        ColumnType.checkForTypeLengthChange(type, other.type);
-
         if (type.isNumericType() && other.type.isStringType()) {
             try {
                 Integer lSize = type.getColumnStringRepSize();
