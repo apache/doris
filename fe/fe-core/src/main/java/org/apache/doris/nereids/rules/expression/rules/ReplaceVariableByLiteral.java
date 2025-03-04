@@ -17,18 +17,17 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * replace varaible to real expression
@@ -42,9 +41,9 @@ public class ReplaceVariableByLiteral implements ExpressionPatternRuleFactory {
             matchesType(Variable.class).thenApply(ctx -> {
                 StatementContext statementContext = ctx.cascadesContext.getStatementContext();
                 Variable variable = ctx.expr;
-                Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    sqlCacheContext.get().addUsedVariable(variable);
+                ConnectContext connectContext = statementContext.getConnectContext();
+                if (connectContext.getSessionVariable().getEnablePlSql()) {
+                    return connectContext.getSessionVariable().getPlsqlExpressions().get(variable.getName());
                 }
                 return variable.getRealExpression();
             }).toRule(ExpressionRuleType.REPLACE_VARIABLE_BY_LITERAL)
