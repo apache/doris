@@ -17,6 +17,7 @@
 
 suite("test_type_length_change", "p0") {
     def tableName = "test_type_length_change";
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE ${tableName}
         (
@@ -27,6 +28,8 @@ suite("test_type_length_change", "p0") {
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
     """
 
+    def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1  "
+
     sql """ INSERT INTO ${tableName} VALUES(1, "abc", "abc") """
 
     test {
@@ -35,8 +38,13 @@ suite("test_type_length_change", "p0") {
     }
 
     sql """ ALTER TABLE ${tableName} MODIFY COLUMN c0 CHAR(6) """
+    waitForSchemaChangeDone {
+        sql getTableStatusSql
+        time 600
+    }
+
     sql """  INSERT INTO ${tableName} VALUES(2, "abcde", "abc") """
-    master_qt_sql """ SELECT * FROM ${tableName} ORDER BY k"""
+    qt_master_sql """ SELECT * FROM ${tableName} ORDER BY k"""
 
     test {
         sql """ ALTER TABLE ${tableName} MODIFY COLUMN c1 VARCHAR(3) """
@@ -44,8 +52,13 @@ suite("test_type_length_change", "p0") {
     }
 
     sql """ ALTER TABLE ${tableName} MODIFY COLUMN c1 VARCHAR(6) """
-    sql """  INSERT INTO ${tableName} VALUES(2, "abcde", "abcde") """
-    master_qt_sql """ SELECT * FROM ${tableName} ORDER BY k"""
+    waitForSchemaChangeDone {
+        sql getTableStatusSql
+        time 600
+    }
+
+    sql """  INSERT INTO ${tableName} VALUES(3, "abcde", "abcde") """
+    qt_master_sql """ SELECT * FROM ${tableName} ORDER BY k"""
 
     test {
         sql """ ALTER TABLE ${tableName} MODIFY COLUMN c0 VARCHAR(3) """
@@ -53,7 +66,12 @@ suite("test_type_length_change", "p0") {
     }
 
     sql """ ALTER TABLE ${tableName} MODIFY COLUMN c0 VARCHAR(6) """
-    sql """  INSERT INTO ${tableName} VALUES(3, "abcde", "abcde") """
-    master_qt_sql """ SELECT * FROM ${tableName} ORDER BY k"""
-    master_qt_sql """ DESC ${tableName} """
+    waitForSchemaChangeDone {
+        sql getTableStatusSql
+        time 600
+    }
+
+    sql """  INSERT INTO ${tableName} VALUES(4, "abcde", "abcde") """
+    qt_master_sql """ SELECT * FROM ${tableName} ORDER BY k"""
+    qt_master_sql """ DESC ${tableName} """
 }

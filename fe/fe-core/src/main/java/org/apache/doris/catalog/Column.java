@@ -885,6 +885,10 @@ public class Column implements GsonPostProcessable {
             }
         }
 
+        if (type.isStringType() && other.type.isStringType()) {
+            ColumnType.checkForTypeLengthChange(type, other.type);
+        }
+
         // Nested types only support changing the order and increasing the length of the nested char type
         // Char-type only support length growing
         ColumnType.checkSupportSchemaChangeForComplexType(type, other.type, false);
