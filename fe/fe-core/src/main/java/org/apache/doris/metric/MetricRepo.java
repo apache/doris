@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -35,6 +36,10 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
@@ -156,6 +161,13 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+    // MTMV
+    public static Histogram HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM;
+    public static LongCounterMetric COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM;
+    public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM;
+    public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -599,6 +611,69 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
+
+        // MTMV
+        // count
+        for (RefreshTrigger trigger : RefreshTrigger.values()) {
+            for (RefreshMethod method : RefreshMethod.values()) {
+                for (MTMVPartitionType partitionType : MTMVPartitionType.values()) {
+                    GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("async_materialized_view_num",
+                            MetricUnit.NOUNIT, "async materialized view num") {
+                        @Override
+                        public Integer getValue() {
+                            return Env.getCurrentEnv().getCatalogMgr().getInternalCatalog().getAllDbs().stream()
+                                    .map(d -> (Database) d).map(db -> db.getMTMVNum(trigger, method, partitionType))
+                                    .reduce(0, Integer::sum);
+                        }
+                    };
+                    gauge.addLabel(new MetricLabel("trigger", trigger.name()))
+                            .addLabel(new MetricLabel("method", method.name()))
+                            .addLabel(new MetricLabel("partitionType", partitionType.name()));
+                    DORIS_METRIC_REGISTER.addMetrics(gauge);
+                }
+            }
+        }
+
+        // task duration
+        HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION = METRIC_REGISTER.histogram(
+                MetricRegistry.name("async_materialized_view_task_duration", "latency", "ms"));
+
+        // task success num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM = new LongCounterMetric(
+                "async_materialized_view_task_success_num", MetricUnit.NOUNIT,
+                "async materialized view task success num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM);
+        // task failed num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM = new LongCounterMetric(
+                "async_materialized_view_task_failed_num", MetricUnit.NOUNIT,
+                "async materialized view task failed num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM);
+        // task skip num
+        COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM = new LongCounterMetric("async_materialized_view_task_skip_num",
+                MetricUnit.NOUNIT,
+                "async materialized view task skip num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM);
+        // task running num
+        GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM = new GaugeMetric<Integer>(
+                "async_materialized_view_task_running_num",
+                MetricUnit.NOUNIT, "async materialized view task running num") {
+            @Override
+            public Integer getValue() {
+                return MTMVUtil.getTaskNum(TaskStatus.RUNNING);
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM);
+
+        // task pending num
+        GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM = new GaugeMetric<Integer>(
+                "async_materialized_view_task_pending_num",
+                MetricUnit.NOUNIT, "async materialized view task pending num") {
+            @Override
+            public Integer getValue() {
+                return MTMVUtil.getTaskNum(TaskStatus.PENDING);
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM);
 
         // init system metrics
         initSystemMetrics();
