@@ -1064,6 +1064,70 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
     }
     {
+        // In + In -> Bloom
+        max_in_num = 16;
+        runtime_size = 10;
+        RuntimeFilterParams params {
+                .filter_id = filter_id,
+                .filter_type = filter_type,
+                .column_return_type = column_return_type,
+                .null_aware = null_aware,
+                .max_in_num = max_in_num,
+                .runtime_bloom_filter_min_size = runtime_bloom_filter_min_size,
+                .runtime_bloom_filter_max_size = runtime_bloom_filter_max_size,
+                .bloom_filter_size = bloom_filter_size,
+                .build_bf_by_runtime_size = build_bf_by_runtime_size,
+                .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
+                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+                .bitmap_filter_not_in = bitmap_filter_not_in};
+        wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_TRUE(wrapper->init(runtime_size).ok());
+        EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        RuntimeFilterParams new_params {
+                .filter_id = filter_id,
+                .filter_type = filter_type,
+                .column_return_type = column_return_type,
+                .null_aware = null_aware,
+                .max_in_num = max_in_num,
+                .runtime_bloom_filter_min_size = runtime_bloom_filter_min_size,
+                .runtime_bloom_filter_max_size = runtime_bloom_filter_max_size,
+                .bloom_filter_size = bloom_filter_size,
+                .build_bf_by_runtime_size = build_bf_by_runtime_size,
+                .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
+                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+                .bitmap_filter_not_in = bitmap_filter_not_in};
+        auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
+        EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
+        EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
+        // Insert
+        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        EXPECT_TRUE(wrapper->insert(col, 0).ok());
+        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(wrapper->hybrid_set()->size(), col->size());
+
+        std::vector<int> new_data_vector(10);
+        std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
+        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
+        EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        EXPECT_EQ(new_wrapper->hybrid_set()->size(), col->size());
+        new_wrapper->_state = RuntimeFilterWrapper::State::READY;
+        // Merge
+        EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
+
+
+        std::vector<int> final_data_vector(20);
+        std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
+        col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
+        std::vector<uint8_t> final_res(20);
+        wrapper->bloom_filter_func()->find_fixed_len(col, final_res.data());
+        EXPECT_TRUE(std::all_of(final_res.begin(), final_res.end(),
+                                [](uint8_t i) -> bool { return i; }));
+        EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
+    }
+    {
         // In + Bloom -> Bloom
         max_in_num = 18;
         runtime_size = 16;

@@ -105,7 +105,7 @@ TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
         TExprNode pred_node;
         TypeDescriptor type(PrimitiveType::TYPE_INT);
         auto op = TExprOpcode::GE;
-        EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
+        EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, true).ok());
     }
     {
         vectorized::VExprSPtr expr;

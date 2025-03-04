@@ -164,7 +164,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
     DCHECK(_state != State::IGNORED);
     DCHECK(other->_state == State::READY);
-    DCHECK(_filter_type == other->_filter_type) << debug_string();
+    DCHECK(_filter_type == other->_filter_type);
 
     switch (_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
@@ -580,7 +580,8 @@ std::string RuntimeFilterWrapper::debug_string() const {
                                              filter_type_to_string(get_real_type()))
                                : filter_type_to_string(_filter_type);
     auto result = fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
-                              to_string(_state), type_string, type_to_string(_column_return_type));
+                              states_to_string<RuntimeFilterWrapper>({_state}), type_string,
+                              type_to_string(_column_return_type));
 
     if (_state == State::READY) {
         if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
