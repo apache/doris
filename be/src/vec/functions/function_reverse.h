@@ -47,7 +47,7 @@ public:
             RETURN_IF_ERROR(ReverseImpl::vector(col_string->get_chars(), col_string->get_offsets(),
                                                 col_res->get_chars(), col_res->get_offsets()));
             block.replace_by_position(result, std::move(col_res));
-        } else if (check_column<ColumnArray>(src_column.get())) {
+        } else if (is_column<ColumnArray>(src_column.get())) {
             return ArrayReverseImpl::_execute(block, arguments, result, input_rows_count);
         } else {
             return Status::RuntimeError("Illegal column {} used for argument of function {}",
