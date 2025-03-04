@@ -57,9 +57,10 @@ public:
     }
 
     void test_serialize(RuntimeFilterWrapper::State state,
-                        TRuntimeFilterType::type type = TRuntimeFilterType::IN_OR_BLOOM) {
+                        TRuntimeFilterDesc desc = TRuntimeFilterDescBuilder()
+                                                          .set_type(TRuntimeFilterType::IN_OR_BLOOM)
+                                                          .build()) {
         std::shared_ptr<RuntimeFilterMerger> merger;
-        auto desc = TRuntimeFilterDescBuilder().set_type(type).build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
                 RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
         merger->set_expected_producer_num(1);
@@ -182,15 +183,30 @@ TEST_F(RuntimeFilterMergerTest, serialize_ignored) {
 }
 
 TEST_F(RuntimeFilterMergerTest, serialize_bloom) {
-    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::BLOOM);
+    test_serialize(RuntimeFilterWrapper::State::READY,
+                   TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::BLOOM).build());
 }
 
 TEST_F(RuntimeFilterMergerTest, serialize_min_max) {
-    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::MIN_MAX);
+    test_serialize(RuntimeFilterWrapper::State::READY,
+                   TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::MIN_MAX).build());
 }
 
 TEST_F(RuntimeFilterMergerTest, serialize_in) {
-    test_serialize(RuntimeFilterWrapper::State::READY, TRuntimeFilterType::type::IN);
+    test_serialize(RuntimeFilterWrapper::State::READY,
+                   TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::IN).build());
+}
+
+TEST_F(RuntimeFilterMergerTest, serialize_min_only) {
+    auto desc = TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::MIN_MAX).build();
+    desc.__set_min_max_type(TMinMaxRuntimeFilterType::MIN);
+    test_serialize(RuntimeFilterWrapper::State::READY, desc);
+}
+
+TEST_F(RuntimeFilterMergerTest, serialize_max_only) {
+    auto desc = TRuntimeFilterDescBuilder().set_type(TRuntimeFilterType::MIN_MAX).build();
+    desc.__set_min_max_type(TMinMaxRuntimeFilterType::MAX);
+    test_serialize(RuntimeFilterWrapper::State::READY, desc);
 }
 
 } // namespace doris

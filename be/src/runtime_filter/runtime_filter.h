@@ -38,7 +38,6 @@ class RuntimeFilter {
 public:
     virtual ~RuntimeFilter() = default;
 
-    RuntimeFilterWrapper* impl() const { return _wrapper.get(); }
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
     bool has_local_target() const { return _has_local_target; }

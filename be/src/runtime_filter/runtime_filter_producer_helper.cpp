@@ -68,10 +68,6 @@ Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size
     SCOPED_TIMER(_runtime_filter_compute_timer);
     for (int i = 0; i < _producers.size(); i++) {
         auto filter = _producers[i];
-        if (!filter->impl()->is_valid()) {
-            // Skip building if ignored or disabled.
-            continue;
-        }
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
         DCHECK_NE(result_column_id, -1);
         const auto& column = block->get_by_position(result_column_id).column;
@@ -111,6 +107,7 @@ Status RuntimeFilterProducerHelper::process(
 
     for (const auto& filter : _producers) {
         if (shared_hash_table_ctx && !wake_up_early) {
+            DCHECK(_is_broadcast_join);
             if (_should_build_hash_table) {
                 filter->copy_to_shared_context(shared_hash_table_ctx);
             } else {
@@ -134,6 +131,7 @@ Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
 
     RETURN_IF_ERROR(_publish(state));
     _skip_runtime_filters_process = true;
+    _profile->add_info_string("SkipProcess", "True");
     return Status::OK();
 }
 
