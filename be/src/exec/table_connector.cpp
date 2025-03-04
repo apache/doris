@@ -54,10 +54,11 @@ TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_trans
           _tuple_desc(tuple_desc),
           _sql_str(sql_str) {}
 
-void TableConnector::init_profile(doris::RuntimeProfile* profile) {
-    _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
-    _result_send_timer = ADD_TIMER(profile, "ResultSendTime");
-    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+void TableConnector::init_profile(doris::RuntimeProfile* operator_profile) {
+    RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
+    _convert_tuple_timer = ADD_TIMER(custom_profile, "TupleConvertTime");
+    _result_send_timer = ADD_TIMER(custom_profile, "ResultSendTime");
+    _sent_rows_counter = ADD_COUNTER(custom_profile, "NumSentRows", TUnit::UNIT);
 }
 
 std::u16string TableConnector::utf8_to_u16string(const char* first, const char* last) {

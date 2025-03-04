@@ -109,8 +109,8 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
-    Status init_to_write(doris::RuntimeProfile* profile) override {
-        init_profile(profile);
+    Status init_to_write(doris::RuntimeProfile* operator_profile) override {
+        init_profile(operator_profile);
         return Status::OK();
     }
 
