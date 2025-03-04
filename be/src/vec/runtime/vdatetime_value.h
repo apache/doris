@@ -296,7 +296,7 @@ public:
     void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
 
     // Converted from Olap Date or Datetime
-    constexpr bool from_olap_datetime(uint64_t datetime) {
+    bool from_olap_datetime(uint64_t datetime) {
         _neg = 0;
         _type = TIME_DATETIME;
         uint64_t date = datetime / 1000000;

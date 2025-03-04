@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/preprocessor/repetition/repeat.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -253,10 +254,31 @@ private:
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
-        for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])));
+        // expand codes for const input periods
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
+    case X: {                                                            \
+        for (int i = 0; i < dates.size(); ++i) {                         \
+            /* expand time_round_reinterpret_three_args*/                \
+            res[i] = origin_date;                                        \
+            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
+            auto& ts1 = (DateValueType&)(res[i]);                        \
+            SET_NULLMAP_IF_FALSE(time_round_two_args(ts2, X, ts1))       \
+        }                                                                \
+        return;                                                          \
+    }
+#define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
+        switch (period) {
+            // expand for some constant period
+            BOOST_PP_REPEAT(12, EXPANDER, ~)
+        default:
+            for (int i = 0; i < dates.size(); ++i) {
+                // always inline here
+                SET_NULLMAP_IF_FALSE(
+                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])))
+            }
         }
+#undef EXPAND_CODE_FOR_CONST_INPUT
+#undef EXPANDER
     }
 
     static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const Int32 period,
