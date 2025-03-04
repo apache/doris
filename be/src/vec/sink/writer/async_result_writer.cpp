@@ -86,13 +86,13 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
     return block;
 }
 
-Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* operator_profile) {
     // Attention!!!
     // AsyncResultWriter::open is called asynchronously,
     // so we need to setupt the profile and memory counter here,
     // or else the counter can be nullptr when AsyncResultWriter::sink is called.
-    _profile = profile;
-    _memory_used_counter = _profile->get_counter("MemoryUsage");
+    _operator_profile = operator_profile;
+    _memory_used_counter = _operator_profile->get_counter("MemoryUsage");
 
     // Should set to false here, to
     DCHECK(_finish_dependency);
@@ -101,12 +101,12 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile, task_ctx]() {
+            [this, state, operator_profile, task_ctx]() {
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
-                this->process_block(state, profile);
+                this->process_block(state, operator_profile);
             }));
     return Status::OK();
 }
