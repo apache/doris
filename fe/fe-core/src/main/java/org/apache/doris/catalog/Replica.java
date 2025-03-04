@@ -265,7 +265,9 @@ public class Replica {
         try {
             return getBackendId();
         } catch (UserException e) {
-            LOG.warn("getBackendIdWithoutException: ", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getBackendIdWithoutException: ", e);
+            }
             return -1;
         }
     }
