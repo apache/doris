@@ -300,7 +300,10 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
-    _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    auto schema = _context.tablet_schema->need_record_variant_extended_schema()
+                          ? _context.tablet_schema
+                          : _context.tablet_schema->copy_without_variant_extracted_columns();
+    _rowset_meta->set_tablet_schema(schema);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();
@@ -799,6 +802,10 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     // update rowset meta tablet schema if tablet schema updated
     auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
                                                                   : _context.tablet_schema;
+
+    rowset_schema = rowset_schema->need_record_variant_extended_schema()
+                            ? rowset_schema
+                            : rowset_schema->copy_without_variant_extracted_columns();
     _rowset_meta->set_tablet_schema(rowset_schema);
 
     // If segment compaction occurs, the idx file info will become inaccurate.

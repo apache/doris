@@ -46,7 +46,7 @@ private:
 
     void _filter_input_rowset();
 
-    void build_basic_info();
+    Status build_basic_info();
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 

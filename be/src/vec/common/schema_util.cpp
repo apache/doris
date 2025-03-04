@@ -42,6 +42,13 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/rowset/segment_v2/variant_column_writer_impl.h"
+#include "olap/segment_loader.h"
+#include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -49,6 +56,7 @@
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/columns_number.h"
@@ -621,11 +629,12 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
-    res.set_name(SPARSE_COLUMN_PATH);
-    res.set_unique_id(variant.unique_id());
+    res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
+    res.set_unique_id(variant.parent_unique_id() > 0 ? variant.parent_unique_id()
+                                                     : variant.unique_id());
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
-    res.set_path_info(PathInData {SPARSE_COLUMN_PATH});
+    res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
     res.set_parent_unique_id(variant.unique_id());
 
     TabletColumn child_tcolumn;
@@ -633,6 +642,181 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.add_sub_column(child_tcolumn);
     res.add_sub_column(child_tcolumn);
     return res;
+}
+
+using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
+
+Status collect_path_stats(const RowsetSharedPtr& rs,
+                          std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
+    SegmentCacheHandle segment_cache;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
+
+    for (const auto& column : rs->tablet_schema()->columns()) {
+        if (!column->is_variant_type()) {
+            continue;
+        }
+
+        for (const auto& segment : segment_cache.get_segments()) {
+            auto column_reader_or = segment->get_column_reader(column->unique_id());
+            if (!column_reader_or.has_value()) {
+                continue;
+            }
+            auto* column_reader = column_reader_or.value();
+            if (!column_reader) {
+                continue;
+            }
+
+            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+            const auto* source_stats =
+                    static_cast<const segment_v2::VariantColumnReader*>(column_reader)->get_stats();
+            CHECK(source_stats);
+
+            // 合并子列统计信息
+            for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
+                uid_to_path_stats[column->unique_id()][path] += size;
+            }
+
+            // 合并稀疏列统计信息
+            for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
+                CHECK(!path.empty());
+                uid_to_path_stats[column->unique_id()][path] += size;
+            }
+        }
+    }
+    return Status::OK();
+}
+
+void get_subpaths(const TabletColumn& variant,
+                  const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
+                  std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info) {
+    for (const auto& [uid, stats] : path_stats) {
+        if (stats.size() > variant.variant_max_subcolumns_count()) {
+            // 按非空值数量排序
+            std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+            paths_with_sizes.reserve(stats.size());
+            for (const auto& [path, size] : stats) {
+                paths_with_sizes.emplace_back(size, path);
+            }
+            std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
+
+            // 选取前N个路径作为子列，其余路径作为稀疏列
+            for (const auto& [size, path] : paths_with_sizes) {
+                if (uid_to_paths_set_info[uid].sub_path_set.size() <
+                    variant.variant_max_subcolumns_count()) {
+                    uid_to_paths_set_info[uid].sub_path_set.emplace(path);
+                } else {
+                    uid_to_paths_set_info[uid].sparse_path_set.emplace(path);
+                }
+            }
+        } else {
+            // 使用所有路径
+            for (const auto& [path, _] : stats) {
+                uid_to_paths_set_info[uid].sub_path_set.emplace(path);
+            }
+        }
+    }
+}
+
+// Build the temporary schema for compaction
+// 1. collect path stats from all rowsets
+// 2. get the subpaths and sparse paths for each unique id
+// 3. build the output schema with the subpaths and sparse paths
+// 4. set the path set info for each unique id
+// 5. append the subpaths and sparse paths to the output schema
+// 6. return the output schema
+Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                             TabletSchemaSPtr& target) {
+    std::unordered_map<int32_t, PathToNoneNullValues> uid_to_path_stats;
+
+    // 收集统计信息
+    for (const auto& rs : rowsets) {
+        RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats));
+    }
+
+    // 构建输出schema
+    TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
+    output_schema->shawdow_copy_without_columns(*target);
+    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    for (const TabletColumnPtr& column : target->columns()) {
+        output_schema->append_column(*column);
+        if (!column->is_variant_type()) {
+            continue;
+        }
+
+        // 获取子路径
+        get_subpaths(*column, uid_to_path_stats, uid_to_paths_set_info);
+        std::vector<StringRef> sorted_subpaths(
+                uid_to_paths_set_info[column->unique_id()].sub_path_set.begin(),
+                uid_to_paths_set_info[column->unique_id()].sub_path_set.end());
+        std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
+        // 添加子列
+        for (const auto& subpath : sorted_subpaths) {
+            TabletColumn subcolumn;
+            subcolumn.set_name(column->name() + "." + subpath.to_string());
+            subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+            subcolumn.set_parent_unique_id(column->unique_id());
+            subcolumn.set_path_info(PathInData(column->name() + "." + subpath.to_string()));
+            subcolumn.set_aggregation_method(column->aggregation());
+            subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
+            subcolumn.set_is_nullable(true);
+            output_schema->append_column(subcolumn);
+        }
+        // 添加稀疏列
+        TabletColumn sparse_column = create_sparse_column(*column);
+        output_schema->append_column(sparse_column);
+    }
+
+    target = output_schema;
+    // used to merge & filter path to sparse column during reading in compaction
+    target->set_path_set_info(uid_to_paths_set_info);
+    VLOG_DEBUG << "dump schema " << target->dump_full_schema();
+    return Status::OK();
+}
+
+// Calculate statistics about variant data paths from the encoded sparse column
+void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                             segment_v2::VariantStatisticsPB* stats) {
+    // Cast input column to ColumnMap type since sparse column is stored as a map
+    const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
+
+    // Map to store path frequencies - tracks how many times each path appears
+    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
+
+    // Get the keys column which contains the paths as strings
+    const auto& sparse_data_paths =
+            assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
+
+    // Iterate through all paths in the sparse column
+    for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
+        auto path = sparse_data_paths->get_data_at(i);
+
+        // If path already exists in statistics, increment its count
+        if (auto it = sparse_data_paths_statistics.find(path);
+            it != sparse_data_paths_statistics.end()) {
+            ++it->second;
+        }
+        // If path doesn't exist and we haven't hit the max statistics size limit,
+        // add it with count 1
+        else if (sparse_data_paths_statistics.size() <
+                 VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            sparse_data_paths_statistics.emplace(path, 1);
+        }
+    }
+
+    // Copy the collected statistics into the protobuf stats object
+    // This maps each path string to its frequency count
+    for (const auto& [path, size] : sparse_data_paths_statistics) {
+        const auto& sparse_path = path.to_string();
+        auto it = stats->sparse_column_non_null_size().find(sparse_path);
+        if (it == stats->sparse_column_non_null_size().end()) {
+            stats->mutable_sparse_column_non_null_size()->emplace(sparse_path, size);
+        } else {
+            size_t original_size = it->second;
+            stats->mutable_sparse_column_non_null_size()->emplace(sparse_path,
+                                                                  original_size + size);
+        }
+    }
 }
 
 } // namespace doris::vectorized::schema_util

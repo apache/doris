@@ -151,7 +151,7 @@ protected:
 private:
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
@@ -186,7 +186,7 @@ private:
 
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     virtual Status modify_rowsets();
 

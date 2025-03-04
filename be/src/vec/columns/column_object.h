@@ -294,7 +294,7 @@ public:
     void check_consistency() const;
 
     MutableColumnPtr get_root() {
-        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+        if (subcolumns.empty()) {
             return nullptr;
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
@@ -592,6 +592,16 @@ public:
         const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
         return {&key, &value};
     }
+
+    ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+        return column_map.get_offsets();
+    }
+
+    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+        return column_map.get_offsets();
+    }
     // Insert all the data from sparse data with specified path to sub column.
     static void fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                   StringRef path,
@@ -621,16 +631,6 @@ private:
 
     // unnest nested type columns, and flat them into finlized array subcolumns
     void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
-
-    ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() {
-        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
-        return column_map.get_offsets();
-    }
-
-    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() const {
-        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
-        return column_map.get_offsets();
-    }
 
     void insert_from_sparse_column_and_fill_remaing_dense_column(
             const ColumnObject& src,

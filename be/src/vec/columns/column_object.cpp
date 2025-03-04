@@ -2252,9 +2252,11 @@ bool ColumnObject::is_null_root() const {
 }
 
 bool ColumnObject::is_scalar_variant() const {
-    // Only root itself
+    const auto& sparse_offsets = serialized_sparse_column_offsets().data();
+    // Only root itself is scalar, and no sparse data
     return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
-           subcolumns.get_root()->is_scalar();
+           subcolumns.get_root()->is_scalar() &&
+           sparse_offsets[num_rows - 1] == 0; // no sparse data
 }
 
 const DataTypePtr ColumnObject::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(

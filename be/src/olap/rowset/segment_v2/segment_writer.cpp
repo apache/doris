@@ -39,6 +39,7 @@
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
@@ -161,14 +162,12 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
                          tablet_schema);
     }
-    // add sparse column to footer
-    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
-        init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
-    }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
-    meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    }
 }
 
 Status SegmentWriter::init() {
@@ -364,9 +363,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
 //    which will be used to contruct the new schema for rowset
 Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& data) {
     if (_tablet_schema->num_variant_columns() == 0 ||
-        // need to handle sparse columns if variant_max_subcolumns_count > 0
-        std::any_of(_tablet_schema->columns().begin(), _tablet_schema->columns().end(),
-                    [](const auto& col) { return col->variant_max_subcolumns_count() > 0; })) {
+        !_tablet_schema->need_record_variant_extended_schema()) {
         return Status::OK();
     }
     size_t column_id = _tablet_schema->num_columns();
@@ -778,6 +775,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
+
+        // caculate stats for variant type
+        // TODO it's tricky here, maybe come up with a better idea
+        _maybe_calculate_variant_stats(block, id, cid);
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
@@ -1292,5 +1293,38 @@ inline bool SegmentWriter::_is_mow() {
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
 }
+
+// Compaction will extend sparse column and is visible during read and write, in order to
+// persit variant stats info, we should do extra caculation during flushing segment, otherwise
+// the info is lost
+void SegmentWriter::_maybe_calculate_variant_stats(const vectorized::Block* block, size_t id,
+                                                   size_t cid) {
+    // Only process sparse columns during compaction
+    if (!_tablet_schema->columns()[cid]->is_sparse_column() ||
+        _opts.write_type != DataWriteType::TYPE_COMPACTION) {
+        return;
+    }
+
+    // Get parent column's unique ID for matching
+    int64_t parent_unique_id = _tablet_schema->columns()[cid]->parent_unique_id();
+
+    // Find matching column in footer
+    for (auto& column : *_footer.mutable_columns()) {
+        // Check if this is the target sparse column
+        if (!column.has_column_path_info() ||
+            !column.column_path_info().path().ends_with(SPARSE_COLUMN_PATH) ||
+            column.column_path_info().parrent_column_unique_id() != parent_unique_id) {
+            continue;
+        }
+
+        // Found matching column, calculate statistics
+        auto* stats = column.mutable_variant_statistics();
+        vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column, stats);
+
+        VLOG_DEBUG << "sparse stats columns " << stats->sparse_column_non_null_size_size();
+        break;
+    }
+}
+
 } // namespace segment_v2
 } // namespace doris

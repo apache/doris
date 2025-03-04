@@ -65,14 +65,9 @@ public:
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
-    // not including root column
-    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
-
     // subcolumn path from variant stats info to distinguish from sparse column
     Status _get_subcolumn_paths_from_stats(std::set<std::string>& paths);
 
-    Status _create_column_writer(uint32_t cid, const TabletColumn& column,
-                                 const TabletSchemaSPtr& tablet_schema);
     Status _process_root_column(vectorized::ColumnObject* ptr,
                                 vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                 int& column_id);
@@ -98,6 +93,7 @@ private:
     // staticstics which will be persisted in the footer
     VariantStatistics _statistics;
 
+    // hold the references of subcolumns indexes
     std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
 };
 } // namespace segment_v2

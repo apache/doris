@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <memory>
 #include <string_view>
 #include <unordered_map>
@@ -164,34 +166,194 @@ private:
     }
 };
 
-// Extract path from sparse column
-class SparseColumnExtractReader : public ColumnIterator {
+// Base class for sparse column processors with common functionality
+class BaseSparseColumnProcessor : public ColumnIterator {
+protected:
+    vectorized::MutableColumnPtr _sparse_column;
+    StorageReadOptions* _read_opts; // Shared cache pointer
+    std::unique_ptr<ColumnIterator> _sparse_column_reader;
+
+    // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
+    virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+                                                           size_t num_rows) = 0;
+
+    // Pure virtual method for data processing when no sparse columns(to be implemented by subclasses)
+    virtual void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
+                                                     size_t num_rows) = 0;
+
 public:
-    SparseColumnExtractReader(std::string path,
-                              std::unique_ptr<ColumnIterator>&& sparse_column_reader)
-            : _path(std::move(path)), _sparse_column_reader(std::move(sparse_column_reader)) {
+    BaseSparseColumnProcessor(std::unique_ptr<ColumnIterator>&& reader, StorageReadOptions* opts)
+            : _read_opts(opts), _sparse_column_reader(std::move(reader)) {
         _sparse_column = vectorized::ColumnObject::create_sparse_column_fn();
     }
 
+    // Common initialization for all processors
+    Status init(const ColumnIteratorOptions& opts) override {
+        return _sparse_column_reader->init(opts);
+    }
+
+    // Standard seek implementations
+    Status seek_to_first() override { return _sparse_column_reader->seek_to_first(); }
+
+    Status seek_to_ordinal(ordinal_t ord) override {
+        return _sparse_column_reader->seek_to_ordinal(ord);
+    }
+
+    ordinal_t get_current_ordinal() const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "not implement");
+    }
+
+    // Template method pattern for batch processing
+    template <typename ReadMethod>
+    Status _process_batch(ReadMethod&& read_method, size_t nrows,
+                          vectorized::MutableColumnPtr& dst) {
+        // Cache check and population logic
+        if (_read_opts && _read_opts->sparse_column_cache &&
+            ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type)) {
+            _sparse_column = _read_opts->sparse_column_cache->assume_mutable();
+        } else {
+            _sparse_column->clear();
+            RETURN_IF_ERROR(read_method());
+
+            if (_read_opts) {
+                _read_opts->sparse_column_cache = _sparse_column->assume_mutable();
+            }
+        }
+
+        const auto& offsets =
+                assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();
+        if (offsets.back() == offsets[-1]) {
+            // no sparse column in this batch
+            _process_data_without_sparse_column(dst, nrows);
+        } else {
+            // merge subcolumns to existing sparse columns
+            _process_data_with_existing_sparse_column(dst, nrows);
+        }
+        return Status::OK();
+    }
+
+    // Batch processing using template method
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        return _process_batch(
+                [&]() { return _sparse_column_reader->next_batch(n, _sparse_column, has_null); },
+                *n, dst);
+    }
+
+    // RowID-based read using template method
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        return _process_batch(
+                [&]() {
+                    return _sparse_column_reader->read_by_rowids(rowids, count, _sparse_column);
+                },
+                count, dst);
+    }
+};
+
+// Implementation for path extraction processor
+class SparseColumnExtractReader : public BaseSparseColumnProcessor {
+public:
+    SparseColumnExtractReader(std::string_view path, std::unique_ptr<ColumnIterator> reader,
+                              StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(reader), opts), _path(path) {}
+
+private:
+    std::string _path;
+
+    // Fill column by finding path in sparse column
+    void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+                                                   size_t num_rows) override {
+        _fill_path_column(dst);
+    }
+
+    void _fill_path_column(vectorized::MutableColumnPtr& dst);
+
+    void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
+                                             size_t num_rows) override {
+        dst->insert_many_defaults(num_rows);
+    }
+};
+
+// Implementation for merge processor
+class SparseColumnMergeReader : public BaseSparseColumnProcessor {
+public:
+    SparseColumnMergeReader(const TabletSchema::PathSet& path_map,
+                            std::unique_ptr<ColumnIterator>&& sparse_column_reader,
+                            SubstreamReaderTree&& src_subcolumns_for_sparse,
+                            StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(sparse_column_reader), opts),
+              _src_subcolumn_map(path_map),
+              _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
     Status init(const ColumnIteratorOptions& opts) override;
+
+    // Batch processing using template method
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        // read subcolumns first
+        RETURN_IF_ERROR(_read_subcolumns([&](SubstreamReaderTree::Node* entry) {
+            bool has_null = false;
+            return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
+        }));
+        // then read sparse column
+        return _process_batch(
+                [&]() { return _sparse_column_reader->next_batch(n, _sparse_column, has_null); },
+                *n, dst);
+    }
+
+    // RowID-based read using template method
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        // read subcolumns first
+        RETURN_IF_ERROR(_read_subcolumns([&](SubstreamReaderTree::Node* entry) {
+            return entry->data.iterator->read_by_rowids(rowids, count, entry->data.column);
+        }));
+        // then read sparse column
+        return _process_batch(
+                [&]() {
+                    return _sparse_column_reader->read_by_rowids(rowids, count, _sparse_column);
+                },
+                count, dst);
+    }
 
     Status seek_to_first() override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
-
-    ordinal_t get_current_ordinal() const override;
-
 private:
-    void _fill_path_column(vectorized::MutableColumnPtr& dst);
-    vectorized::MutableColumnPtr _sparse_column;
-    std::string _path;
-    // may shared among different column iterators
-    std::unique_ptr<ColumnIterator> _sparse_column_reader;
+    template <typename ReadFunction>
+    Status _read_subcolumns(ReadFunction&& read_func) {
+        // clear previous data
+        for (auto& entry : _src_subcolumns_for_sparse) {
+            entry->data.column->clear();
+        }
+        // read subcolumns
+        for (auto& entry : _src_subcolumns_for_sparse) {
+            RETURN_IF_ERROR(read_func(entry.get()));
+        }
+        return Status::OK();
+    }
+
+    // subcolumns in src tablet schema, which will be filtered
+    const TabletSchema::PathSet& _src_subcolumn_map;
+    // subcolumns to merge to sparse column
+    SubstreamReaderTree _src_subcolumns_for_sparse;
+    std::vector<std::pair<StringRef, std::shared_ptr<SubstreamReaderTree::Node>>>
+            _sorted_src_subcolumn_for_sparse;
+
+    // Path filtering implementation
+    void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+                                                   size_t num_rows) override {
+        _merge_to(dst);
+    }
+
+    void _merge_to(vectorized::MutableColumnPtr& dst);
+
+    void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
+                                             size_t num_rows) override;
+
+    void _serialize_nullable_column_to_sparse(const SubstreamReaderTree::Node* src_subcolumn,
+                                              vectorized::ColumnString& dst_sparse_column_paths,
+                                              vectorized::ColumnString& dst_sparse_column_values,
+                                              const StringRef& src_path, size_t row);
 };
 
 } // namespace doris::segment_v2

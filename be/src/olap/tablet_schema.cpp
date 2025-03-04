@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <vec/common/schema_util.h>
+
 #include <cmath> // IWYU pragma: keep
 #include <memory>
 #include <ostream>
@@ -1069,6 +1071,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
     _table_id = tablet_schema.table_id();
+    _path_set_info_map = tablet_schema._path_set_info_map;
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1324,6 +1327,10 @@ const TabletColumn& TabletColumn::sparse_column_at(size_t ordinal) const {
     DCHECK(ordinal < _sparse_cols.size())
             << "ordinal:" << ordinal << ", _num_columns:" << _sparse_cols.size();
     return *_sparse_cols[ordinal];
+}
+
+bool TabletColumn::is_sparse_column() const {
+    return _column_path != nullptr && _column_path->get_relative_path() == SPARSE_COLUMN_PATH;
 }
 
 const TabletColumn& TabletSchema::column_by_uid(int32_t col_unique_id) const {
