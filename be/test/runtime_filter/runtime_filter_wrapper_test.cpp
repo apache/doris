@@ -620,7 +620,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
         {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(wrapper->init(80).ok());
-            EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), type_limit<int>::min());
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), type_limit<int>::max());
         }
@@ -628,7 +628,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             // Insert
             auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
-            EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), min_val + num_vals - 1);
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), min_val);
         }
@@ -651,11 +651,13 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(new_wrapper->init(12312).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
             auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             new_wrapper->_state = RuntimeFilterWrapper::State::READY;
             // Merge
             EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
@@ -688,6 +690,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(wrapper->init(80).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), type_limit<int>::min());
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), type_limit<int>::max());
         }
@@ -696,6 +699,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), min_val + num_vals - 1);
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), min_val);
         }
@@ -716,11 +720,13 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(new_wrapper->init(12312).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
             auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             new_wrapper->_state = RuntimeFilterWrapper::State::READY;
             // Merge
             EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
@@ -753,6 +759,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(wrapper->init(80).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), type_limit<int>::min());
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), type_limit<int>::max());
         }
@@ -761,6 +768,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), min_val + num_vals - 1);
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_min(), min_val);
         }
@@ -781,11 +789,13 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
             EXPECT_TRUE(new_wrapper->init(12312).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
             auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+            wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             new_wrapper->_state = RuntimeFilterWrapper::State::READY;
             // Merge
             EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
@@ -836,6 +846,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_TRUE(wrapper->init(80).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
+        wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
         EXPECT_EQ(wrapper->bitmap_filter_func()->size(), 0);
     }
     {
@@ -1311,6 +1322,16 @@ TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
     EXPECT_EQ(wrapper->bloom_filter_func(), nullptr);
     EXPECT_EQ(wrapper->bitmap_filter_func(), nullptr);
     EXPECT_EQ(wrapper->hybrid_set(), nullptr);
+    wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
+    bool ex = false;
+    try {
+        wrapper->check_state({RuntimeFilterWrapper::State::READY,
+                              RuntimeFilterWrapper::State::IGNORED,
+                              RuntimeFilterWrapper::State::DISABLED});
+    } catch (std::exception) {
+        ex = true;
+    }
+    EXPECT_TRUE(ex);
 }
 
 } // namespace doris
