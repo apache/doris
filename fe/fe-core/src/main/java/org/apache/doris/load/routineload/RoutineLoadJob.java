@@ -1085,7 +1085,8 @@ public abstract class RoutineLoadJob
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
         try {
-            if (txnOperated) {
+            // if the transaction commit fails, txnState will be null
+            if (txnOperated && txnState != null) {
                 // find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
