@@ -164,9 +164,6 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
 
     DCHECK(_state != State::IGNORED);
     DCHECK(other->_state == State::READY);
-
-    set_state(State::READY);
-
     DCHECK(_filter_type == other->_filter_type) << debug_string();
 
     switch (_filter_type) {
@@ -231,6 +228,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     default:
         return Status::InternalError("unknown runtime filter");
     }
+    set_state(State::READY);
     return Status::OK();
 }
 
