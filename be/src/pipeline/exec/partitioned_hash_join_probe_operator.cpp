@@ -210,7 +210,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, spilling_stream, print_id(state->query_id()), "hash_probe",
                         _parent->node_id(), std::numeric_limits<int32_t>::max(),
-                        std::numeric_limits<size_t>::max(), custom_profile()));
+                        std::numeric_limits<size_t>::max(), operator_profile()));
             }
 
             auto merged_block = vectorized::MutableBlock::create_unique(std::move(blocks.back()));
