@@ -18,42 +18,36 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Strings;
-
+import java.util.Map;
 import java.util.Objects;
 
 /**
- * Represents the command for ALTER CATALOG MODIFY COMMENT.
+ * Represents the command for ALTER CATALOG ... SET PROPERTIES.
  */
-public class AlterCatalogCommentCommand extends AlterCatalogCommand {
+public class AlterCatalogPropertiesCommand extends AlterCatalogCommand {
+    private final Map<String, String> newProperties;
 
-    private final String comment;
-
-    public AlterCatalogCommentCommand(String catalogName, String comment) {
-        super(PlanType.ALTER_CATALOG_COMMENT_COMMAND, catalogName);
-        this.comment = Objects.requireNonNull(comment, "Comment cannot be null");
+    public AlterCatalogPropertiesCommand(String catalogName, Map<String, String> properties) {
+        super(PlanType.ALTER_CATALOG_PROPERTIES_COMMAND, catalogName);
+        this.newProperties = Objects.requireNonNull(properties, "Properties cannot be null");
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        // Validate the catalog name
-        if (Strings.isNullOrEmpty(comment)) {
-            throw new AnalysisException("New comment is not set.");
-        }
+        PropertyAnalyzer.checkCatalogProperties(newProperties, true);
 
-        // Fetch and modify the catalog's comment
-        Env.getCurrentEnv().getCatalogMgr().alterCatalogComment(catalogName, comment);
+        Env.getCurrentEnv().getCatalogMgr().alterCatalogProps(catalogName, newProperties);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAlterCatalogCommentCommand(this, context);
+        return visitor.visitAlterCatalogPropertiesCommand(this, context);
     }
 }
