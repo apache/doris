@@ -113,7 +113,7 @@ public class PlanConstructor {
             int hashColumn, List<Long> selectedPartitions) {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
-                selectedPartitions, ImmutableList.of(), Optional.empty());
+                selectedPartitions, ImmutableList.of(), Optional.empty(), ImmutableList.of());
     }
 
     public static RelationId getNextRelationId() {
