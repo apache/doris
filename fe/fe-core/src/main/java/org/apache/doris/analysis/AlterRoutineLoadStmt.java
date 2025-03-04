@@ -151,7 +151,7 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+            throw new AnalysisException("[" + optional.get() + "] is invalid property");
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {

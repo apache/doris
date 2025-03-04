@@ -80,7 +80,7 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
             throws IllegalArgumentException {
         rawProperties.forEach(entry -> {
             if (!schemaGroup.getSchemas().containsKey(entry.toLowerCase())) {
-                throw new IllegalArgumentException("Invalid property " + entry);
+                throw new IllegalArgumentException("Invalid property [" + entry + "]");
             }
         });
     }
@@ -119,7 +119,7 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
         rawProperties.forEach((key, value) -> {
             String entryKey = key.toLowerCase();
             if (!schemaGroup.getSchemas().containsKey(entryKey)) {
-                throw new IllegalArgumentException("Invalid property " + key);
+                throw new IllegalArgumentException("Invalid property [" + key + "]");
             }
             PropertySchema schema = schemaGroup.getSchemas().get(entryKey);
             properties.put(entryKey, reader.accept(schema, value));
