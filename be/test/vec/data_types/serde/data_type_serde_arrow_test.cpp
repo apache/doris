@@ -76,30 +76,9 @@
 
 namespace doris::vectorized {
 
-template <bool is_scalar>
-void serialize_and_deserialize_arrow_test() {
+void serialize_and_deserialize_arrow_test(
+        std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols) {
     vectorized::Block block;
-    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols;
-    if constexpr (is_scalar) {
-        cols = {
-                {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
-                {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
-                {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
-                {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
-                {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-                {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
-                {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
-                {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
-                {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
-                {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
-                {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
-        };
-    } else {
-        cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
-                {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
-                {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
-    }
-
     int row_num = 7;
     // generate block
     for (auto t : cols) {
@@ -262,7 +241,7 @@ void serialize_and_deserialize_arrow_test() {
             auto& date_v2_data = column_vector_date_v2->get_data();
             for (int i = 0; i < row_num; ++i) {
                 DateV2Value<DateV2ValueType> value;
-                value.from_date_int64((int64_t)((2022 << 9) | (6 << 5) | 6));
+                value.from_date_int64(20210501);
                 date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
             }
             vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
@@ -300,19 +279,19 @@ void serialize_and_deserialize_arrow_test() {
         } break;
         case TYPE_DATETIMEV2: // uint64
         {
-            // 2022-01-01 11:11:11.111
             auto column_vector_datetimev2 = vectorized::ColumnVector<vectorized::UInt64>::create();
-            //                auto& datetimev2_data = column_vector_datetimev2->get_data();
             DateV2Value<DateTimeV2ValueType> value;
             string date_literal = "2022-01-01 11:11:11.111";
-            value.from_date_str(date_literal.c_str(), date_literal.size());
+            cctz::time_zone ctz;
+            TimezoneUtils::find_cctz_time_zone("UTC", ctz);
+            EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
                 column_vector_datetimev2->insert(value.to_date_int_val());
             }
             vectorized::DataTypePtr datetimev2_type(
-                    std::make_shared<vectorized::DataTypeDateTimeV2>());
+                    std::make_shared<vectorized::DataTypeDateTimeV2>(3));
             vectorized::ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
                                                               datetimev2_type, col_name);
             block.insert(test_datetimev2);
@@ -442,7 +421,7 @@ void serialize_and_deserialize_arrow_test() {
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
     static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                              &result, timezone_obj));
     Block new_block = block.clone_empty();
@@ -453,51 +432,6 @@ void serialize_and_deserialize_arrow_test() {
         std::string real_column_name = std::get<0>(t);
         auto* array = result->GetColumnByName(real_column_name).get();
         auto& column_with_type_and_name = new_block.get_by_name(real_column_name);
-        if (std::get<3>(t) == PrimitiveType::TYPE_DATE ||
-            std::get<3>(t) == PrimitiveType::TYPE_DATETIME) {
-            {
-                auto strcol = vectorized::ColumnString::create();
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-                vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                                real_column_name);
-                static_cast<void>(arrow_column_to_doris_column(
-                        array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
-                {
-                    auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
-                    auto& date_data = static_cast<ColumnVector<Int64>&>(col).get_data();
-                    for (int i = 0; i < strcol->size(); ++i) {
-                        StringRef str = strcol->get_data_at(i);
-                        VecDateTimeValue value;
-                        value.from_date_str(str.data, str.size);
-                        date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
-                    }
-                }
-            }
-            continue;
-        } else if (std::get<3>(t) == PrimitiveType::TYPE_DATEV2) {
-            auto strcol = vectorized::ColumnString::create();
-            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-            vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                            real_column_name);
-            static_cast<void>(arrow_column_to_doris_column(
-                    array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
-            {
-                auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
-                auto& date_data = static_cast<ColumnVector<UInt32>&>(col).get_data();
-                for (int i = 0; i < strcol->size(); ++i) {
-                    StringRef str = strcol->get_data_at(i);
-                    DateV2Value<DateV2ValueType> value;
-                    value.from_date_str(str.data, str.size);
-                    date_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
-                }
-            }
-            continue;
-        } else if (std::get<3>(t) == PrimitiveType::TYPE_DATETIMEV2) {
-            // now we only support read doris datetimev2 to arrow
-            block.erase(real_column_name);
-            new_block.erase(real_column_name);
-            continue;
-        }
         static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
                                                        column_with_type_and_name.type, block.rows(),
                                                        "UTC"));
@@ -509,11 +443,30 @@ void serialize_and_deserialize_arrow_test() {
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
-    serialize_and_deserialize_arrow_test<true>();
+    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
+            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
+            {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
+            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
+            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
+            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
+            {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
+            {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
+            {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
+            {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
+            {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
+            {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
+            {"k13", FieldType::OLAP_FIELD_TYPE_DATE, 13, TYPE_DATE, false},
+            {"k14", FieldType::OLAP_FIELD_TYPE_DATEV2, 14, TYPE_DATEV2, false},
+    };
+    serialize_and_deserialize_arrow_test(cols);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
-    serialize_and_deserialize_arrow_test<false>();
+    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
+            {"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
+            {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
+            {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
+    serialize_and_deserialize_arrow_test(cols);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
@@ -568,7 +521,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
     cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
     static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
                                              &result, timezone_obj));
     Block new_block = block.clone_empty();

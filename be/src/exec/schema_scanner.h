@@ -88,8 +88,9 @@ public:
         PrimitiveType type;
         int size;
         bool is_null;
-        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        /// Only set if type == TYPE_DECIMAL
         int precision = -1;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
         int scale = -1;
     };
     SchemaScanner(const std::vector<ColumnDesc>& columns,
