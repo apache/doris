@@ -313,8 +313,8 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
+Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::prepare(state));
     _state = state;
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {

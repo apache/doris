@@ -287,8 +287,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status TableFunctionOperatorX::open(doris::RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }

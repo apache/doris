@@ -734,3 +734,11 @@ under the Common Development and Distribution License (CDDL).
 Exceptions are noted within the associated source files.
 
 ----------------------------------------------------------------------------------
+
+org.openjdk.jmc.flightrecorder:  UPL 1.0 or BSD-style license
+
+The Mission Control source code is made available under the Universal Permissive License (UPL),
+Version 1.0 or a BSD-style license, alternatively. The full open source license text is available
+at license/LICENSE.txt in the JMC project.
+
+----------------------------------------------------------------------------------
