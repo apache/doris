@@ -89,6 +89,7 @@ import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.JoinSkewSalt;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -362,7 +363,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // need to adjust min/max/sum nullable attribute after merge aggregate
                                 new AdjustAggregateNullableForEmptySet())
                 ),
-
+                topic("skew rewrite",
+                        topDown(new JoinSkewSalt())),
                 topic("Eager aggregation",
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),

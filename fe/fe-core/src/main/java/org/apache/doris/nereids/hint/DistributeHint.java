@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.DistributeType;
+
+import java.util.List;
 
 /**
  * Hints for join.
@@ -30,13 +33,34 @@ public class DistributeHint extends Hint {
 
     private boolean isSuccessInLeading = false;
 
+    private final Expression skewExpr;
+
+    private final List<Expression> skewValues;
+
     public DistributeHint(DistributeType distributeType) {
         super("Distribute");
         this.distributeType = distributeType;
+        this.skewExpr = null;
+        this.skewValues = null;
+    }
+
+    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues) {
+        super("Distribute");
+        this.distributeType = distributeType;
+        this.skewExpr = skewExpr;
+        this.skewValues = skewValues;
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
         isSuccessInLeading = successInLeading;
+    }
+
+    public Expression getSkewExpr() {
+        return skewExpr;
+    }
+
+    public List<Expression> getSkewValues() {
+        return skewValues;
     }
 
     /**

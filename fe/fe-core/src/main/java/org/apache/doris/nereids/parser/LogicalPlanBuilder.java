@@ -101,7 +101,6 @@ import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildIndexContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
@@ -114,7 +113,6 @@ import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
@@ -146,6 +144,7 @@ import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
+import org.apache.doris.nereids.DorisParser.DistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
@@ -358,6 +357,7 @@ import org.apache.doris.nereids.DorisParser.ShowWhitelistContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
+import org.apache.doris.nereids.DorisParser.SkewHintContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
@@ -408,6 +408,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.SkewHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -3596,17 +3597,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
-            DistributeType distributeType = Optional.ofNullable(join.distributeType()).map(hintCtx -> {
-                String hint = typedVisit(join.distributeType());
-                if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
-                    return DistributeType.SHUFFLE_RIGHT;
-                } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
-                    return DistributeType.BROADCAST_RIGHT;
-                } else {
-                    throw new ParseException("Invalid join hint: " + hint, hintCtx);
-                }
-            }).orElse(DistributeType.NONE);
-            DistributeHint distributeHint = new DistributeHint(distributeType);
+            DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
+            if (join.distributeType() != null) {
+                distributeHint = visitDistributeType(join.distributeType());
+            }
             // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
@@ -3736,13 +3730,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitBracketDistributeType(BracketDistributeTypeContext ctx) {
-        return ctx.identifier().getText();
-    }
-
-    @Override
-    public String visitCommentDistributeType(CommentDistributeTypeContext ctx) {
-        return ctx.identifier().getText();
+    public DistributeHint visitDistributeType(DistributeTypeContext ctx) {
+        String hint = ctx.identifier().getText();
+        DistributeType distributeType;
+        if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
+            distributeType = DistributeType.SHUFFLE_RIGHT;
+            if (ctx.skewHint() != null) {
+                if (!ctx.skewHint().identifier().getText().equalsIgnoreCase("skew")) {
+                    throw new ParseException("Invalid join hint: " + hint, ctx);
+                }
+                Expression skewExpr = getExpression(ctx.skewHint().primaryExpression());
+                List<Expression> skewValues = new ArrayList<>();
+                for (ConstantContext constantContext : ctx.skewHint().constantList().values) {
+                    skewValues.add(typedVisit(constantContext));
+                }
+                return new DistributeHint(distributeType, skewExpr, skewValues);
+            }
+        } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
+            distributeType = DistributeType.BROADCAST_RIGHT;
+        } else {
+            throw new ParseException("Invalid join hint: " + hint, ctx);
+        }
+        return new DistributeHint(distributeType);
     }
 
     @Override
