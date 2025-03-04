@@ -195,7 +195,7 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
