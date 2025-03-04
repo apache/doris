@@ -49,7 +49,7 @@ suite("test_group_commit_insert_into_lineitem_multiple_table") {
         }
     }
     def insert_table_base = "test_insert_into_lineitem_multiple_table"
-    def batch = 100;
+    def batch = 90;
     def total = 0;
     def rwLock = new ReentrantReadWriteLock();
     def wlock = rwLock.writeLock();
@@ -113,6 +113,9 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                Thread.sleep(2000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
             }
             i++;
             if (i >= 30) {
