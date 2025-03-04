@@ -204,7 +204,7 @@ private:
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorVarChar(bool check_length);
+        OlapColumnDataConvertorVarChar(bool check_length, bool is_jsonb = false);
         ~OlapColumnDataConvertorVarChar() override = default;
 
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
@@ -216,6 +216,8 @@ private:
 
     private:
         bool _check_length;
+        bool _is_jsonb =
+                false; // Make sure that the json binary data written in is the correct jsonb value.
         PaddedPODArray<Slice> _slice;
     };
 
