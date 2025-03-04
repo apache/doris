@@ -228,7 +228,7 @@ suite("test_create_vault", "nonConcurrent") {
                 "type"="hdfs",
                 "path_prefix" = "${hdfsVaultName}",
                 "hadoop.username" = "${getHmsUser()}",
-                "check_connectivity" = "false"
+                "s3_validity_check" = "false"
             );
             """
     }, "invalid fs_name")

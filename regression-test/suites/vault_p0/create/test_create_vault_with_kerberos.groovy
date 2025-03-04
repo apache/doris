@@ -52,7 +52,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
             "fs.defaultFS"="${getHmsHdfsFs()}",
             "path_prefix" = "${hdfsVaultName}",
             "hadoop.username" = "not_exist_user",
-            "check_connectivity" = "false"
+            "s3_validity_check" = "false"
         );
     """
 
@@ -97,7 +97,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
             "hadoop.security.authentication" = "kerberos",
             "hadoop.kerberos.principal" = "hadoop/127.0.0.1@XXX",
             "hadoop.kerberos.keytab" = "/etc/not_exist/emr.keytab",
-            "check_connectivity" = "false"
+            "s3_validity_check" = "false"
         );
     """
 

@@ -54,7 +54,7 @@ suite("test_vault_privilege_restart", "nonConcurrent") {
             "type"="hdfs",
             "fs.defaultFS"="${dummyHdfsEndpoint}",
             "path_prefix" = "test_vault_privilege_restart",
-            "check_connectivity" = "false"
+            "s3_validity_check" = "false"
         );
     """
 
