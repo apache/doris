@@ -77,6 +77,12 @@ public:
                (end.tv_nsec - _start.tv_nsec);
     }
 
+    // Return time in microseconds
+    uint64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
+
+    // Return time in milliseconds
+    uint64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
+
     // Returns time in nanosecond.
     int64_t elapsed_time_seconds(timespec end) const {
         if (!_running) {
