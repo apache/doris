@@ -145,6 +145,10 @@ private:
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
     Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
