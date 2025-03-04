@@ -72,25 +72,25 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
 
     // 1. tables
     List<List<Object>> tables_res_1 = sql """ select CREATE_TIME, UPDATE_TIME from information_schema.tables where TABLE_NAME = "${table_name}" """
-    logger.info("--ftw: tables_res_1 = " + tables_res_1);
+    logger.info("tables_res_1 = " + tables_res_1);
 
     // 2. routines
     sql """DROP PROC test_information_schema_timezone1"""
     def procedure_body = "BEGIN DECLARE a int = 1; print a; END;"
     sql """ CREATE OR REPLACE PROCEDURE test_information_schema_timezone1() ${procedure_body} """
     List<List<Object>> routines_res_1 = sql """ select CREATED,LAST_ALTERED from information_schema.routines where ROUTINE_NAME="TEST_INFORMATION_SCHEMA_TIMEZONE1" """
-    logger.info("--ftw: routines_res_1 = " + routines_res_1);
+    logger.info("routines_res_1 = " + routines_res_1);
     sql """DROP PROC test_information_schema_timezone1"""
 
     // 3. partitions
     List<List<Object>> partitions_res_1 = sql """ select UPDATE_TIME from information_schema.partitions where TABLE_NAME = "${table_name}" """
-    logger.info("--ftw: partitions_res_1 = " + partitions_res_1);
+    logger.info("partitions_res_1 = " + partitions_res_1);
 
     // 4. processlist
     List<List<Object>> processlist_res_1 = sql """ 
             select LOGIN_TIME from information_schema.processlist where INFO like "%information_schema.processlist%"
             """
-    logger.info("--ftw: processlist_res_1 = " + processlist_res_1);
+    logger.info("processlist_res_1 = " + processlist_res_1);
     
     // 5. rowsets
     def rowsets_table_name_tablets = sql_return_maparray """ show tablets from ${table_name}; """
@@ -98,12 +98,13 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
     List<List<Object>> rowsets_res_1 = sql """ 
             select CREATION_TIME, NEWEST_WRITE_TIMESTAMP from information_schema.rowsets where TABLET_ID = ${tablet_id}
             """
-    logger.info("--ftw: rowsets_res_1 = " + rowsets_res_1);
+    logger.info("rowsets_res_1 = " + rowsets_res_1);
     
     // 6. backend_kerberos_ticket_cache
     def keytab_root_dir = "/keytabs"
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    logger.info("enableKerberosTest = " + enabled + " ; externalEnvIp = " + externalEnvIp);
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         sql """
             CREATE CATALOG IF NOT EXISTS test_information_schema_timezone_catalog
@@ -119,19 +120,21 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM"
             );
         """
-    }
-    qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.hms_test_table; """
 
-    List<List<Object>> kerberos_cache_res_1 = sql """ 
-                select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
-            """
-    logger.info("--ftw: kerberos_cache_res_1 = " + kerberos_cache_res_1);
+        qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.hms_test_table; """
+
+        List<List<Object>> kerberos_cache_res_1 = sql """ 
+                    select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
+                """
+        logger.info("kerberos_cache_res_1 = " + kerberos_cache_res_1);
+
+    }
 
     // 7. active_queries
     List<List<Object>> active_queries_res_1 = sql """ 
                 select QUERY_START_TIME from information_schema.active_queries where SQL like "%information_schema.active_queries%"
             """
-    logger.info("--ftw: active_queries_res_1 = " + active_queries_res_1);
+    logger.info("active_queries_res_1 = " + active_queries_res_1);
 
     // ------------------- change the time zone
     sql """ SET time_zone = "UTC" """
@@ -139,7 +142,7 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
 
     // 1. tables
     List<List<Object>> tables_res_2 = sql """ select CREATE_TIME, UPDATE_TIME from information_schema.tables where TABLE_NAME = "${table_name}" """
-    logger.info("--ftw: tables_res_2 = " + tables_res_2);
+    logger.info("tables_res_2 = " + tables_res_2);
     assertEquals(true, isEightHoursDiff(tables_res_2[0][0], tables_res_1[0][0]))
     assertEquals(true, isEightHoursDiff(tables_res_2[0][1], tables_res_1[0][1]))
 
@@ -148,7 +151,7 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
     def procedure_body2 = "BEGIN DECLARE a int = 1; print a; END;"
     sql """ CREATE OR REPLACE PROCEDURE test_information_schema_timezone2() ${procedure_body2} """
     List<List<Object>> routines_res_2 = sql """ select CREATED,LAST_ALTERED from information_schema.routines where ROUTINE_NAME="TEST_INFORMATION_SCHEMA_TIMEZONE2"; """
-    logger.info("--ftw: routines_res_2 = " + routines_res_2);
+    logger.info("routines_res_2 = " + routines_res_2);
     sql """DROP PROC test_information_schema_timezone2"""
     assertEquals(true, isEightHoursDiff(routines_res_1[0][0], routines_res_2[0][0]))
     assertEquals(true, isEightHoursDiff(routines_res_1[0][1], routines_res_2[0][1]))
@@ -156,41 +159,43 @@ suite("test_information_schema_timezone", "p0,external,hive,external_docker,exte
     
     // 3. partitions
     List<List<Object>> partitions_res_2 = sql """ select UPDATE_TIME from information_schema.partitions where TABLE_NAME = "${table_name}" """
-    logger.info("--ftw: partitions_res_2 = " + partitions_res_2);
+    logger.info("partitions_res_2 = " + partitions_res_2);
     assertEquals(true, isEightHoursDiff(partitions_res_1[0][0], partitions_res_2[0][0]))
 
     // 4. processlist
     List<List<Object>> processlist_res_2 = sql """ 
             select LOGIN_TIME from information_schema.processlist where INFO like "%information_schema.processlist%"
             """
-    logger.info("--ftw: processlist_res_2 = " + processlist_res_2);
+    logger.info("processlist_res_2 = " + processlist_res_2);
     assertEquals(true, isEightHoursDiff(processlist_res_1[0][0], processlist_res_2[0][0]))
 
     // 5. rowsets
     List<List<Object>> rowsets_res_2 = sql """ 
             select CREATION_TIME, NEWEST_WRITE_TIMESTAMP from information_schema.rowsets where TABLET_ID = ${tablet_id}
             """
-    logger.info("--ftw: rowsets_res_2 = " + rowsets_res_2);
+    logger.info("rowsets_res_2 = " + rowsets_res_2);
     assertEquals(true, isEightHoursDiff(rowsets_res_1[0][0], rowsets_res_2[0][0]))
     assertEquals(true, isEightHoursDiff(rowsets_res_1[0][1], rowsets_res_2[0][1]))
 
     // 6. backend_kerberos_ticket_cache
-    List<List<Object>> kerberos_cache_res_2 = sql """ 
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        List<List<Object>> kerberos_cache_res_2 = sql """ 
                 select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
             """
-    logger.info("--ftw: kerberos_cache_res_2 = " + kerberos_cache_res_2);
+        logger.info("kerberos_cache_res_2 = " + kerberos_cache_res_2);
 
-    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][0], kerberos_cache_res_2[0][0]))
-    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][1], kerberos_cache_res_2[0][1]))
-    assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][2], kerberos_cache_res_2[0][2]))
-  
-    sql """DROP CATALOG IF EXISTS test_information_schema_timezone_catalog"""
+        assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][0], kerberos_cache_res_2[0][0]))
+        assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][1], kerberos_cache_res_2[0][1]))
+        assertEquals(true, isEightHoursDiff(kerberos_cache_res_1[0][2], kerberos_cache_res_2[0][2]))
+    
+        sql """DROP CATALOG IF EXISTS test_information_schema_timezone_catalog"""
+    }
 
     // 7. active_queries
     List<List<Object>> active_queries_res_2 = sql """ 
                 select QUERY_START_TIME from information_schema.active_queries where SQL like "%information_schema.active_queries%"
             """
-    logger.info("--ftw: active_queries_res_2 = " + active_queries_res_2);
+    logger.info("active_queries_res_2 = " + active_queries_res_2);
 
     DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     try {
