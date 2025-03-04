@@ -1189,6 +1189,18 @@ uint64_t DeleteBitmap::cardinality() const {
     return res;
 }
 
+uint64_t DeleteBitmap::cardinality_by_version(uint64_t version) const {
+    std::shared_lock l(lock);
+    uint64_t res = 0;
+    for (auto entry : delete_bitmap) {
+        if (std::get<1>(entry.first) != DeleteBitmap::INVALID_SEGMENT_ID &&
+            std::get<2>(entry.first) == version) {
+            res += entry.second.cardinality();
+        }
+    }
+    return res;
+}
+
 uint64_t DeleteBitmap::get_size() const {
     std::shared_lock l(lock);
     uint64_t charge = 0;

@@ -145,6 +145,15 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
+    DBUG_EXECUTE_IF("CloudTabletCalcDeleteBitmapTask::handle.enter.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == _tablet_id) {
+            while (DebugPoints::instance()->is_enable(
+                    "CloudTabletCalcDeleteBitmapTask::handle.enter.block")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+        }
+    });
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
@@ -184,6 +193,13 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             return sync_st;
         }
         if (tablet->tablet_state() != TABLET_RUNNING) [[unlikely]] {
+            {
+                std::string msg {
+                        fmt::format("[xxx CloudTabletCalcDeleteBitmapTask::handle] "
+                                    "tablet_id={}\n_rs_version_map:\n{}",
+                                    tablet->tablet_id(), tablet->rowsets_digest())};
+                LOG_INFO(msg);
+            }
             LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                          "tablet_id: "
                       << _tablet_id << " txn_id: " << _transaction_id

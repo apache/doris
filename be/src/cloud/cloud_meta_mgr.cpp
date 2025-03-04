@@ -594,6 +594,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
                         .error(st);
                 return st;
             }
+            DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.merge_delete_bitmap_to_local",
+                            DBUG_BLOCK);
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
         }
         {
@@ -729,6 +731,10 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
             // we should replace it with the rowset's real version
             DCHECK(rs_meta.start_version() == rs_meta.end_version());
             int64_t rowset_version = rs_meta.start_version();
+            LOG_INFO(
+                    "[xxx sync_delete_bitmap_by_cache] tablet={}, txn_id={}, version={}, "
+                    "cardinality={}",
+                    tablet->tablet_id(), txn_id, rowset_version, tmp_delete_bitmap->cardinality());
             for (const auto& [delete_bitmap_key, bitmap_value] : tmp_delete_bitmap->delete_bitmap) {
                 // skip sentinel mark, which is used for delete bitmap correctness check
                 if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
@@ -1268,6 +1274,14 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
                 "{}, error_msg: {}",
                 tablet.tablet_id(), lock_id, initiator, res.status().msg());
+    }
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO(
+                "CloudMetaMgr::update_delete_bitmap, tablet={}, lock_id={}, initiator={}, "
+                "txn_id={}, is_explicit_txn={}, delete bitmap count={}, delete bitmap "
+                "cardinality={}",
+                tablet.tablet_id(), lock_id, initiator, txn_id, is_explicit_txn,
+                delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality());
     }
     return st;
 }
