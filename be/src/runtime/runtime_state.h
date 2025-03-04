@@ -587,10 +587,7 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
-    bool enable_local_merge_sort() const {
-        return _query_options.__isset.enable_local_merge_sort &&
-               _query_options.enable_local_merge_sort;
-    }
+    bool enable_local_merge_sort() const { return false; }
 
     bool fuzzy_disable_runtime_filter_in_be() const {
         return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
