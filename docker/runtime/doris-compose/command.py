@@ -1251,12 +1251,13 @@ class InfoCommand(Command):
             ("RECYCLER_PORT", CLUSTER.MS_PORT, "constant"),
         ]
 
-        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    rows.append((key.strip(), value.strip(), "cloud.ini"))
+        if os.path.exists(CLUSTER.CLOUD_CFG_FILE):
+            with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        rows.append((key.strip(), value.strip(), "cloud.ini"))
 
         return self._print_table(header, rows)
 

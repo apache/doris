@@ -55,7 +55,7 @@ RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
     fi
 
 # fe and be
-COPY --chmod=777 output /opt/apache-doris/
+COPY --chmod=777 output_dict_image /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
 
