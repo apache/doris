@@ -109,28 +109,30 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
     private List<List<String>> showLoadWarningsFromUrl(URL url) throws Exception {
         List<List<String>> rows = Lists.newArrayList();
-        // url should like:
-        // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
-        String host = url.getHost();
-        if (host.startsWith("[") && host.endsWith("]")) {
-            host = host.substring(1, host.length() - 1);
-        } else {
-            host = url.getHost();
-        }
-        int port = url.getPort();
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-        Backend be = infoService.getBackendWithHttpPort(host, port);
-        if (be == null) {
-            throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
-        }
-        if (!be.isAlive()) {
-            throw new AnalysisException(
-                "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
-        }
+        if (!Config.isCloudMode()) {
+            // url should like:
+            // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
+            String host = url.getHost();
+            if (host.startsWith("[") && host.endsWith("]")) {
+                host = host.substring(1, host.length() - 1);
+            } else {
+                host = url.getHost();
+            }
+            int port = url.getPort();
+            SystemInfoService infoService = Env.getCurrentSystemInfo();
+            Backend be = infoService.getBackendWithHttpPort(host, port);
+            if (be == null) {
+                throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
+            }
+            if (!be.isAlive()) {
+                throw new AnalysisException(
+                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
+            }
 
-        if (!url.getPath().equals("/api/_load_error_log")) {
-            throw new AnalysisException(
-                "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+            if (!url.getPath().equals("/api/_load_error_log")) {
+                throw new AnalysisException(
+                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+            }
         }
 
         URLConnection urlConnection = url.openConnection();
