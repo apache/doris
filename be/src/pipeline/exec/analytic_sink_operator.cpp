@@ -46,7 +46,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _remove_rows = ADD_COUNTER(custom_profile(), "RemoveRows", TUnit::UNIT);
     _remove_count = ADD_COUNTER(custom_profile(), "RemoveCount", TUnit::UNIT);
     _blocks_memory_usage =
-            custom_profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+            common_profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     if (!p._has_window) { //haven't set window, Unbounded:  [unbounded preceding,unbounded following]
