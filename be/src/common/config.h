@@ -1432,6 +1432,10 @@ DECLARE_mInt32(compaction_num_per_round);
 // Enable sleep 5s between delete cumulative compaction.
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
