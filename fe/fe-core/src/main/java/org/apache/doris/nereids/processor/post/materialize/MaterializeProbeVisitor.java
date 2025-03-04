@@ -24,16 +24,25 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * visitor to probe the slots which can perform lazy materialization
  */
 public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<MaterializeSource>, ProbeContext> {
+
+    private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
+            PhysicalOlapScan.class
+    );
+
     /**
      * context
      */
@@ -71,7 +80,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalCatalogRelation(
             PhysicalCatalogRelation relation, ProbeContext context) {
-        if (relation.getOutput().contains(context.slot) && !relation.getOperativeSlots().contains(context.slot)) {
+        if (SUPPORT_RELATION_TYPES.contains(relation.getClass())
+                && relation.getOutput().contains(context.slot)
+                && !relation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
             return Optional.of(new MaterializeSource(relation, context.slot));
         }
