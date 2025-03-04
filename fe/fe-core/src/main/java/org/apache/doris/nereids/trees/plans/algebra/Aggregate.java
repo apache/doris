@@ -17,17 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.BitSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,5 +110,24 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     default boolean isDistinct() {
         return getOutputExpressions().stream().allMatch(e -> e instanceof Slot)
                 && getGroupByExpressions().stream().allMatch(e -> e instanceof Slot);
+    }
+
+    /**canSkewRewrite*/
+    default boolean canSkewRewrite() {
+        ConnectContext connectContext = ConnectContext.get();
+        BitSet disableRules = connectContext == null ? new BitSet() : connectContext.getStatementContext()
+                .getOrCacheDisableRules(connectContext.getSessionVariable());
+        if (disableRules.get(RuleType.COUNT_DISTINCT_AGG_SKEW_REWRITE.type())) {
+            return false;
+        }
+        Set<Expression> distinctArguments = getDistinctArguments();
+        Set<AggregateFunction> aggregateFunctions = getAggregateFunctions();
+        return distinctArguments.size() == 1
+                && aggregateFunctions.size() == 1
+                && aggregateFunctions.iterator().next() instanceof SupportMultiDistinct
+                && aggregateFunctions.iterator().next().arity() == 1
+                && (aggregateFunctions.iterator().next()).isSkew()
+                && !getGroupByExpressions().isEmpty()
+                && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
     }
 }
