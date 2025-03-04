@@ -93,11 +93,27 @@ TEST_F(RuntimeFilterUtilsTest, TestCreateLiteral) {
 }
 
 TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
-    vectorized::VExprSPtr expr;
-    TExprNode pred_node;
-    TypeDescriptor type(PrimitiveType::TYPE_INT);
-    auto op = TExprOpcode::EQ;
-    EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
+    {
+        vectorized::VExprSPtr expr;
+        TExprNode pred_node;
+        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto op = TExprOpcode::EQ;
+        EXPECT_FALSE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
+    }
+    {
+        vectorized::VExprSPtr expr;
+        TExprNode pred_node;
+        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto op = TExprOpcode::GE;
+        EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
+    }
+    {
+        vectorized::VExprSPtr expr;
+        TExprNode pred_node;
+        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto op = TExprOpcode::LE;
+        EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
+    }
 }
 
 } // namespace doris
