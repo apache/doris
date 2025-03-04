@@ -110,17 +110,6 @@ private:
         _profile->add_info_string("Info", debug_string());
     }
 
-    static std::string _to_string(const State& state) {
-        switch (state) {
-        case State::READY:
-            return "READY";
-        case State::WAITING_FOR_PRODUCT:
-            return "WAITING_FOR_PRODUCT";
-        default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid State {}", int(state));
-        }
-    }
-
     std::atomic<State> _rf_state;
 
     int _expected_producer_num = 0;
