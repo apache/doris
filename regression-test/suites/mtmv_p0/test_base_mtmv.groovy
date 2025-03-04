@@ -166,7 +166,7 @@ suite("test_base_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
-        ${querySql};
+        SELECT event_day,id,username FROM ${tableName};
     """
     qt_desc_mv_2 "desc ${mvName}"
 
