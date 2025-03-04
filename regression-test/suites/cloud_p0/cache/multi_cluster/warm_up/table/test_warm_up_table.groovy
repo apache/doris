@@ -60,8 +60,8 @@ suite("test_warm_up_table") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
 
     sql "use @regression_cluster_name0"
 
@@ -69,9 +69,11 @@ suite("test_warm_up_table") {
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     // create table if not exists
     sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+    sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
+
     sleep(10000)
 
-    def load_customer_once =  { 
+    def load_customer_once =  {
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         def loadLabel = table + "_" + uniqueID
         // load data from cos
@@ -112,7 +114,8 @@ suite("test_warm_up_table") {
 
     clearFileCache.call(ipList[0], httpPortList[0]);
     clearFileCache.call(ipList[1], httpPortList[1]);
-    
+    sleep(30000)
+
     load_customer_once()
     load_customer_once()
     load_customer_once()
