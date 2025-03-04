@@ -80,7 +80,7 @@ suite ("mv_ssb_q_1_1") {
              (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container'),
              (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
-    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='6');"""
+    sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='6');"""
 
     createMV ("""create materialized view lineorder_q_1_1 as 
                 SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
@@ -101,6 +101,7 @@ suite ("mv_ssb_q_1_1") {
     qt_select_star "select * from lineorder_flat order by 1,2, P_MFGR;"
 
     sql "analyze table lineorder_flat with sync;"
+    sql """alter table lineorder_flat modify column C_CITY set stats ('row_count'='6');"""
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE

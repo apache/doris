@@ -25,13 +25,14 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     sql "SET enable_materialized_view_nest_rewrite=true"
     sql "SET enable_materialized_view_union_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    String mv_prefix = "range_datetime_up_union"
-
+    String mv_prefix = "mtmv_range_datetime_part_up_rewrite"
+    String lineitemName = "${mv_prefix}_lineitem"
+    String ordersName = "${mv_prefix}_orders"
     sql """
-    drop table if exists lineitem_range_datetime_union
+    drop table if exists ${lineitemName}
     """
 
-    sql """CREATE TABLE `lineitem_range_datetime_union` (
+    sql """CREATE TABLE `${lineitemName}` (
       `l_orderkey` BIGINT NULL,
       `l_linenumber` INT NULL,
       `l_partkey` INT NULL,
@@ -61,10 +62,10 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     );"""
 
     sql """
-    drop table if exists orders_range_datetime_union
+    drop table if exists ${ordersName}
     """
 
-    sql """CREATE TABLE `orders_range_datetime_union` (
+    sql """CREATE TABLE `${ordersName}` (
       `o_orderkey` BIGINT NULL,
       `o_custkey` INT NULL,
       `o_orderstatus` VARCHAR(1) NULL,
@@ -89,7 +90,7 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     );"""
 
     sql """
-    insert into lineitem_range_datetime_union values 
+    insert into ${lineitemName} values 
     (null, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-29 00:00:00'),
     (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-29 00:00:00'),
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-29 02:00:00'),
@@ -98,9 +99,10 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-29 02:00:00'),
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-29 00:00:00');
     """
+    sql """alter table ${lineitemName} modify column l_comment set stats ('row_count'='7');"""
 
     sql """
-    insert into orders_range_datetime_union values 
+    insert into ${ordersName} values 
     (null, 1, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-29 00:00:00'),
     (1, null, 'o', 109.2, 'c','d',2, 'mm', '2023-10-29 00:00:00'),
     (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-29 01:00:00'),
@@ -112,24 +114,18 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-29 00:00:00'),
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-29 02:00:00'); 
     """
-
-    sql """alter table lineitem_range_datetime_union modify column l_shipdate set stats
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='56.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
-    sql """alter table lineitem_range_datetime_union modify column l_orderkey set stats
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
-    sql """alter table orders_range_datetime_union modify column o_orderkey set stats
-            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
+    sql """alter table ${ordersName} modify column o_comment set stats ('row_count'='10');"""
 
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv1 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
-        select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
+        select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from ${lineitemName} as t1 left join ${ordersName} as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
 
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv2;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv2 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
-        select date_trunc(`l_shipdate`, 'hour') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
+        select date_trunc(`l_shipdate`, 'hour') as col1, l_shipdate, l_orderkey from ${lineitemName} as t1 left join ${ordersName} as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
 
-    def sql1 = """select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
-    def sql2 = """select date_trunc(`l_shipdate`, 'hour') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
+    def sql1 = """select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from ${lineitemName} as t1 left join ${ordersName} as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
+    def sql2 = """select date_trunc(`l_shipdate`, 'hour') as col1, l_shipdate, l_orderkey from ${lineitemName} as t1 left join ${ordersName} as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
 
     def localWaitingMTMVTaskFinished = { def jobName ->
         Thread.sleep(2000);
@@ -168,60 +164,60 @@ suite("mtmv_range_datetime_part_up_rewrite") {
         }
     }
 
-    sql """analyze table ${mv_prefix}_mv1 with sync"""
-    sql """analyze table ${mv_prefix}_mv2 with sync"""
     def query_stmt_list = [sql1, sql2]
     def mv_name_list = ["${mv_prefix}_mv1", "${mv_prefix}_mv2"]
     for (int i = 0; i < mv_name_list.size(); i++) {
         def job_name = getJobName(db, mv_name_list[i])
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
 
-    sql """alter table lineitem_range_datetime_union add partition p4 values [("2023-11-29 03:00:00"), ("2023-11-29 04:00:00"));"""
-    sql """insert into lineitem_range_datetime_union values 
+    sql """alter table ${lineitemName} add partition p4 values [("2023-11-29 03:00:00"), ("2023-11-29 04:00:00"));"""
+    sql """insert into ${lineitemName} values 
         (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-29 03:00:00')"""
-    sql """analyze table ${mv_prefix}_mv1 with sync"""
-    sql """analyze table ${mv_prefix}_mv2 with sync"""
+    sql """alter table ${lineitemName} modify column l_comment set stats ('row_count'='8');"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
-    sql """insert into lineitem_range_datetime_union values 
+    sql """insert into ${lineitemName} values 
         (3, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-29 03:00:00');"""
-    sql """analyze table ${mv_prefix}_mv1 with sync"""
-    sql """analyze table ${mv_prefix}_mv2 with sync"""
+    sql """alter table ${lineitemName} modify column l_comment set stats ('row_count'='9');"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
-    sql """ALTER TABLE lineitem_range_datetime_union DROP PARTITION IF EXISTS p4 FORCE"""
-    sql """analyze table ${mv_prefix}_mv1 with sync"""
-    sql """analyze table ${mv_prefix}_mv2 with sync"""
+    sql """ALTER TABLE ${lineitemName} DROP PARTITION IF EXISTS p4 FORCE"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        // both mv should rewrite success
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 

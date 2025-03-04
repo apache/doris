@@ -20,8 +20,6 @@ import java.time.LocalDate
 suite("create_commit_mtmv_many_tasks", "p2") {
 
     def src_database_name = context.config.getDbNameByFile(context.file)
-    sql """drop database if exists ${src_database_name};"""
-    sql """create database ${src_database_name};"""
     sql """use ${src_database_name};"""
 
     def table_name1 = "lineitem"
