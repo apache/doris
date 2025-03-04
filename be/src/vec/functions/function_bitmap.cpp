@@ -66,9 +66,9 @@
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/string_utils.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {

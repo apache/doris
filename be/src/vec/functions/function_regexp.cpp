@@ -46,8 +46,8 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/string_utils.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
