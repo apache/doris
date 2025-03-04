@@ -169,7 +169,13 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
             MockLocalState::create_unique(runtime_state.get(), &op);
 
     LocalStateInfo info {nullptr, {}, nullptr, {}, 0};
+    std::unique_ptr<RuntimeProfile> parent_profile = std::make_unique<RuntimeProfile>("parent");
+    info.parent_profile = parent_profile.get();
     std::ignore = local_state->init(runtime_state.get(), info);
+
+    ASSERT_TRUE(local_state->operator_profile() != nullptr);
+    ASSERT_TRUE(local_state->operator_profile()->get_child("CustomCounters") != nullptr);
+    ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters") != nullptr);
 }
 
 } // namespace doris::pipeline
