@@ -1138,9 +1138,10 @@ public abstract class RoutineLoadJob
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
         if (!txnOperated) {
+            long txnId = txnState != null ? txnState.getTransactionId() : -1L;
             String msg = String.format(
                     "should not happen, we find that txnOperated if false when handling afterVisble."
-                            + " job id: %d, txn id: %d", id, txnState.getTransactionId());
+                            + " job id: %d, txn id: %d", id, txnId);
             LOG.warn(msg);
             // print a log and return.
             // if this really happen, the job will be blocked, and this task can be seen by
