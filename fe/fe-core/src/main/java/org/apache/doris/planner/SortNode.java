@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -80,6 +81,9 @@ public class SortNode extends PlanNode {
     private boolean isUnusedExprRemoved = false;
 
     private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
+
+    // topn filter target: ScanNode id + slot desc
+    private List<Pair<Integer, Integer>> topnFilterTargets;
 
     /**
      * Constructor.
@@ -202,7 +206,7 @@ public class SortNode extends PlanNode {
         output.append("\n");
 
         if (useTopnOpt) {
-            output.append(detailPrefix + "TOPN OPT\n");
+            output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
         }
         if (useTwoPhaseReadOpt) {
             output.append(detailPrefix + "OPT TWO PHASE\n");
@@ -393,5 +397,14 @@ public class SortNode extends PlanNode {
     public void setOffset(long offset) {
         super.setOffset(offset);
         updateSortAlgorithm();
+    }
+
+    public List<Pair<Integer, Integer>> getTopnFilterTargets() {
+        return topnFilterTargets;
+    }
+
+    public void setTopnFilterTargets(
+            List<Pair<Integer, Integer>> topnFilterTargets) {
+        this.topnFilterTargets = topnFilterTargets;
     }
 }
