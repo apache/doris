@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "cctz/time_zone.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "olap/rowset/rowset.h"
@@ -51,6 +50,5 @@ private:
     int64_t backend_id_ = 0;
     size_t _rowsets_idx = 0;
     std::vector<RowsetSharedPtr> rowsets_;
-    cctz::time_zone _timezone_obj;
 };
 } // namespace doris

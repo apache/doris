@@ -21,7 +21,6 @@
 
 #include <vector>
 
-#include "cctz/time_zone.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 
@@ -50,7 +49,6 @@ private:
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
-    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris

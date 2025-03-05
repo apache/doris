@@ -105,6 +105,7 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     logger.info("enableKerberosTest = " + enabled + " ; externalEnvIp = " + externalEnvIp);
+    List<List<Object>> kerberos_cache_res_1 = null
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         sql """
             CREATE CATALOG IF NOT EXISTS test_information_schema_timezone_catalog
@@ -121,9 +122,9 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
             );
         """
 
-        qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.hms_test_table; """
+        order_qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.test_krb_hive_tbl; """
 
-        List<List<Object>> kerberos_cache_res_1 = sql """ 
+        kerberos_cache_res_1 = sql """ 
                     select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"
                 """
         logger.info("kerberos_cache_res_1 = " + kerberos_cache_res_1);
