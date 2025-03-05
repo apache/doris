@@ -47,8 +47,7 @@ public:
 
     virtual Status close(RuntimeState* state) = 0;
 
-    virtual Status do_partitioning(RuntimeState* state, Block* block, bool eos = false,
-                                   bool* already_sent = nullptr) const = 0;
+    virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
 
     virtual ChannelField get_channel_ids() const = 0;
 
@@ -78,8 +77,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
 
     ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
 

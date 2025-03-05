@@ -31,18 +31,11 @@ void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, St
 
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
                      vectorized::Block* block, bool eos) const {
-    bool already_sent = false;
+    auto rows = block->rows();
     {
         SCOPED_TIMER(local_state->split_block_hash_compute_timer());
-        RETURN_IF_ERROR(
-                local_state->partitioner()->do_partitioning(state, block, eos, &already_sent));
+        RETURN_IF_ERROR(local_state->partitioner()->do_partitioning(state, block));
     }
-    if (already_sent) {
-        // The same block may be sent twice by TabletSinkHashPartitioner. To get the correct
-        // result, we should not send any rows the last time.
-        return Status::OK();
-    }
-    auto rows = block->rows();
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
         const auto& channel_filed = local_state->partitioner()->get_channel_ids();
