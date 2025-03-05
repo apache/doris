@@ -144,6 +144,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
@@ -638,6 +639,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRecoverTableCommand(RecoverTableCommand recoverTableCommand, C context) {
         return visitCommand(recoverTableCommand, context);
+    }
+
+    default R visitShowStoragePolicyCommand(ShowStoragePolicyCommand showStoragePolicyCommand, C context) {
+        return visitCommand(showStoragePolicyCommand, context);
     }
 
     default R visitRecoverPartitionCommand(RecoverPartitionCommand recoverPartitionCommand, C context) {
