@@ -2574,19 +2574,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
      *         names are still p1 and p2.
      *
      */
-    public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
-            boolean strictRange, boolean useTempPartitionName) throws DdlException {
+    public List<Long> replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
+                    boolean strictRange, boolean useTempPartitionName) throws DdlException {
+        List<Long> replacedPartitionIds = Lists.newArrayList();
         // check partition items
         checkPartition(partitionNames, tempPartitionNames, strictRange);
 
         // begin to replace
         // 1. drop old partitions
         for (String partitionName : partitionNames) {
-            // This will also drop all tablets of the partition from TabletInvertedIndex
+            replacedPartitionIds.add(nameToPartition.get(partitionName).getId());
             dropPartition(-1, partitionName, true);
         }
 
-        // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
+        // 2. add temp partitions' range info to rangeInfo, and remove them from
+        // tempPartitionInfo
         for (String partitionName : tempPartitionNames) {
             Partition partition = tempPartitions.getPartition(partitionName);
             // add
@@ -2603,6 +2605,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                 renamePartition(tempPartitionNames.get(i), partitionNames.get(i));
             }
         }
+        return replacedPartitionIds;
     }
 
     private void checkPartition(List<String> partitionNames, List<String> tempPartitionNames,
