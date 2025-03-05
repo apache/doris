@@ -100,12 +100,10 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_r
         }
     } else {
         for (size_t i = 0; i < num_rows; ++i) {
-            if (null_map[i] == 0) {
-                char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
-                memset(dest, 0, 1);
-                memcpy_fixed<T>(dest + 1, (char*)&data[i]);
-                keys[i].size += sizeof(T) + sizeof(UInt8);
-            }
+            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
+            memset(dest, 0, 1);
+            memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+            keys[i].size += sizeof(T) + sizeof(UInt8);
         }
     }
 }
