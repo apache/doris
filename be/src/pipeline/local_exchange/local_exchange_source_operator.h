@@ -26,7 +26,6 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
-class LocalMergeSortExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExchangeSharedState> {
 public:
@@ -40,11 +39,6 @@ public:
     std::string debug_string(int indentation_level) const override;
 
     std::vector<Dependency*> dependencies() const override;
-    Dependency* get_dependency(int id) {
-        return _exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT
-                       ? _local_merge_deps[id].get()
-                       : _dependency;
-    }
 
 private:
     friend class LocalExchangeSourceOperatorX;
@@ -53,7 +47,6 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
-    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
     template <typename BlockType>
     friend class Exchanger;
