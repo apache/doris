@@ -1117,7 +1117,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         // Merge
         EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
 
-
         std::vector<int> final_data_vector(20);
         std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
         col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
