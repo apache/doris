@@ -780,17 +780,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!lockContext.getBaseCompactionCnts().isEmpty()
                         && !lockContext.getCumulativeCompactionCnts().isEmpty()
                         && !lockContext.getCumulativePoints().isEmpty()) {
+                    boolean hasTabletStats = !lockContext.getTabletStates().isEmpty();
+
                     List<Long> reqBaseCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativeCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativePoints = Lists.newArrayList();
+                    List<Long> reqTabletStates = Lists.newArrayList();
                     for (long tabletId : tabletList) {
                         reqBaseCompactionCnts.add(lockContext.getBaseCompactionCnts().get(tabletId));
                         reqCumulativeCompactionCnts.add(lockContext.getCumulativeCompactionCnts().get(tabletId));
                         reqCumulativePoints.add(lockContext.getCumulativePoints().get(tabletId));
+                        if (hasTabletStats) {
+                            reqTabletStates.add(lockContext.getTabletStates().get(tabletId));
+                        }
                     }
                     partitionInfo.setBaseCompactionCnts(reqBaseCompactionCnts);
                     partitionInfo.setCumulativeCompactionCnts(reqCumulativeCompactionCnts);
                     partitionInfo.setCumulativePoints(reqCumulativePoints);
+                    if (hasTabletStats) {
+                        partitionInfo.setTabletStates(reqTabletStates);
+                    }
                 }
                 partitionInfos.add(partitionInfo);
             }
@@ -917,19 +926,24 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
             List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
             List<Long> respCumulativePoints = response.getCumulativePointsList();
+            List<Long> respTabletStates = response.getTabletStatesList();
             int size1 = respBaseCompactionCnts.size();
             int size2 = respCumulativeCompactionCnts.size();
             int size3 = respCumulativePoints.size();
-            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()) {
+            int size4 = respTabletStates.size();
+            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()
+                    || (size4 > 0 && size4 != tabletList.size())) {
                 throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
                         + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
-                        + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3);
+                        + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3
+                        + ", respTabletStates.size()=" + size4);
             }
             for (int i = 0; i < tabletList.size(); i++) {
                 long tabletId = tabletList.get(i);
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
+                lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
             }
             totalRetryTime += retryTime;
         }
