@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -93,6 +94,9 @@ public class MTMVRefreshPartitionSnapshot {
     }
 
     private Optional<String> compatiblePartitions(MTMV mtmv) {
+        if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+            return Optional.empty();
+        }
         MTMVRelatedTableIf relatedTableIf = null;
         try {
             relatedTableIf = mtmv.getMvPartitionInfo().getRelatedTable();
