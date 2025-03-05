@@ -863,8 +863,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         !params.local_params[0].runtime_filter_params.rid_to_runtime_filter.empty()) {
         auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
                 RuntimeFilterParamsContext::create(context->get_runtime_state()));
-        RETURN_IF_ERROR(handler->init(params.query_id, params.local_params[0].runtime_filter_params,
-                                      params.query_options));
+        RETURN_IF_ERROR(
+                handler->init(params.query_id, params.local_params[0].runtime_filter_params));
         query_ctx->set_merge_controller_handler(handler);
     }
 

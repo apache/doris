@@ -429,15 +429,28 @@ public:
     explicit TRuntimeFilterParamsBuilder(
             TNetworkAddress runtime_filter_merge_addr = TNetworkAddress(),
             std::map<int, std::vector<TRuntimeFilterTargetParams>> rid_to_target_param = {},
-            std::map<int, TRuntimeFilterDesc> rid_to_runtime_filter = {},
             std::map<int, int> runtime_filter_builder_num = {},
             std::map<int, std::vector<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2 = {})
             : _params() {
         _params.__set_runtime_filter_merge_addr(runtime_filter_merge_addr);
         _params.__set_rid_to_target_param(rid_to_target_param);
-        _params.__set_rid_to_runtime_filter(rid_to_runtime_filter);
         _params.__set_runtime_filter_builder_num(runtime_filter_builder_num);
         _params.__set_rid_to_target_paramv2(rid_to_target_paramv2);
+    }
+    TRuntimeFilterParamsBuilder& add_rid_to_runtime_filter(
+            int rid, TRuntimeFilterDesc param = TRuntimeFilterDesc()) {
+        _params.__isset.rid_to_runtime_filter = true;
+        _params.rid_to_runtime_filter[rid] = param;
+        return *this;
+    }
+    TRuntimeFilterParamsBuilder& add_runtime_filter_builder_num(int rid, int builder_num) {
+        _params.runtime_filter_builder_num[rid] = builder_num;
+        return *this;
+    }
+    TRuntimeFilterParamsBuilder& add_rid_to_target_paramv2(
+            int rid, std::vector<TRuntimeFilterTargetParamsV2> target_paramv2 = {}) {
+        _params.rid_to_target_paramv2[rid] = target_paramv2;
+        return *this;
     }
     TRuntimeFilterParams& build() { return _params; }
     TRuntimeFilterParamsBuilder(const TRuntimeFilterParamsBuilder&) = delete;
