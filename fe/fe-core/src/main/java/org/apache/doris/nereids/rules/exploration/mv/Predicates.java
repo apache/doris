@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
@@ -47,6 +48,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -98,18 +100,38 @@ public class Predicates {
         if (viewEquivalenceClassQueryBased == null) {
             return null;
         }
+        // try to eliminate view equivalence by query functional dependency
+        DataTrait trait = queryStructInfo.getBottomPlan().getLogicalProperties().getTrait();
+        Map<SlotReference, List<SlotReference>> eliminatedViewSlotMap = new HashMap<>();
+        for (Map.Entry<SlotReference, List<SlotReference>> equivalEntry
+                : viewEquivalenceClassQueryBased.getEquivalenceSlotMap().entrySet()) {
+            Optional<Expression> uniformValue = trait.getUniformValue(equivalEntry.getKey());
+            boolean shouldEliminate = true;
+            for (SlotReference equalSlot : equivalEntry.getValue()) {
+                if (!shouldEliminate) {
+                    break;
+                }
+                shouldEliminate = uniformValue.isPresent() && uniformValue.equals(trait.getUniformValue(equalSlot));
+            }
+            if (shouldEliminate) {
+                continue;
+            }
+            eliminatedViewSlotMap.put(equivalEntry.getKey(), equivalEntry.getValue());
+        }
+        viewEquivalenceClassQueryBased = new EquivalenceClass(eliminatedViewSlotMap);
+
         final Map<Expression, ExpressionInfo> equalCompensateConjunctions = new HashMap<>();
-        if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
+        if (queryEquivalenceClass.isEmpty() && viewEquivalenceClassQueryBased.isEmpty()) {
             return ImmutableMap.of();
         }
-        if (queryEquivalenceClass.isEmpty() && !viewEquivalenceClass.isEmpty()) {
+        if (queryEquivalenceClass.isEmpty() && !viewEquivalenceClassQueryBased.isEmpty()) {
             return null;
         }
         EquivalenceClassMapping queryToViewEquivalenceMapping =
                 EquivalenceClassMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
         // can not map all target equivalence class, can not compensate
         if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
-                < viewEquivalenceClass.getEquivalenceSetList().size()) {
+                < viewEquivalenceClassQueryBased.getEquivalenceSetList().size()) {
             return null;
         }
         // do equal compensate
