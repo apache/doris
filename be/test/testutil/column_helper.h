@@ -103,5 +103,14 @@ public:
         auto data_type = std::make_shared<DataType>();
         return ColumnWithTypeAndName(column, data_type, "column");
     }
+
+    template <typename DataType>
+    static ColumnWithTypeAndName create_nullable_column_with_name(
+            const std::vector<typename DataType::FieldType>& datas,
+            const std::vector<typename NullMap::value_type>& null_map) {
+        auto column = create_nullable_column<DataType>(datas, null_map);
+        auto data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataType>());
+        return ColumnWithTypeAndName(column, data_type, "column");
+    }
 };
 } // namespace doris::vectorized

@@ -26,6 +26,9 @@ AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge = f
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, VExprContextSPtrs input_exprs_ctxs,
                                              bool is_merge = false, bool without_key = false);
 
+AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
+                              const DataTypes& args_types, bool result_nullable);
+
 class MockAggFnEvaluator : public AggFnEvaluator {
 public:
     MockAggFnEvaluator(bool is_merge, bool without_key) : AggFnEvaluator(is_merge, without_key) {}
