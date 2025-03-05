@@ -1039,7 +1039,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableTrimPropertyKeyWithNereids() throws Exception {
-        String sql = "create table test.tbl_trim_property_key\n"
+        String sql = "create table test.tbl_trim_property_key_with_nereids\n"
                 + "(`uuid` varchar(255) NULL,\n"
                 + "`action_datetime` date NULL\n"
                 + ")\n"
@@ -1058,7 +1058,7 @@ public class CreateTableTest extends TestWithFeService {
         createTable(sql, true);
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
-        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key_with_nereids");
         Assert.assertEquals(1, table.getMinLoadReplicaNum());
         Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
