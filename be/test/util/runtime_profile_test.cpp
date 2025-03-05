@@ -301,7 +301,7 @@ TEST(RuntimeProfileTest, InfoStringTest) {
 //     EXPECT_THROW(profile.add_counter("counter", TUnit::UNIT), doris::Exception);
 // }
 
-TEST_F(RuntimeProfileTest, TestGetChild) {
+TEST(RuntimeProfileTest, TestGetChild) {
     // Create root profile
     RuntimeProfile root("Root");
 
