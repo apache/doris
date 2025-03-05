@@ -99,5 +99,93 @@ suite("test_index_change_on_new_column") {
     assertEquals(show_result[0][2], "idx_s1")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
+    qt_select3 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s1 match 'welcome'; """
+
+    tableName = "test_index_change_on_new_column1"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `id` INT COMMENT "",
+            `s` STRING COMMENT "",
+            INDEX idx_s(s) USING INVERTED
+        )
+        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        PROPERTIES ( "replication_num" = "1" );
+        """
+
+    sql """ INSERT INTO ${tableName} VALUES
+         (1, 'hello world')
+        """
+
+    // add new column
+    sql """ alter table ${tableName} add column s1 varchar(50) default null after s; """
+
+    qt_select1 """ SELECT * FROM ${tableName}; """
+
+    // create inverted index on new column
+    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
+    sql """ INSERT INTO ${tableName} VALUES
+            (2, 'hello wold', 'welcome to the world')
+        """
+    // build inverted index on new column
+    if (!isCloudMode()) {
+        sql """ build index idx_s1 on ${tableName} """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
+
+    show_result = sql "show index from ${tableName}"
+    logger.info("show index from " + tableName + " result: " + show_result)
+    assertEquals(show_result.size(), 2)
+    assertEquals(show_result[0][2], "idx_s")
+    assertEquals(show_result[1][2], "idx_s1")
+    qt_select2 """ SELECT * FROM ${tableName} order by id; """
+    qt_select3 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s1 match 'welcome'; """
+    qt_select4 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s match 'hello world'; """
+
+    tableName = "test_index_change_on_new_column1_index_v1"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `id` INT COMMENT "",
+            `s` STRING COMMENT "",
+            INDEX idx_s(s) USING INVERTED
+        )
+        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        PROPERTIES ( "inverted_index_storage_format" = "v1", "replication_num" = "1" );
+        """
+
+    sql """ INSERT INTO ${tableName} VALUES
+         (1, 'hello world')
+        """
+
+    // add new column
+    sql """ alter table ${tableName} add column s1 varchar(50) default null after s; """
+
+    qt_select1 """ SELECT * FROM ${tableName}; """
+
+    // create inverted index on new column
+    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
+    sql """ INSERT INTO ${tableName} VALUES
+            (2, 'hello wold', 'welcome to the world')
+        """
+    // build inverted index on new column
+    if (!isCloudMode()) {
+        sql """ build index idx_s1 on ${tableName} """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
+
+    show_result = sql "show index from ${tableName}"
+    logger.info("show index from " + tableName + " result: " + show_result)
+    assertEquals(show_result.size(), 2)
+    assertEquals(show_result[0][2], "idx_s")
+    assertEquals(show_result[1][2], "idx_s1")
+    qt_select2 """ SELECT * FROM ${tableName} order by id; """
+    qt_select3 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s1 match 'welcome'; """
+    qt_select4 """ SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ * FROM ${tableName} where s match 'hello world'; """
 }
