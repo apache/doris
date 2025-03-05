@@ -42,6 +42,7 @@ Status LocalMergeSortLocalState::init(RuntimeState* state, LocalStateInfo& info)
 // 4. At this point, other_source will execute, but main_source will not.
 // 5. After other_source executes, it sets the corresponding other_source_deps to ready.
 // 6. Now, main_source will execute.
+// You can check the simulated process in local_merge_sort_source_operator_test.cpp
 std::vector<Dependency*> LocalMergeSortLocalState::dependencies() const {
     if (_task_idx == 0) {
         std::vector<Dependency*> deps;
@@ -101,6 +102,11 @@ Status LocalMergeSortSourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    init_dependencies_and_sorter();
+    return Status::OK();
+}
+
+void LocalMergeSortSourceOperatorX::init_dependencies_and_sorter() {
     _other_source_deps.resize(_parallel_tasks);
     for (int i = 1; i < _parallel_tasks; ++i) {
         auto dep = Dependency::create_shared(operator_id(), node_id(),
@@ -108,7 +114,6 @@ Status LocalMergeSortSourceOperatorX::prepare(RuntimeState* state) {
         _other_source_deps[i] = dep;
     }
     _sorters.resize(_parallel_tasks);
-    return Status::OK();
 }
 
 Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

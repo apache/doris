@@ -80,6 +80,11 @@ public:
     using Base = OperatorX<LocalMergeSortLocalState>;
     LocalMergeSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                   const DescriptorTbl& descs);
+
+#ifdef BE_TEST
+    LocalMergeSortSourceOperatorX() : _merge_by_exchange(false), _offset(0) {}
+#endif
+
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -88,6 +93,8 @@ public:
     bool is_source() const override { return true; }
 
 private:
+    void init_dependencies_and_sorter();
+
     Status other_source_get_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status main_source_get_block(RuntimeState* state, vectorized::Block* block, bool* eos);
 
