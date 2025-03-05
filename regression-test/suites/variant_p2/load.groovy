@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 suite("load_p2", "variant_type,p2"){
-
+    boolean use_stream_load = true
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -65,7 +65,7 @@ suite("load_p2", "variant_type,p2"){
         )
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(id) BUCKETS ${buckets}
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "500");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "9");
         """
     }
 
@@ -79,7 +79,7 @@ suite("load_p2", "variant_type,p2"){
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
-    set_be_config.call("string_type_length_soft_limit_bytes", "104857600")
+    set_be_config.call("string_type_length_soft_limit_bytes", "10485760")
  
 
     // Configuration for the number of threads
@@ -154,11 +154,20 @@ suite("load_p2", "variant_type,p2"){
                     log.info("current hour: ${hour}")
                     def fileName = year + "-" + month + "-" + day + "-" + hour + ".json"
                     log.info("cuurent fileName: ${fileName}")
-                    // Submitting tasks to the executor service
-                    executorService.submit({
-                        log.info("Loading file: ${fileName}")
-                        s3load_paral_wait.call(table_name, "JSON", "regression/github_events_dataset/${fileName}", 3)
-                    } as Runnable)
+                    if (use_stream_load) {
+                        def fileUrl = """${getS3Url() + '/regression/github_events_dataset/' + fileName}"""
+                        // Submitting tasks to the executor service
+                        executorService.submit({
+                            log.info("Loading file: ${fileName}")
+                            load_json_data.call(table_name, fileUrl)
+                        } as Runnable)
+                    } else {
+                        // Submitting tasks to the executor service
+                        executorService.submit({
+                            log.info("Loading file: ${fileName}")
+                            s3load_paral_wait.call(table_name, "JSON", "regression/github_events_dataset/${fileName}", 3)
+                        } as Runnable)
+                    }
                 }
             }
         }
