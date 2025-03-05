@@ -477,13 +477,20 @@ class FE(Node):
                   "r") as f:
             parser = configparser.ConfigParser()
             parser.read_string('[dummy_section]\n' + f.read())
-            for key in ("JAVA_OPTS", "JAVA_OPTS_FOR_JDK_17"):
-                value = parser["dummy_section"].get(key)
-                if value:
+            for key, value in parser["dummy_section"].items():
+                if key.startswith("JAVA_OPTS") and value:
                     value = value.strip().strip('"')
-                    cfg.append(
-                        f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:{FE_JAVA_DBG_PORT}\""
-                    )
+                    if key == "JAVA_OPTS":
+                        # java 8
+                        cfg.append(
+                            f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address={FE_JAVA_DBG_PORT}\""
+                        )
+                    else:
+                        # JAVA_OPTS_FOR_JDK_17
+                        # >= java 9
+                        cfg.append(
+                            f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:{FE_JAVA_DBG_PORT}\""
+                        )
 
         return cfg
 
