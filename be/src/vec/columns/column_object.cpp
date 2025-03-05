@@ -2534,7 +2534,7 @@ MutableColumnPtr ColumnObject::clone() const {
     auto sparse_column = std::move(*column).mutate();
     res->serialized_sparse_column = sparse_column->assume_mutable();
     res->set_num_rows(num_rows);
-    res->check_consistency();
+    ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }
 
