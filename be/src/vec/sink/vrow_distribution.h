@@ -139,6 +139,7 @@ public:
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
+    std::vector<bool> get_skipped() { return _skip; } // skipped in last round
 
     // for auto partition
     std::unique_ptr<MutableBlock> _batching_block;

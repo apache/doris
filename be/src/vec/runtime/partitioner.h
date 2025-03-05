@@ -48,8 +48,12 @@ public:
     virtual Status close(RuntimeState* state) = 0;
 
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
+    virtual Status send_last_batched_block(RuntimeState* state) const { return Status::OK(); }
 
     virtual ChannelField get_channel_ids() const = 0;
+
+    // default skip nothing
+    virtual std::vector<bool> get_skipped(int size) const { return std::vector<bool>(size, false); }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
