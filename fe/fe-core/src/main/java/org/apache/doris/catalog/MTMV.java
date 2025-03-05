@@ -558,7 +558,8 @@ public class MTMV extends OlapTable {
     public void compatible(CatalogMgr catalogMgr) {
         Optional<String> errMsg = compatibleInternal(catalogMgr);
         if (errMsg.isPresent()) {
-            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, errMsg.get());
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    errMsg.get());
             status.setState(MTMVState.SCHEMA_CHANGE);
             status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + errMsg.get());
         } else {
