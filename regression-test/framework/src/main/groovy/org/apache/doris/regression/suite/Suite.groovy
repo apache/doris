@@ -2138,12 +2138,45 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def get_follower_ip = {
+        def result = sql """show frontends;"""
+        logger.info("result:" + result)
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return "null"
+    }
+
+    def get_follower_conn = { def explainSelectSql ->
+        def switch_ip = get_follower_ip()
+        if (switch_ip != "null") {
+            def tokens = context.config.jdbcUrl.split('/')
+            def url_tmp = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+            def new_jdbc_url = url_tmp.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
+            logger.info("new_jdbc_url: " + new_jdbc_url)
+
+            def user = context.config.jdbcUser
+            def password = context.config.jdbcPassword
+            def explainRes = connect(user, password, new_jdbc_url) {
+                sql explainSelectSql
+            }
+            return explainRes
+        }
+        logger.info("This cluster not exists follower node")
+        return null
+    }
+
     // mv part in rewrite process, rewrte success and chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
+    // The default parameter of curConn is 0, which means there is no limitation on the FE role for the connection;
+    // when it is 1, it indicates that the operation is to be executed by connecting to the master; when it is 2,
+    // it means the operation is to be executed by connecting to a follower.
     void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                               is_partition_statistics_ready = true) {
+                               is_partition_statistics_ready = true, curConn = 0) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -2158,10 +2191,23 @@ class Suite implements GroovyInterceptable {
             }
             return
         }
-        explain {
-            sql(" memo plan ${query_sql}")
-            contains("${mv_name} chose")
+        if (curConn == 1) {
+            explain {
+                master_sql(" memo plan ${query_sql}")
+                contains("${mv_name} chose")
+            }
+        } else if (curConn == 2) {
+            explain {
+                get_follower_conn(" memo plan ${query_sql}")
+                contains("${mv_name} chose")
+            }
+        } else {
+            explain {
+                sql(" memo plan ${query_sql}")
+                contains("${mv_name} chose")
+            }
         }
+
     }
 
     // multi mv part in rewrite process, all rewrte success and chosen by cbo
@@ -2331,8 +2377,11 @@ class Suite implements GroovyInterceptable {
 
     // multi mv part in rewrite process, rewrte success without check if chosen by cbo or not
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
+    // The default parameter of curConn is 0, which means there is no limitation on the FE role for the connection;
+    // when it is 1, it indicates that the operation is to be executed by connecting to the master; when it is 2,
+    // it means the operation is to be executed by connecting to a follower.
     void mv_rewrite_success_without_check_chosen(query_sql, mv_name,
-                                                 sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+                                                 sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(), curConn = 0) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name)
         if (!sync_cbo_rewrite) {
             explain {
@@ -2344,10 +2393,26 @@ class Suite implements GroovyInterceptable {
             }
             return
         }
-        explain {
-            sql(" memo plan ${query_sql}")
-            check { result ->
-                result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+        if (curConn == 1) {
+            explain {
+                master_sql(" memo plan ${query_sql}")
+                check { result ->
+                    result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                }
+            }
+        } else if (curConn == 2) {
+            explain {
+                get_follower_conn(" memo plan ${query_sql}")
+                check { result ->
+                    result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                }
+            }
+        } else {
+            explain {
+                sql(" memo plan ${query_sql}")
+                check { result ->
+                    result.contains("${mv_name} chose") || result.contains("${mv_name} not chose")
+                }
             }
         }
     }
