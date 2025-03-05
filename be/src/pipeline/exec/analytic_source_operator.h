@@ -94,6 +94,8 @@ private:
     BlockRowPos _partition_by_start;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
+    std::vector<size_t> _offsets_of_aggregate_states;
+    std::vector<bool> _result_column_nullable_flags;
 
     RuntimeProfile::Counter* _evaluation_timer = nullptr;
     RuntimeProfile::Counter* _execute_timer = nullptr;

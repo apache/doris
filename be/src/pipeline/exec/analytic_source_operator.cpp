@@ -175,10 +175,16 @@ Status AnalyticLocalState::open(RuntimeState* state) {
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
+    _offsets_of_aggregate_states.resize(_agg_functions_size);
+    _result_column_nullable_flags.resize(_agg_functions_size);
 
     _agg_functions.resize(p._agg_functions.size());
     for (size_t i = 0; i < _agg_functions.size(); i++) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
+        _offsets_of_aggregate_states[i] = p._offsets_of_aggregate_states[i];
+        _result_column_nullable_flags[i] =
+                !_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _agg_functions[i]->data_type()->is_nullable();
     }
 
     _fn_place_ptr = _agg_arena_pool->aligned_alloc(p._total_size_of_aggregate_states,
@@ -278,7 +284,6 @@ void AnalyticLocalState::_destroy_agg_status() {
 
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
-    SCOPED_TIMER(_execute_timer);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _shared_state->agg_input_columns[i].size(); ++j) {
@@ -286,9 +291,8 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
         }
         _agg_functions[i]->function()->add_range_single_place(
                 partition_start, partition_end, frame_start, frame_end,
-                _fn_place_ptr +
-                        _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), _agg_arena_pool.get());
+                _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         _current_window_empty =
@@ -297,7 +301,6 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
 }
 
 void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
-    SCOPED_TIMER(_get_result_timer);
     int64_t current_block_row_pos =
             _shared_state->input_block_first_row_positions[_output_block_index];
     int64_t get_result_start = _shared_state->current_row_position - current_block_row_pos;
@@ -317,12 +320,9 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
         _shared_state->current_row_position++;
     }
 
-    const auto& offsets_of_aggregate_states =
-            _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
-            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
-                _result_window_columns[i]->is_nullable()) {
+            if (_result_column_nullable_flags[i]) {
                 if (_current_window_empty) {
                     _result_window_columns[i]->insert_default();
                 } else {
@@ -330,13 +330,14 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
                             _result_window_columns[i].get());
                     dst->get_null_map_data().push_back(0);
                     _agg_functions[i]->insert_result_info(
-                            _fn_place_ptr + offsets_of_aggregate_states[i],
+                            _fn_place_ptr + _offsets_of_aggregate_states[i],
                             &dst->get_nested_column());
                 }
-                continue;
+            } else {
+                _agg_functions[i]->insert_result_info(
+                        _fn_place_ptr + _offsets_of_aggregate_states[i],
+                        _result_window_columns[i].get());
             }
-            _agg_functions[i]->insert_result_info(_fn_place_ptr + offsets_of_aggregate_states[i],
-                                                  _result_window_columns[i].get());
         }
     }
 }
@@ -443,10 +444,7 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
 
 Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     block->swap(std::move(_shared_state->input_blocks[_output_block_index]));
-    _blocks_memory_usage->add(-block->allocated_bytes());
-    if (_shared_state->origin_cols.size() < block->columns()) {
-        block->erase_not_in(_shared_state->origin_cols);
-    }
+    _blocks_memory_usage->add(block->allocated_bytes());
 
     DCHECK(_parent->cast<AnalyticSourceOperatorX>()._change_to_nullable_flags.size() ==
            _result_window_columns.size());
