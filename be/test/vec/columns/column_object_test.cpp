@@ -158,6 +158,7 @@ TEST(ColumnVariantTest, basic_inset_range_from) {
     // sparse_column->subcolumn      v.b.d v.c.d
     // sparse_column->sparse_column  v.d.d
     dst->insert_range_from(*src, 0, 10);
+    dst->finalize();
     EXPECT_EQ(dst->size(), 10);
 
     // 5 subcolumn
@@ -498,6 +499,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
     // sparse_column->subcolumn      v.b.d v.c.d
     // sparse_column->sparse_column  v.d.d
     dst->insert_range_from(*src, 0, src->size());
+    dst->finalize();
     EXPECT_EQ(dst->size(), 15);
 
     EXPECT_EQ(dst->subcolumns.size(), 6);

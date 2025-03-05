@@ -402,6 +402,8 @@ public:
         return finalized;
     }
 
+    MutableColumnPtr clone() const override;
+
     void clear() override;
 
     void resize(size_t n) override;

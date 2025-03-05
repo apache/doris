@@ -651,8 +651,11 @@ MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
             continue;
         }
         auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
-        res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
-                            subcolumn->data.get_least_common_type());
+        if (!res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
+                                 subcolumn->data.get_least_common_type())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error",
+                                   subcolumn->path.get_path());
+        }
     }
     auto sparse_column = func(serialized_sparse_column);
     res->serialized_sparse_column = sparse_column->assume_mutable();
@@ -2511,6 +2514,30 @@ void ColumnObject::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullM
             null_map->push_back(is_null);
         }
     }
+}
+
+MutableColumnPtr ColumnObject::clone() const {
+    auto res = ColumnObject::create(_max_subcolumns_count);
+    Subcolumns new_subcolumns;
+    for (const auto& subcolumn : subcolumns) {
+        auto new_subcolumn = subcolumn->data;
+        if (subcolumn->data.is_root) {
+            new_subcolumns.create_root(std::move(new_subcolumn));
+        } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
+                                   subcolumn->path.get_path());
+        }
+    }
+    if (!new_subcolumns.get_root()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
+    }
+    res->subcolumns = std::move(new_subcolumns);
+    auto&& column = serialized_sparse_column->get_ptr();
+    auto sparse_column = std::move(*column).mutate();
+    res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->set_num_rows(num_rows);
+    ENABLE_CHECK_CONSISTENCY(res.get());
+    return res;
 }
 
 } // namespace doris::vectorized
