@@ -253,8 +253,6 @@ private:
 bool operator==(const TabletColumn& a, const TabletColumn& b);
 bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
-class TabletSchema;
-
 class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
@@ -296,6 +294,8 @@ private:
     std::vector<int32_t> _col_unique_ids;
     std::map<string, string> _properties;
 };
+
+using TabletIndexPtr = std::shared_ptr<TabletIndex>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
@@ -402,8 +402,8 @@ public:
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
         for (const auto& index : _indexes) {
-            if (index.index_type() == IndexType::INVERTED) {
-                inverted_indexes.emplace_back(&index);
+            if (index->index_type() == IndexType::INVERTED) {
+                inverted_indexes.emplace_back(index.get());
             }
         }
         return inverted_indexes;
@@ -411,14 +411,14 @@ public:
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
-                if (index.col_unique_ids().empty()) {
+                if (index->col_unique_ids().empty()) {
                     throw Exception(Status::InternalError("col unique ids cannot be empty"));
                 }
             });
 
-            if (index.index_type() == IndexType::INVERTED) {
+            if (index->index_type() == IndexType::INVERTED) {
                 //if index_id == -1, ignore it.
-                if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
+                if (!index->col_unique_ids().empty() && index->col_unique_ids()[0] >= 0) {
                     return true;
                 }
             }
@@ -547,6 +547,7 @@ private:
     TabletSchema(const TabletSchema&) = default;
 
     void clear_column_cache_handlers();
+    void clear_index_cache_handlers();
 
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
@@ -554,7 +555,8 @@ private:
     std::vector<TabletColumnPtr> _cols;
     std::vector<Cache::Handle*> _column_cache_handlers;
 
-    std::vector<TabletIndex> _indexes;
+    std::vector<TabletIndexPtr> _indexes;
+    std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>

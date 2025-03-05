@@ -126,8 +126,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 return Status::OK();
             }
         }
-        return Status::InternalError("fail to add batch in load channel. unknown load_id={}",
-                                     load_id.to_string());
+        return Status::InternalError<false>(
+                "Fail to add batch in load channel: unknown load_id={}. "
+                "This may be due to a BE restart. Please retry the load.",
+                load_id.to_string());
     }
     channel = it->second;
     return Status::OK();

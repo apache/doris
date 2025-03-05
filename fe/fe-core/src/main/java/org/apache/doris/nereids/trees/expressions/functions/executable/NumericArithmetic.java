@@ -642,11 +642,12 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimalV3(DecimalV3Literal first, DecimalV3Literal second) {
-        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(first.getDataType());
-        }
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
+            return new NullLiteral(DecimalV3Type.createDecimalV3TypeLooseCheck(
+                    t1.getPrecision(), t1.getScale() - t2.getScale()));
+        }
         BigDecimal result = first.getValue().divide(second.getValue());
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
