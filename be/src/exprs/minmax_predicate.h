@@ -45,6 +45,7 @@ public:
 template <class T, bool NeedMax = true, bool NeedMin = true>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
+    static constexpr bool IsStringValue = std::is_same_v<T, std::string>;
     MinMaxNumFunc(bool null_aware) : MinMaxFuncBase(null_aware) {}
     ~MinMaxNumFunc() override = default;
 
@@ -67,7 +68,12 @@ public:
     Status merge(MinMaxFuncBase* minmax_func) override {
         auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
         if constexpr (NeedMin) {
-            if (other_minmax->_min < _min) {
+            if constexpr (IsStringValue) {
+                if (other_minmax->_min < _min || !_min_value_set) {
+                    _min = other_minmax->_min;
+                    _min_value_set = true;
+                }
+            } else if (other_minmax->_min < _min) {
                 _min = other_minmax->_min;
             }
         }
@@ -86,6 +92,9 @@ public:
     void* get_min() override { return &_min; }
 
     Status assign(void* min_data, void* max_data) override {
+        if constexpr (IsStringValue) {
+            _min_value_set = true;
+        }
         _min = *(T*)min_data;
         _max = *(T*)max_data;
         return Status::OK();
@@ -108,8 +117,9 @@ private:
         for (size_t i = start; i < size; i++) {
             if (nullmap == nullptr || !nullmap[i]) {
                 if constexpr (NeedMin) {
-                    if (column_string.get_data_at(i) < StringRef(_min)) {
+                    if (column_string.get_data_at(i) < StringRef(_min) || !_min_value_set) {
                         _min = column_string.get_data_at(i).to_string();
+                        _min_value_set = true;
                     }
                 }
                 if constexpr (NeedMax) {
@@ -172,6 +182,8 @@ private:
 
     T _max = type_limit<T>::min();
     T _min = type_limit<T>::max();
+
+    bool _min_value_set = false;
 };
 
 template <class T>

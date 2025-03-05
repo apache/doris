@@ -78,16 +78,12 @@ public:
         if (other->_bloom_filter == nullptr) {
             return Status::InternalError("other->_bloom_filter is nullptr");
         }
-        // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
-        // call for `merge` function. So we just reuse this bloom filter, and we don't need to
-        // allocate memory again.
-        if (!_bloom_filter_alloced) {
-            if (_bloom_filter != nullptr) {
-                return Status::InternalError("_bloom_filter must is nullptr");
-            }
-            light_copy(other);
-            return Status::OK();
+
+        if (_bloom_filter_alloced == 0) {
+            return Status::InternalError("bloom filter is not initialized");
         }
+        DCHECK(_bloom_filter);
+
         if (_bloom_filter_alloced != other->_bloom_filter_alloced) {
             return Status::InternalError(
                     "bloom filter size not the same: already allocated bytes {}, expected "
