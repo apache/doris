@@ -47,15 +47,18 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
@@ -82,6 +85,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
@@ -101,6 +105,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -1034,6 +1039,7 @@ public class Alter {
             }
             // 2. replica allocation
             if (!replicaAlloc.isNotSet()) {
+                setReplicasToDrop(partition, partitionInfo.getReplicaAllocation(partition.getId()), replicaAlloc);
                 partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
             }
             // 3. in memory
@@ -1054,6 +1060,65 @@ public class Alter {
         // log here
         BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
         Env.getCurrentEnv().getEditLog().logBatchModifyPartition(info);
+    }
+
+    public void setReplicasToDrop(Partition partition,
+                                 ReplicaAllocation oldReplicaAlloc,
+                                 ReplicaAllocation newReplicaAlloc) {
+        Set<Tag> scaleInTags = getScaleInTags(oldReplicaAlloc, newReplicaAlloc);
+
+        Map<Long, Long> replicaCountByBackend = getReplicaCountByBackend(partition);
+
+        for (Tag tag : scaleInTags) {
+            int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag) - newReplicaAlloc.getReplicaNumByTag(tag);
+            dropReplicasFromTablets(partition, replicasToDrop, replicaCountByBackend);
+        }
+    }
+
+    private Set<Tag> getScaleInTags(ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc) {
+        return oldReplicaAlloc.getAllocMap().entrySet().stream()
+                .filter(entry -> entry.getValue() > newReplicaAlloc.getAllocMap()
+                .getOrDefault(entry.getKey(), (short) 0))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+    }
+
+    private Map<Long, Long> getReplicaCountByBackend(Partition partition) {
+        Map<Long, Long> replicaCountByBackend = Maps.newHashMap();
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Long backendId : tablet.getBackendIds()) {
+                    replicaCountByBackend.put(backendId, replicaCountByBackend.getOrDefault(backendId, 0L) + 1);
+                }
+            }
+        }
+        return replicaCountByBackend;
+    }
+
+    private void dropReplicasFromTablets(Partition partition, int replicasToDrop,
+                                         Map<Long, Long> replicaCountByBackend) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            for (Tablet tablet : index.getTablets()) {
+                if (replicasToDrop <= 0) {
+                    return;
+                }
+                for (Replica replica : tablet.getReplicas()) {
+                    Long maxBackendId = getMaxBackendId(replicaCountByBackend);
+                    if (replicasToDrop > 0 && replica.getBackendIdWithoutException() == maxBackendId) {
+                        replica.setScaleInDropTimeStamp(System.currentTimeMillis());
+                        replicaCountByBackend.put(maxBackendId, replicaCountByBackend.get(maxBackendId) - 1);
+                        replicasToDrop--;
+                    }
+                }
+            }
+        }
+    }
+
+    private Long getMaxBackendId(Map<Long, Long> replicaCountByBackend) {
+        return replicaCountByBackend.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1L);
     }
 
     public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
