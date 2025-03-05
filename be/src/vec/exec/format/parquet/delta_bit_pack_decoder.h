@@ -40,7 +40,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class DeltaDecoder : public Decoder {
 public:
     DeltaDecoder(Decoder* decoder) { _type_converted_decoder.reset(decoder); }
@@ -153,8 +153,9 @@ public:
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         // decode values
         _values.resize(non_null_size);
-        int decoded_count = 0;
-        RETURN_IF_ERROR(_get_internal(_values.data(), non_null_size, &decoded_count));
+        uint32_t decoded_count = 0;
+        RETURN_IF_ERROR(
+                _get_internal(_values.data(), cast_set<uint32_t>(non_null_size), &decoded_count));
         _data->data = reinterpret_cast<char*>(_values.data());
         _type_length = sizeof(T);
         _data->size = _values.size() * _type_length;
@@ -164,17 +165,18 @@ public:
                                                       is_dict_filter);
     }
 
-    Status decode(T* buffer, int num_values, int* out_num_values) {
+    Status decode(T* buffer, uint32_t num_values, uint32_t* out_num_values) {
         return _get_internal(buffer, num_values, out_num_values);
     }
 
-    int valid_values_count() {
+    uint32_t valid_values_count() {
         // _total_value_count in header ignores of null values
-        return static_cast<int>(_total_values_remaining);
+        return _total_values_remaining;
     }
 
     void set_data(Slice* slice) override {
-        _bit_reader.reset(new BitReader((const uint8_t*)slice->data, slice->size));
+        _bit_reader.reset(
+                new BitReader((const uint8_t*)slice->data, cast_set<uint32_t>(slice->size)));
         Status st = _init_header();
         if (!st.ok()) {
             throw Exception(Status::FatalError("Fail to init delta encoding header for {}",
@@ -200,7 +202,7 @@ private:
     Status _init_header();
     Status _init_block();
     Status _init_mini_block(int bit_width);
-    Status _get_internal(T* buffer, int max_values, int* out_num_values);
+    Status _get_internal(T* buffer, uint32_t max_values, uint32_t* out_num_values);
 
     std::vector<T> _values;
 
@@ -234,7 +236,7 @@ public:
     Status skip_values(size_t num_values) override {
         _values.resize(num_values);
         int num_valid_values;
-        return _get_internal(_values.data(), num_values, &num_valid_values);
+        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -254,7 +256,8 @@ public:
         // init read buffer
         _values.resize(num_values - null_count);
         int num_valid_values;
-        RETURN_IF_ERROR(_get_internal(_values.data(), num_values - null_count, &num_valid_values));
+        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<int32_t>(num_values - null_count),
+                                      &num_valid_values));
 
         if (PREDICT_FALSE(num_values - null_count != num_valid_values)) {
             return Status::IOError("Expected to decode {} values, but decoded {} values.",
@@ -306,7 +309,7 @@ public:
     Status skip_values(size_t num_values) override {
         _values.resize(num_values);
         int num_valid_values;
-        return _get_internal(_values.data(), num_values, &num_valid_values);
+        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -325,7 +328,8 @@ public:
         size_t null_count = select_vector.num_nulls();
         _values.resize(num_values - null_count);
         int num_valid_values;
-        RETURN_IF_ERROR(_get_internal(_values.data(), num_values - null_count, &num_valid_values));
+        RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<uint32_t>(num_values - null_count),
+                                      &num_valid_values));
         DCHECK_EQ(num_values - null_count, num_valid_values);
         if (doris_column->is_column_string()) {
             return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
@@ -340,11 +344,11 @@ public:
         _prefix_len_decoder.set_bit_reader(_bit_reader);
 
         // get the number of encoded prefix lengths
-        int num_prefix = _prefix_len_decoder.valid_values_count();
+        uint32_t num_prefix = _prefix_len_decoder.valid_values_count();
         // call _prefix_len_decoder.Decode to decode all the prefix lengths.
         // all the prefix lengths are buffered in _buffered_prefix_length.
         _buffered_prefix_length.resize(num_prefix);
-        int ret;
+        uint32_t ret;
         Status st = _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret);
         if (!st.ok()) {
             throw Exception(Status::FatalError("Fail to decode delta prefix, status: {}", st));
@@ -454,13 +458,14 @@ Status DeltaBitPackDecoder<T>::_init_mini_block(int bit_width) {
 }
 
 template <typename T>
-Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, int num_values, int* out_num_values) {
-    num_values = static_cast<int>(std::min<int64_t>(num_values, _total_values_remaining));
+Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
+                                             uint32_t* out_num_values) {
+    num_values = std::min<uint32_t>(num_values, _total_values_remaining);
     if (num_values == 0) {
         *out_num_values = 0;
         return Status::OK();
     }
-    int i = 0;
+    uint32_t i = 0;
     while (i < num_values) {
         if (PREDICT_FALSE(_values_remaining_current_mini_block == 0)) {
             if (PREDICT_FALSE(!_block_initialized)) {
@@ -490,9 +495,8 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, int num_values, int* out
             }
         }
 
-        int values_decode = std::min(_values_remaining_current_mini_block,
-                                     static_cast<uint32_t>(num_values - i));
-        for (int j = 0; j < values_decode; ++j) {
+        uint32_t values_decode = std::min(_values_remaining_current_mini_block, num_values - i);
+        for (uint32_t j = 0; j < values_decode; ++j) {
             if (!_bit_reader->GetValue(_delta_bit_width, buffer + i + j)) {
                 return Status::IOError("Get batch EOF");
             }
@@ -526,7 +530,7 @@ void DeltaLengthByteArrayDecoder::_decode_lengths() {
     _buffered_length.resize(num_length);
 
     // decode all the lengths. all the lengths are buffered in buffered_length_.
-    int ret;
+    uint32_t ret;
     Status st = _len_decoder.decode(_buffered_length.data(), num_length, &ret);
     if (!st.ok()) {
         throw Exception(Status::FatalError("Fail to decode delta length, status: {}", st));
@@ -634,4 +638,6 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
     *out_num_values = max_values;
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

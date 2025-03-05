@@ -41,7 +41,7 @@
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
@@ -831,7 +831,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
 
-    int not_missing_column_id = -1;
+    int64_t not_missing_column_id = -1;
     std::vector<size_t> missing_column_idxs {};
 
     _read_column_names.clear();
@@ -913,5 +913,6 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized

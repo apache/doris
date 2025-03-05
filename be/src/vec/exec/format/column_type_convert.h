@@ -392,8 +392,7 @@ struct SafeCastString<TYPE_TINYINT> {
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int8>::max() &&
             cast_to_int >= std::numeric_limits<int8>::min()) {
-            // has checked the cast_to_int is in the range of int8
-            *value = cast_set<int8_t>(cast_to_int);
+            *value = static_cast<int8_t>(cast_to_int);
             return true;
         } else {
             return false;
@@ -410,8 +409,7 @@ struct SafeCastString<TYPE_SMALLINT> {
         bool can_cast = safe_strto32(startptr, buffer_size, &cast_to_int);
         if (can_cast && cast_to_int <= std::numeric_limits<int16>::max() &&
             cast_to_int >= std::numeric_limits<int16>::min()) {
-            // has checked the cast_to_int is in the range of int16
-            *value = cast_set<int16_t>(cast_to_int);
+            *value = static_cast<int16_t>(cast_to_int);
             return true;
         } else {
             return false;
