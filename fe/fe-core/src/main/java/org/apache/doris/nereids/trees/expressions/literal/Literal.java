@@ -368,7 +368,7 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         return "?";
     }
 

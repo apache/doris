@@ -24,22 +24,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * HboPlanStatisticsProvider
+ * HboPlanStatisticsProvider provides recent runs' plan stats. info as a cache.
  */
 public interface HboPlanStatisticsProvider {
-    /**
-     * Given a list of plan node hashes, returns historical statistics for them.
-     * Some entries in return value may be missing if no corresponding history exists.
-     * This can be called even when hash of a plan node is not present.
-     *
-     * TODO: Using PlanNode as map key can be expensive, we can use Plan node id as a map key.
-     */
-    Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboStats(List<PlanNodeAndHash> nodeIds);
+    Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboPlanStats(List<PlanNodeAndHash> nodeIds);
 
-    RecentRunsPlanStatistics getHboStats(PlanNodeAndHash planNodeAndHash);
+    RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash);
 
-    /**
-     * Given plan hashes and corresponding statistics after a query is run, store them for future retrieval.
-     */
-    void putHboStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
+    void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
 }

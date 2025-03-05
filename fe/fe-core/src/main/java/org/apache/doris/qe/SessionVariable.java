@@ -330,12 +330,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
     public static final String ENABLE_HBO_OPTIMIZATION = "enable_hbo_optimization";
     public static final String ENABLE_HBO_INFO_COLLECTION = "enable_hbo_info_collection";
-
     public static final String ENABLE_HBO_NONSTRICT_MATCHING_MODE = "enable_hbo_nonstrict_matching_mode";
     public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
-
     public static final String HBO_SLOW_QUERY_THRESHOLD = "hbo_slow_query_threshold";
+    public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -1471,6 +1470,10 @@ public class SessionVariable implements Serializable, Writable {
         return hboRowMatchingThreshold;
     }
 
+    public int getHboSkewRatioThreshold() {
+        return hboSkewRatioThreshold;
+    }
+
     public long getHboSlowQueryThreshold() {
         return hboSlowQueryThreshold;
     }
@@ -1496,10 +1499,13 @@ public class SessionVariable implements Serializable, Writable {
     private double hboRfSafeThreshold = 1.0;
 
     @VariableMgr.VarAttr(name = HBO_SLOW_QUERY_THRESHOLD, needForward = true)
-    private long hboSlowQueryThreshold = 10; // ms
+    private long hboSlowQueryThreshold = 100; // ms
 
     @VariableMgr.VarAttr(name = HBO_ROW_MATCHING_THRESHOLD, needForward = true)
     private double hboRowMatchingThreshold = 0.1;
+
+    @VariableMgr.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
+    private int hboSkewRatioThreshold = 5;
 
     /**
      * as the new optimizer is not mature yet, use this var

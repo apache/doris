@@ -223,7 +223,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         //StringBuilder builder = new StringBuilder();
         //if (!getAppliedRuntimeFilters().isEmpty()) {
         //    getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
@@ -482,6 +482,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     public Optional<TableSample> getTableSample() {
         return tableSample;
+    }
+
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
     }
 
     public boolean isDirectMvScan() {

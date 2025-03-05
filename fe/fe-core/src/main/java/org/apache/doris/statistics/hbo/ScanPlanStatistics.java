@@ -31,10 +31,7 @@ import java.util.List;
 import java.util.Set;
 
 public class ScanPlanStatistics extends PlanStatistics {
-    //private final Literal lowerPartitionRangeBound;
-    //private final Literal upperPartitionRangeBound;
-    //private final Set<Literal> otherPredicateConstants;
-    private PhysicalOlapScan table;
+    private PhysicalOlapScan scan;
     private ImmutableList<Long> selectedPartitionIds;
     private Set<Expression> partitionColumnPredicates = new HashSet<>();
     private Set<Expression> otherPredicate = new HashSet<>();
@@ -45,12 +42,12 @@ public class ScanPlanStatistics extends PlanStatistics {
     public ScanPlanStatistics(int nodeId, long inputRows, long outputRows, long commonFilteredRows,
             long commonFilterInputRows, long runtimeFilteredRows, long runtimeFilterInputRows, long joinBuilderRows,
             long joinProbeRows, int joinBuilderSkewRatio, int joinProbeSkewRatio, int instanceNum,
-            PhysicalOlapScan table, Set<Expression> tableFilterSet, boolean isPartitionedTable,
+            PhysicalOlapScan scan, Set<Expression> tableFilterSet, boolean isPartitionedTable,
             PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
         super(nodeId, inputRows, outputRows, commonFilteredRows, commonFilterInputRows, runtimeFilteredRows,
                 runtimeFilterInputRows, joinBuilderRows, joinProbeRows, joinBuilderSkewRatio, joinProbeSkewRatio,
                 instanceNum);
-        this.table = table;
+        this.scan = scan;
         this.tableFilterSet = tableFilterSet;
         this.isPartitionedTable = isPartitionedTable;
         this.partitionInfo = partitionInfo;
@@ -58,12 +55,12 @@ public class ScanPlanStatistics extends PlanStatistics {
         buildPartitionColumnPredicatesAndOthers(tableFilterSet, partitionInfo);
     }
 
-    public ScanPlanStatistics(PlanStatistics other, PhysicalOlapScan table, Set<Expression> tableFilterSet,
+    public ScanPlanStatistics(PlanStatistics other, PhysicalOlapScan scan, Set<Expression> tableFilterSet,
             boolean isPartitionedTable, PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
         super(other.nodeId, other.inputRows, other.outputRows, other.commonFilteredRows, other.commonFilterInputRows,
                 other.runtimeFilteredRows, other.runtimeFilterInputRows, other.joinBuilderRows, other.joinProbeRows,
                 other.joinBuilderSkewRatio, other.joinProbeSkewRatio, other.instanceNum);
-        this.table = table;
+        this.scan = scan;
         this.tableFilterSet = tableFilterSet;
         this.isPartitionedTable = isPartitionedTable;
         this.partitionInfo = partitionInfo;
@@ -110,7 +107,7 @@ public class ScanPlanStatistics extends PlanStatistics {
         return this.isPartitionedTable;
     }
 
-    public PhysicalOlapScan getTable() {
-        return table;
+    public PhysicalOlapScan getScan() {
+        return scan;
     }
 }

@@ -51,13 +51,11 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.StatsCalculator;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
@@ -67,8 +65,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -99,7 +95,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -434,21 +429,20 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void collectExecStatsIds(String queryId, PhysicalPlan root, PlanFragment fragment,
-            PlanTranslatorContext context) {
-        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
-            return;
-        }
+    /**
+     * Collect plan info for hbo usage.
+     * @param queryId queryId
+     * @param root physical plan
+     * @param context PlanTranslatorContext
+     */
+    private void collectHboPlanInfo(String queryId, PhysicalPlan root, PlanTranslatorContext context) {
         for (Object child : root.children()) {
-            collectExecStatsIds(queryId, (PhysicalPlan) child, fragment, context);
+            collectHboPlanInfo(queryId, (PhysicalPlan) child, context);
         }
-        if (root.needCollectExecStats() && root instanceof AbstractPlan) {
+        if (root instanceof AbstractPlan) {
             int nodeId = ((AbstractPlan) root).getId();
             PlanNodeId planId = context.getNereidsIdToPlanNodeIdMap().get(nodeId);
             if (planId != null) {
-                fragment.getCollectExecStatsIds().add(planId.asInt());
-                // fill id to plan map
                 Map<Integer, PhysicalPlan> idToPlanMap = HboPlanStatisticsManager.getInstance()
                         .getHboPlanInfoProvider().getIdToPlanMap(queryId);
                 if (idToPlanMap.isEmpty()) {
@@ -456,7 +450,6 @@ public class NereidsPlanner extends Planner {
                             .getHboPlanInfoProvider().putIdToPlanMap(queryId, idToPlanMap);
                 }
                 idToPlanMap.put(planId.asInt(), root);
-                // fill plan to id map
                 Map<PhysicalPlan, Integer> planToIdMap = HboPlanStatisticsManager.getInstance()
                                 .getHboPlanInfoProvider().getPlanToIdMap(queryId);
                 if (planToIdMap.isEmpty()) {
@@ -464,22 +457,6 @@ public class NereidsPlanner extends Planner {
                             .getHboPlanInfoProvider().putPlanToIdMap(queryId, planToIdMap);
                 }
                 planToIdMap.put(root, planId.asInt());
-            }
-            // fill table to expr map
-            if (root instanceof PhysicalFilter && root.children().get(0) instanceof PhysicalOlapScan) {
-                PhysicalOlapScan tableScan = (PhysicalOlapScan) root.children().get(0);
-                Map<RelationId, Set<Expression>> tableToFilterExprMap = HboPlanStatisticsManager.getInstance()
-                        .getHboPlanInfoProvider().getTableToExprMap(queryId);
-                if (tableToFilterExprMap.isEmpty()) {
-                    HboPlanStatisticsManager.getInstance()
-                            .getHboPlanInfoProvider().putTableToExprMap(queryId, tableToFilterExprMap);
-                } else {
-                    Set<Expression> conjuncts = tableToFilterExprMap.get(tableScan.getRelationId());
-                    if (!conjuncts.equals(((PhysicalFilter) root).getConjuncts())) {
-                        throw new AnalysisException("unexpected status at tableToFilterExprMap");
-                    }
-                }
-                tableToFilterExprMap.put(tableScan.getRelationId(), ((PhysicalFilter) root).getConjuncts());
             }
         }
     }
@@ -504,7 +481,9 @@ public class NereidsPlanner extends Planner {
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
-        collectExecStatsIds(queryId, physicalPlan, root, planTranslatorContext);
+        if (sessionVariable.isEnableHboInfoCollection()) {
+            collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
+        }
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());

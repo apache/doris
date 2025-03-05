@@ -23,13 +23,13 @@ import java.util.Objects;
 public class PlanStatisticsWithInputInfo {
     private final int nodeId;
     private final PlanStatistics planStatistics;
+    private final InputTableStatisticsInfo inputTableStatisticsInfo;
 
-    private final InputTableStatisticsInfo inputTableInfo;
-
-    public PlanStatisticsWithInputInfo(int id, PlanStatistics planStatistics, InputTableStatisticsInfo inputTableInfo) {
-        this.nodeId = id;
+    public PlanStatisticsWithInputInfo(int nodeId, PlanStatistics planStatistics,
+            InputTableStatisticsInfo inputTableStatisticsInfo) {
+        this.nodeId = nodeId;
         this.planStatistics = Objects.requireNonNull(planStatistics, "planStatistics is null");
-        this.inputTableInfo = inputTableInfo;
+        this.inputTableStatisticsInfo = inputTableStatisticsInfo;
     }
 
 
@@ -42,7 +42,7 @@ public class PlanStatisticsWithInputInfo {
     }
 
     public InputTableStatisticsInfo getInputTableInfo() {
-        return inputTableInfo;
+        return inputTableStatisticsInfo;
     }
 
     @Override
@@ -55,12 +55,11 @@ public class PlanStatisticsWithInputInfo {
         }
         PlanStatisticsWithInputInfo that = (PlanStatisticsWithInputInfo) o;
         return nodeId == that.nodeId && planStatistics.equals(that.planStatistics)
-                && inputTableInfo.equals(that.inputTableInfo);
+                && inputTableStatisticsInfo.equals(that.inputTableStatisticsInfo);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(nodeId, planStatistics, inputTableInfo);
+        return Objects.hash(nodeId, planStatistics, inputTableStatisticsInfo);
     }
-
 }

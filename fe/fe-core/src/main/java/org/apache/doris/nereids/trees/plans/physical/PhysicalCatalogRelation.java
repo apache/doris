@@ -143,11 +143,6 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     }
 
     @Override
-    public boolean needCollectExecStats() {
-        return true;
-    }
-
-    @Override
     public String shapeInfo() {
         StringBuilder shapeBuilder = new StringBuilder();
         shapeBuilder.append(this.getClass().getSimpleName())

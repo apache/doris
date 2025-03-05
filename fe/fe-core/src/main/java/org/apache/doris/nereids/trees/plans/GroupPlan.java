@@ -100,22 +100,22 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         // FIXME: get 0 can not cover all cases
         if (!getGroup().getLogicalExpressions().isEmpty()
                 && getGroup().getLogicalExpressions().get(0).getPlan() instanceof AbstractLogicalPlan) {
             AbstractLogicalPlan logicalPlan = (AbstractLogicalPlan) getGroup()
                     .getLogicalExpressions().get(0).getPlan();
-            return logicalPlan.hboTreeString();
+            return logicalPlan.getPlanTreeFingerprint();
         } else if (getGroup().getLogicalExpressions().isEmpty()
                 && !getGroup().getPhysicalExpressions().isEmpty()
                 && getGroup().getPhysicalExpressions().get(0).getPlan() instanceof AbstractPhysicalPlan) {
             AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) getGroup()
                     .getPhysicalExpressions().get(0).getPlan();
             if (!isLocalAggPhysicalNode(physicalPlan)) {
-                return physicalPlan.hboTreeString();
+                return physicalPlan.getPlanTreeFingerprint();
             } else {
-                return ((AbstractPlan) physicalPlan.child(0)).hboTreeString();
+                return ((AbstractPlan) physicalPlan.child(0)).getPlanTreeFingerprint();
             }
         } else {
             throw new RuntimeException("hboTreeString illegal group plan type");

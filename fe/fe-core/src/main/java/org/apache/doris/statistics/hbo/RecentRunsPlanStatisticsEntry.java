@@ -23,11 +23,9 @@ import java.util.Objects;
 
 public class RecentRunsPlanStatisticsEntry {
     private final PlanStatistics planStatistics;
-    // Size of input tables when plan statistics was recorded. This list will be sorted by input tables canonical order.
     private final List<PlanStatistics> inputTableStatistics;
 
     public RecentRunsPlanStatisticsEntry(PlanStatistics planStatistics, List<PlanStatistics> inputTableStatistics) {
-        // Check for nulls, to make it thrift backwards compatible
         this.planStatistics = planStatistics == null ? PlanStatistics.EMPTY : planStatistics;
         this.inputTableStatistics = inputTableStatistics == null ? new ArrayList<>() : inputTableStatistics;
     }

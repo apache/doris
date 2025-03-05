@@ -19,12 +19,15 @@ package org.apache.doris.statistics.hbo;
 
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-
 
 public class PlanStatistics {
     protected final int nodeId;
@@ -38,6 +41,7 @@ public class PlanStatistics {
     protected final long joinProbeRows;
     protected final int joinBuilderSkewRatio;
     protected final int joinProbeSkewRatio;
+
     protected final int instanceNum;
 
     public static final PlanStatistics EMPTY = new PlanStatistics(
@@ -64,20 +68,26 @@ public class PlanStatistics {
         this.instanceNum = instanceNum;
     }
 
-    public static PlanStatistics buildFromStatsItem(TPlanNodeRuntimeStatsItem item, boolean isScanPlanStatistics,
-            PhysicalOlapScan tableScan, boolean isPartitionedTable, Set<Expression> tableToExprSet,
-            PartitionInfo partitionInfo, List<Long> selectedPartitionIds) {
-        if (isScanPlanStatistics) {
+    public static PlanStatistics buildFromStatsItem(TPlanNodeRuntimeStatsItem item,
+            PhysicalPlan planNode, Map<RelationId, Set<Expression>> scanToFilterMap) {
+        if (planNode instanceof PhysicalOlapScan) {
+            boolean isPartitionedTable = ((PhysicalOlapScan) planNode).getTable().isPartitionedTable();
+            PartitionInfo partitionInfo = ((PhysicalOlapScan) planNode).getTable().getPartitionInfo();
+            List<Long> selectedPartitionIds = ((PhysicalOlapScan) planNode).getSelectedPartitionIds();
+            RelationId relationId = ((PhysicalOlapScan) planNode).getRelationId();
+            Set<Expression> scanToFilterSet = scanToFilterMap.getOrDefault(relationId, new HashSet<>());
+
             return new ScanPlanStatistics(item.getNodeId(), item.getInputRows(), item.getOutputRows(),
-                    item.getCommonFilterRows(),
-                    item.getCommonFilterInputRows(), item.getRuntimeFilterRows(), item.getRuntimeFilterInputRows(),
+                    item.getCommonFilterRows(), item.getCommonFilterInputRows(),
+                    item.getRuntimeFilterRows(), item.getRuntimeFilterInputRows(),
                     item.getJoinBuilderRows(), item.getJoinProbeRows(),
                     item.getJoinBuilderSkewRatio(), item.getJoinProberSkewRatio(), item.getInstanceNum(),
-                    tableScan, tableToExprSet, isPartitionedTable, partitionInfo, selectedPartitionIds);
+                    (PhysicalOlapScan) planNode, scanToFilterSet,
+                    isPartitionedTable, partitionInfo, selectedPartitionIds);
         } else {
             return new PlanStatistics(item.getNodeId(), item.getInputRows(), item.getOutputRows(),
-                    item.getCommonFilterRows(),
-                    item.getCommonFilterInputRows(), item.getRuntimeFilterRows(), item.getRuntimeFilterInputRows(),
+                    item.getCommonFilterRows(), item.getCommonFilterInputRows(),
+                    item.getRuntimeFilterRows(), item.getRuntimeFilterInputRows(),
                     item.getJoinBuilderRows(), item.getJoinProbeRows(),
                     item.getJoinBuilderSkewRatio(), item.getJoinProberSkewRatio(), item.getInstanceNum());
         }
@@ -132,7 +142,6 @@ public class PlanStatistics {
     }
 
     public boolean isRuntimeFilterSafeNode(double rfSafeThreshold) {
-        //ConnectContext ctx = ConnectContext.get();
         // no need to check runtimeFilterInputRows if runtimeFilteredRows is 0 or threshold <= 0
         if (rfSafeThreshold <= 0) {
             return true;
@@ -147,59 +156,26 @@ public class PlanStatistics {
         }
     }
 
-    public static final class Builder {
-        private int nodeId;
-        private long inputRows;
-        private long outputRows;
-        private long commonFilteredRows;
-        private long commonFilterInputRows;
-        private long runtimeFilteredRows;
-        private long runtimeFilterInputRows;
-        private long joinBuilderRows;
-        private long joinProbeRows;
-        private int joinBuilderSkewRatio;
-        private int joinProbeSkewRatio;
-        private int instanceNum;
-
-        public Builder() {
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
         }
-
-        public Builder(int nodeId, long inputRows, long outputRows,
-                long commonFilteredRows, long commonFilterInputRows, long runtimeFilteredRows,
-                long runtimeFilterInputRows, long joinBuilderRows, long joinProbeRows,
-                int joinBuilderSkewRatio, int joinProbeSkewRatio, int instanceNum) {
-            this.nodeId = nodeId;
-            this.inputRows = inputRows;
-            this.outputRows = outputRows;
-            this.commonFilteredRows = commonFilteredRows;
-            this.commonFilterInputRows = commonFilterInputRows;
-            this.runtimeFilteredRows = runtimeFilteredRows;
-            this.runtimeFilterInputRows = runtimeFilterInputRows;
-            this.joinBuilderRows = joinBuilderRows;
-            this.joinProbeRows = joinProbeRows;
-            this.joinBuilderSkewRatio = joinBuilderSkewRatio;
-            this.joinProbeSkewRatio = joinProbeSkewRatio;
-            this.instanceNum = instanceNum;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
         }
-
-        public PlanStatistics build() {
-            return new PlanStatistics(nodeId, inputRows, outputRows, commonFilteredRows, commonFilterInputRows,
-                    runtimeFilteredRows, runtimeFilterInputRows, joinBuilderRows, joinProbeRows,
-                    joinBuilderSkewRatio, joinProbeSkewRatio, instanceNum);
-        }
-
-        public static Builder buildFrom(PlanStatistics execStats) {
-            return new Builder(execStats.getNodeId(), execStats.getInputRows(), execStats.getOutputRows(),
-                    execStats.getCommonFilteredRows(), execStats.getCommonFilterInputRows(),
-                    execStats.getRuntimeFilteredRows(), execStats.getRuntimeFilterInputRows(),
-                    execStats.getJoinBuilderRows(), execStats.getJoinProbeRows(),
-                    execStats.getJoinBuilderSkewRatio(), execStats.getJoinProbeSkewRatio(),
-                    execStats.getInstanceNum());
-        }
-
-        public Builder setNodeId(int nodeId) {
-            this.nodeId = nodeId;
-            return this;
-        }
+        PlanStatistics other = (PlanStatistics) o;
+        return nodeId == other.nodeId
+            && inputRows == other.inputRows
+            && outputRows == other.outputRows
+            && commonFilteredRows == other.commonFilteredRows
+            && commonFilterInputRows == other.commonFilterInputRows
+            && runtimeFilteredRows == other.runtimeFilteredRows
+            && runtimeFilterInputRows == other.runtimeFilterInputRows
+            && joinBuilderRows == other.joinBuilderRows
+            && joinProbeRows == other.joinProbeRows
+            && joinBuilderSkewRatio == other.joinBuilderSkewRatio
+            && joinProbeSkewRatio == other.joinProbeSkewRatio
+            && instanceNum == other.instanceNum;
     }
 }

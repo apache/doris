@@ -32,33 +32,34 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * MemoryHboPlanStatisticsProvider
+ * HboPlanStatisticsProvider's in-memory implementation.
  */
 public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvider {
-    private volatile Cache<String, RecentRunsPlanStatistics> hboCache;
+    private volatile Cache<String, RecentRunsPlanStatistics> hboPlanStatsCache;
 
     public MemoryHboPlanStatisticsProvider() {
-        hboCache = buildHboCaches(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+        hboPlanStatsCache = buildHboPlanStatsCaches(
+                Config.hbo_plan_stats_cache_num,
+                Config.expire_hbo_plan_stats_cache_in_fe_second
         );
     }
 
     @Override
-    public RecentRunsPlanStatistics getHboStats(PlanNodeAndHash planNodeAndHash) {
+    public RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash) {
         if (planNodeAndHash.getHash().isPresent()) {
-            return hboCache.asMap().getOrDefault(planNodeAndHash.getHash().get(), RecentRunsPlanStatistics.empty());
+            return hboPlanStatsCache.asMap().getOrDefault(planNodeAndHash.getHash().get(),
+                    RecentRunsPlanStatistics.empty());
         }
         return RecentRunsPlanStatistics.empty();
     }
 
     @Override
-    public Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboStats(List<PlanNodeAndHash> planNodeHashes) {
+    public Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboPlanStats(List<PlanNodeAndHash> planNodeHashes) {
         return planNodeHashes.stream().collect(Collectors.toMap(
                 planNodeAndHash -> planNodeAndHash,
                 planNodeAndHash -> {
                     if (planNodeAndHash.getHash().isPresent()) {
-                        return hboCache.asMap().getOrDefault(planNodeAndHash.getHash().get(),
+                        return hboPlanStatsCache.asMap().getOrDefault(planNodeAndHash.getHash().get(),
                                 RecentRunsPlanStatistics.empty());
                     }
                     return RecentRunsPlanStatistics.empty();
@@ -66,21 +67,20 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     }
 
     @Override
-    public void putHboStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashStatisticsMap) {
+    public void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashStatisticsMap) {
         hashStatisticsMap.forEach((planNodeAndHash, recentRunsPlanStatistics) -> {
             if (planNodeAndHash.getHash().isPresent()) {
-                hboCache.put(planNodeAndHash.getHash().get(), recentRunsPlanStatistics);
+                hboPlanStatsCache.put(planNodeAndHash.getHash().get(), recentRunsPlanStatistics);
             }
         });
     }
 
-    private static Cache<String, RecentRunsPlanStatistics> buildHboCaches(int hboCacheNum,
-            long expireAfterAccessSeconds) {
+    private static Cache<String, RecentRunsPlanStatistics> buildHboPlanStatsCaches(
+            int cacheNum, long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
-                // auto evict cache when jvm memory too low
                 .softValues();
-        if (hboCacheNum > 0) {
-            cacheBuilder.maximumSize(hboCacheNum);
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
         }
         if (expireAfterAccessSeconds > 0) {
             cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
@@ -90,9 +90,8 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     }
 
     /**
-     * NOTE: used in Config.sql_cache_manage_num.callbackClassString and
-     * Config.cache_last_version_interval_second.callbackClassString,
-     * don't remove it!
+     * NOTE: used in Config.hbo_plan_stats_cache_num.callbackClassString and
+     * Config.expire_hbo_plan_stats_cache_in_fe_second.callbackClassString,
      */
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
@@ -103,28 +102,26 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     }
 
     /**
-     * NOTE: used in Config.sql_cache_manage_num.callbackClassString and
-     * Config.cache_last_version_interval_second.callbackClassString,
-     * don't remove it!
+     * Reference the above UpdateConfig comments.
      */
     public static synchronized void updateConfig() {
         HboPlanStatisticsManager hboManger = HboPlanStatisticsManager.getInstance();
         if (hboManger == null) {
             return;
         }
-        HboPlanStatisticsProvider hboProvider = hboManger.getHboPlanStatisticsProvider();
-        if (!(hboProvider instanceof MemoryHboPlanStatisticsProvider)) {
+        HboPlanStatisticsProvider hboPlanStatsProvider = hboManger.getHboPlanStatisticsProvider();
+        if (!(hboPlanStatsProvider instanceof MemoryHboPlanStatisticsProvider)) {
             return;
         }
 
-        MemoryHboPlanStatisticsProvider inMemHboProvider =
-                (MemoryHboPlanStatisticsProvider) hboProvider;
+        MemoryHboPlanStatisticsProvider inMemHboPlanStatsProvider =
+                (MemoryHboPlanStatisticsProvider) hboPlanStatsProvider;
 
-        Cache<String, RecentRunsPlanStatistics> hboCaches = buildHboCaches(
-                Config.sql_cache_manage_num,
-                Config.expire_sql_cache_in_fe_second
+        Cache<String, RecentRunsPlanStatistics> hboPlanStatsCache = buildHboPlanStatsCaches(
+                Config.hbo_plan_stats_cache_num,
+                Config.expire_hbo_plan_stats_cache_in_fe_second
         );
-        hboCaches.putAll(inMemHboProvider.hboCache.asMap());
-        inMemHboProvider.hboCache = hboCaches;
+        hboPlanStatsCache.putAll(inMemHboPlanStatsProvider.hboPlanStatsCache.asMap());
+        inMemHboPlanStatsProvider.hboPlanStatsCache = hboPlanStatsCache;
     }
 }

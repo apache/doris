@@ -23,22 +23,19 @@ import java.util.Objects;
 
 public class RecentRunsPlanStatistics {
     private static final RecentRunsPlanStatistics EMPTY = new RecentRunsPlanStatistics(null);
+    private final List<RecentRunsPlanStatisticsEntry> recentRunsStatistics;
 
-    // Output plan statistics from previous runs
-    private final List<RecentRunsPlanStatisticsEntry> lastRunsStatistics;
-
-    public RecentRunsPlanStatistics(List<RecentRunsPlanStatisticsEntry> lastRunsStatistics) {
-        // Check for nulls, to make it thrift backwards compatible
-        this.lastRunsStatistics = lastRunsStatistics == null ? new ArrayList<>() : lastRunsStatistics;
+    public RecentRunsPlanStatistics(List<RecentRunsPlanStatisticsEntry> recentRunsStatistics) {
+        this.recentRunsStatistics = recentRunsStatistics == null ? new ArrayList<>() : recentRunsStatistics;
     }
 
-    public List<RecentRunsPlanStatisticsEntry> getLastRunsStatistics() {
-        return lastRunsStatistics;
+    public List<RecentRunsPlanStatisticsEntry> getRecentRunsStatistics() {
+        return recentRunsStatistics;
     }
 
     @Override
     public String toString() {
-        return String.format("RecentRunsPlanStatistics{lastRunsStatistics=%s}", lastRunsStatistics);
+        return String.format("RecentRunsPlanStatistics{recentRunsStatistics=%s}", recentRunsStatistics);
     }
 
     @Override
@@ -52,12 +49,12 @@ public class RecentRunsPlanStatistics {
 
         RecentRunsPlanStatistics other = (RecentRunsPlanStatistics) o;
 
-        return Objects.equals(lastRunsStatistics, other.lastRunsStatistics);
+        return Objects.equals(recentRunsStatistics, other.recentRunsStatistics);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(lastRunsStatistics);
+        return Objects.hash(recentRunsStatistics);
     }
 
     public static RecentRunsPlanStatistics empty() {

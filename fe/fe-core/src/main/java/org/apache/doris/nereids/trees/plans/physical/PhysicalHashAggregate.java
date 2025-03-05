@@ -221,7 +221,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         StringBuilder builder = new StringBuilder();
         String aggPhase = "Aggregate(" + this.aggregateParam.aggPhase.toString() + ")";
         List<Object> groupByExpressionsArgs = Lists.newArrayList(
@@ -351,11 +351,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 aggregateParam, maybeUsingStream, groupExpression, null,
                 requireProperties, physicalProperties, statistics,
                 child());
-    }
-
-    @Override
-    public boolean needCollectExecStats() {
-        return true;
     }
 
     /**

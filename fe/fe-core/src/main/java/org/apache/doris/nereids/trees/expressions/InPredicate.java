@@ -124,9 +124,9 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         return compareExpr + " IN " + options.stream()
-                .map(Expression::toHboString)
+                .map(Expression::getFingerprint)
                 .collect(Collectors.joining(", ", "(", ")"));
     }
 

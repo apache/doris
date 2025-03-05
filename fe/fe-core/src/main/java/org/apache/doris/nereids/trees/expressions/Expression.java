@@ -463,7 +463,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return true;
     }
 
-    public String toHboString() {
+    public String getFingerprint() {
         return "NOT_IMPLEMENTED";
     }
 }

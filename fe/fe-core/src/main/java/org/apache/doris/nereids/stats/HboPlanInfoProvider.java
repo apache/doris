@@ -33,38 +33,46 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * HboPlanInfoProvider
+ * HboPlanInfoProvider maintains 3 kinds of cache for each queryId:
+ * - scanToFilterCache:
+ *   scan relation id <-> filter expr sets on the scan
+ *   collected during rewriting stage
+ * - idToPlanCache:
+ *   real plan id(not nereids id) <-> physical plan
+ *   collected after physical plan generation
+ * - planToIdCache:
+ *   physical plan <-> real plan id(not nereids id)
+ *   collected the same time as idToPlanCache
  */
 public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache;
     private volatile Cache<String, Map<PhysicalPlan, Integer>> planToIdCache;
-    private volatile Cache<String, Map<RelationId, Set<Expression>>> tableToFilterCache;
+    private volatile Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache;
 
     /**
-     * HboPlanInfoProvider
+     * Hbo plan info provider.
      */
     public HboPlanInfoProvider() {
         idToPlanCache = buildHboIdToPlanCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
         planToIdCache = buildHboPlanToIdCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
-        tableToFilterCache = buildHboTableToFilterCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+        scanToFilterCache = buildHboScanToFilterCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
     }
 
-    private static Cache<String, Map<RelationId, Set<Expression>>> buildHboTableToFilterCache(int hboCacheNum,
-            long expireAfterAccessSeconds) {
+    private static Cache<String, Map<RelationId, Set<Expression>>> buildHboScanToFilterCache(
+            int cacheNum, long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
-                // auto evict cache when jvm memory too low
                 .softValues();
-        if (hboCacheNum > 0) {
-            cacheBuilder.maximumSize(hboCacheNum);
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
         }
         if (expireAfterAccessSeconds > 0) {
             cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
@@ -73,19 +81,12 @@ public class HboPlanInfoProvider {
         return cacheBuilder.build();
     }
 
-    /**
-     * buildHboIdToPlanCache
-     * @param: hbo cache Num
-     * @param: expireAfterAccessSeconds
-     * @return: buildHboIdToPlanCache
-     */
-    private static Cache<String, Map<Integer, PhysicalPlan>> buildHboIdToPlanCache(int hboCacheNum,
-            long expireAfterAccessSeconds) {
+    private static Cache<String, Map<Integer, PhysicalPlan>> buildHboIdToPlanCache(
+            int cacheNum, long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
-                // auto evict cache when jvm memory too low
                 .softValues();
-        if (hboCacheNum > 0) {
-            cacheBuilder.maximumSize(hboCacheNum);
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
         }
         if (expireAfterAccessSeconds > 0) {
             cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
@@ -94,19 +95,12 @@ public class HboPlanInfoProvider {
         return cacheBuilder.build();
     }
 
-    /**
-     * buildHboPlanToIdCache
-     * @param hboCacheNum hbo cache number
-     * @param expireAfterAccessSeconds  expire After Access Seconds
-     * @return cache
-     */
-    private static Cache<String, Map<PhysicalPlan, Integer>> buildHboPlanToIdCache(int hboCacheNum,
-            long expireAfterAccessSeconds) {
+    private static Cache<String, Map<PhysicalPlan, Integer>> buildHboPlanToIdCache(
+            int cacheNum, long expireAfterAccessSeconds) {
         Caffeine<Object, Object> cacheBuilder = Caffeine.newBuilder()
-                // auto evict cache when jvm memory too low
                 .softValues();
-        if (hboCacheNum > 0) {
-            cacheBuilder.maximumSize(hboCacheNum);
+        if (cacheNum > 0) {
+            cacheBuilder.maximumSize(cacheNum);
         }
         if (expireAfterAccessSeconds > 0) {
             cacheBuilder = cacheBuilder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
@@ -131,16 +125,17 @@ public class HboPlanInfoProvider {
         planToIdCache.put(queryId, idToPlanMap);
     }
 
-    public Map<RelationId, Set<Expression>> getTableToExprMap(String queryId) {
-        return tableToFilterCache.asMap().getOrDefault(queryId, new ConcurrentHashMap<>());
+    public Map<RelationId, Set<Expression>> getScanToFilterMap(String queryId) {
+        return scanToFilterCache.asMap().getOrDefault(queryId, new ConcurrentHashMap<>());
     }
 
-    public void putTableToExprMap(String queryId, Map<RelationId, Set<Expression>> tableToExprMap) {
-        tableToFilterCache.put(queryId, tableToExprMap);
+    public void putScanToFilterMap(String queryId, Map<RelationId, Set<Expression>> scanToFilterMap) {
+        scanToFilterCache.put(queryId, scanToFilterMap);
     }
 
     /**
-     * UpdateConfig
+     * NOTE: used in Config.hbo_plan_info_cache_num.callbackClassString and
+     * Config.expire_hbo_plan_info_cache_in_fe_second.callbackClassString,
      */
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
@@ -151,35 +146,35 @@ public class HboPlanInfoProvider {
     }
 
     /**
-     * UpdateConfig
+     * Reference the above UpdateConfig comments.
      */
     public static synchronized void updateConfig() {
         HboPlanStatisticsManager hboManger = HboPlanStatisticsManager.getInstance();
         if (hboManger == null) {
             return;
         }
-        HboPlanInfoProvider hboIdToPlanProvider = hboManger.getHboPlanInfoProvider();
-        if (hboIdToPlanProvider == null) {
+        HboPlanInfoProvider planInfoProvider = hboManger.getHboPlanInfoProvider();
+        if (planInfoProvider == null) {
             return;
         }
 
         Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache = buildHboIdToPlanCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
         Cache<String, Map<PhysicalPlan, Integer>> planToIdCache = buildHboPlanToIdCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
-        Cache<String, Map<RelationId, Set<Expression>>> tableToExprCache = buildHboTableToFilterCache(
-                Config.hbo_cache_manage_num,
-                Config.expire_hbo_cache_in_fe_second
+        Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache = buildHboScanToFilterCache(
+                Config.hbo_plan_info_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second
         );
-        idToPlanCache.putAll(hboIdToPlanProvider.idToPlanCache.asMap());
-        hboIdToPlanProvider.idToPlanCache = idToPlanCache;
-        planToIdCache.putAll(hboIdToPlanProvider.planToIdCache.asMap());
-        hboIdToPlanProvider.planToIdCache = planToIdCache;
-        tableToExprCache.putAll(hboIdToPlanProvider.tableToFilterCache.asMap());
-        hboIdToPlanProvider.tableToFilterCache = tableToExprCache;
+        idToPlanCache.putAll(planInfoProvider.idToPlanCache.asMap());
+        planInfoProvider.idToPlanCache = idToPlanCache;
+        planToIdCache.putAll(planInfoProvider.planToIdCache.asMap());
+        planInfoProvider.planToIdCache = planToIdCache;
+        scanToFilterCache.putAll(planInfoProvider.scanToFilterCache.asMap());
+        planInfoProvider.scanToFilterCache = scanToFilterCache;
     }
 }

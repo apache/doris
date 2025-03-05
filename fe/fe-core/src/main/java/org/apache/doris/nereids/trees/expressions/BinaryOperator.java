@@ -60,7 +60,7 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         String leftHboString = left().toString();
         String rightHboString = right().toString();
         // expression with function will not be parameterized.
@@ -70,10 +70,10 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
         // but the foldable expression like "substring("3190400", 1, 5)" has been folded as '31904' before cbo stage,
         // so it is safe during the plan matching and runtime stats recording.
         if (left() instanceof Literal) {
-            leftHboString = ((Literal) left()).toHboString();
+            leftHboString = ((Literal) left()).getFingerprint();
         }
         if (right() instanceof Literal) {
-            rightHboString = ((Literal) right()).toHboString();
+            rightHboString = ((Literal) right()).getFingerprint();
         }
         return "(" + leftHboString + " " + symbol + " " + rightHboString + ")";
     }

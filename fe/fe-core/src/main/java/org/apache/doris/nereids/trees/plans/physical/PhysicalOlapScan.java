@@ -112,12 +112,18 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return preAggStatus;
     }
 
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
+    }
+
     public List<Slot> getBaseOutputs() {
         return baseOutputs;
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         //StringBuilder builder = new StringBuilder();
         //if (!getAppliedRuntimeFilters().isEmpty()) {
         //    getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));

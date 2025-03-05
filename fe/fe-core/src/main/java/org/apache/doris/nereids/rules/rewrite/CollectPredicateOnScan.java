@@ -33,45 +33,47 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Collect scan filter for hbo
+ * Collect filter pushed down on top of the scan.
+ * Mainly used in hbo and controlled by 'enable_hbo_info_collection' session variable.
+ * It provides scanToFilterMap info to HboPlanInfoProvider.
  */
 public class CollectPredicateOnScan implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.COLLECT_SCAN_FILTER_FOR_HBO.build(
+                RuleType.COLLECT_SCAN_FILTER.build(
                 logicalFilter(logicalOlapScan()).then(filter -> {
                     if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
                             || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
                         return filter;
                     }
-                    LogicalOlapScan scan = (LogicalOlapScan) filter.child();
+                    LogicalOlapScan scan = filter.child();
                     String queryId = DebugUtil.printId(ConnectContext.get().queryId());
-                    Map<RelationId, Set<Expression>> tableToFilterExprMap = HboPlanStatisticsManager.getInstance()
-                            .getHboPlanInfoProvider().getTableToExprMap(queryId);
-                    if (tableToFilterExprMap.isEmpty()) {
+                    Map<RelationId, Set<Expression>> scanToFilterMap = HboPlanStatisticsManager.getInstance()
+                            .getHboPlanInfoProvider().getScanToFilterMap(queryId);
+                    if (scanToFilterMap.isEmpty()) {
                         HboPlanStatisticsManager.getInstance()
-                                .getHboPlanInfoProvider().putTableToExprMap(queryId, tableToFilterExprMap);
+                                .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
-                    tableToFilterExprMap.put(scan.getRelationId(), filter.getConjuncts());
+                    scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());
                     return filter;
                 })),
 
-                RuleType.COLLECT_SCAN_PROJECT_FILTER_FOR_HBO.build(
+                RuleType.COLLECT_SCAN_PROJECT_FILTER.build(
                 logicalFilter(logicalProject(logicalOlapScan())).then(filter -> {
                     if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
                             || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
                         return filter;
                     }
-                    LogicalOlapScan scan = (LogicalOlapScan) filter.child().child();
+                    LogicalOlapScan scan = filter.child().child();
                     String queryId = DebugUtil.printId(ConnectContext.get().queryId());
-                    Map<RelationId, Set<Expression>> tableToFilterExprMap = HboPlanStatisticsManager.getInstance()
-                            .getHboPlanInfoProvider().getTableToExprMap(queryId);
-                    if (tableToFilterExprMap.isEmpty()) {
+                    Map<RelationId, Set<Expression>> scanToFilterMap = HboPlanStatisticsManager.getInstance()
+                            .getHboPlanInfoProvider().getScanToFilterMap(queryId);
+                    if (scanToFilterMap.isEmpty()) {
                         HboPlanStatisticsManager.getInstance()
-                                .getHboPlanInfoProvider().putTableToExprMap(queryId, tableToFilterExprMap);
+                                .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
-                    tableToFilterExprMap.put(scan.getRelationId(), filter.getConjuncts());
+                    scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());
                     return filter;
                 }))
         );

@@ -1466,21 +1466,36 @@ public class Config extends ConfigBase {
     public static int expire_sql_cache_in_fe_second = 300;
 
     /**
-     *  Expire hbo cache in frontend time
+     *  Expire hbo plan stats. cache in frontend time.
      */
     @ConfField(
             mutable = true,
             masterOnly = false,
-            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
-                    "The current default setting is 300, which is used to control the expiration time of SQL cache"
-                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
-                            + "it will be reclaimed"
+                    "当前默认设置为 86400，用来控制控制MemoryHboPlanStatisticsProvider中stats. cache过期时间，超过不访问会被回收",
+                    "The default setting is 86400, which is used to control the expiration time of plan stats. cache"
+                            + "in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
             }
     )
-    // TODO: consider the cache active timing, 300s is too short
-    public static int expire_hbo_cache_in_fe_second = 300000;
+    public static int expire_hbo_plan_stats_cache_in_fe_second = 86400;
+
+    /**
+     *  Expire hbo plan info cache in frontend time.
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 100，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
+                    "The default setting is 100, which is used to control the expiration time of hbo plan info cache"
+                            + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
+            }
+    )
+    public static int expire_hbo_plan_info_cache_in_fe_second = 100;
 
     /**
      *  Expire sql sql in frontend time
@@ -2367,20 +2382,58 @@ public class Config extends ConfigBase {
     )
     public static int cache_partition_meta_table_manage_num = 100;
 
-
     /**
-     * the hbo cache num which can be reused for the next query
+     * HBO plan stats. cache number which can be reused for the next query.
      */
     @ConfField(
             mutable = true,
-            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 1000，用来控制控制HboCacheManager管理的sql cache数量。",
-                    "Now default set to 1000, this config is used to control the number of "
-                            + "hbo cache managed by 用来控制控制HboCacheManager管理的sql"
+                    "当前默认设置为 100000，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache数量。",
+                    "Now default set to 100000, this config is used to control the number of "
+                            + "hbo plan stats. cache"
             }
     )
-    public static int hbo_cache_manage_num = 1000;
+    public static int hbo_plan_stats_cache_num = 100000;
+
+    /**
+     * HBO plan recent runs entry number.
+     */
+    @ConfField(
+            mutable = true,
+            description = {
+                    "当前默认设置为 10，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache recent runs数量。",
+                    "Now default set to 10, this config is used to control the number of "
+                            + "hbo plan stats. cache recent runs' entry number."
+            }
+    )
+    public static int hbo_plan_stats_cache_recent_runs_entry_num = 10;
+
+    /**
+     * Plan info cache number which is used for HboPlanInfoProvider.
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 1000，用来控制控制HboPlanInfoProvider管理的plan info cache数量。",
+                    "Now default set to 1000, this config is used to control the number of "
+                            + "hbo plan info cache"
+            }
+    )
+    public static int hbo_plan_info_cache_num = 1000;
+
+    /**
+     * Slow query threshold for hbo plan stats. info collection.
+     */
+    @ConfField(
+            mutable = true,
+            description = {
+                    "当前默认设置为 100，用来控制控制hbo plan stats. collection的slow query的阈值。",
+                    "Now default set to 100, this config is used to control slow query threshold of hbo info collection"
+            }
+    )
+    public static int hbo_slow_query_threshold_ms = 100;
 
     /**
      * Maximum number of events to poll in each RPC.

@@ -266,7 +266,7 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         List<Object> args = Lists.newArrayList(
                 "type", joinType,
                 "hashCondition", hashJoinConjuncts,
@@ -302,11 +302,6 @@ public abstract class AbstractPhysicalJoin<
         }
         return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 args.toArray());
-    }
-
-    @Override
-    public boolean needCollectExecStats() {
-        return true;
     }
 
     /**

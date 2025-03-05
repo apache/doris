@@ -30,7 +30,8 @@ public class InputTableStatisticsInfo {
 
     public InputTableStatisticsInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics) {
         this.hash = Objects.requireNonNull(hash, "hash is null");
-        this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics, "inputTableStatistics is null");
+        this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics,
+                "inputTableStatistics is null");
     }
 
     public Optional<String> getHash() {

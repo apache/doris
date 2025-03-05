@@ -28,9 +28,7 @@ import java.util.Optional;
  */
 public class PlanNodeAndHash {
     private final AbstractPlan planNode;
-    // An optional canonical hash of the corresponding plan node.
-    // Hash strategy is part of `CanonicalPlan` which gets hashed,
-    // hence different strategies gives different hash
+
     private final Optional<String> hash;
 
     public PlanNodeAndHash(AbstractPlan planNode, Optional<String> hash) {

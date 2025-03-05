@@ -119,16 +119,16 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return true;
     }
 
-    public String toHboString() {
+    public String getFingerprint() {
         return "";
     }
 
     /**
-     * hboTreeString
+     * Get fingerprint of plan.
      */
-    public String hboTreeString() {
+    public String getPlanTreeFingerprint() {
         StringBuilder builder = new StringBuilder();
-        builder.append(this.toHboString());
+        builder.append(this.getFingerprint());
         if (this.children().isEmpty()) {
             return builder.toString();
         } else {
@@ -162,8 +162,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                     }*/
                     List<String> olapTables1 = new ArrayList<>();
                     List<String> olapTables2 = new ArrayList<>();
-                    HboUtils.collectScans((AbstractPlan) plan1, olapTables1);
-                    HboUtils.collectScans((AbstractPlan) plan2, olapTables2);
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan1, olapTables1);
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan2, olapTables2);
                     Collections.sort(olapTables1);
                     Collections.sort(olapTables2);
                     String str1 = Utils.qualifiedName(olapTables1, "");
@@ -173,14 +173,14 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             });
             for (Plan plan : mutableChildren) {
                 if (plan instanceof GroupPlan) {
-                    builder.append(((GroupPlan) plan).toHboString());
+                    builder.append(((GroupPlan) plan).getFingerprint());
                 } else if (plan instanceof AbstractLogicalPlan) {
-                    builder.append(((AbstractPlan) plan).hboTreeString());
+                    builder.append(((AbstractPlan) plan).getPlanTreeFingerprint());
                 } else if (plan instanceof AbstractPhysicalPlan) {
                     if (!isLocalAggPhysicalNode((AbstractPhysicalPlan) plan)) {
-                        builder.append(((AbstractPlan) plan).hboTreeString());
+                        builder.append(((AbstractPlan) plan).getPlanTreeFingerprint());
                     } else {
-                        builder.append(((AbstractPlan) plan.child(0)).hboTreeString());
+                        builder.append(((AbstractPlan) plan.child(0)).getPlanTreeFingerprint());
                     }
                 } else {
                     throw new RuntimeException("hboTreeString illegal plan type");

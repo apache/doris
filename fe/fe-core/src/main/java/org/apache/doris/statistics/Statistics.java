@@ -305,10 +305,6 @@ public class Statistics {
         this.actualRowCount = actualRowCount;
     }
 
-    public boolean isFromHbo() {
-        return isFromHbo;
-    }
-
     public void setFromHbo(boolean isFromHbo) {
         this.isFromHbo = isFromHbo;
     }

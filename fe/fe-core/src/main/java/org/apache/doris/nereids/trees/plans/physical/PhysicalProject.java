@@ -91,7 +91,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     //@Override
-    //public String toHboString() {
+    //public String getFingerprint() {
     //    return Utils.toSqlString("PhysicalProject[" + "]" + getGroupIdWithPrefix(),
     //            "projects", projects
     //   );

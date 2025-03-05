@@ -117,9 +117,9 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         StringBuilder sb = new StringBuilder();
-        children().forEach(c -> sb.append(c.toHboString()).append(","));
+        children().forEach(c -> sb.append(c.getFingerprint()).append(","));
         sb.deleteCharAt(sb.length() - 1);
         return symbol + "[" + sb + "]";
     }

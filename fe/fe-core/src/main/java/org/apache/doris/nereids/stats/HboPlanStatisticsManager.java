@@ -17,37 +17,32 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 
-import java.util.concurrent.ExecutorService;
-
 /**
- * HboPlanStatisticsManager
+ * Global service for hbo plan stats. manager, including:
+ * - HboPlanStatisticsProvider instance: hbo plan stats. cache
+ * - HboPlanInfoProvider instance: plan info for runtime stats. identification
  */
 public class HboPlanStatisticsManager extends MasterDaemon {
     private static volatile HboPlanStatisticsManager INSTANCE = null;
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
-    private final ExecutorService hboExecutor;
 
     HboPlanStatisticsManager() {
-        super("hbo-manager", 1 * 1000);
+        super("hbo-manager", 1000);
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
-        hboExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                20, 100, "hbo-thread-pool", true);
         hboPlanInfoProvider = new HboPlanInfoProvider();
-        //planCanonicalInfoProvider = new CachingPlanCanonicalInfoProvider
-        // (hboPlanStatisticsProvider, newObjectMapper, metadata);
     }
 
     /**
-     * HboPlanStatisticsManager instance.
-     * @return HboPlanStatisticsManager
+     * HboPlanStatisticsManager global instance.
+     * @return global HboPlanStatisticsManager
      */
     public static HboPlanStatisticsManager getInstance() {
-        // TODO: should with current session and configuration info and will be used in runtime stats collection
-        // and plan matching during stats calculator
+        // TODO: should with current session and configuration info
+        // and will be used in runtime stats collection and plan
+        // matching during stats calculator.
         if (INSTANCE == null) {
             synchronized (HboPlanStatisticsManager.class) {
                 if (INSTANCE == null) {

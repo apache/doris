@@ -485,14 +485,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     && context.getSessionVariable().isEnableHboOptimization()
                     && context.getSessionVariable().isEnableHboInfoCollection()) {
                 PlanNodeAndHash planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
-                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboStats(planNodeAndHash);
+                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(planNodeAndHash);
                 PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
                         context.getStatementContext().getConnectContext());
                 if (matchedPlanStatistics != null) {
                     int builderSkewRatio = matchedPlanStatistics.getJoinBuilderSkewRatio();
                     int probeSkewRatio = matchedPlanStatistics.getJoinProbeSkewRatio();
-                    // TODO: add into session variable
-                    if (builderSkewRatio > 5 || probeSkewRatio > 5) {
+                    int hboSkewRatioThreshold = context.getSessionVariable().getHboSkewRatioThreshold();
+                    if (builderSkewRatio >= hboSkewRatioThreshold || probeSkewRatio >= hboSkewRatioThreshold) {
                         probeShortcutFactor = probeShortcutFactor * 0.1;
                     }
                 }

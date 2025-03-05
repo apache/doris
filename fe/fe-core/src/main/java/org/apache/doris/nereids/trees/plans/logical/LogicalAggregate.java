@@ -194,7 +194,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public String toHboString() {
+    public String getFingerprint() {
         StringBuilder builder = new StringBuilder();
         String aggPhase = "Aggregate" + "(GLOBAL)";
         List<Object> groupByExpressionsArgs = Lists.newArrayList(
