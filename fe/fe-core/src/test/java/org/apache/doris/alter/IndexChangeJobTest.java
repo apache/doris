@@ -114,8 +114,12 @@ public class IndexChangeJobTest {
         TableProperty tableProperty = new TableProperty(properties);
         olapTable.setTableProperty(tableProperty);
 
-        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(), olapTable.getName());
-        IndexDef indexDef = new IndexDef("index1", false, Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()), IndexDef.IndexType.INVERTED, Maps.newHashMap(), "balabala");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        IndexDef indexDef = new IndexDef("index1", false,
+                Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
+                IndexDef.IndexType.INVERTED,
+                Maps.newHashMap(), "balabala");
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
 
@@ -488,7 +492,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(3, tasks.size());
 
         // if one task failed, the job should be failed
-        // if task error is not OBTAIN_LOCK_FAILED, the job should be failed after MIN_FAILED_NUM = 3 times
+        // if task error is not OBTAIN_LOCK_FAILED, the job should be failed after
+        // MIN_FAILED_NUM = 3 times
         AgentTask agentTask = tasks.get(0);
         agentTask.setErrorCode(TStatusCode.IO_ERROR);
         Assert.assertEquals(agentTask.getFailedTimes(), 0);
@@ -539,7 +544,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(3, tasks.size());
 
         // if one task failed, the job should be failed
-        // if task error is OBTAIN_LOCK_FAILED, the job should be failed after MAX_FAILED_NUM = 10 times
+        // if task error is OBTAIN_LOCK_FAILED, the job should be failed after
+        // MAX_FAILED_NUM = 10 times
         AgentTask agentTask = tasks.get(0);
         agentTask.setErrorCode(TStatusCode.OBTAIN_LOCK_FAILED);
         Assert.assertEquals(agentTask.getFailedTimes(), 0);
@@ -551,5 +557,25 @@ public class IndexChangeJobTest {
             }
         }
         Assert.assertEquals(IndexChangeJob.JobState.CANCELLED, indexChangejob.getJobState());
+    }
+
+    @Test
+    public void testNgramBfBuildIndex() throws UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        IndexDef indexDef = new IndexDef("ngram_bf_index", false,
+                Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
+                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                Maps.newHashMap(), "ngram bf index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                olapTable.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+
+        buildIndexClause = new BuildIndexClause(tableName, indexDef, false);
+        org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> buildIndexClause.analyze(analyzer));
     }
 }
