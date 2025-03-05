@@ -57,7 +57,8 @@ Token* ICUTokenizer::next(Token* token) {
     }
 
     utf8Str_.clear();
-    auto subString = buffer_.tempSubString(start, end - start);
+    int32_t length = std::min(end - start, LUCENE_MAX_WORD_LEN);
+    auto subString = buffer_.tempSubString(start, length);
     if (this->lowercase) {
         subString.toLower().toUTF8String(utf8Str_);
     } else {
