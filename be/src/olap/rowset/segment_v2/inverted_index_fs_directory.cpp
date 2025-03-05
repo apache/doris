@@ -221,6 +221,13 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     if (!st.ok()) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
+    if (bytes_read == 0) {
+        std::string error_msg;
+        error_msg.append("Read 0 bytes at position ");
+        error_msg.append(std::to_string(_pos));
+        error_msg.append(" (expected non-zero data)");
+        _CLTHROWA(CL_ERR_IO, error_msg.c_str());
+    }
     bufferLength = len;
     DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
                     { bytes_read = len + 10; })
