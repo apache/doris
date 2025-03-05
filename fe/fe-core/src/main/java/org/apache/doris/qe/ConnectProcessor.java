@@ -484,7 +484,9 @@ public abstract class ConnectProcessor {
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
-        LOG.warn("Process one query failed because.", throwable);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Process one query failed because: {}", throwable.getMessage());
+        }
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
