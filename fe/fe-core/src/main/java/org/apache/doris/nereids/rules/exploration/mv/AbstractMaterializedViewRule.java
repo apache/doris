@@ -383,6 +383,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
             // If rewrite successfully, try to clear mv scan currently because it maybe used again
             materializationContext.clearScanPlan(cascadesContext);
+            cascadesContext.getStatementContext().getMaterializeViewToqueryRelationIdsMap().put(
+                    materializationContext.generateMaterializationIdentifier(),
+                    queryStructInfo.getRelationIdStructInfoNodeMap().keySet());
         }
         return rewriteResults;
     }
