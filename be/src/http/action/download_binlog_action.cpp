@@ -34,6 +34,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -46,6 +47,12 @@ const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
 const std::string kSegmentIndexIdParameter = "segment_index_id";
 const std::string kAcquireMD5Parameter = "acquire_md5";
+
+bvar::LatencyRecorder g_get_binlog_info_latency("doris_download_binlog", "get_binlog_info");
+bvar::LatencyRecorder g_get_segment_file_latency("doris_download_binlog", "get_segment_file");
+bvar::LatencyRecorder g_get_segment_index_file_latency("doris_download_binlog",
+                                                       "get_segment_index_file");
+bvar::LatencyRecorder g_get_rowset_meta_latency("doris_download_binlog", "get_rowset_meta");
 
 // get http param, if no value throw exception
 const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
@@ -233,14 +240,20 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
     const std::string& method = req->param(kMethodParameter);
 
     // Step 3: dispatch
+    MonotonicStopWatch watch;
+    watch.start();
     if (method == "get_binlog_info") {
         handle_get_binlog_info(_engine, req);
+        g_get_binlog_info_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_segment_file") {
         handle_get_segment_file(_engine, req, _rate_limit_group.get());
+        g_get_segment_file_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_segment_index_file") {
         handle_get_segment_index_file(_engine, req, _rate_limit_group.get());
+        g_get_segment_index_file_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_rowset_meta") {
         handle_get_rowset_meta(_engine, req);
+        g_get_rowset_meta_latency << watch.elapsed_time_microseconds();
     } else {
         auto error_msg = fmt::format("invalid method: {}", method);
         LOG(WARNING) << error_msg;
