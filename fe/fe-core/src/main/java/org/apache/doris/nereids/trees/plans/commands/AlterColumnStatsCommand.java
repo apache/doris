@@ -187,7 +187,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
                 throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
             }
 
-            opPartitionNamesInfo.validate(ctx);
+            opPartitionNamesInfo.validate();
             List<String> partitionNames = opPartitionNamesInfo.getPartitionNames();
             for (String partitionName : partitionNames) {
                 Partition partition = olapTable.getPartition(partitionName);
