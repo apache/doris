@@ -562,6 +562,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                                               DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                               RowsetWriter* rowset_writer) {
+    LOG(INFO) << "start calc_segment_delete_bitmap for tablet " << tablet_id()
+              << " delete bitmap count=" << delete_bitmap->get_delete_bitmap_count();
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -595,7 +597,15 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     vectorized::Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
+    uint64_t load_pk_index_cost = 0;
+    uint64_t read_data_cost = 0;
+    uint64_t delete_bitmap_contains_cost = 0;
+    uint64_t look_up_row_key_cost = 0;
+    uint64_t delete_bitmap_add_cost = 0;
+    uint64_t add_mark_cost = 0;
+    OlapStopWatch watch1;
     RETURN_IF_ERROR(seg->load_pk_index_and_bf(nullptr)); // We need index blocks to iterate
+    load_pk_index_cost = watch1.get_elapse_time_us();
     const auto* pk_idx = seg->get_primary_key_index();
     int total = pk_idx->num_rows();
     uint32_t row_id = 0;
@@ -611,6 +621,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
+        auto t1 = watch1.get_elapse_time_us();
         size_t num_to_read = std::min(batch_size, remaining);
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
@@ -627,7 +638,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         DCHECK(num_to_read == num_read)
                 << "num_to_read: " << num_to_read << ", num_read: " << num_read;
         last_key = index_column->get_data_at(num_read - 1).to_string();
-
+        read_data_cost += watch1.get_elapse_time_us() - t1;
         // exclude last_key, last_key will be read in next batch.
         if (num_read == batch_size && num_read != remaining) {
             num_read -= 1;
@@ -657,12 +668,14 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
+            auto t2 = watch1.get_elapse_time_us();
             // same row in segments should be filtered
             if (delete_bitmap->contains({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                         row_id)) {
+                delete_bitmap_contains_cost += watch1.get_elapse_time_us() - t2;
                 continue;
             }
-
+            delete_bitmap_contains_cost += watch1.get_elapse_time_us() - t2;
             DBUG_EXECUTE_IF("BaseTablet::calc_segment_delete_bitmap.inject_err", {
                 auto p = dp->param("percent", 0.01);
                 std::mt19937 gen {std::random_device {}()};
@@ -676,8 +689,10 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             });
 
             RowsetSharedPtr rowset_find;
+            auto t3 = watch1.get_elapse_time_us();
             auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
                                      dummy_version.first - 1, segment_caches, &rowset_find);
+            look_up_row_key_cost += watch1.get_elapse_time_us() - t3;
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
@@ -703,8 +718,10 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 //       column value.
                 //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
                 //       of the including columns in the current row into a new row.
+                auto t4 = watch1.get_elapse_time_us();
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
+                delete_bitmap_add_cost += watch1.get_elapse_time_us() - t4;
                 ++conflict_rows;
                 continue;
                 // NOTE: for partial update which doesn't specify the sequence column, we can't use the sequence column value filled in flush phase
@@ -739,15 +756,17 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 ++new_generated_rows;
                 continue;
             }
+            auto t4 = watch1.get_elapse_time_us();
             // when st = ok
             delete_bitmap->add({loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                                loc.row_id);
+            delete_bitmap_add_cost += watch1.get_elapse_time_us() - t4;
             ++conflict_rows;
         }
         remaining -= num_read;
     }
     // DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
-
+    auto t5 = watch1.get_elapse_time_us();
     if (config::enable_merge_on_write_correctness_check) {
         RowsetIdUnorderedSet rowsetids;
         for (const auto& rowset : specified_rowsets) {
@@ -759,6 +778,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }
 
+    add_mark_cost += watch1.get_elapse_time_us() - t5;
     if (pos > 0) {
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
@@ -791,7 +811,12 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
                   << " bitmap num: " << delete_bitmap->delete_bitmap.size() << " cost: " << cost_us
-                  << "(us)";
+                  << "(us) load_pk_index_cost " << load_pk_index_cost << "(us) read_data_cost "
+                  << read_data_cost << "(us) delete_bitmap_contains_cost "
+                  << delete_bitmap_contains_cost << "(us) look_up_row_key_cost "
+                  << look_up_row_key_cost << "(us) delete_bitmap_add_cost "
+                  << delete_bitmap_add_cost << "(us) add_mark_cost" << add_mark_cost << "(us)"
+                  << " delete bitmap count=" << delete_bitmap->get_delete_bitmap_count();
     }
     return Status::OK();
 }
