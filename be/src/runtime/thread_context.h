@@ -20,6 +20,7 @@
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -323,7 +324,9 @@ static ThreadContext* thread_context(bool allow_return_null = false) {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem) : _peak_mem(peak_mem), _mem_tracker("ScopedPeakMem") {
+    explicit ScopedPeakMem(int64* peak_mem)
+            : _peak_mem(peak_mem),
+              _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
         thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
     }
