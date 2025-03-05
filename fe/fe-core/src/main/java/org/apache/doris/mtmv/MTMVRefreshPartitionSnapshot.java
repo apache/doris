@@ -110,7 +110,7 @@ public class MTMVRefreshPartitionSnapshot {
         if (!checkHasDataWithoutPartitionId()) {
             return Optional.empty();
         }
-        OlapTable relatedTable = (OlapTable) mtmv.getMvPartitionInfo().getRelatedTable();
+        OlapTable relatedTable = (OlapTable) relatedTableIf;
         for (Entry<String, MTMVSnapshotIf> entry : partitions.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
