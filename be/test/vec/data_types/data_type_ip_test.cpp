@@ -250,8 +250,6 @@ TEST_F(DataTypeIPTest, SerdeJsonbTest) {
                                         CommonDataTypeSerdeTest::assert_jsonb_format);
 }
 
-<<<<<<< HEAD
-=======
 TEST_F(DataTypeIPTest, SerdeMysqlAndArrowTest) {
     auto serde_ipv4 = dt_ipv4->get_serde(1);
     auto serde_ipv6 = dt_ipv6->get_serde(1);
@@ -375,5 +373,4 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     assert_func(struct_ip, column_struct_ip, assert_json_struct_str);
 }
 
->>>>>>> 20a0c373de ([fix](serde) Fix the behavior of serializing ip/date types nested in complex types… (#47889))
 } // namespace doris::vectorized

@@ -24,10 +24,10 @@
 #include <fstream>
 #include <iostream>
 
-#include "olap/schema.h"
-#include "runtime/descriptors.cpp"
 #include "arrow/array/array_base.h"
 #include "arrow/type.h"
+#include "olap/schema.h"
+#include "runtime/descriptors.cpp"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
