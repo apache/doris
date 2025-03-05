@@ -307,9 +307,12 @@ supportedShowStatement
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
+    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW DATA TYPES                                                               #showDataTypes
+    | SHOW DATA (ALL)? (FROM tableName=multipartIdentifier)?
+        sortClause? propertyClause?                                                 #showData
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
@@ -373,7 +376,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
-    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
     | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
@@ -394,8 +396,6 @@ unsupportedShowStatement
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showAlterTable
-    | SHOW DATA (ALL)? (FROM tableName=multipartIdentifier)?
-        sortClause? propertyClause?                                                 #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
@@ -731,6 +731,8 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
     | SHOW QUEUED ANALYZE JOBS tableName=multipartIdentifier?
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
+    | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
+        columnList=identifierList                                               #showColumnHistogramStats
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -755,8 +757,6 @@ unsupportedStatsStatement
     | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
-    | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
-        columnList=identifierList                                               #showColumnHistogramStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
