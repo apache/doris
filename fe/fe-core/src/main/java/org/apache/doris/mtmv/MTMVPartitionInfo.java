@@ -152,10 +152,10 @@ public class MTMVPartitionInfo {
         }
     }
 
-    public void compatible(CatalogMgr catalogMgr) {
+    public Optional<String> compatible(CatalogMgr catalogMgr) {
         if (relatedTable == null) {
-            return;
+            return Optional.empty();
         }
-        relatedTable.compatible(catalogMgr);
+        return relatedTable.compatible(catalogMgr);
     }
 }
