@@ -98,9 +98,11 @@ public class InsertOverwriteUtil {
      * @return
      */
     public static List<String> generateTempPartitionNames(List<String> partitionNames) {
+        long threadId = Thread.currentThread().getId();
+        String prefix = "iot_temp_" + threadId + "_";
         List<String> tempPartitionNames = new ArrayList<String>(partitionNames.size());
         for (String partitionName : partitionNames) {
-            String tempPartitionName = "iot_temp_" + partitionName;
+            String tempPartitionName = prefix + partitionName;
             if (tempPartitionName.length() > 50) {
                 tempPartitionName = tempPartitionName.substring(0, 30) + Math.abs(Objects.hash(tempPartitionName))
                         + "_" + System.currentTimeMillis();
