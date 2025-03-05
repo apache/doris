@@ -21,7 +21,7 @@ import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
 
-suite("test_load_with_transfer_encoding", "p0") {
+suite("test_load_with_transfer_encoding", "p0, nonConcurrent") {
     def table_name = "test_load_with_transfer_encoding"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
@@ -115,5 +115,12 @@ suite("test_load_with_transfer_encoding", "p0") {
     load_data.call("test_load_with_transfer_encoding", 15272)
     load_data.call("test_transfer_encoding_small", 10)
     
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("json_reader_error")
+        load_data.call("test_load_with_transfer_encoding", 0)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("json_reader_error")
+    }
+
 }
 
