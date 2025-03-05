@@ -79,20 +79,25 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
+        LOG.warn("getAvailableMTMVs tableInfos: {}", tableInfos);
         Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
+        LOG.warn("getAvailableMTMVs mvInfos: {}", mvInfos);
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
                 if (predicate.test(ctx, mtmv)) {
+                    LOG.warn("getAvailableMTMVs predicate test failed: {}", mtmv.getName());
                     continue;
                 }
                 if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
+                } else {
+                    LOG.warn("getAvailableMTMVs isMVPartitionValid failed: {}", mtmv.getName());
                 }
             } catch (Exception e) {
                 // not throw exception to client, just ignore it
-                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
+                LOG.warn("getAvailableMTMVs getTable failed: {}", tableInfo.toString(), e);
             }
         }
         return res;
