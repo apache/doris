@@ -429,7 +429,7 @@ public:
         return _tablet_commit_infos;
     }
 
-    void save_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
+    void add_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         _tablet_commit_infos.insert(_tablet_commit_infos.end(),
                                     std::make_move_iterator(commit_infos.begin()),
@@ -441,7 +441,7 @@ public:
         return _error_tablet_infos;
     }
 
-    void save_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
+    void add_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         _error_tablet_infos.insert(_error_tablet_infos.end(),
                                    std::make_move_iterator(tablet_infos.begin()),

@@ -206,7 +206,7 @@ void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
             error_tablet_infos.emplace_back(error_info);
         }
     }
-    state->save_error_tablet_infos(error_tablet_infos);
+    state->add_error_tablet_infos(error_tablet_infos);
 }
 
 void IndexChannel::set_tablets_received_rows(
@@ -971,7 +971,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
 
     if (_add_batches_finished) {
         _close_check();
-        _state->save_tablet_commit_infos(_tablet_commit_infos);
+        _state->add_tablet_commit_infos(_tablet_commit_infos);
 
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
