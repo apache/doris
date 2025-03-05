@@ -122,6 +122,11 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_rows_total, MetricUnit::ROWS, "
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_latency, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_rows, MetricUnit::ROWS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_bytes, MetricUnit::BYTES);
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
 
@@ -254,6 +259,11 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_rollback_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_receive_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_rows_total);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_get_msg_latency);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_get_msg_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_rows);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
