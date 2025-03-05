@@ -47,15 +47,18 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
@@ -82,6 +85,8 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
@@ -101,6 +106,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -1034,6 +1040,7 @@ public class Alter {
             }
             // 2. replica allocation
             if (!replicaAlloc.isNotSet()) {
+                setReplicasToDrop(partition, partitionInfo.getReplicaAllocation(partition.getId()), replicaAlloc);
                 partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
             }
             // 3. in memory
@@ -1055,6 +1062,74 @@ public class Alter {
         BatchModifyPartitionsInfo info = new BatchModifyPartitionsInfo(modifyPartitionInfos);
         Env.getCurrentEnv().getEditLog().logBatchModifyPartition(info);
     }
+
+    public void setReplicasToDrop(Partition partition,
+                                 ReplicaAllocation oldReplicaAlloc,
+                                 ReplicaAllocation newReplicaAlloc) {
+        // find out which tag replica num altered
+        Tag alteredTag = null;
+        for (Map.Entry<Tag, Short> oldEntry : oldReplicaAlloc.getAllocMap().entrySet()) {
+            if (oldEntry.getValue() != newReplicaAlloc.getReplicaNumByTag(oldEntry.getKey())) {
+                if (oldEntry.getValue() >= newReplicaAlloc.getReplicaNumByTag(oldEntry.getKey())) {
+                    return;
+                }
+                alteredTag = oldEntry.getKey();
+            }
+        }
+        if (alteredTag != null) {
+            return;
+        }
+
+        Map<Long, Long> replicaNumInTagMap = Maps.newHashMap();
+        for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            for (Tablet tablet : mIndex.getTablets()) {
+                Set<Long> beIds = tablet.getBackendIds();
+                for (Long beId : beIds) {
+                    Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+                    if (be.getLocationTag() != alteredTag) {
+                        continue;
+                    }
+                    replicaNumInTagMap.put(beId, replicaNumInTagMap.get(beId) + 1);
+                }
+            }
+        }
+
+        int needDropNum = oldReplicaAlloc.getReplicaNumByTag(alteredTag)
+                    - newReplicaAlloc.getReplicaNumByTag(alteredTag);
+
+        for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            for (Tablet tablet : mIndex.getTablets()) {
+                int tabletNeedDropNum = needDropNum;
+                Long maxTabletNum = 0L;
+                Long maxBeId = -1L;
+                // find all be's max tablet num
+                for (Map.Entry<Long, Long> entry : replicaNumInTagMap.entrySet()) {
+                    if (entry.getValue() > maxTabletNum) {
+                        maxTabletNum = entry.getValue();
+                        maxBeId = entry.getKey();
+                    }
+                }
+
+                final Long finalMaxBeId = maxBeId;
+                List<Replica> replicasInSameTag = tablet.getReplicas()
+                        .stream().filter(replica -> replica.getBackendIdWithoutException() == finalMaxBeId)
+                        .collect(Collectors.toList());
+
+
+                for (Replica replica : replicasInSameTag) {
+                    if (tabletNeedDropNum > 0 && maxBeId != -1 && replica.getBackendIdWithoutException() == maxBeId) {
+                        replica.setBad(true);
+                        replicaNumInTagMap.put(maxBeId, replicaNumInTagMap.get(maxBeId) - 1);
+                        --tabletNeedDropNum;
+                    }
+                    if (tabletNeedDropNum <= 0) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
 
     public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
         for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
