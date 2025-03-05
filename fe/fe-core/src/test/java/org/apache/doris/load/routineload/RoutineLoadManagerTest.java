@@ -594,6 +594,7 @@ public class RoutineLoadManagerTest {
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
         List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress());
         routineLoadJobList.add(routineLoadJob);
         nameToRoutineLoadJob.put("", routineLoadJobList);
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
