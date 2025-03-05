@@ -125,7 +125,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
+    _execution_dependency = pipeline::QueryGlobalDependency::create_unique("ExecutionDependency");
+    _memory_sufficient_dependency =
+            pipeline::QueryGlobalDependency::create_unique("MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
@@ -293,22 +295,13 @@ void QueryContext::set_execution_dependency_ready() {
 void QueryContext::set_memory_sufficient(bool sufficient) {
     if (sufficient) {
         {
+            _memory_sufficient_dependency->set_ready();
             std::lock_guard l(_paused_mutex);
             _paused_reason = Status::OK();
-            _paused_timer.stop();
-            _paused_period_secs += _paused_timer.elapsed_time() / (1000L * 1000L * 1000L);
         }
     } else {
-        _paused_timer.start();
+        _memory_sufficient_dependency->block();
         ++_paused_count;
-    }
-
-    for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
-        auto fragment_ctx = fragment_wptr.lock();
-        if (!fragment_ctx) {
-            continue;
-        }
-        fragment_ctx->set_memory_sufficient(sufficient);
     }
 }
 
@@ -316,6 +309,9 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     if (!_exec_status.update(new_status)) {
         return;
     }
+    // Tasks should be always runnable.
+    _execution_dependency->set_always_ready();
+    _memory_sufficient_dependency->set_always_ready();
     if ((new_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
          new_status.is<ErrorCode::MEM_ALLOC_FAILED>()) &&
         _query_options.__isset.dump_heap_profile_when_mem_limit_exceeded &&
@@ -599,7 +595,9 @@ std::string QueryContext::debug_string() {
             PrettyPrinter::print(query_mem_tracker()->consumption(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker()->limit(), TUnit::BYTES),
             PrettyPrinter::print(query_mem_tracker()->peak_consumption(), TUnit::BYTES),
-            _revoking_tasks_count, _paused_period_secs, _paused_reason.to_string());
+            _revoking_tasks_count,
+            _memory_sufficient_dependency->watcher_elapse_time() / NANOS_PER_SEC,
+            _paused_reason.to_string());
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>

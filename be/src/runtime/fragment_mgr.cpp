@@ -580,10 +580,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     try {
         try {
             coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
+        } catch ([[maybe_unused]] TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
+#endif
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -851,7 +853,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                          prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
-            query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }
     }

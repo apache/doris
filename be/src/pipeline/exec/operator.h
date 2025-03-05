@@ -101,7 +101,7 @@ public:
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     [[nodiscard]] virtual std::string get_name() const = 0;
-    [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
+    [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
@@ -550,7 +550,7 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -807,7 +807,7 @@ public:
 
     // Tablets should be hold before open phase.
     [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;

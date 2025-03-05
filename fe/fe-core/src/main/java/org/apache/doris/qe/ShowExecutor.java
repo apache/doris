@@ -216,6 +216,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -812,7 +813,7 @@ public class ShowExecutor {
         for (String clusterName : clusterNameSet) {
             ArrayList<String> row = Lists.newArrayList(clusterName);
             // current_used, users
-            if (!Env.getCurrentEnv().getAuth()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
@@ -830,7 +831,7 @@ public class ShowExecutor {
                 users.remove(Auth.ROOT_USER);
             }
             // common user, not admin
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }
@@ -3453,10 +3454,10 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            Auth auth = Env.getCurrentEnv().getAuth();
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
                             PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());

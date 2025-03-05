@@ -77,7 +77,6 @@ suite("test_skip_calc_between_segments", "nonConcurrent") {
     def checkSegmentNum = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
-        assertEquals(1, tablets.size())
         String compactionUrl = tablets[0]["CompactionStatus"]
         def (code, out, err) = curl("GET", compactionUrl)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)

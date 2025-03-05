@@ -99,7 +99,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
-    public static final String ENABLE_VERBOSE_PROFILE = "enable_verbose_profile";
     public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
@@ -825,9 +824,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_VERBOSE_PROFILE, needForward = true)
-    public boolean enableVerboseProfile = false;
-
     @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
     public int rpcVerboseProfileMaxInstanceCount = 5;
 
@@ -1039,7 +1035,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Use consistent hashing to split the appearance for external scan"})
     public boolean useConsistentHashForExternalScan = false;
 
-    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true,
+            description = { "查询profile的级别，1表示只收集 MergedProfile 级别的 Counter，2 表示打印详细信息，"
+                            + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
+                            + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
+                            + " 3 means open some Counters that may cause performance degradation"})
     public int profileLevel = 1;
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
@@ -2202,6 +2202,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
+
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
 
     public Set<String> getIgnoreShapePlanNodes() {
@@ -2216,6 +2218,23 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapePlanNodes",
+            description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
+                    "the plan node type show detail in 'explain shape plan' command"})
+    public String detailShapePlanNodes = "";
+
+    private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
+
+    public Set<String> getDetailShapePlanNodesSet() {
+        return detailShapePlanNodesSet;
+    }
+
+    public void setDetailShapePlanNodes(String detailShapePlanNodes) {
+        this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
+                .collect(ImmutableSet.toImmutableSet());
+        this.detailShapePlanNodes = detailShapePlanNodes;
+    }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" })
@@ -3918,7 +3937,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
-        tResult.setEnableVerboseProfile(enableVerboseProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
