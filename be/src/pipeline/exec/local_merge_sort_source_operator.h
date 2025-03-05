@@ -100,7 +100,7 @@ private:
     vectorized::VSortExecExprs _vsort_exec_exprs;
     const int64_t _offset;
 
-    std::map<int, DependencySPtr> _other_source_deps;
+    std::vector<DependencySPtr> _other_source_deps;
     // The sorters of all instances are used in the main source.
     std::vector<std::shared_ptr<vectorized::Sorter>> _sorters;
 };
