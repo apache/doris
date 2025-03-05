@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -170,7 +171,18 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
-    private void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx) {
+    private String getHexStr(ByteBuffer packetBuf) {
+        byte[] bytes = packetBuf.array();
+        StringBuilder hex = new StringBuilder();
+        for (int i = packetBuf.position(); i < packetBuf.limit(); ++i) {
+            hex.append(String.format("%02X ", bytes[i]));
+        }
+        return hex.toString();
+    }
+
+    @Override
+    protected void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx,
+            ByteBuffer packetBuf, TUniqueId queryId) {
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
@@ -178,6 +190,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         try {
             StatementContext statementContext = prepCtx.statementContext;
             if (paramCount > 0) {
+                if (LOG.isDebugEnabled()) {
+                        LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
+                }
+                if (!ctx.isProxy()) {
+                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+                }
+
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
                 // new_params_bind_flag
@@ -218,7 +237,12 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             stmt.setOrigStmt(prepareCommand.getOriginalStmt());
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
-            executor.execute();
+            if (null != queryId) {
+                executor.execute(queryId);
+            } else {
+                executor.execute();
+            }
+
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
                 stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
@@ -233,6 +257,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
         }
+        ctx.setPrepareExecuteBuffer(null);
     }
 
     // process COM_EXECUTE, parse binary row data
@@ -266,7 +291,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         "msg: Not supported such prepared statement");
                 return;
             }
-            handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
+            handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
         }
     }
 
