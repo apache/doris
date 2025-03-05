@@ -24,6 +24,8 @@
 #include <fstream>
 #include <iostream>
 
+#include "arrow/array/array_base.h"
+#include "arrow/type.h"
 #include "olap/schema.h"
 #include "runtime/descriptors.cpp"
 #include "runtime/descriptors.h"
@@ -40,6 +42,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 // this test is gonna to be a data type serialize and deserialize functions
@@ -342,15 +345,25 @@ public:
         auto rows = block->rows();
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto array = result->column(i);
+            std::cout << array.get()->ToString() << std::endl;
             auto& column_with_type_and_name = assert_block.get_by_position(i);
+            std::cout << "now we are testing column: "
+                      << column_with_type_and_name.column->get_name() << std::endl;
             auto ret = arrow_column_to_doris_column(
                     array.get(), 0, column_with_type_and_name.column,
                     column_with_type_and_name.type, rows, _timezone_obj);
             // do check data
+            std::cout << "arrow_column_to_doris_column done: "
+                      << column_with_type_and_name.column->get_name()
+                      << " with column size: " << column_with_type_and_name.column->size()
+                      << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             auto& col = block->get_by_position(i).column;
             auto& assert_col = column_with_type_and_name.column;
-            for (size_t j = 0; j < col->size(); ++j) {
+            std::cout << "column: " << col->get_name() << " size: " << col->size()
+                      << " assert size: " << assert_col->size() << std::endl;
+            EXPECT_EQ(assert_col->size(), col->size());
+            for (size_t j = 0; j < assert_col->size(); ++j) {
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
