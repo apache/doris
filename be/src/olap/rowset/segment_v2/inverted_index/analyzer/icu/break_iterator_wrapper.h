@@ -17,34 +17,38 @@
 
 #pragma once
 
+#include <unicode/umachine.h>
 #include <unicode/utext.h>
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "CompositeBreakIterator.h"
-#include "DefaultICUTokenizerConfig.h"
-#include "ICUCommon.h"
+#include <memory>
+#include <unordered_set>
 
-using namespace lucene::analysis;
+#include "icu_common.h"
 
 namespace doris::segment_v2 {
 
-class ICUTokenizer : public Tokenizer {
+class BreakIteratorWrapper {
 public:
-    ICUTokenizer();
-    ICUTokenizer(bool lowercase, bool ownReader);
-    ~ICUTokenizer() override = default;
+    BreakIteratorWrapper(icu::BreakIterator* rbbi);
+    ~BreakIteratorWrapper() = default;
 
-    void initialize(const std::string& dictPath);
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    void initialize();
+    int32_t current() { return rbbi_->current(); }
+    int32_t get_rule_status() const { return status_; }
+    int32_t next();
+    int32_t calc_status(int32_t current, int32_t next);
+    bool is_emoji(int32_t current, int32_t next);
+    void set_text(const UChar* text, int32_t start, int32_t length);
 
 private:
-    std::string utf8Str_;
-    icu::UnicodeString buffer_;
+    static icu::UnicodeSet EMOJI_RK;
+    static icu::UnicodeSet EMOJI;
 
-    ICUTokenizerConfigPtr config_;
-    CompositeBreakIteratorPtr breaker_;
+    BreakIteratorPtr rbbi_;
+    const UChar* text_ = nullptr;
+    int32_t start_ = 0;
+    int32_t status_ = UBRK_WORD_NONE;
 };
+using BreakIteratorWrapperPtr = std::unique_ptr<BreakIteratorWrapper>;
 
 } // namespace doris::segment_v2

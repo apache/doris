@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "DefaultICUTokenizerConfig.h"
+#include "default_icu_tokenizer_config.h"
 
 #include <atomic>
 #include <fstream>

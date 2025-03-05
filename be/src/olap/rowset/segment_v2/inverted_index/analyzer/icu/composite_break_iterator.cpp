@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "CompositeBreakIterator.h"
+#include "composite_break_iterator.h"
 
 #include <unicode/unistr.h>
 
