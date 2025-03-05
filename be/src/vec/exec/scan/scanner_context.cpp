@@ -85,12 +85,20 @@ ScannerContext::ScannerContext(
     if (limit < 0) {
         limit = -1;
     }
+    LOG(INFO) << "output_row_descriptor is null " << (output_row_descriptor == nullptr);
+    for (auto slot : output_tuple_desc->slots()) {
+        LOG(INFO) << "slotxxx=" << slot->debug_string();
+    }
     _dependency = dependency;
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent
 Status ScannerContext::init() {
+    LOG(INFO) << "init context";
+    for (auto slot : _output_tuple_desc->slots()) {
+        LOG(INFO) << "slot222=" << slot->debug_string();
+    }
 #ifndef BE_TEST
     _scanner_profile = _local_state->_scanner_profile;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
@@ -230,6 +238,9 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
+        for (auto slot : _output_tuple_desc->slots()) {
+            LOG(INFO) << "slot111=" << slot->debug_string();
+        }
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
                                                  true /*ignore invalid slots*/);
@@ -369,8 +380,11 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 }
 
 Status ScannerContext::validate_block_schema(Block* block) {
+    LOG(INFO) << "block kkk=" << block->dump_data();
+    LOG(INFO) << "_output_tuple_desc size=" << _output_tuple_desc->slots().size();
     size_t index = 0;
     for (auto& slot : _output_tuple_desc->slots()) {
+        LOG(INFO) << "index=" << index << ",slot=" << slot->debug_string();
         if (!slot->is_materialized()) {
             continue;
         }

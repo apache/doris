@@ -697,9 +697,10 @@ public class StmtExecutor {
     }
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
-        }
+        // if (LOG.isDebugEnabled()) {
+        //     LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
+        // }
+        LOG.info("Nereids start to execute query:\n {}", originStmt.originStmt);
         context.setQueryId(queryId);
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());

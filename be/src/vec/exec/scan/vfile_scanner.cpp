@@ -120,8 +120,13 @@ VFileScanner::VFileScanner(
     // For load scanner, there are input and output tuple.
     // For query scanner, there is only output tuple
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
+//    if (_input_tuple_desc == nullptr) {
+//        _input_tuple_desc = _output_tuple_desc;
+//    }
     _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
     _is_load = (_input_tuple_desc != nullptr);
+    LOG(INFO) << "walxxx=" << state->wal_id();
+    _is_replay_wal = state->wal_id() > 0;
 }
 
 Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -399,6 +404,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 // _fill_missing_columns        -     -    -  x                 -                x      -
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
+    LOG(INFO) << "_get_block_wrapped,block=" << block->dump_data();
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
@@ -424,6 +430,7 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
+        LOG(INFO) << "_get_block_wrapped2,block=" << _src_block_ptr->dump_data();
         {
             SCOPED_TIMER(_get_block_timer);
 
@@ -432,6 +439,7 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
+        LOG(INFO) << "get_next_block,block=" << _src_block_ptr->dump_data();
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -450,7 +458,10 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
                 // Apply _pre_conjunct_ctxs to filter src block.
                 RETURN_IF_ERROR(_pre_filter_src_block());
                 // Convert src block to output block (dest block), string to dest data type and apply filters.
+                LOG(INFO) << "_convert_to_output_block";
                 RETURN_IF_ERROR(_convert_to_output_block(block));
+                LOG(INFO) << "kkk" << block->dump_data();
+                LOG(INFO) << "kkk2" << _src_block_ptr->dump_data();
                 // Truncate char columns or varchar columns if size is smaller than file columns
                 // or not found in the file column schema.
                 RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
@@ -458,6 +469,7 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
         }
         break;
     } while (true);
+    LOG(INFO) << "after _get_block_wrapped,block=" << block->dump_data();
 
     // Update filtered rows and unselected rows for load, reset counter.
     // {
@@ -491,7 +503,12 @@ Status VFileScanner::_check_output_block_types() {
 }
 
 Status VFileScanner::_init_src_block(Block* block) {
-    if (!_is_load) {
+    LOG(INFO) << "_is_load:" << _is_load << ",_is_replay_wal:" << _is_replay_wal;
+    for (auto& slot : _output_tuple_desc->slots()) {
+        LOG(INFO) << "xxxname:" << slot->col_name() << ",nullable:" << slot->is_nullable();
+        LOG(INFO) << slot->debug_string();
+    }
+    if (!_is_load || _is_replay_wal) {
         _src_block_ptr = block;
         return Status::OK();
     }
@@ -510,7 +527,11 @@ Status VFileScanner::_init_src_block(Block* block) {
     // _input_tuple_desc will contains: k1, k2, tmp1
     // and some of them are from file, such as k1 and k2, and some of them may not exist in file, such as tmp1
     // _input_tuple_desc also contains columns from path
+//    for (auto& slot : _output_tuple_desc->slots()) {
     for (auto& slot : _input_tuple_desc->slots()) {
+        LOG(INFO) << "name:" << slot->col_name() << ",nullable:" << slot->is_nullable();
+        LOG(INFO) << slot->debug_string();
+        //    for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
         if (slot->is_skip_bitmap_col()) {
@@ -522,6 +543,7 @@ Status VFileScanner::_init_src_block(Block* block) {
             }
         }
         if (it == _name_to_col_type.end()) {
+            LOG(INFO) << "not found " << slot->col_name();
             // not exist in file, using type from _input_tuple_desc
             RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
                                               slot->type(), slot->is_nullable()));
@@ -529,6 +551,8 @@ Status VFileScanner::_init_src_block(Block* block) {
             RETURN_IF_CATCH_EXCEPTION(
                     data_type = DataTypeFactory::instance().create_data_type(it->second, true));
         }
+//                    RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
+//                                                      slot->type(), true));
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
@@ -665,6 +689,29 @@ Status VFileScanner::_pre_filter_src_block() {
 }
 
 Status VFileScanner::_convert_to_output_block(Block* block) {
+    if (_is_replay_wal) {
+//        MutableBlock mutable_output_block =
+//                VectorizedUtils::build_mutable_mem_reuse_block(_src_block_ptr, *_dest_row_desc);
+//        auto& mutable_output_columns = mutable_output_block.mutable_columns();
+//        block->clone_with_columns(std::move(mutable_output_columns));
+        block->swap(*_src_block_ptr);
+        //        block->clear();
+//        auto clone_block = _src_block_ptr->clone_without_columns();
+//        block = &clone_block;
+        LOG(INFO) << "clone_block=" << block->dump_data();
+        //        MutableBlock mutable_output_block =
+//                VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+//        auto& mutable_output_columns = mutable_output_block.mutable_columns();
+//        for (int i = 0; i < _src_block_ptr->columns(); i++) {
+//            vectorized::ColumnPtr column_ptr;
+//            column_ptr = _src_block_ptr->get_by_position(i).column;
+//            // column_ptr maybe a ColumnConst, convert it to a normal column
+//            column_ptr = column_ptr->convert_to_full_column_if_const();
+//            size_t rows = _src_block_ptr->rows();
+//            mutable_output_columns[i]->insert_range_from(*column_ptr, 0, rows);
+//        }
+        return Status::OK();
+    }
     if (!_is_load) {
         return Status::OK();
     }

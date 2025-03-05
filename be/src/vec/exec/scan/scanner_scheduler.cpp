@@ -225,6 +225,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         Thread::set_self_name("_scanner_scan");
     }
 
+    LOG(INFO) << "scanner=" << scanner->get_name();
+
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
     // typically employed to ensure CPU scheduling for write operations.
