@@ -566,6 +566,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
+    public static final String PARTITION_SAMPLE_COUNT = "partition_sample_count";
+    public static final String PARTITION_SAMPLE_ROW_COUNT = "partition_sample_row_count";
 
     // for spill to disk
     public static final String ENABLE_SPILL = "enable_spill";
@@ -2067,6 +2069,18 @@ public class SessionVariable implements Serializable, Writable {
                             + "statistics collection operation, the statistics for this table are"
                             + "considered outdated."})
     public int tableStatsHealthThreshold = 90;
+
+    @VariableMgr.VarAttr(name = PARTITION_SAMPLE_COUNT, flag = VariableMgr.GLOBAL,
+            description = {
+                    "大分区表采样的分区数上限",
+                    "The upper limit of the number of partitions for sampling large partitioned tables.\n"})
+    public int partitionSampleCount = 30;
+
+    @VariableMgr.VarAttr(name = PARTITION_SAMPLE_ROW_COUNT, flag = VariableMgr.GLOBAL,
+            description = {
+                    "大分区表采样的行数上限",
+                    "The upper limit of the number of rows for sampling large partitioned tables.\n"})
+    public long partitionSampleRowCount = 3_000_000_000L;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
