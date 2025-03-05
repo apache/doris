@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -100,7 +101,7 @@ public class ExpressionColumnFilterConverter
 
     @Override
     public Expression visitInPredicate(InPredicate predicate, Void unused) {
-        if (predicate.getOptions().size() > InPredicateDedup.REWRITE_OPTIONS_MAX_SIZE) {
+        if (predicate.getOptions().size() > Config.max_distribution_pruner_recursion_depth) {
             return null;
         }
 
