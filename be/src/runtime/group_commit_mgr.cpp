@@ -71,6 +71,9 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                        << block->columns_bytes();
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
+            LOG(INFO) << "block=" << block->dump_structure();
+            LOG(INFO) << block->columns_bytes();
+            LOG(INFO) << block->dump_data();
             auto st = _v_wal_writer->write_wal(block.get());
             if (!st.ok()) {
                 _cancel_without_lock(st);

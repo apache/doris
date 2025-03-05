@@ -233,6 +233,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
                                      const std::string& label) {
     std::string sql_str;
     RETURN_IF_ERROR(_construct_sql_str(wal, label, sql_str));
+    LOG(INFO) << "sql_str=" << sql_str;
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->sql_str = sql_str;
     ctx->wal_id = wal_id;

@@ -25,6 +25,10 @@ suite ("dis_26495") {
         create table doris_test (a int,b int, agg_st_1 agg_state<max_by(int ,int)> generic)
             DISTRIBUTED BY HASH(a) BUCKETS 1 properties("replication_num" = "1");
         """
+//    sql """
+//        create table doris_test (a int,b int)
+//            DISTRIBUTED BY HASH(a) BUCKETS 1 properties("replication_num" = "1");
+//        """
 
     sql """insert into doris_test values (1,2,max_by_state(1,2));"""
 
@@ -36,6 +40,7 @@ suite ("dis_26495") {
         table "doris_test"
         set 'column_separator', ','
         set 'columns', 'a, b, agg_st_1=max_by_state(a,b)'
+//        set 'columns', 'a, b'
 
         file './test.csv'
         time 10000 // limit inflight 10s

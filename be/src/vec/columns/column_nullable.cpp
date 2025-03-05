@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_nullable.h"
 
+#include "util/stack_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -285,6 +286,10 @@ void ColumnNullable::insert_range_from_ignore_overflow(const doris::vectorized::
 }
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {
+    LOG(INFO) << "insert_range_from";
+    LOG(INFO) << get_stack_trace();
+    LOG(INFO) << "src" << src.dump_structure();
+    LOG(INFO) << "name" << src.get_name();
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(nullable_col.get_null_map_column(), start, length);
     get_nested_column().insert_range_from(*nullable_col.nested_column, start, length);
@@ -334,6 +339,17 @@ void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
 
 void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
                                                     size_t length) {
+    LOG(INFO) << "insert_range_from_not_nullable";
+    LOG(INFO) << get_stack_trace();
+    LOG(INFO) << "src" << src.dump_structure();
+    LOG(INFO) << "name" << src.get_name();
+    LOG(INFO) << "start" << start << ",length" << length;
+//    if (nested_column == nullptr) {
+//        LOG(INFO) << "nullptr return";
+//        return;
+//    }
+    LOG(INFO) << "name " << get_nested_column().get_name();
+    LOG(INFO) << "get_nested_column size" << get_nested_column().size();
     get_nested_column().insert_range_from(src, start, length);
     _push_false_to_nullmap(length);
 }

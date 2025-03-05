@@ -227,6 +227,7 @@ protected:
     int64_t _scan_cpu_timer = 0;
 
     bool _is_load = false;
+    bool _is_replay_wal = false;
 
     bool _is_init = true;
 

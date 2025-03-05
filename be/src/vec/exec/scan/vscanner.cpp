@@ -75,6 +75,13 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
 Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                           bool* eos) {
+    LOG(INFO) << "get_block_after_projects," << block->dump_data();
+    LOG(INFO) << "_output_row_descriptor=" << (_output_row_descriptor != nullptr);
+    LOG(INFO) << "wal id=" << _state->wal_id();
+    LOG(INFO) << "wal id2=" << state->wal_id();
+    if (_state->wal_id() > 0 || state->wal_id() > 0) {
+        return get_block(state, block, eos);
+    }
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
@@ -86,6 +93,7 @@ Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
+    LOG(INFO) << "get_block," << block->dump_data();
     // only empty block should be here
     DCHECK(block->rows() == 0);
     // scanner running time
@@ -178,6 +186,7 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
         return Status::OK();
     }
     vectorized::Block input_block = *origin_block;
+    LOG(INFO) << "input_block=" << input_block.dump_data();
 
     std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
@@ -197,11 +206,15 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     DCHECK_EQ(mutable_columns.size(), _projections.size());
 
     for (int i = 0; i < mutable_columns.size(); ++i) {
+        LOG(INFO) << "i=" << i;
         auto result_column_id = -1;
         RETURN_IF_ERROR(_projections[i]->execute(&input_block, &result_column_id));
         auto column_ptr = input_block.get_by_position(result_column_id)
                                   .column->convert_to_full_column_if_const();
+        LOG(INFO) << "name=" << column_ptr->get_name();
         //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+        LOG(INFO) << "mutable_columns is_nullable" << mutable_columns[i]->is_nullable();
+        LOG(INFO) << "column_ptr->is_nullable()" << column_ptr->is_nullable();
         if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
             DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
             reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())

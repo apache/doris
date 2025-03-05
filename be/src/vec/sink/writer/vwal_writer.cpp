@@ -54,6 +54,8 @@ Status VWalWriter::init() {
     _wal_manager->add_wal_queue(_tb_id, _wal_id);
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
+        LOG(INFO) << "slot_desc:" << slot_desc.col_unique_id << ",name=" << slot_desc.colName
+                  << ",is_mv=" << slot_desc.isMaterialized;
         if (slot_desc.col_unique_id < 0) {
             continue;
         }
