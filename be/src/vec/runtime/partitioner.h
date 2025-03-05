@@ -47,10 +47,13 @@ public:
 
     virtual Status close(RuntimeState* state) = 0;
 
-    virtual Status do_partitioning(RuntimeState* state, Block* block, bool eos = false,
-                                   bool* already_sent = nullptr) const = 0;
+    virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
+    virtual Status send_last_batched_block(RuntimeState* state) const { return Status::OK(); }
 
     virtual ChannelField get_channel_ids() const = 0;
+
+    // default skip nothing
+    virtual std::vector<bool> get_skipped(int size) const { return std::vector<bool>(size, false); }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
@@ -78,8 +81,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
 
     ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
 
