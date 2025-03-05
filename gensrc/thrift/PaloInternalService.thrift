@@ -367,7 +367,7 @@ struct TQueryOptions {
 
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
-  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false; // deprecated
 
   147: optional i32 profile_level = 1;
 

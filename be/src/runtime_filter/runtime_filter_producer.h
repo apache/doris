@@ -83,9 +83,11 @@ public:
 
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
-        if (set_state(State::READY_TO_PUBLISH)) {
-            _wrapper->set_state(state, reason);
+        if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
+            return;
         }
+        _wrapper->set_state(state, reason); // set wrapper firstly to pass set_synced_size's check
+        set_state(State::READY_TO_PUBLISH);
     }
 
     static std::string to_string(const State& state) {

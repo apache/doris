@@ -98,7 +98,7 @@ public:
     void check_state(std::vector<State> assumed_states) const {
         if (!check_state_impl<RuntimeFilterWrapper>(_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "producer meet invalid state, {}, assumed_states is {}", debug_string(),
+                            "wrapper meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterWrapper>(assumed_states));
         }
     }

@@ -1314,6 +1314,12 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     TUniqueId query_id;
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
+
+    if (config::enable_debug_points &&
+        DebugPoints::instance()->is_enable("FragmentMgr::send_filter_size.return_eof")) {
+        return Status::EndOfFile("inject FragmentMgr::send_filter_size.return_eof");
+    }
+
     if (auto q_ctx = get_query_ctx(query_id)) {
         return q_ctx->get_merge_controller_handler()->send_filter_size(q_ctx, request);
     } else {

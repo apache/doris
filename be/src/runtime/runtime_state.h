@@ -629,11 +629,6 @@ public:
                _query_options.enable_shared_exchange_sink_buffer;
     }
 
-    bool fuzzy_disable_runtime_filter_in_be() const {
-        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
-               _query_options.fuzzy_disable_runtime_filter_in_be;
-    }
-
     size_t minimum_operator_memory_required_bytes() const {
         if (_query_options.__isset.minimum_operator_memory_required_kb) {
             return _query_options.minimum_operator_memory_required_kb * 1024;
