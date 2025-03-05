@@ -203,7 +203,7 @@ public class StorageVaultMgr {
                         .filter(key -> !S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
                         .findAny()
                         .ifPresent(key -> {
-                            throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
+                            throw new IllegalArgumentException("Alter property [" + key + "] is not allowed.");
                         });
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
@@ -213,7 +213,7 @@ public class StorageVaultMgr {
                                 || key.toLowerCase().contains(S3Properties.PROVIDER))
                         .findAny()
                         .ifPresent(key -> {
-                            throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
+                            throw new IllegalArgumentException("Alter property [" + key + "] is not allowed.");
                         });
                 request.setOp(Operation.ALTER_HDFS_VAULT);
             }

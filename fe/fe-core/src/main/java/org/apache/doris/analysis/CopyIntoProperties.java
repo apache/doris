@@ -59,7 +59,7 @@ public class CopyIntoProperties extends CopyProperties {
         analyzeUseDeleteSign();
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!COPY_PROPERTIES.contains(entry.getKey())) {
-                throw new AnalysisException("Property '" + entry.getKey() + "' is invalid");
+                throw new AnalysisException("Property [" + entry.getKey() + "] is invalid");
             }
         }
     }
