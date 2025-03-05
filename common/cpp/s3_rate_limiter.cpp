@@ -44,7 +44,7 @@ public:
             spin_count++;
             if (spin_count >= MAX_SPIN_COUNT) {
                 LOG(WARNING) << "Warning: Excessive spinning detected while acquiring lock. Spin "
-                                "count: ";
+                                "count: " << spin_count;
                 spin_count = 0;
             }
             // Spin until we acquire the lock
