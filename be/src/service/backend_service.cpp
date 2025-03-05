@@ -102,9 +102,6 @@ struct IngestBinlogArg {
 };
 
 void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
-    // Save the http client instance for persistent connection
-    thread_local HttpClient client;
-
     auto txn_id = arg->txn_id;
     auto partition_id = arg->partition_id;
     auto local_tablet_id = arg->local_tablet_id;
@@ -183,7 +180,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
-    auto status = client.execute(max_retry, 1, get_binlog_info_cb);
+    auto status = HttpClient::execute(max_retry, 1, get_binlog_info_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
                      << ", status=" << status.to_string();
@@ -222,7 +219,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
-    status = client.execute(max_retry, 1, get_rowset_meta_cb);
+    status = HttpClient::execute(max_retry, 1, get_rowset_meta_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
                      << ", status=" << status.to_string();
@@ -276,7 +273,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return client->get_content_length(&segment_file_size);
         };
 
-        status = client.execute(max_retry, 1, get_segment_file_size_cb);
+        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
                          << ", status=" << status.to_string();
@@ -365,7 +362,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        auto status = client.execute(max_retry, 1, get_segment_file_cb);
+        auto status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
                          << ", status=" << status.to_string();
@@ -406,7 +403,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
                         index->get_index_suffix()));
 
-                status = client.execute(max_retry, 1, get_segment_index_file_size_cb);
+                status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -442,7 +439,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)));
 
-                status = client.execute(max_retry, 1, get_segment_index_file_size_cb);
+                status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -539,7 +536,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        status = client.execute(max_retry, 1, get_segment_index_file_cb);
+        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment index file from " << get_segment_index_file_url
                          << ", status=" << status.to_string();
