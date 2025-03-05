@@ -2063,7 +2063,10 @@ visible_functions = {
 
         [['ST_Circle'], 'VARCHAR', ['DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
 
-        [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE']
+        [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_Intersects'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_Disjoint'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_Touches'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE']
     ],
 
     # grouping sets functions

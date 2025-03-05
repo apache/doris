@@ -60,6 +60,13 @@ public:
     virtual std::string as_wkt() const = 0;
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
+
+    virtual bool disjoint(const GeoShape* rhs) const { return false; }
+
+    virtual bool intersects(const GeoShape* rhs) const { return false; }
+
+    virtual bool touches(const GeoShape* rhs) const { return false; }
+
     virtual std::string to_string() const { return ""; }
     static std::string as_binary(GeoShape* rhs);
 
@@ -81,6 +88,10 @@ public:
     GeoParseStatus from_coord(const GeoCoordinate& point);
 
     GeoCoordinateList to_coords() const;
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
 
     GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
@@ -119,6 +130,10 @@ public:
 
     GeoCoordinateList to_coords() const;
 
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
+
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
@@ -148,6 +163,9 @@ public:
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
 
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
 
@@ -174,6 +192,11 @@ public:
 
     GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
 
+    const S2Cap* circle() const { return _cap.get(); }
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
 
