@@ -86,7 +86,6 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
@@ -1066,70 +1065,61 @@ public class Alter {
     public void setReplicasToDrop(Partition partition,
                                  ReplicaAllocation oldReplicaAlloc,
                                  ReplicaAllocation newReplicaAlloc) {
-        // find out which tag replica num altered
-        Tag alteredTag = null;
-        for (Map.Entry<Tag, Short> oldEntry : oldReplicaAlloc.getAllocMap().entrySet()) {
-            if (oldEntry.getValue() != newReplicaAlloc.getReplicaNumByTag(oldEntry.getKey())) {
-                if (oldEntry.getValue() >= newReplicaAlloc.getReplicaNumByTag(oldEntry.getKey())) {
+        Set<Tag> scaleInTags = getScaleInTags(oldReplicaAlloc, newReplicaAlloc);
+
+        Map<Long, Long> replicaCountByBackend = getReplicaCountByBackend(partition);
+
+        for (Tag tag : scaleInTags) {
+            int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag) - newReplicaAlloc.getReplicaNumByTag(tag);
+            dropReplicasFromTablets(partition, replicasToDrop, replicaCountByBackend);
+        }
+    }
+
+    private Set<Tag> getScaleInTags(ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc) {
+        return oldReplicaAlloc.getAllocMap().entrySet().stream()
+                .filter(entry -> entry.getValue() > newReplicaAlloc.getAllocMap()
+                .getOrDefault(entry.getKey(), (short) 0))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
+    }
+
+    private Map<Long, Long> getReplicaCountByBackend(Partition partition) {
+        Map<Long, Long> replicaCountByBackend = Maps.newHashMap();
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                for (Long backendId : tablet.getBackendIds()) {
+                    replicaCountByBackend.put(backendId, replicaCountByBackend.getOrDefault(backendId, 0L) + 1);
+                }
+            }
+        }
+        return replicaCountByBackend;
+    }
+
+    private void dropReplicasFromTablets(Partition partition, int replicasToDrop,
+                                         Map<Long, Long> replicaCountByBackend) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            for (Tablet tablet : index.getTablets()) {
+                if (replicasToDrop <= 0) {
                     return;
                 }
-                alteredTag = oldEntry.getKey();
-            }
-        }
-        if (alteredTag != null) {
-            return;
-        }
-
-        Map<Long, Long> replicaNumInTagMap = Maps.newHashMap();
-        for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-            for (Tablet tablet : mIndex.getTablets()) {
-                Set<Long> beIds = tablet.getBackendIds();
-                for (Long beId : beIds) {
-                    Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (be.getLocationTag() != alteredTag) {
-                        continue;
-                    }
-                    replicaNumInTagMap.put(beId, replicaNumInTagMap.get(beId) + 1);
-                }
-            }
-        }
-
-        int needDropNum = oldReplicaAlloc.getReplicaNumByTag(alteredTag)
-                    - newReplicaAlloc.getReplicaNumByTag(alteredTag);
-
-        for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
-            for (Tablet tablet : mIndex.getTablets()) {
-                int tabletNeedDropNum = needDropNum;
-                Long maxTabletNum = 0L;
-                Long maxBeId = -1L;
-                // find all be's max tablet num
-                for (Map.Entry<Long, Long> entry : replicaNumInTagMap.entrySet()) {
-                    if (entry.getValue() > maxTabletNum) {
-                        maxTabletNum = entry.getValue();
-                        maxBeId = entry.getKey();
-                    }
-                }
-
-                final Long finalMaxBeId = maxBeId;
-                List<Replica> replicasInSameTag = tablet.getReplicas()
-                        .stream().filter(replica -> replica.getBackendIdWithoutException() == finalMaxBeId)
-                        .collect(Collectors.toList());
-
-
-                for (Replica replica : replicasInSameTag) {
-                    if (tabletNeedDropNum > 0 && maxBeId != -1 && replica.getBackendIdWithoutException() == maxBeId) {
-                        replica.setBad(true);
-                        replicaNumInTagMap.put(maxBeId, replicaNumInTagMap.get(maxBeId) - 1);
-                        --tabletNeedDropNum;
-                    }
-                    if (tabletNeedDropNum <= 0) {
-                        break;
+                for (Replica replica : tablet.getReplicas()) {
+                    Long maxBackendId = getMaxBackendId(replicaCountByBackend);
+                    if (replicasToDrop > 0 && replica.getBackendIdWithoutException() == maxBackendId) {
+                        replica.setScaleInDropTimeStamp(System.currentTimeMillis());
+                        replicaCountByBackend.put(maxBackendId, replicaCountByBackend.get(maxBackendId) - 1);
+                        replicasToDrop--;
                     }
                 }
             }
         }
     }
 
+    private Long getMaxBackendId(Map<Long, Long> replicaCountByBackend) {
+        return replicaCountByBackend.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(-1L);
+    }
 
     public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
         for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {

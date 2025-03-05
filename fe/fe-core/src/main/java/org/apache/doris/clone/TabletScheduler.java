@@ -1092,6 +1092,17 @@ public class TabletScheduler extends MasterDaemon {
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
+        boolean hasScaleDropReplica = replicas.stream().anyMatch(Replica::isScaleInDrop);
+        if (hasScaleDropReplica) {
+            Optional<Replica> scaleDropReplica = replicas.stream()
+                    .filter(Replica::isScaleInDrop)
+                    .findFirst();
+            if (scaleDropReplica.isPresent()) {
+                chosenReplica = scaleDropReplica.get();
+                deleteReplicaInternal(tabletCtx, chosenReplica, "scale drop replica", force);
+                return true;
+            }
+        }
         double maxScore = 0;
         long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {
