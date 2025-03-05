@@ -100,6 +100,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     std::weak_ptr<RuntimeFilterWrapper> _wrapper;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
+    friend class RuntimeFilterProducer;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
@@ -213,6 +214,11 @@ Status RuntimeFilterProducer::send_size(
         callback->cntl_->ignore_eovercrowded();
     }
 
+    if (config::enable_debug_points &&
+        DebugPoints::instance()->is_enable("RuntimeFilterProducer::send_size.rpc_fail")) {
+        closure->cntl_->SetFailed("inject RuntimeFilterProducer::send_size.rpc_fail");
+    }
+
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
     closure.release();
@@ -220,7 +226,7 @@ Status RuntimeFilterProducer::send_size(
 }
 
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
-    if (_rf_state != State::WAITING_FOR_SYNCED_SIZE) {
+    if (!set_state(State::WAITING_FOR_DATA)) {
         _check_wrapper_state(
                 {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
     }
@@ -229,7 +235,6 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     if (_dependency) {
         _dependency->sub();
     }
-    set_state(State::WAITING_FOR_DATA);
 }
 
 Status RuntimeFilterProducer::init(size_t local_size) {
