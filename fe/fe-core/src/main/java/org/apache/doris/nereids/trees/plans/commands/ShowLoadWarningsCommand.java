@@ -35,6 +35,7 @@ import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -81,15 +82,15 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
     private String dbName;
     private Expression wildWhere;
-    private long limit = 100;
-    private URL url;
+    private Long limit;
+    private String originUrl;
 
-    public ShowLoadWarningsCommand(String dbName, Expression wildWhere, long limit, URL url) {
+    public ShowLoadWarningsCommand(String dbName, Expression wildWhere, Long limit, String originUrl) {
         super(PlanType.SHOW_LOAD_WARNINGS_COMMAND);
         this.dbName = dbName;
         this.wildWhere = wildWhere;
         this.limit = limit;
-        this.url = url;
+        this.originUrl = originUrl;
     }
 
     private boolean isFindByLabel() {
@@ -109,31 +110,6 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
     private List<List<String>> showLoadWarningsFromUrl(URL url) throws Exception {
         List<List<String>> rows = Lists.newArrayList();
-        if (!Config.isCloudMode()) {
-            // url should like:
-            // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
-            String host = url.getHost();
-            if (host.startsWith("[") && host.endsWith("]")) {
-                host = host.substring(1, host.length() - 1);
-            } else {
-                host = url.getHost();
-            }
-            int port = url.getPort();
-            SystemInfoService infoService = Env.getCurrentSystemInfo();
-            Backend be = infoService.getBackendWithHttpPort(host, port);
-            if (be == null) {
-                throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
-            }
-            if (!be.isAlive()) {
-                throw new AnalysisException(
-                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
-            }
-
-            if (!url.getPath().equals("/api/_load_error_log")) {
-                throw new AnalysisException(
-                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
-            }
-        }
 
         URLConnection urlConnection = url.openConnection();
         InputStream inputStream = urlConnection.getInputStream();
@@ -288,14 +264,64 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         return rows;
     }
 
+    private URL validateUrl(String originUrl) throws MalformedURLException {
+        URL url = null;
+        if (originUrl.isEmpty()) {
+            throw new ParseException("Error load url is missing");
+        }
+
+        if (dbName != null || wildWhere != null || limit != null) {
+            throw new AnalysisException(
+                "Can not set database, where or limit clause if getting error log from url");
+        }
+        // url should like:
+        // http://be_ip:be_http_port/api/_load_error_log?file=__shard_xxx/error_log_xxx
+        try {
+            url = new URL(originUrl);
+        } catch (MalformedURLException e) {
+            throw new AnalysisException("Invalid url: " + e.getMessage());
+        }
+
+        if (!Config.isCloudMode()) {
+            String host = url.getHost();
+            if (host.startsWith("[") && host.endsWith("]")) {
+                host = host.substring(1, host.length() - 1);
+            } else {
+                host = url.getHost();
+            }
+            int port = url.getPort();
+            SystemInfoService infoService = Env.getCurrentSystemInfo();
+            Backend be = infoService.getBackendWithHttpPort(host, port);
+            if (be == null) {
+                throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port)
+                    + " is not a valid backend");
+            }
+            if (!be.isAlive()) {
+                throw new AnalysisException(
+                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
+            }
+
+            if (!url.getPath().equals("/api/_load_error_log")) {
+                throw new AnalysisException(
+                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+            }
+        }
+        return url;
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
 
         List<List<String>> rows = Lists.newArrayList();
 
-        if (url != null) {
+        if (originUrl != null) {
+            URL url = validateUrl(originUrl);
             rows.addAll(showLoadWarningsFromUrl(url));
         } else {
+            if (wildWhere == null) {
+                throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
+                    + " or LOAD_JOB_ID = $job_id");
+            }
             if (dbName == null || dbName.isEmpty()) {
                 dbName = ctx.getDatabase();
                 if (dbName == null || dbName.isEmpty()) {
@@ -312,10 +338,13 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             } else {
                 rows.addAll(eqExpression(wildWhere));
             }
-        }
 
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
+            if (limit == null) {
+                limit = 100L;
+            }
+            if (limit < rows.size()) {
+                rows = rows.subList(0, (int) limit.longValue());
+            }
         }
 
         return new ShowResultSet(META_DATA, rows);

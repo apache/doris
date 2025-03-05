@@ -127,6 +127,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
