@@ -579,7 +579,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         const char* wkt_string = "LINESTRING(-5 0, 5 0)";
         std::unique_ptr<GeoShape> overlap_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
-        EXPECT_TRUE(base_line_shape->touches(overlap_line.get()));
+        EXPECT_FALSE(base_line_shape->touches(overlap_line.get()));
     }
     {
         // end contact line
@@ -587,6 +587,13 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> touch_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(base_line_shape->touches(touch_line.get()));
+    }
+    {
+        // end intersect line
+        const char* wkt_string = "LINESTRING(9 0, 10 10)";
+        std::unique_ptr<GeoShape> touch_line(
+                GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
+        EXPECT_FALSE(base_line_shape->touches(touch_line.get()));
     }
     {
         // fully separated lines
@@ -615,7 +622,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
     }
     {
         // along the borderline
-        const char* wkt_string = "LINESTRING(-5 -5,5 -5)";
+        const char* wkt_string = "LINESTRING(-5 -5, 5 -5)";
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->touches(edge_line.get()));
@@ -701,6 +708,31 @@ TEST_F(GeoTypesTest, polygon_touches) {
         const char* wkt = "LINESTRING(-5 5,15 5)";
         std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_FALSE(polygon->touches(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(10 5, 15 5)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(polygon->touches(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(5 5, 15 15)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(10 10, 15 15)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(polygon->touches(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(0 0, 5 0)";
+        std::unique_ptr<GeoShape> edge_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(polygon->touches(edge_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(2 0, 5 0)";
+        std::unique_ptr<GeoShape> edge_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(polygon->touches(edge_line.get()));
     }
     {
         const char* wkt = "LINESTRING(0 0,10 0)";

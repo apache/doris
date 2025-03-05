@@ -547,34 +547,11 @@ bool line_touches_line(const S2Polyline* line1, const S2Polyline* line2) {
     // The intersection is judged to satisfy the touch condition
     // if and only if the intersecting points lie on the boundary
     for (const S2Point& point : cross_points) {
-        if (!(point == line1->vertex(0) || point == line1->vertex(line1->num_vertices() - 1) ||
-              point == line2->vertex(0) || point == line2->vertex(line2->num_vertices() - 1))) {
+        if (!(point == line1->vertex(0) || point == line1->vertex(line1->num_vertices() - 1))) {
             return false;
         }
     }
-    // when no intersections are collected but intersects, the touches condition is satisfied
-    if (cross_points.empty()) {
-        int next_vertex = 0;
-        for (int i = 0; i < line1->num_vertices(); i++) {
-            const S2Point& p = line1->vertex(i);
-            S2Point closest_point = line2->Project(p, &next_vertex);
-            S1Angle distance = S1Angle(closest_point, p);
-            if (distance.radians() < 1e-2) {
-                return true;
-            }
-        }
-
-        for (int i = 0; i < line2->num_vertices(); i++) {
-            const S2Point& p = line2->vertex(i);
-            S2Point closest_point = line1->Project(p, &next_vertex);
-            S1Angle distance = S1Angle(closest_point, p);
-            if (distance.radians() < 1e-2) {
-                return true;
-            }
-        }
-        return false;
-    }
-    return true;
+    return !cross_points.empty();
 }
 
 bool GeoLine::touches(const GeoShape* rhs) const {
@@ -788,15 +765,17 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
                     return true;
                 }
             }
-        } else {
-            for (auto& intersect_line : intersect_lines) {
-                if (!line_touches_line(intersect_line.get(), line->polyline())) {
-                    return false;
+            for (int i = 0; i < line->polyline()->num_vertices(); i++) {
+                const S2Point& p = line->polyline()->vertex(i);
+                S2Point closest_point = _polygon->ProjectToBoundary(p);
+                S1Angle distance(closest_point, p);
+                if (distance.radians() < 1e-2) {
+                    return true;
                 }
             }
-            return true;
+            return false;
         }
-        return false;
+        return true;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
