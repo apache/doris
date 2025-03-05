@@ -33,6 +33,7 @@ import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -301,6 +302,23 @@ public abstract class Literal extends Expression implements LeafExpression {
             case DATE: {
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
                 return new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay());
+            }
+            case DATETIME: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateTimeLiteral(
+                        DateTimeType.INSTANCE, dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
+            }
+            case DATETIMEV2: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateTimeV2Literal(
+                        (DateTimeV2Type) DateType.fromCatalogType(type),
+                        dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
             }
             case BOOLEAN: {
                 return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
