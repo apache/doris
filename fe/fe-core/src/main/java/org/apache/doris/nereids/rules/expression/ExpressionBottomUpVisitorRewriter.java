@@ -1,0 +1,83 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.expression;
+
+import org.apache.doris.nereids.pattern.ExpressionPatternRules;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+
+import java.util.Optional;
+
+/** ExpressionBottomUpVisitorRewriter */
+public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<ExpressionRewriteContext> {
+    private final ExpressionPatternRules rules;
+    private String rewriteStateKey = "Rewrite_" + this;
+
+    public ExpressionBottomUpVisitorRewriter(ExpressionPatternRules rules) {
+        this.rules = rules;
+    }
+
+    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        return rewrite(expression, context, null);
+    }
+
+    private Expression rewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
+        if (!rules.hasCurrentAndChildrenRules(expression)) {
+            return expression;
+        }
+        if (expression.arity() != 0) {
+            Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(expression.arity());
+            boolean changed = false;
+            for (Expression child : expression.children()) {
+                Expression newChild = rewrite(child, context, expression);
+                newChildren.add(newChild);
+                changed |= newChild != child;
+            }
+            if (changed) {
+                expression = expression.withChildren(newChildren.build());
+            }
+        }
+
+        return doRewrite(expression, context, parent);
+    }
+
+    private Expression doRewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
+        Optional<Expression> result = rules.matchesAndApply(expression, context, parent);
+        return result.orElse(expression);
+        // List<Rule> currentRules = (List<Rule>) expression1;
+        // BitSet forbidRules = context.getCascadesContext().getAndCacheDisableRules();
+        // for (Rule currentRule : currentRules) {
+        //     if (!currentRule.getPattern().matchExpressionTree(expression)
+        //       || forbidRules.get(currentRule.getRuleType().ordinal())) {
+        //         continue;
+        //     }
+        //     List<Expression> transform = currentRule.transform(expression, context.getCascadesContext());
+        //     if (!transform.isEmpty() && transform.get(0) != expression) {
+        //         return transform.get(0);
+        //     }
+        // }
+        // return expression;
+    }
+
+    @Override
+    public String getRewriteStateKey() {
+        return rewriteStateKey;
+    }
+}

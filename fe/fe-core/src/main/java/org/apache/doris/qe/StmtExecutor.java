@@ -566,6 +566,8 @@ public class StmtExecutor {
                     DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
         }
         queryRetry(queryId);
+        // help gc
+        // Thread.sleep(0);
     }
 
     public void queryRetry(TUniqueId queryId) throws Exception {

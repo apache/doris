@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
@@ -306,8 +307,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
-            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
-                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+            boolean isReliable = true;
+            for (Expression expression : groupExpression.getPlan().getExpressions()) {
+                if (newStats.isInputSlotsUnknown(expression.getInputSlots())) {
+                    isReliable = false;
+                    break;
+                }
+            }
             groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
         } else {
@@ -1198,8 +1204,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         long catalogId;
         long dbId;
         try {
-            catalogId = table.getDatabase().getCatalog().getId();
-            dbId = table.getDatabase().getId();
+            DatabaseIf database = table.getDatabase();
+            catalogId = database.getCatalog().getId();
+            dbId = database.getId();
         } catch (Exception e) {
             // Use -1 for catalog id and db id when failed to get them from metadata.
             // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache

@@ -23,16 +23,15 @@ import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.BitSet;
 import java.util.List;
 
-/** BottomUpVisitorRewriteJob */
-public class BottomUpVisitorRewriteJob implements RewriteJob {
+/** TopDownVisitorRewriteJob */
+public class TopDownVisitorRewriteJob implements RewriteJob {
     private final Rules rules;
 
-    public BottomUpVisitorRewriteJob(Rules rules) {
+    public TopDownVisitorRewriteJob(Rules rules) {
         this.rules = rules;
     }
 
@@ -51,18 +50,22 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
         if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
             return plan;
         }
-        Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
+
+        plan = doRewrite(plan, jobContext);
+
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean changed = false;
         for (Plan child : plan.children()) {
-            Plan rewrite = rewrite(child, jobContext);
-            newChildren.add(rewrite);
-            changed = rewrite != child;
+            Plan newChild = rewrite(child, jobContext);
+            newChildren.add(newChild);
+            changed |= newChild != child;
         }
 
         if (changed) {
             plan = plan.withChildren(newChildren.build());
         }
-        return doRewrite(plan, jobContext);
+
+        return plan;
     }
 
     private Plan doRewrite(Plan plan, JobContext jobContext) {

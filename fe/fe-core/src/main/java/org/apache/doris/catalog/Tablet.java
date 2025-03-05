@@ -307,8 +307,8 @@ public class Tablet extends MetaObject {
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
-        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
-        List<Replica> deadPathReplica = Lists.newArrayList();
+        // List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
+        // List<Replica> deadPathReplica = Lists.newArrayList();
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -323,41 +323,44 @@ public class Tablet extends MetaObject {
                 continue;
             }
 
-            Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendIdWithoutException());
+            // Set<Long> thisBeAlivePaths = backendAlivePathHashs.get(replica.getBackendIdWithoutException());
             ReplicaState state = replica.getState();
             // if thisBeAlivePaths contains pathHash = 0, it mean this be hadn't report disks state.
             // should ignore this case.
-            if (replica.getPathHash() != -1 && thisBeAlivePaths != null
-                    && !thisBeAlivePaths.contains(replica.getPathHash())
-                    && !thisBeAlivePaths.contains(0L)) {
-                deadPathReplica.add(replica);
-            } else if (state.canQuery()) {
+            // if (replica.getPathHash() != -1 && thisBeAlivePaths != null
+            //         && !thisBeAlivePaths.contains(replica.getPathHash())
+            //         && !thisBeAlivePaths.contains(0L)) {
+            //     deadPathReplica.add(replica);
+            // } else if (state.canQuery()) {
+            //     allQueryableReplica.add(replica);
+            // } else if (state == ReplicaState.DECOMMISSION) {
+            //     auxiliaryReplica.add(replica);
+            // }
+            if (state.canQuery()) {
                 allQueryableReplica.add(replica);
-            } else if (state == ReplicaState.DECOMMISSION) {
-                auxiliaryReplica.add(replica);
             }
         }
 
-        if (allQueryableReplica.isEmpty()) {
-            allQueryableReplica = auxiliaryReplica;
-        }
-        if (allQueryableReplica.isEmpty()) {
-            allQueryableReplica = deadPathReplica;
-        }
+        // if (allQueryableReplica.isEmpty()) {
+        //     allQueryableReplica = auxiliaryReplica;
+        // }
+        // if (allQueryableReplica.isEmpty()) {
+        //     allQueryableReplica = deadPathReplica;
+        // }
 
-        if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
-                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
-            long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
-            if (minVersionCount != Long.MAX_VALUE) {
-                maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
-            }
-
-            final long finalMaxVersionCount = maxVersionCount;
-            return allQueryableReplica.stream()
-                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
-                    .collect(Collectors.toList());
-        }
+        // if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
+        //     long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
+        //             .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+        //     long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
+        //     if (minVersionCount != Long.MAX_VALUE) {
+        //         maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
+        //     }
+        //
+        //     final long finalMaxVersionCount = maxVersionCount;
+        //     return allQueryableReplica.stream()
+        //             .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
+        //             .collect(Collectors.toList());
+        // }
         return allQueryableReplica;
     }
 

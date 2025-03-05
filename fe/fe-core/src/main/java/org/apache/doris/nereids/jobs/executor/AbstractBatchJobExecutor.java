@@ -19,12 +19,14 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.TopDownVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.TopicRewriteJob;
 import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -94,13 +96,14 @@ public abstract class AbstractBatchJobExecutor {
         return bottomUp(Arrays.asList(ruleFactories));
     }
 
+    /** bottomUp */
     public static RewriteJob bottomUp(List<RuleFactory> ruleFactories) {
         Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
-        // return new BottomUpVisitorRewriteJob(rules);
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
+        return new BottomUpVisitorRewriteJob(rules);
+        // return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
     }
 
     public static RewriteJob topDown(RuleFactory... ruleFactories) {
@@ -111,12 +114,14 @@ public abstract class AbstractBatchJobExecutor {
         return topDown(ruleFactories, true);
     }
 
+    /** topDown */
     public static RewriteJob topDown(List<RuleFactory> ruleFactories, boolean once) {
         Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
-        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
+        return new TopDownVisitorRewriteJob(rules);
+        // return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
     }
 
     public static RewriteJob custom(RuleType ruleType, Supplier<CustomRewriter> planRewriter) {
@@ -131,10 +136,16 @@ public abstract class AbstractBatchJobExecutor {
             JobContext jobContext = cascadesContext.getCurrentJobContext();
             RewriteJob currentJob = getJobs().get(i);
             if (currentJob instanceof CostBasedRewriteJob) {
-                List<RewriteJob> remainJobs = getJobs().subList(i + 1, getJobs().size()).stream()
-                        .filter(j -> !(j instanceof CostBasedRewriteJob))
-                        .collect(Collectors.toList());
-                jobContext.setRemainJobs(remainJobs);
+                List<RewriteJob> jobs = getJobs();
+                ImmutableList.Builder<RewriteJob> remainJobs
+                        = ImmutableList.builderWithExpectedSize(jobs.size() - i - 1);
+                for (int j = i + 1; j < jobs.size(); j++) {
+                    RewriteJob job = jobs.get(j);
+                    if (!(job instanceof CostBasedRewriteJob)) {
+                        remainJobs.add(job);
+                    }
+                }
+                jobContext.setRemainJobs(remainJobs.build());
             }
             do {
                 jobContext.setRewritten(false);

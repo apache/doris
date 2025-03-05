@@ -26,7 +26,9 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionColumnFilterConverter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -62,8 +64,20 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
 
             Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
-            filter.getConjuncts().stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
-                    .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
+
+            for (Expression conjunct : filter.getConjuncts()) {
+                if (conjunct instanceof EqualTo && conjunct.child(0).isSlot()) {
+                    Slot slot = (Slot) conjunct.child(0);
+                    String name = slot.getName();
+                    if (name.equals("__DORIS_DELETE_SIGN__")) {
+                        continue;
+                    }
+                }
+                Optional<Expression> conjunctOpt = ExpressionUtils.checkAndMaybeCommute(conjunct);
+                if (conjunctOpt.isPresent()) {
+                    new ExpressionColumnFilterConverter(filterMap).convert(conjunctOpt.get());
+                }
+            }
 
             if (olapScan.getManuallySpecifiedTabletIds().isEmpty()) {
                 for (Long id : olapScan.getSelectedPartitionIds()) {
@@ -79,7 +93,10 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                 selectedTabletIdsBuilder.addAll(olapScan.getManuallySpecifiedTabletIds());
             }
             List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
-            if (new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getManuallySpecifiedTabletIds()))) {
+            if ((selectedTabletIds.isEmpty() && olapScan.getManuallySpecifiedTabletIds().isEmpty())) {
+                return null;
+            } else if (!selectedTabletIds.isEmpty() && !olapScan.getManuallySpecifiedTabletIds().isEmpty() &&
+                    new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getManuallySpecifiedTabletIds()))) {
                 return null;
             }
             return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));

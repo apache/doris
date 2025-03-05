@@ -51,7 +51,7 @@ public class StatisticsCacheKey {
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalogId, dbId, tableId, idxId, colName);
+        return (int) (32 * tableId + colName.hashCode());
     }
 
     @Override

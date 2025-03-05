@@ -45,7 +45,7 @@ public class TypePattern<TYPE extends Plan>
     }
 
     @Override
-    public boolean matchRoot(Plan plan) {
+    public final boolean matchRoot(Plan plan) {
         return type.isInstance(plan);
     }
 

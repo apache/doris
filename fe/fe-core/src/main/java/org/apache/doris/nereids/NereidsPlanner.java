@@ -96,6 +96,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -103,6 +104,7 @@ import java.util.function.Function;
  * Planner to do query plan in Nereids.
  */
 public class NereidsPlanner extends Planner {
+    private static final AtomicInteger executeCount = new AtomicInteger(0);
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     protected Plan parsedPlan;
@@ -272,6 +274,7 @@ public class NereidsPlanner extends Planner {
         }
 
         optimize();
+        cascadesContext.setRewritePlan(null);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -388,6 +391,16 @@ public class NereidsPlanner extends Planner {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
+
+        // help gc
+        // if (executeCount.incrementAndGet() % 2000000 == 0) {
+        //     try {
+        //         Thread.sleep(0);
+        //     } catch (InterruptedException e) {
+        //         ;
+        //     }
+        //     System.gc();
+        // }
     }
 
     /**
@@ -426,6 +439,12 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
+        // help gc
+        // try {
+        //     Thread.sleep(0);
+        // } catch (InterruptedException e) {
+        //     ;
+        // }
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
@@ -461,6 +480,12 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
         }
+        // help gc
+        // try {
+        //     Thread.sleep(0);
+        // } catch (InterruptedException e) {
+        //     ;
+        // }
     }
 
     protected void splitFragments(PhysicalPlan resultPlan) {

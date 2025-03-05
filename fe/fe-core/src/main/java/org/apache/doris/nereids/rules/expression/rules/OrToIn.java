@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -77,7 +77,7 @@ public class OrToIn {
      * simplify and then rewrite
      */
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
-        ExpressionBottomUpRewriter simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
+        ExpressionRewriteRule<ExpressionRewriteContext> simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
         expr = simplify.rewrite(expr, context);
         return rewriteTree(expr);
     }
