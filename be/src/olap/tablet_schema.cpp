@@ -1476,30 +1476,17 @@ const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (const auto& _index : _indexes) {
-        if (_index->index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _index->col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    return it != _col_id_suffix_to_index.end();
 }
 
 const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (const auto& _index : _indexes) {
-        if (_index->index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _index->col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return _index.get();
-                }
-            }
-        }
+    // Get the ngram bf index for the given column unique id
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        return _indexes[it->second].get();
     }
     return nullptr;
 }
