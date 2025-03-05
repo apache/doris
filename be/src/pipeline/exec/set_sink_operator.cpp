@@ -155,8 +155,8 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _merge_block_timer = ADD_TIMER(_profile, "MergeBlocksTime");
-    _build_timer = ADD_TIMER(_profile, "BuildTime");
+    _merge_block_timer = ADD_TIMER(custom_profile(), "MergeBlocksTime");
+    _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     DCHECK(parent._cur_child_id == 0);

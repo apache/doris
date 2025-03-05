@@ -48,7 +48,7 @@ Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -56,7 +56,7 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
-    _process_conjunct_timer = ADD_TIMER(_runtime_profile, "ProcessConjunctTime");
+    _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -155,9 +155,9 @@ Status OlapScanLocalState::_init_profile() {
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
-    _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
-    _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
-    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
+    _tablet_counter = ADD_COUNTER(custom_profile(), "TabletNum", TUnit::UNIT);
+    _key_range_counter = ADD_COUNTER(custom_profile(), "KeyRangesNum", TUnit::UNIT);
+    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(custom_profile(), "RuntimeFilterInfo", 1);
 
     _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
     _tablet_reader_capture_rs_readers_timer =
@@ -302,7 +302,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                 message += conjunct->root()->debug_string();
             }
         }
-        _runtime_profile->add_info_string("RemainedDownPredicates", message);
+        custom_profile()->add_info_string("RemainedDownPredicates", message);
     }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
@@ -625,15 +625,15 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                        range);
         }
     } else {
-        _runtime_profile->add_info_string("PushDownAggregate",
+        custom_profile()->add_info_string("PushDownAggregate",
                                           push_down_agg_to_string(p._push_down_agg_type));
     }
 
     if (state()->enable_profile()) {
-        _runtime_profile->add_info_string("PushDownPredicates",
+        custom_profile()->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
-        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
-        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+        custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
+        custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
@@ -662,9 +662,9 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
     const std::string rf_name = "filter id = " + std::to_string(id) + " ";
 
     // add counter
-    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "input",
+    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(custom_profile(), rf_name + "input",
                                                      TUnit::UNIT, "RuntimeFilterInfo", 1);
-    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
+    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(custom_profile(), rf_name + "filtered",
                                                         TUnit::UNIT, "RuntimeFilterInfo", 1);
     COUNTER_SET(input_count, (int64_t)info.input_row);
     COUNTER_SET(filtered_count, (int64_t)info.filtered_row);

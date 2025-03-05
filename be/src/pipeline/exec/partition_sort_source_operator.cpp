@@ -29,9 +29,9 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
+    _get_sorted_timer = ADD_TIMER(custom_profile(), "GetSortedTime");
     _sorted_partition_output_rows_counter =
-            ADD_COUNTER(profile(), "SortedPartitionOutputRows", TUnit::UNIT);
+            ADD_COUNTER(custom_profile(), "SortedPartitionOutputRows", TUnit::UNIT);
     return Status::OK();
 }
 
