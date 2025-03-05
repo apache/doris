@@ -202,8 +202,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 }
 
 Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
-                                                const TRuntimeFilterParams& runtime_filter_params,
-                                                const TQueryOptions& query_options) {
+                                                const TRuntimeFilterParams& runtime_filter_params) {
     _query_id = query_id;
     _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
