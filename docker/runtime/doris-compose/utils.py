@@ -301,7 +301,8 @@ def is_socket_avail(ip, port):
 
 def get_local_ip():
     with contextlib.closing(socket.socket(socket.AF_INET,
-                                          socket.SOCK_STREAM)) as sock:
+                                          socket.SOCK_DGRAM)) as sock:
+        sock.settimeout(0)
         try:
             sock.connect(('10.255.255.255', 1))
             return sock.getsockname()[0]
