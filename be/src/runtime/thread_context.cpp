@@ -58,20 +58,30 @@ AttachTask::~AttachTask() {
 SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc) {
     DCHECK(rc != nullptr);
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-    if (rc != thread_context()->resource_ctx()) {
-        signal::set_signal_task_id(rc->task_controller()->task_id());
+    if (thread_context()->is_attach_task()) {
         old_resource_ctx_ = thread_context()->resource_ctx();
-        thread_context()->resource_ctx_ = rc;
-        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
-                rc->memory_context()->mem_tracker(), rc->workload_group());
+        if (rc != old_resource_ctx_) {
+            signal::set_signal_task_id(rc->task_controller()->task_id());
+            thread_context()->resource_ctx_ = rc;
+            thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
+                    rc->memory_context()->mem_tracker(), rc->workload_group());
+        }
+    } else {
+        signal::set_signal_task_id(rc->task_controller()->task_id());
+        thread_context()->attach_task(rc);
     }
 }
 
 SwitchResourceContext::~SwitchResourceContext() {
-    if (old_resource_ctx_ != nullptr) {
-        signal::set_signal_task_id(old_resource_ctx_->task_controller()->task_id());
-        thread_context()->resource_ctx_ = old_resource_ctx_;
-        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker();
+    if (old_resource_ctx_ != thread_context()->resource_ctx()) {
+        if (old_resource_ctx_ != nullptr) {
+            signal::set_signal_task_id(old_resource_ctx_->task_controller()->task_id());
+            thread_context()->resource_ctx_ = old_resource_ctx_;
+            thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker();
+        } else {
+            signal::set_signal_task_id(TUniqueId());
+            thread_context()->detach_task();
+        }
     }
     doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
