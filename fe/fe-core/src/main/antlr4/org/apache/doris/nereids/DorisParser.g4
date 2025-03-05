@@ -731,6 +731,8 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showAnalyze
     | SHOW QUEUED ANALYZE JOBS tableName=multipartIdentifier?
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
+    | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
+        columnList=identifierList                                               #showColumnHistogramStats
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -755,8 +757,6 @@ unsupportedStatsStatement
     | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
-    | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
-        columnList=identifierList                                               #showColumnHistogramStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
