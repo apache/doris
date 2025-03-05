@@ -902,13 +902,15 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        // sample to get approximate best reserve size
-        if (input_size > 4) {
-            res_data.reserve(((data[0] + data[input_size >> 1] + data[input_size >> 2] +
-                               data[input_size - 1]) >>
-                              2) *
-                             input_size);
+        int64_t total_size = 0;
+        for (size_t i = 0; i < input_size; ++i) {
+            if (data[i] > 0) {
+                total_size += data[i];
+            }
         }
+        ColumnString::check_chars_length(total_size, input_size);
+        res_data.reserve(total_size);
+
         for (size_t i = 0; i < input_size; ++i) {
             if (data[i] > 0) [[likely]] {
                 res_data.resize_fill(res_data.size() + data[i], ' ');
