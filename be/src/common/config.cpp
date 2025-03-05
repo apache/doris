@@ -1450,6 +1450,8 @@ DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
+DEFINE_mBool(enable_mow_verbose_log, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
