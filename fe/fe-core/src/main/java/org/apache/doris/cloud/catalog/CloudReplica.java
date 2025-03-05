@@ -166,7 +166,9 @@ public class CloudReplica extends Replica {
             String clusterId = getCloudClusterIdByName(clusterName);
             return getBackendIdImpl(clusterId);
         } catch (ComputeGroupException e) {
-            LOG.warn("failed to get compute group name {}", clusterName, e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to get compute group name {}", clusterName, e);
+            }
             return -1;
         }
     }
