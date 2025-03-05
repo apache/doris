@@ -1523,6 +1523,8 @@ DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 
+DECLARE_mBool(enable_mow_verbose_log);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
