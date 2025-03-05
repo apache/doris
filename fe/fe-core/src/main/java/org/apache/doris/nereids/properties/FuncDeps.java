@@ -50,10 +50,11 @@ public class FuncDeps {
 
         @Override
         public boolean equals(Object other) {
-            if (other instanceof FuncDepsItem) {
-                return other.hashCode() == this.hashCode();
+            if (!(other instanceof FuncDepsItem)) {
+                return false;
             }
-            return false;
+            FuncDepsItem item = (FuncDepsItem) other;
+            return item.determinants.equals(determinants) && item.dependencies.equals(dependencies);
         }
 
         @Override
