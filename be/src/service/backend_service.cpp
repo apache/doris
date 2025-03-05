@@ -180,7 +180,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
-    auto status = HttpClient::execute(max_retry, 1, get_binlog_info_cb);
+    auto status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
                      << ", status=" << status.to_string();
@@ -219,7 +219,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
-    status = HttpClient::execute(max_retry, 1, get_rowset_meta_cb);
+    status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
                      << ", status=" << status.to_string();
