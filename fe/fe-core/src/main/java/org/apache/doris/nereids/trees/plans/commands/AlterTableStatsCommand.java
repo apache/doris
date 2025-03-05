@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.StmtType;
-
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,10 +38,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatsType;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 
 /**
  * Manually inject statistics for table.
@@ -53,9 +57,9 @@ import java.util.Optional;
  */
 public class AlterTableStatsCommand extends AlterCommand {
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET =
-        new ImmutableSet.Builder<StatsType>()
-            .add(StatsType.ROW_COUNT)
-            .build();
+            new ImmutableSet.Builder<StatsType>()
+                .add(StatsType.ROW_COUNT)
+                .build();
     private final TableNameInfo tableNameInfo;
     private final Map<String, String> properties;
     private final PartitionNamesInfo opPartitionNamesInfo;
@@ -91,11 +95,11 @@ public class AlterTableStatsCommand extends AlterCommand {
 
     private void validate(ConnectContext ctx) throws UserException {
         if (!Env.getCurrentEnv().getAccessManager()
-            .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
-                tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
+                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                    tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
 
         if (!ConnectContext.get().getSessionVariable().enableStats) {
@@ -106,8 +110,8 @@ public class AlterTableStatsCommand extends AlterCommand {
         tableNameInfo.analyze(ctx);
 
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
-            .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
-            .findFirst();
+                .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
+                .findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }

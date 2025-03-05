@@ -378,17 +378,17 @@ public class StatisticsRepository {
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, params);
             ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
-                objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
-                null, columnStatistic);
+                    objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
+                    null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                .setTblUpdateTime(objects.table.getUpdateTime())
-                .setColName("")
-                .setRowCount((long) Double.parseDouble(rowCount))
-                .setJobColumns(Sets.newHashSet())
-                .setUserInject(true)
-                .setJobType(AnalysisInfo.JobType.MANUAL)
-                .build();
+                    .setTblUpdateTime(objects.table.getUpdateTime())
+                    .setColName("")
+                    .setRowCount((long) Double.parseDouble(rowCount))
+                    .setJobColumns(Sets.newHashSet())
+                    .setUserInject(true)
+                    .setJobType(AnalysisInfo.JobType.MANUAL)
+                    .build();
             if (objects.table instanceof OlapTable) {
                 indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
                 mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));

@@ -359,7 +359,7 @@ public class StatisticsUtil {
 
     public static DBObjects convertTableNameToObjects(TableNameInfo tableNameInfo) {
         CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
-            Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
         if (catalogIf == null) {
             throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableNameInfo.getCtl()));
         }

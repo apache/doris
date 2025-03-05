@@ -66,15 +66,15 @@ import java.util.Optional;
  */
 public class AlterColumnStatsCommand extends AlterCommand {
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
-        .add(StatsType.ROW_COUNT)
-        .add(ColumnStatistic.NDV)
-        .add(ColumnStatistic.AVG_SIZE)
-        .add(ColumnStatistic.MAX_SIZE)
-        .add(ColumnStatistic.NUM_NULLS)
-        .add(ColumnStatistic.MIN_VALUE)
-        .add(ColumnStatistic.MAX_VALUE)
-        .add(StatsType.DATA_SIZE)
-        .build();
+            .add(StatsType.ROW_COUNT)
+            .add(ColumnStatistic.NDV)
+            .add(ColumnStatistic.AVG_SIZE)
+            .add(ColumnStatistic.MAX_SIZE)
+            .add(ColumnStatistic.NUM_NULLS)
+            .add(ColumnStatistic.MIN_VALUE)
+            .add(ColumnStatistic.MAX_VALUE)
+            .add(StatsType.DATA_SIZE)
+            .build();
     private final TableNameInfo tableNameInfo;
     private final String indexName;
     private final String columnName;
@@ -84,6 +84,9 @@ public class AlterColumnStatsCommand extends AlterCommand {
     private final List<Long> partitionIds = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
+    /**
+     * AlterColumnStatsCommand
+     */
     public AlterColumnStatsCommand(TableNameInfo tableNameInfo,
                                    PartitionNamesInfo opPartitionNamesInfo,
                                    String indexName,
@@ -121,11 +124,11 @@ public class AlterColumnStatsCommand extends AlterCommand {
 
     private void validate(ConnectContext ctx) throws UserException {
         if (!Env.getCurrentEnv().getAccessManager()
-            .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                 tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
 
         if (!ConnectContext.get().getSessionVariable().enableStats) {
@@ -138,8 +141,8 @@ public class AlterColumnStatsCommand extends AlterCommand {
         checkPartitionAndColumn(ctx);
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
-            .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
-            .findFirst();
+                .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
+                .findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
@@ -175,7 +178,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
 
         if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                columnName, FeNameFormat.getColumnNameRegex());
+                    columnName, FeNameFormat.getColumnNameRegex());
         }
 
         if (opPartitionNamesInfo != null && table instanceof OlapTable) {
