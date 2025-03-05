@@ -70,28 +70,31 @@ std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consum
     return iter->second;
 }
 
-Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
-                                                  const TQueryOptions& options, int node_id,
+Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc, int node_id,
                                                   std::shared_ptr<RuntimeFilterConsumer>* consumer,
-                                                  bool need_local_merge,
                                                   RuntimeProfile* parent_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
     std::lock_guard<std::mutex> l(_lock);
-    DCHECK(!(_is_global xor need_local_merge))
-            << " _is_global: " << _is_global << " need_local_merge: " << need_local_merge;
     RETURN_IF_ERROR(
             RuntimeFilterConsumer::create(_state, &desc, node_id, consumer, parent_profile));
     _consumer_map[key].push_back(*consumer);
-
     return Status::OK();
 }
 
 Status RuntimeFilterMgr::register_local_merger_producer_filter(
-        const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-        std::shared_ptr<RuntimeFilterProducer> producer, RuntimeProfile* parent_profile) {
-    DCHECK(_is_global);
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer> producer,
+        RuntimeProfile* parent_profile) {
+    if (!_is_global) [[unlikely]] {
+        return Status::InternalError(
+                "A local merge filter can not be registered in Local RuntimeFilterMgr");
+    }
+    if (producer == nullptr) [[unlikely]] {
+        return Status::InternalError(
+                "Producer should be created in local RuntimeFilterMgr before registered in Global "
+                "RuntimeFilterMgr");
+    }
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
@@ -102,21 +105,29 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
     }
 
     DCHECK(_state != nullptr);
-    {
-        std::lock_guard<std::mutex> l(context->mtx);
-        if (!context->merger) {
-            RETURN_IF_ERROR(
-                    RuntimeFilterMerger::create(_state, &desc, &context->merger, parent_profile));
-        }
-        context->producers.emplace_back(producer);
-        context->merger->set_expected_producer_num(context->producers.size());
+    RETURN_IF_ERROR(context->register_producer(_state, &desc, parent_profile, producer));
+    return Status::OK();
+}
+
+Status LocalMergeContext::register_producer(RuntimeFilterParamsContext* state,
+                                            const TRuntimeFilterDesc* desc,
+                                            RuntimeProfile* parent_profile,
+                                            std::shared_ptr<RuntimeFilterProducer> producer) {
+    std::lock_guard<std::mutex> l(mtx);
+    if (!merger) {
+        RETURN_IF_ERROR(RuntimeFilterMerger::create(state, desc, &merger, parent_profile));
     }
+    producers.emplace_back(producer);
+    merger->set_expected_producer_num(producers.size());
     return Status::OK();
 }
 
 Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
                                                           LocalMergeContext** local_merge_filters) {
-    DCHECK(_is_global);
+    if (!_is_global) [[unlikely]] {
+        return Status::InternalError(
+                "A local merge filter can not be registered in Local RuntimeFilterMgr");
+    }
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
@@ -131,10 +142,12 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
 }
 
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
-                                                  const TQueryOptions& options,
                                                   std::shared_ptr<RuntimeFilterProducer>* producer,
                                                   RuntimeProfile* parent_profile) {
-    DCHECK(!_is_global);
+    if (_is_global) [[unlikely]] {
+        return Status::InternalError(
+                "A local producer filter should not be registered in Global RuntimeFilterMgr");
+    }
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     DCHECK(_state != nullptr);
@@ -148,17 +161,18 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     return Status::OK();
 }
 
-void RuntimeFilterMgr::set_runtime_filter_params(
+bool RuntimeFilterMgr::set_runtime_filter_params(
         const TRuntimeFilterParams& runtime_filter_params) {
     std::lock_guard l(_lock);
     if (!_has_merge_addr) {
         _merge_addr = runtime_filter_params.runtime_filter_merge_addr;
         _has_merge_addr = true;
+        return true;
     }
+    return false;
 }
 
 Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
-    DCHECK(_has_merge_addr);
     if (_has_merge_addr) {
         *addr = this->_merge_addr;
         return Status::OK();
