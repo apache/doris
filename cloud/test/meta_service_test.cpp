@@ -4627,13 +4627,14 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
     remove_delete_bitmap_lock(meta_service.get(), 1);
     remove_delete_bitmap_lock(meta_service.get(), 2);
+    int64_t table_id = 9;
 
     // case 1: lock key does not exist, get and remove load lock
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id("test_cloud_unique_id");
-    req.set_table_id(1);
+    req.set_table_id(table_id);
     req.add_partition_ids(123);
     req.set_expiration(5);
     req.set_lock_id(888);
@@ -4645,7 +4646,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     RemoveDeleteBitmapUpdateLockRequest remove_req;
     RemoveDeleteBitmapUpdateLockResponse remove_res;
     remove_req.set_cloud_unique_id("test_cloud_unique_id");
-    remove_req.set_table_id(1);
+    remove_req.set_table_id(table_id);
     remove_req.set_lock_id(888);
     remove_req.set_initiator(-1);
     meta_service->remove_delete_bitmap_update_lock(
@@ -4776,8 +4777,8 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 9: lock key owned by compaction but all expired, load1 get lock
-    req.set_table_id(2);
+    // case 9: lock key owned by compaction but all expired (101 900), load1 get lock
+    req.set_table_id(table_id);
     req.set_lock_id(-1);
     req.set_initiator(900);
     req.set_expiration(1);
@@ -4786,7 +4787,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
     sleep(2);
-    req.set_table_id(1);
+    req.set_table_id(table_id);
     req.set_lock_id(888);
     req.set_initiator(-1);
     req.set_expiration(60);
