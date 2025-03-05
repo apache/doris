@@ -620,6 +620,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     for (const auto& column_meta : _footer_pb->columns()) {
         // no need to create column reader for variant's subcolumn
         if (column_meta.unique_id() == -1) {
+            ordinal++;
             continue;
         }
         column_id_to_footer_ordinal.try_emplace(column_meta.unique_id(), ordinal++);
