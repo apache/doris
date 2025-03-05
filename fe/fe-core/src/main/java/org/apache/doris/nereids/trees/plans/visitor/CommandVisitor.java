@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -819,6 +820,11 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowQueuedAnalyzeJobsCommand(ShowQueuedAnalyzeJobsCommand showQueuedAnalyzeJobsCommand, C context) {
         return visitCommand(showQueuedAnalyzeJobsCommand, context);
+    }
+
+    default R visitShowColumnHistogramStatsCommand(ShowColumnHistogramStatsCommand showColumnHistogramStatCommand,
+                                                   C context) {
+        return visitCommand(showColumnHistogramStatCommand, context);
     }
 
     default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
