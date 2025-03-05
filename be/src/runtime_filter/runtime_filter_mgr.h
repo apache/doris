@@ -60,6 +60,10 @@ struct LocalMergeContext {
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+
+    Status register_producer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                             RuntimeProfile* parent_profile,
+                             std::shared_ptr<RuntimeFilterProducer> producer);
 };
 
 struct GlobalMergeContext {
@@ -83,24 +87,23 @@ public:
 
     // get/set consumer
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
-    Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id,
+    Status register_consumer_filter(const TRuntimeFilterDesc& desc, int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                    bool need_local_merge, RuntimeProfile* parent_profile);
+                                    RuntimeProfile* parent_profile);
 
     Status register_local_merger_producer_filter(
-            const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-            std::shared_ptr<RuntimeFilterProducer> producer_filter, RuntimeProfile* parent_profile);
+            const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer> producer_filter,
+            RuntimeProfile* parent_profile);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
-    Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
+    Status register_producer_filter(const TRuntimeFilterDesc& desc,
                                     std::shared_ptr<RuntimeFilterProducer>* producer_filter,
                                     RuntimeProfile* parent_profile);
 
     // update filter by remote
-    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
+    bool set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
     Status get_merge_addr(TNetworkAddress* addr);
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
