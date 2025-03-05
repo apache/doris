@@ -904,10 +904,17 @@ struct StringSpace {
         size_t input_size = res_offsets.size();
         // sample to get approximate best reserve size
         if (input_size > 4) {
-            res_data.reserve(((data[0] + data[input_size >> 1] + data[input_size >> 2] +
-                               data[input_size - 1]) >>
-                              2) *
-                             input_size);
+            int32_t sum = 0;
+            int count = 0;
+            std::array<size_t, 4> indices = {0, input_size >> 1, input_size >> 2, input_size - 1};
+            for (size_t idx : indices) {
+                if (data[idx] > 0) {
+                    sum += data[idx];
+                    count++;
+                }
+            }
+            size_t reserve_size = (count > 0) ? (sum / count) * input_size : 0;
+            res_data.reserve(reserve_size);
         }
         for (size_t i = 0; i < input_size; ++i) {
             if (data[i] > 0) [[likely]] {
