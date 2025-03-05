@@ -704,12 +704,11 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     // remove exec state after this fragment finished
     {
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
-
-        LOG_INFO("Instance {} finished", print_id(fragment_executor->fragment_instance_id()));
+        VLOG(10) << fmt::format("Instance {} finished, all_done: {}",
+                                print_id(fragment_executor->fragment_instance_id()), all_done);
     }
     if (all_done && query_ctx) {
         _query_ctx_map.erase(query_ctx->query_id());
-        LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
     }
 
     // Callback after remove from this id
@@ -810,7 +809,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         }
     }
     q_ctx->set_ready_to_execute(false);
-    LOG_INFO("Query {} start execution", print_id(query_id));
+    LOG(INFO) << fmt::format("Query {} start execution", print_id(query_id));
     return Status::OK();
 }
 
@@ -824,15 +823,14 @@ void FragmentMgr::remove_pipeline_context(
         f_context->instance_ids(ins_ids);
         all_done = q_context->countdown(ins_ids.size());
         for (const auto& ins_id : ins_ids) {
-            LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
-                     print_id(ins_id), all_done);
+            VLOG(10) << fmt::format("Removing query {} instance {}, all done? {}",
+                                    print_id(query_id), print_id(ins_id), all_done);
             _pipeline_map.erase(ins_id);
             g_pipeline_fragment_instances_count << -1;
         }
     }
     if (all_done) {
         _query_ctx_map.erase(query_id);
-        LOG_INFO("Query {} finished", print_id(query_id));
     }
 }
 
@@ -866,13 +864,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                         current_connect_fe_addr = params.coord;
                     }
 
-                    LOG(INFO) << "query_id: " << print_id(query_id)
-                              << ", coord_addr: " << params.coord
-                              << ", total fragment num on current host: "
-                              << params.fragment_num_on_host
-                              << ", fe process uuid: " << params.query_options.fe_process_uuid
-                              << ", query type: " << params.query_options.query_type
-                              << ", report audit fe:" << current_connect_fe_addr;
+                    VLOG(10) << "query_id: " << print_id(query_id)
+                             << ", coord_addr: " << params.coord
+                             << ", total fragment num on current host: "
+                             << params.fragment_num_on_host
+                             << ", fe process uuid: " << params.query_options.fe_process_uuid
+                             << ", query type: " << params.query_options.query_type
+                             << ", report audit fe:" << current_connect_fe_addr << ", limit: "
+                             << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
 
                     // This may be a first fragment request of the query.
                     // Create the query fragments context.
@@ -911,21 +910,18 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                             _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
                                     print_id(query_id), tg_id);
 
-                            LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                                      << ", use workload group: "
-                                      << workload_group_ptr->debug_string()
-                                      << ", is pipeline: " << ((int)is_pipeline);
+                            VLOG(10) << "Query/load id: " << print_id(query_ctx->query_id())
+                                     << ", use workload group: "
+                                     << workload_group_ptr->debug_string()
+                                     << ", is pipeline: " << ((int)is_pipeline);
                         } else {
-                            LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                                      << " carried group info but can not find group in be";
+                            VLOG(10) << "Query/load id: " << print_id(query_ctx->query_id())
+                                     << " carried group info but can not find group in be";
                         }
                     }
                     // There is some logic in query ctx's dctor, we could not check if exists and delete the
                     // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                     map.insert({query_id, query_ctx});
-                    LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                              << print_id(query_ctx->query_id()) << " limit: "
-                              << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
                     return Status::OK();
                 }));
     }
@@ -1446,8 +1442,7 @@ void FragmentMgr::cancel_worker() {
                                     queries_pipeline_task_leak.push_back(q_ctx->query_id());
                                     LOG_INFO(
                                             "Query {}, type {} is not found on any frontends, "
-                                            "maybe it "
-                                            "is leaked.",
+                                            "maybe it is leaked.",
                                             print_id(q_ctx->query_id()),
                                             toString(q_ctx->get_query_source()));
                                     continue;
