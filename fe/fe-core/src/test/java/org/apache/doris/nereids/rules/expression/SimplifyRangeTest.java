@@ -197,6 +197,9 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2) AND IA =1");
 
+        // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
+        Expression expr = rewrite("TA + random(1, 10) > 10 AND  TA + random(1, 10) < 1", Maps.newHashMap());
+        Assertions.assertEquals("(((TA + random(1, 10)) > 10) AND ((TA + random(1, 10)) < 1))", expr.toSql());
     }
 
     @Test
@@ -366,12 +369,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
-        needRewriteExpression = typeCoercion(needRewriteExpression);
+        Expression rewrittenExpression = rewrite(expression, mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewrite(String expression, Map<String, Slot> mem) {
+        Expression rewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        rewriteExpression = typeCoercion(rewriteExpression);
+        rewriteExpression = executor.rewrite(rewriteExpression, context);
+        return sortChildren(rewriteExpression);
     }
 
     private void assertRewriteNotNull(String expression, String expected) {

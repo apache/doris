@@ -443,8 +443,10 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> insert_into_sql(String sqlStr, int num) {
         if (context.useArrowFlightSql()) {
+            logger.info("Use arrow flight sql")
             return arrow_flight_insert_into_sql(sqlStr, num)
         } else {
+            logger.info("Use jdbc insert into")
             return jdbc_insert_into_sql(sqlStr, num)
         }
     }
@@ -792,6 +794,25 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void waitForBrokerLoadDone(String label, int timeoutInSecond = 60) {
+        if (timeoutInSecond < 0 || label == null) {
+            return
+        }
+        var start = System.currentTimeMillis()
+        var timeout = timeoutInSecond * 1000
+        while (System.currentTimeMillis() - start < timeout) {
+            def lists = sql "show load where label = '${label}'"
+            if (lists.isEmpty()) {
+                return
+            }
+            def state = lists[0][2]
+            if ("FINISHED".equals(state) || "CANCELLED".equals(state)) {
+                return
+            }
+            sleep(300)
+        }
+        logger.warn("broker load with label `${label}` didn't finish in ${timeoutInSecond} second, please check it!")
+    }
 
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
