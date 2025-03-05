@@ -359,6 +359,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
 }
 
 void HttpClient::set_method(HttpMethod method) {
+    _method = method;
     switch (method) {
     case GET:
         curl_easy_setopt(_curl, CURLOPT_HTTPGET, 1L);
@@ -412,6 +413,9 @@ Status HttpClient::execute_delete_request(const std::string& payload, std::strin
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
+    }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
@@ -420,6 +424,10 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
                      << ", trace=" << get_stack_trace() << ", url=" << url;
         std::string errmsg = fmt::format("{}, url={}", _to_errmsg(code), url);
         return Status::HttpError(std::move(errmsg));
+    }
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
+                   << " done";
     }
     return Status::OK();
 }
