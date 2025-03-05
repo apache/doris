@@ -35,7 +35,7 @@ public:
     void TearDown() override {}
 };
 
-TEST_F(RuntimeFilterMgrTest, TestGlobalMgr) {
+TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
     auto filter_id = 0;
     std::shared_ptr<RuntimeFilterMgr> global_runtime_filter_mgr;
     std::shared_ptr<RuntimeFilterMgr> local_runtime_filter_mgr;
@@ -137,6 +137,48 @@ TEST_F(RuntimeFilterMgrTest, TestGlobalMgr) {
         request.set_filter_id(filter_id);
         request.set_filter_size(16);
         EXPECT_TRUE(global_runtime_filter_mgr->sync_filter_size(&request).ok());
+    }
+}
+
+TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
+    int rid = 1;
+    UniqueId query_id;
+    std::shared_ptr<QueryContext> ctx;
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> entity;
+    auto profile = std::make_shared<RuntimeProfile>("Test");
+    RuntimeState state;
+    {
+        // Create
+        auto query_options = TQueryOptionsBuilder().build();
+        auto fe_address = TNetworkAddress();
+        fe_address.hostname = BackendOptions::get_localhost();
+        fe_address.port = config::brpc_port;
+        ctx = QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options, fe_address,
+                                   true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        entity = std::make_shared<RuntimeFilterMergeControllerEntity>(
+                RuntimeFilterParamsContext::create(ctx.get()));
+        entity->_state->set_state(&state);
+    }
+    {
+        // Init
+        TRuntimeFilterParams param =
+                TRuntimeFilterParamsBuilder()
+                        .add_rid_to_runtime_filter(
+                                rid,
+                                TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
+                        .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
+                        .build();
+        EXPECT_FALSE(entity->init(query_id, param).ok());
+
+        param = TRuntimeFilterParamsBuilder()
+                        .add_rid_to_runtime_filter(
+                                rid,
+                                TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
+                        .add_runtime_filter_builder_num(rid, 1)
+                        .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
+                        .build();
+        EXPECT_TRUE(entity->init(query_id, param).ok());
+        EXPECT_EQ(entity->query_id(), query_id);
     }
 }
 

@@ -148,8 +148,7 @@ public:
             : _query_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
-    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params,
-                const TQueryOptions& query_options);
+    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params);
 
     // handle merge rpc
     Status merge(std::weak_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
