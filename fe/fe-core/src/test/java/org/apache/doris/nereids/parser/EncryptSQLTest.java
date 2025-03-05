@@ -271,7 +271,7 @@ public class EncryptSQLTest extends ParserTestBase {
         parseAndCheck(sql, res);
 
         sql = "selected * from tbl";
-        res = "errCode = 2, detailMessage = \\nmismatched input 'selected' expecting {<EOF>, ';', '(', 'ADMIN', 'ALTER', 'ANALYZE', 'BACKUP', 'BEGIN', 'BUILD', 'CALL', 'CANCEL', 'CLEAN', 'COMMIT', 'COPY', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DROP', 'EXPLAIN', 'EXPORT', 'GRANT', 'HELP', 'INSERT', 'INSTALL', 'KILL', 'LOAD', 'LOCK', 'PAUSE', 'PLAN', 'RECOVER', 'REFRESH', 'REPLACE', 'RESTORE', 'RESUME', 'REVOKE', 'ROLLBACK', 'SELECT', 'SET', 'SHOW', 'START', 'STOP', 'SWITCH', 'SYNC', 'TRUNCATE', 'UNINSTALL', 'UNLOCK', 'UNSET', 'UPDATE', 'USE', 'VALUES', 'WARM', 'WITH'}(line 1, pos 0)\\n";
+        res = "Syntax Error";
         parseAndCheck(sql, res);
 
         sql = "select * from tbl";
