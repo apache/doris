@@ -53,6 +53,8 @@ public:
 
     bool is_variadic() const override { return false; }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
