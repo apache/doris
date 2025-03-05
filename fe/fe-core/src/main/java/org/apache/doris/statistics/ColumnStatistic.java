@@ -365,4 +365,8 @@ public class ColumnStatistic {
     public boolean isUnKnown() {
         return isUnKnown;
     }
+
+    public ColumnStatistic withAvgSizeByte(double avgSizeByte) {
+        return new ColumnStatisticBuilder(this).setAvgSizeByte(avgSizeByte).build();
+    }
 }

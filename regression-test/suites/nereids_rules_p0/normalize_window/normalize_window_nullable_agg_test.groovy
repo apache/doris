@@ -73,6 +73,16 @@ suite("normalize_window_nullable_agg") {
         exception "order by is not supported"
     }
 
+    test {
+        sql "select group_concat(cast(sum(xwhat) over(partition by xwho order by xwhen) as varchar) order by xwhat) over(partition by xwhen) from windowfunnel_test_normalize_window;"
+        exception "order by is not supported"
+    }
+
+    // test only refuse order by in function's direct children
+    sql """
+        select sum(sum(xwhat) over(partition by xwho order by xwhen)) over(partition by xwho) from windowfunnel_test_normalize_window
+    """
+
     sql "set enable_fold_constant_by_be = 1;"
     sql "drop table if exists fold_window1"
     sql """create table fold_window1 (

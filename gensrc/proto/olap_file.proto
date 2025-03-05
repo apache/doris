@@ -118,6 +118,9 @@ message RowsetMetaPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // For backup/restore, record the tablet id and rowset id of the source cluster.
+    optional int64 source_tablet_id = 53;
+    optional string source_rowset_id = 54;
 
     // For cloud
     // for data recycling
@@ -203,6 +206,9 @@ message RowsetMetaCloudPB {
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
     optional int64 compaction_level = 52 [default = 0];
+    // For backup/restore, record the tablet id and rowset id of the source cluster.
+    optional int64 source_tablet_id = 53;
+    optional string source_rowset_id = 54;
 
     // cloud
     // the field is a vector, rename it
