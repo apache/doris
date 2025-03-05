@@ -425,24 +425,32 @@ public:
     bool enable_page_cache() const;
 
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
-        std::lock_guard<std::mutex> lock(_tablet_commit_infos_mutex);
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
     }
 
     void save_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
-        std::lock_guard<std::mutex> lock(_tablet_commit_infos_mutex);
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         _tablet_commit_infos.insert(_tablet_commit_infos.end(),
                                     std::make_move_iterator(commit_infos.begin()),
                                     std::make_move_iterator(commit_infos.end()));
     }
 
+    std::vector<TErrorTabletInfo> error_tablet_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        return _error_tablet_infos;
+    }
+
+    void save_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _error_tablet_infos.insert(_error_tablet_infos.end(),
+                                   std::make_move_iterator(tablet_infos.begin()),
+                                   std::make_move_iterator(tablet_infos.end()));
+    }
+
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
     std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
-
-    const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
-
-    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -758,7 +766,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
-    mutable std::mutex _tablet_commit_infos_mutex;
+    mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

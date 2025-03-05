@@ -195,15 +195,18 @@ Status IndexChannel::check_intolerable_failure() {
 }
 
 void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
-    std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
+    std::vector<TErrorTabletInfo> error_tablet_infos;
 
-    std::lock_guard<doris::SpinLock> l(_fail_lock);
-    for (const auto& it : _failed_channels_msgs) {
-        TErrorTabletInfo error_info;
-        error_info.__set_tabletId(it.first);
-        error_info.__set_msg(it.second);
-        error_tablet_infos.emplace_back(error_info);
+    {
+        std::lock_guard<doris::SpinLock> l(_fail_lock);
+        for (const auto& it : _failed_channels_msgs) {
+            TErrorTabletInfo error_info;
+            error_info.__set_tabletId(it.first);
+            error_info.__set_msg(it.second);
+            error_tablet_infos.emplace_back(error_info);
+        }
     }
+    state->save_error_tablet_infos(error_tablet_infos);
 }
 
 void IndexChannel::set_tablets_received_rows(
