@@ -104,7 +104,9 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
 
 Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
     if (!_status.ok()) {
-        return _status.status();
+        // The error status is reported when it first occurs and
+        // doesn't need to be reported again until TabletStream::close().
+        return Status::OK();
     }
 
     // dispatch add_segment request
@@ -215,7 +217,9 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
     if (!_status.ok()) {
-        return _status.status();
+        // The error status is reported when it first occurs and
+        // doesn't need to be reported again until TabletStream::close().
+        return Status::OK();
     }
 
     SCOPED_TIMER(_add_segment_timer);
