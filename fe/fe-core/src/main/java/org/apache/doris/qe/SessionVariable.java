@@ -1474,7 +1474,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
-    private boolean enableHboOptimization = false;
+    private boolean enableHboOptimization = true;
 
     public boolean isEnableHboInfoCollection() {
         return enableHboInfoCollection;
@@ -1485,7 +1485,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_INFO_COLLECTION)
-    private boolean enableHboInfoCollection = false;
+    private boolean enableHboInfoCollection = true;
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_NONSTRICT_MATCHING_MODE)
     private boolean enableHboNonStrictMatchingMode = false;
