@@ -666,9 +666,8 @@ public abstract class ConnectProcessor {
                         preparedStatementContext,
                         ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
             } else {
-                executor.execute(queryId);
+                executor.queryRetry(queryId);
             }
-            executor.queryRetry(queryId);
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
