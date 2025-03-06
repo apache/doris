@@ -265,6 +265,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("total delete {} objects for dir {}", totalObjects, absolutePath);
             return Status.OK;
         } catch (DdlException e) {
+            LOG.warn("deleteObjects:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn(String.format("delete objects %s failed", absolutePath), e);
@@ -320,7 +321,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
-    public Status multiPartPutObject(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
         Status st = Status.OK;
         long uploadedBytes = 0;
         int bytesRead = 0;
@@ -378,7 +379,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             getClient().completeMultipartUpload(completeMultipartUploadRequest);
         } catch (Exception e) {
             LOG.warn("remotePath:{}, ", remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multiPartPutObject " + remotePath
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
                     + " reason: " + e.getMessage());
 
             if (uri != null && uploadId != null) {
@@ -390,7 +391,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .build();
                     getClient().abortMultipartUpload(abortMultipartUploadRequest);
                 } catch (Exception e1) {
-                    LOG.warn("Failed to abort multiPartPutObject " + remotePath, e1);
+                    LOG.warn("Failed to abort multipartUpload " + remotePath, e1);
                 }
             }
         }

@@ -418,7 +418,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
 
-    public Status multiPartPutObject(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
         Status st = Status.OK;
         long uploadedBytes = 0;
         int bytesRead = 0;
@@ -440,14 +440,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             blockBlobClient.commitBlockList(blockIds);
         } catch (Exception e) {
             LOG.warn("remotePath:{}, ", remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multiPartPutObject " + remotePath
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
                     + " reason: " + e.getMessage());
 
             if (blockBlobClient != null) {
                 try {
                     blockBlobClient.delete();
                 } catch (Exception e1) {
-                    LOG.warn("abort multiPartPutObject failed", e1);
+                    LOG.warn("abort multipartUpload failed", e1);
                 }
             }
         }

@@ -128,33 +128,41 @@ public class S3Resource extends Resource {
 
         Status status = s3ObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "pingS3 failed(put), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+            String errMsg = "pingS3 failed(put),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
 
         status = s3ObjStorage.headObject(testObj);
         if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "pingS3 failed(head), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+            String errMsg = "pingS3 failed(head),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
 
         RemoteObjects remoteObjects = s3ObjStorage.listObjects(testObj, null);
         LOG.info("remoteObjects: {}", remoteObjects);
 
-        status = s3ObjStorage.multiPartPutObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        status = s3ObjStorage.multipartUpload(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "pingS3 failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+            String errMsg = "pingS3 failed(multipartUpload),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
 
         status = s3ObjStorage.deleteObject(testObj);
         if (!Status.OK.equals(status)) {
-            throw new DdlException(
-                    "pingS3 failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
-                            newProperties, "=", true, false, true, false));
+            String errMsg = "pingS3 failed(delete),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
 
         LOG.info("success to ping s3");

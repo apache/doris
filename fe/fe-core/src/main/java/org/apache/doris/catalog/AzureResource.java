@@ -116,7 +116,7 @@ public class AzureResource extends Resource {
                             newProperties, "=", true, false, true, false));
         }
 
-        status = azureObjStorage.multiPartPutObject(testObj,
+        status = azureObjStorage.multipartUpload(testObj,
                 new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
