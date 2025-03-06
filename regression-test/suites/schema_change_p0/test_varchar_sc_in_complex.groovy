@@ -63,19 +63,19 @@ suite ("test_varchar_sc_in_complex") {
         test {
             sql """ alter table ${tableName} modify column c_a array<varchar(3)>
                 """
-            exception "Cannot shorten string length"
+            exception "Shorten type length is prohibited"
         }
 
         test {
             sql """ alter table ${tableName} modify column c_m map<varchar(3),varchar(3)>
                 """
-            exception "Cannot shorten string length"
+            exception "Shorten type length is prohibited"
         }
 
         test {
             sql """ alter table ${tableName} modify column c_s struct<col:varchar(3)>
                 """
-            exception "Cannot shorten string length"
+            exception "Shorten type length is prohibited"
         }
 
         // case2, can not alter modify array/map/struct to other type
