@@ -58,6 +58,11 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
                                                   "HashJoinProbeSpillDependency", true);
     state->get_task()->add_spill_dependency(_spill_dependency.get());
 
+    init_counters();
+    return Status::OK();
+}
+
+void PartitionedHashJoinProbeLocalState::init_counters() {
     _partition_timer = ADD_TIMER(profile(), "SpillPartitionTime");
     _partition_shuffle_timer = ADD_TIMER(profile(), "SpillPartitionShuffleTime");
     _spill_build_rows = ADD_COUNTER(profile(), "SpillBuildRows", TUnit::UNIT);
@@ -78,7 +83,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
             ADD_COUNTER_WITH_LEVEL(profile(), "ProbeBloksBytesInMem", TUnit::BYTES, 1);
     _memory_usage_reserved =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
-    return Status::OK();
 }
 
 #define UPDATE_COUNTER_FROM_INNER(name) \
@@ -417,7 +421,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
             st = spilled_stream->read_next_block_sync(&block, &eos);
             if (!st.ok()) {
                 break;
-            } else {
+            } else if (!block.empty()) {
                 COUNTER_UPDATE(_recovery_probe_rows, block.rows());
                 COUNTER_UPDATE(_recovery_probe_blocks, 1);
                 read_size += block.allocated_bytes();
@@ -786,7 +790,7 @@ size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* stat
 size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     const auto need_to_spill = local_state._shared_state->need_to_spill;
-    if (!need_to_spill || !local_state._child_eos) {
+    if (!need_to_spill || local_state._child_eos) {
         return Base::get_reserve_mem_size(state);
     }
 
