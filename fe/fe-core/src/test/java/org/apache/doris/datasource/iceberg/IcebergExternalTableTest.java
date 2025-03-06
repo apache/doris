@@ -171,42 +171,39 @@ public class IcebergExternalTableTest {
 
     @Test
     public void testGetPartitionRange() throws AnalysisException {
-        IcebergExternalDatabase database = new IcebergExternalDatabase(null, 1L, "2", "2");
-        IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", null, database);
         Column c = new Column("ts", PrimitiveType.DATETIMEV2);
         List<Column> partitionColumns = Lists.newArrayList(c);
-        table.setPartitionColumns(partitionColumns);
 
         // Test null partition value
-        Range<PartitionKey> nullRange = table.getPartitionRange(null, "hour", partitionColumns);
+        Range<PartitionKey> nullRange = IcebergUtils.getPartitionRange(null, "hour", partitionColumns);
         Assertions.assertEquals("0000-01-01 00:00:00",
                 nullRange.lowerEndpoint().getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("0000-01-01 00:00:01",
                 nullRange.upperEndpoint().getPartitionValuesAsStringList().get(0));
 
         // Test hour transform.
-        Range<PartitionKey> hour = table.getPartitionRange("100", "hour", partitionColumns);
+        Range<PartitionKey> hour = IcebergUtils.getPartitionRange("100", "hour", partitionColumns);
         PartitionKey lowKey = hour.lowerEndpoint();
         PartitionKey upKey = hour.upperEndpoint();
         Assertions.assertEquals("1970-01-05 04:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1970-01-05 05:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test day transform.
-        Range<PartitionKey> day = table.getPartitionRange("100", "day", partitionColumns);
+        Range<PartitionKey> day = IcebergUtils.getPartitionRange("100", "day", partitionColumns);
         lowKey = day.lowerEndpoint();
         upKey = day.upperEndpoint();
         Assertions.assertEquals("1970-04-11 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1970-04-12 00:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test month transform.
-        Range<PartitionKey> month = table.getPartitionRange("100", "month", partitionColumns);
+        Range<PartitionKey> month = IcebergUtils.getPartitionRange("100", "month", partitionColumns);
         lowKey = month.lowerEndpoint();
         upKey = month.upperEndpoint();
         Assertions.assertEquals("1978-05-01 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
         Assertions.assertEquals("1978-06-01 00:00:00", upKey.getPartitionValuesAsStringList().get(0));
 
         // Test year transform.
-        Range<PartitionKey> year = table.getPartitionRange("100", "year", partitionColumns);
+        Range<PartitionKey> year = IcebergUtils.getPartitionRange("100", "year", partitionColumns);
         lowKey = year.lowerEndpoint();
         upKey = year.upperEndpoint();
         Assertions.assertEquals("2070-01-01 00:00:00", lowKey.getPartitionValuesAsStringList().get(0));
@@ -214,26 +211,23 @@ public class IcebergExternalTableTest {
 
         // Test unsupported transform
         Exception exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            table.getPartitionRange("100", "bucket", partitionColumns);
+            IcebergUtils.getPartitionRange("100", "bucket", partitionColumns);
         });
         Assertions.assertEquals("Unsupported transform bucket", exception.getMessage());
     }
 
     @Test
     public void testSortRange() throws AnalysisException {
-        IcebergExternalDatabase database = new IcebergExternalDatabase(null, 1L, "2", "2");
-        IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", null, database);
         Column c = new Column("c", PrimitiveType.DATETIMEV2);
         ArrayList<Column> columns = Lists.newArrayList(c);
-        table.setPartitionColumns(Lists.newArrayList(c));
-        PartitionItem nullRange = new RangePartitionItem(table.getPartitionRange(null, "hour", columns));
-        PartitionItem year1970 = new RangePartitionItem(table.getPartitionRange("0", "year", columns));
-        PartitionItem year1971 = new RangePartitionItem(table.getPartitionRange("1", "year", columns));
-        PartitionItem month197002 = new RangePartitionItem(table.getPartitionRange("1", "month", columns));
-        PartitionItem month197103 = new RangePartitionItem(table.getPartitionRange("14", "month", columns));
-        PartitionItem month197204 = new RangePartitionItem(table.getPartitionRange("27", "month", columns));
-        PartitionItem day19700202 = new RangePartitionItem(table.getPartitionRange("32", "day", columns));
-        PartitionItem day19730101 = new RangePartitionItem(table.getPartitionRange("1096", "day", columns));
+        PartitionItem nullRange = new RangePartitionItem(IcebergUtils.getPartitionRange(null, "hour", columns));
+        PartitionItem year1970 = new RangePartitionItem(IcebergUtils.getPartitionRange("0", "year", columns));
+        PartitionItem year1971 = new RangePartitionItem(IcebergUtils.getPartitionRange("1", "year", columns));
+        PartitionItem month197002 = new RangePartitionItem(IcebergUtils.getPartitionRange("1", "month", columns));
+        PartitionItem month197103 = new RangePartitionItem(IcebergUtils.getPartitionRange("14", "month", columns));
+        PartitionItem month197204 = new RangePartitionItem(IcebergUtils.getPartitionRange("27", "month", columns));
+        PartitionItem day19700202 = new RangePartitionItem(IcebergUtils.getPartitionRange("32", "day", columns));
+        PartitionItem day19730101 = new RangePartitionItem(IcebergUtils.getPartitionRange("1096", "day", columns));
         Map<String, PartitionItem> map = Maps.newHashMap();
         map.put("nullRange", nullRange);
         map.put("year1970", year1970);
@@ -243,7 +237,7 @@ public class IcebergExternalTableTest {
         map.put("month197204", month197204);
         map.put("day19700202", day19700202);
         map.put("day19730101", day19730101);
-        List<Map.Entry<String, PartitionItem>> entries = table.sortPartitionMap(map);
+        List<Map.Entry<String, PartitionItem>> entries = IcebergUtils.sortPartitionMap(map);
         Assertions.assertEquals(8, entries.size());
         Assertions.assertEquals("nullRange", entries.get(0).getKey());
         Assertions.assertEquals("year1970", entries.get(1).getKey());
@@ -254,7 +248,7 @@ public class IcebergExternalTableTest {
         Assertions.assertEquals("month197204", entries.get(6).getKey());
         Assertions.assertEquals("day19730101", entries.get(7).getKey());
 
-        Map<String, Set<String>> stringSetMap = table.mergeOverlapPartitions(map);
+        Map<String, Set<String>> stringSetMap = IcebergUtils.mergeOverlapPartitions(map);
         Assertions.assertEquals(2, stringSetMap.size());
         Assertions.assertTrue(stringSetMap.containsKey("year1970"));
         Assertions.assertTrue(stringSetMap.containsKey("year1971"));

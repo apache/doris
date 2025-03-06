@@ -15,31 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hive;
+package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.PartitionColumnsCache;
-import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
-public class HMSSchemaCacheValue extends SchemaCacheValue implements PartitionColumnsCache {
-
-    private List<Column> partitionColumns;
-
-    public HMSSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
-    }
-
-    @Override
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
-    }
-
-    public List<Type> getPartitionColTypes() {
-        return partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-    }
+public interface PartitionColumnsCache {
+    List<Column> getPartitionColumns();
 }

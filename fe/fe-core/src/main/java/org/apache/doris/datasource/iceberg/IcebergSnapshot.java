@@ -20,10 +20,12 @@ package org.apache.doris.datasource.iceberg;
 public class IcebergSnapshot {
     private final long snapshotId;
     private final long schemaId;
+    private final long newestSchemaId;
 
-    public IcebergSnapshot(long snapshotId, long schemaId) {
+    public IcebergSnapshot(long snapshotId, long schemaId, long newestSchemaId) {
         this.snapshotId = snapshotId;
         this.schemaId = schemaId;
+        this.newestSchemaId = newestSchemaId;
     }
 
     public long getSnapshotId() {
@@ -32,5 +34,9 @@ public class IcebergSnapshot {
 
     public long getSchemaId() {
         return schemaId;
+    }
+
+    public long getNewestSchemaId() {
+        return newestSchemaId;
     }
 }

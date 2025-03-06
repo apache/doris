@@ -187,6 +187,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
+        threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
+            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+            Integer.MAX_VALUE,
+            String.format("hms_catalog_%s_executor_pool", name),
+            true,
+            preExecutionAuthenticator);
     }
 
     @Override
