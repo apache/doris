@@ -55,7 +55,7 @@ suite ("test_varchar_schema_change") {
         test {
             sql """ alter table ${tableName} modify column c2 varchar(10)
                 """
-            exception "Cannot shorten string length"
+            exception "Shorten type length is prohibited"
         }
 
         // test {//为什么第一次改没发生Nothing is changed错误？查看branch-1.2-lts代码
