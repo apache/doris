@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_approx_top_k(const std::string& name,
                                                             const DataTypes& argument_types,
@@ -40,4 +41,5 @@ void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& fa
     factory.register_function_both("approx_top_k", create_aggregate_function_approx_top_k);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
