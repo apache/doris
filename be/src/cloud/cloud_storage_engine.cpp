@@ -26,7 +26,6 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
-#include <mutex>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
