@@ -191,7 +191,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             StatementContext statementContext = prepCtx.statementContext;
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
-                        LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
+                    LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
                 }
                 if (!ctx.isProxy()) {
                     ctx.setPrepareExecuteBuffer(packetBuf.duplicate());

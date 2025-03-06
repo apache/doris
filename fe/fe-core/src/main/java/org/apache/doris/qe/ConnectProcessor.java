@@ -735,7 +735,8 @@ public abstract class ConnectProcessor {
                     }
                     throw new RuntimeException("Prepare failed when proxy execute");
                 }
-                handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId), preparedStatementContext,
+                handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId),
+                        preparedStatementContext,
                         ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
             } else {
                 executor.execute(queryId);
