@@ -140,7 +140,7 @@ void register_suites() {
         auto* sp = SyncPoint::get_instance();
         sp->set_call_back("PageIO::read_and_decompress_page:crc_failure_inj", [](auto&& args) {
             LOG(INFO) << "PageIO::read_and_decompress_page:crc_failure_inj";
-            if (auto ctx = std::any_cast<InjectionContext*>(args[0])) {
+            if (auto ctx = std::any_cast<segment_v2::InjectionContext*>(args[0])) {
                 uint32_t* crc = ctx->crc;
                 segment_v2::PageReadOptions* opts = ctx->opts;
                 auto cached_file_reader =

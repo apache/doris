@@ -512,7 +512,7 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             OlapReaderStatistics tmp_stats;
             OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
             PageReadOptions opts(io::IOContext {.is_index_data = true,
-                                             .file_cache_stats = &stats_ptr->file_cache_stats});
+                                                .file_cache_stats = &stats_ptr->file_cache_stats});
             opts.use_page_cache = true;
             opts.type = INDEX_PAGE;
             opts.file_reader = _file_reader.get();
