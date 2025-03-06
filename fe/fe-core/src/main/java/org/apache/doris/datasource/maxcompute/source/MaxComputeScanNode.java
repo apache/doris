@@ -494,29 +494,41 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
             }
             case DATETIME: {
-                DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                ScalarType dstType = ScalarType.createDatetimeV2Type(3);
+                MaxComputeExternalCatalog  mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+                if (mcCatalog.getDateTimePredicatePushDown()) {
+                    DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                    ScalarType dstType = ScalarType.createDatetimeV2Type(3);
 
-                return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime3Formatter,
-                        ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
+                    return " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime3Formatter,
+                            ZoneId.of("UTC")) + "\" ";
+                }
+                break;
             }
             /**
              * Disable the predicate pushdown to the odps API because the timestamp precision of odps is 9 and the
              * mapping precision of Doris is 6. If we insert `2023-02-02 00:00:00.123456789` into odps, doris reads
              * it as `2023-02-02 00:00:00.123456`. Since "789" is missing, we cannot push it down correctly.
              */
-            // case TIMESTAMP: {
-            //     DateLiteral dateLiteral = (DateLiteral) literalExpr;
-            //     ScalarType dstType = ScalarType.createDatetimeV2Type(6);
-            //
-            //     return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime6Formatter,
-            //             ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
-            // }
-            // case TIMESTAMP_NTZ: {
-            //     DateLiteral dateLiteral = (DateLiteral) literalExpr;
-            //     ScalarType dstType = ScalarType.createDatetimeV2Type(6);
-            //     return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
-            // }
+            case TIMESTAMP: {
+                MaxComputeExternalCatalog  mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+                if (mcCatalog.getDateTimePredicatePushDown()) {
+                    DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                    ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+
+                    return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime6Formatter,
+                            ZoneId.of("UTC")) + "\" ";
+                }
+                break;
+            }
+            case TIMESTAMP_NTZ: {
+                MaxComputeExternalCatalog  mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+                if (mcCatalog.getDateTimePredicatePushDown()) {
+                    DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                    ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+                    return " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+                }
+                break;
+            }
             default: {
                 break;
             }
