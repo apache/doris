@@ -309,7 +309,7 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
 }
 
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
-    /* 
+    /*
      * If use version2 but was version 1, do upgrade:
      *
      * Action I:
@@ -326,8 +326,13 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
 
     std::string version;
     std::error_code ec;
+    int rename_count = 0;
+    auto start_time = std::chrono::steady_clock::now();
 
     RETURN_IF_ERROR(read_file_cache_version(&version));
+    LOG(INFO) << "Checking cache version upgrade. Current version: " << version
+              << ", target version: 2.0, need upgrade: "
+              << (USE_CACHE_VERSION2 && version != "2.0");
     if (USE_CACHE_VERSION2 && version != "2.0") {
         // move directories format as version 2.0
         std::filesystem::directory_iterator key_it {_cache_base_path, ec};
@@ -359,7 +364,9 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                         }
                     }
                     auto rename_status = fs->rename(key_it->path(), key_prefix / cache_key);
-                    if (!rename_status.ok()) {
+                    if (rename_status.ok()) {
+                        ++rename_count;
+                    } else {
                         LOG(WARNING)
                                 << "Failed to rename directory from " << key_it->path().native()
                                 << " to " << (key_prefix / cache_key).native()
@@ -374,8 +381,12 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
             for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
                 if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
                     RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
-                    RETURN_IF_ERROR(fs->rename(upgrade_key_it->path(),
-                                               upgrade_key_it->path().native() + "_0"));
+                    auto rename_status = fs->rename(upgrade_key_it->path(),
+                                                    upgrade_key_it->path().native() + "_0");
+                    if (rename_status.ok()) {
+                        ++rename_count;
+                    }
+                    RETURN_IF_ERROR(rename_status);
                 }
             }
             return Status::OK();
@@ -407,6 +418,10 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
         }
     }
 
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    LOG(INFO) << "Cache directory upgrade completed. Total files renamed: " << rename_count
+              << ", Time taken: " << duration.count() << "ms";
     return Status::OK();
 }
 
