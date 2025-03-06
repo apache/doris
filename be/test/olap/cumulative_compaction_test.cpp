@@ -30,8 +30,10 @@
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -260,6 +262,89 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         EXPECT_EQ(missing_version[2].second, 10);
         EXPECT_EQ(missing_version[3].first, 12);
         EXPECT_EQ(missing_version[3].second, 12);
+    }
+}
+
+TEST_F(CumulativeCompactionTest, TestCumuShouldDelaySubmission) {
+    // Initialize storage engine and thread pool
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+    EXPECT_EQ(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                      .set_min_threads(1)
+                      .set_max_threads(2)
+                      .build(&storage_engine._cumu_compaction_thread_pool),
+              Status::OK());
+
+    // Create shared tablet metadata
+    TabletMetaSharedPtr tablet_meta;
+    tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                                     UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                     TCompressionType::LZ4F));
+
+    // Configure parameters
+    config::min_threads_for_cumu_delay_strategy = 3;
+    config::cumu_delay_strategy_row_num = 10;
+
+    // Test case structure
+    struct TestCase {
+        int max_threads;
+        int num_rows;
+        int disk_size;
+        int used_threads;
+        int small_tasks_running;
+        bool expected_delay;
+        bool expected_is_small;
+        const char* description;
+    };
+
+    TestCase test_cases[] = {
+            // Case 1: No delay when thread pool size is below threshold
+            {2, 100, 10000, 2, 0, false, false, "Thread count below threshold"},
+
+            // Case 2: Small tasks are not delayed
+            {3, 10, 100, 1, 0, false, true, "Small task won't delay"},
+
+            // Case 3: Big task with available threads won't delay
+            {3, 100, 10000, 1, 0, false, false, "Big task with available threads"},
+
+            // Case 4: Big task with small task running won't delay
+            {3, 100, 10000, 2, 1, false, false, "Big task with small task running"},
+
+            // Case 5: Small task with high thread usage won't delay
+            {3, 10, 100, 2, 0, false, true, "Small task with high thread usage"},
+
+            // Case 6: Big task with high thread usage needs delay
+            {3, 100, 10000, 2, 0, true, false, "Big task needs delay with high thread usage"}};
+
+    // Execute all test cases
+    for (const auto& test : test_cases) {
+        TabletSharedPtr tablet(
+                new Tablet(storage_engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+        auto cumu_compaction = std::make_shared<CumulativeCompaction>(storage_engine, tablet);
+
+        // Set thread pool max threads
+        EXPECT_EQ(storage_engine._cumu_compaction_thread_pool->set_max_threads(test.max_threads),
+                  Status::OK());
+
+        // Create test rowset
+        RowsetMetaSharedPtr rsm(new RowsetMeta());
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), rsm, "");
+        rowset->rowset_meta()->set_num_rows(test.num_rows);
+        rowset->rowset_meta()->set_total_disk_size(test.disk_size);
+        EXPECT_EQ(tablet->add_rowset(rowset), Status::OK());
+        cumu_compaction->_input_rowsets.emplace_back(rowset);
+
+        // Set thread usage conditions
+        bool is_small_task = false;
+        storage_engine._cumu_compaction_thread_pool_used_threads = test.used_threads;
+        storage_engine._cumu_compaction_thread_pool_small_tasks_running = test.small_tasks_running;
+
+        // Verify results
+        EXPECT_EQ(storage_engine._check_cumu_should_delay_submission(cumu_compaction, tablet,
+                                                                     is_small_task),
+                  test.expected_delay)
+                << "Failed on case: " << test.description;
+        EXPECT_EQ(is_small_task, test.expected_is_small) << "Failed on case: " << test.description;
     }
 }
 

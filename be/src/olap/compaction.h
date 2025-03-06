@@ -154,6 +154,8 @@ public:
 
     int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
+    std::vector<RowsetSharedPtr> get_input_rowsets() const { return _input_rowsets; }
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -165,6 +167,8 @@ protected:
     Status update_delete_bitmap() override;
 
     StorageEngine& _engine;
+
+    mutable std::mutex _cumu_compaction_delay_mtx;
 
 private:
     Status execute_compact_impl(int64_t permits);

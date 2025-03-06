@@ -26,7 +26,6 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
-#include <mutex>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
@@ -631,6 +630,58 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
     return st;
 }
 
+bool CloudStorageEngine::_check_cumu_should_delay_submission(
+        const std::shared_ptr<CloudCumulativeCompaction>& compaction, const CloudTabletSPtr& tablet,
+        bool& is_small_task) {
+    {
+        std::lock_guard lock(_cumu_compaction_delay_mtx);
+        _cumu_compaction_thread_pool_used_threads++;
+        if (_cumu_compaction_thread_pool->max_threads() >=
+            config::min_threads_for_cumu_delay_strategy) {
+            // Determine if this is a small task based on configured thresholds
+            is_small_task =
+                    (compaction->get_input_rowsets_total_size() <=
+                             config::cumu_delay_strategy_size &&
+                     compaction->get_input_row_num() <= config::cumu_delay_strategy_row_num);
+
+            // Case 1: Multiple threads available => accept all tasks
+            if (_cumu_compaction_thread_pool->max_threads() -
+                        _cumu_compaction_thread_pool_used_threads >
+                0) {
+                // Update small task counter if needed
+                if (is_small_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
+                }
+                return false; // No delay needed
+            }
+
+            // Case 2: Only one thread left => accept if small or if another small task is already running
+            if (_cumu_compaction_thread_pool_small_tasks_running > 0 || is_small_task) {
+                // Update small task counter if needed
+                if (is_small_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
+                }
+                return false; // No delay needed
+            }
+
+            // Case 3: Only one thread left, this is a big task, and no small tasks are running
+            // Delay this task to reserve capacity for potential small tasks
+            LOG_WARNING(
+                    "failed to do CumulativeCompaction, cumu thread pool is intensive, delay "
+                    "big task.")
+                    .tag("tablet_id", tablet->tablet_id())
+                    .tag("input_rows", compaction->get_input_row_num())
+                    .tag("input_rowsets_total_size", compaction->get_input_rowsets_total_size())
+                    .tag("config::cumu_delay_strategy_size", config::cumu_delay_strategy_size)
+                    .tag("config::cumu_delay_strategy_row_num", config::cumu_delay_strategy_row_num)
+                    .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
+                    .tag("small_tasks_running", _cumu_compaction_thread_pool_small_tasks_running);
+            return true; // Delay the task
+        }
+    }
+    return false;
+}
+
 Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet) {
     using namespace std::chrono;
     {
@@ -683,6 +734,24 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
         signal::tablet_id = tablet->tablet_id();
+        bool is_small_task = false;
+        Defer defer {[&]() {
+            DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
+                            { sleep(5); })
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads--;
+            if (is_small_task) {
+                _cumu_compaction_thread_pool_small_tasks_running--;
+            }
+        }};
+        if (_check_cumu_should_delay_submission(compaction, tablet, is_small_task)) {
+            long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            tablet->set_last_cumu_compaction_failure_time(now);
+            erase_submitted_cumu_compaction();
+            // sleep 5s for this tablet
+            tablet->last_cumu_no_suitable_version_ms = now;
+            return;
+        }
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`

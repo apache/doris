@@ -165,6 +165,9 @@ private:
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
+    bool _check_cumu_should_delay_submission(
+            const std::shared_ptr<CloudCumulativeCompaction>& compaction,
+            const CloudTabletSPtr& tablet, bool& is_small_task);
 
     std::atomic_bool _stopped {false};
 
@@ -189,6 +192,7 @@ private:
 
     // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
     mutable std::mutex _compaction_mtx;
+    mutable std::mutex _cumu_compaction_delay_mtx;
     // tablet_id -> submitted base compaction, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _submitted_base_compactions;
     // tablet_id -> submitted full compaction, guarded by `_compaction_mtx`
@@ -204,6 +208,8 @@ private:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    int _cumu_compaction_thread_pool_used_threads {0};
+    int _cumu_compaction_thread_pool_small_tasks_running {0};
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
