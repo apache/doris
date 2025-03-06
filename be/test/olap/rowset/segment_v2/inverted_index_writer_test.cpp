@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -52,10 +53,6 @@ using doris::segment_v2::InvertedIndexFileWriter;
 
 namespace doris::segment_v2 {
 
-// Define InvertedIndexDirectoryMap
-using InvertedIndexDirectoryMap =
-        std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
-
 class InvertedIndexWriterTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
 
@@ -68,13 +65,14 @@ public:
                            const TabletIndex* index_meta = nullptr) {
         std::string file_str;
         if (format == InvertedIndexStorageFormatPB::V1) {
-            file_str = InvertedIndexDescriptor::get_index_file_path_v1(index_prefix,
-                                                                       index_meta->index_id(), "");
+            file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix,
+                                                                    index_meta->index_id(), "");
         } else if (format == InvertedIndexStorageFormatPB::V2) {
-            file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
+            file_str = InvertedIndexDescriptor::get_index_file_name(index_prefix);
         }
         std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, format);
+                io::global_local_filesystem(), io::Path(index_prefix).parent_path(),
+                io::Path(index_prefix).filename(), format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -90,12 +88,12 @@ public:
             }
 
             std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-            const char* null_bitmap_file_name =
+            auto null_bitmap_file_name =
                     InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
-            if (compound_reader->fileExists(null_bitmap_file_name)) {
+            if (compound_reader->fileExists(null_bitmap_file_name.c_str())) {
                 std::unique_ptr<lucene::store::IndexInput> null_bitmap_in;
-                assert(compound_reader->openInput(null_bitmap_file_name, null_bitmap_in, err,
-                                                  4096));
+                assert(compound_reader->openInput(null_bitmap_file_name.c_str(), null_bitmap_in,
+                                                  err, 4096));
                 size_t null_bitmap_size = null_bitmap_in->length();
                 doris::faststring buf;
                 buf.resize(null_bitmap_size);
@@ -157,11 +155,13 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.enable_inverted_index_query = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
+        const io::FileSystemSPtr fs = io::global_local_filesystem();
         auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
+                fs, io::Path(index_prefix).parent_path(), io::Path(index_prefix).filename(),
+                InvertedIndexStorageFormatPB::V2);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -173,7 +173,7 @@ public:
         // Test EQUAL query for each value
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &values[i],
+            auto status = bkd_reader->query(&stats, &runtime_state, "c1", &values[i],
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -195,7 +195,7 @@ public:
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
         int32_t test_value = 200;
-        auto status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        auto status = bkd_reader->query(&stats, &runtime_state, "c1", &test_value,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -214,7 +214,7 @@ public:
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(nullptr, &stats, &runtime_state, "c1", &test_value,
+        status = bkd_reader->query(&stats, &runtime_state, "c1", &test_value,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -253,8 +253,8 @@ public:
         _inverted_index_query_cache = std::unique_ptr<segment_v2::InvertedIndexQueryCache>(
                 InvertedIndexQueryCache::create_global_cache(inverted_index_cache_limit, 1));
 
-        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
-                _inverted_index_searcher_cache.get());
+        ExecEnv::GetInstance()->_inverted_index_searcher_cache =
+                _inverted_index_searcher_cache.get();
         ExecEnv::GetInstance()->_inverted_index_query_cache = _inverted_index_query_cache.get();
     }
 
@@ -313,9 +313,8 @@ public:
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
 
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
-        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        std::string index_path_prefix = local_segment_path(kTestDir, rowset_id, seg_id);
+        std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
 
         io::FileWriterPtr file_writer;
         io::FileWriterOptions opts;
@@ -323,8 +322,8 @@ public:
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+                fs, io::Path(index_path_prefix).parent_path(),
+                io::Path(index_path_prefix).filename(), InvertedIndexStorageFormatPB::V2);
 
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
@@ -350,8 +349,8 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
-        EXPECT_TRUE(status.ok()) << status;
+        auto size = index_file_writer->write();
+        EXPECT_TRUE(size > 0) << "Failed to write index file";
 
         // Verify the terms stats
         ExpectedDocMap expected {
@@ -375,9 +374,8 @@ public:
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
 
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
-        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        std::string index_path_prefix = local_segment_path(kTestDir, rowset_id, seg_id);
+        std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
 
         io::FileWriterPtr file_writer;
         io::FileWriterOptions opts;
@@ -385,8 +383,8 @@ public:
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+                fs, io::Path(index_path_prefix).parent_path(),
+                io::Path(index_path_prefix).filename(), InvertedIndexStorageFormatPB::V2);
 
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
@@ -418,8 +416,8 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
-        EXPECT_TRUE(status.ok()) << status;
+        auto size = index_file_writer->write();
+        EXPECT_TRUE(size > 0) << "Failed to write index file";
 
         // Verify the terms stats
         ExpectedDocMap expected {{"apple", {3}}, {"banana", {4}}};
@@ -449,9 +447,8 @@ public:
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
 
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
-        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        std::string index_path_prefix = local_segment_path(kTestDir, rowset_id, seg_id);
+        std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
 
         io::FileWriterPtr file_writer;
         io::FileWriterOptions opts;
@@ -459,8 +456,8 @@ public:
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+                fs, io::Path(index_path_prefix).parent_path(),
+                io::Path(index_path_prefix).filename(), InvertedIndexStorageFormatPB::V2);
 
         // Get field for column c1
         const TabletColumn& column = tablet_schema->column(0);
@@ -484,8 +481,8 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
-        EXPECT_TRUE(status.ok()) << status;
+        auto size = index_file_writer->write();
+        EXPECT_TRUE(size > 0) << "Failed to write index file";
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
         // Create a vector of document IDs corresponding to the values
@@ -510,9 +507,8 @@ public:
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
 
-        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(kTestDir, rowset_id, seg_id))};
-        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        std::string index_path_prefix = local_segment_path(kTestDir, rowset_id, seg_id);
+        std::string index_path = InvertedIndexDescriptor::get_index_file_name(index_path_prefix);
 
         io::FileWriterPtr file_writer;
         io::FileWriterOptions opts;
@@ -520,8 +516,8 @@ public:
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+                fs, io::Path(index_path_prefix).parent_path(),
+                io::Path(index_path_prefix).filename(), InvertedIndexStorageFormatPB::V2);
 
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
@@ -560,8 +556,8 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
-        EXPECT_TRUE(status.ok()) << status;
+        auto size = index_file_writer->write();
+        EXPECT_TRUE(size > 0) << "Failed to write index file";
 
         // Restore original config value
         config::enable_inverted_index_correct_term_write = original_config_value;
@@ -577,14 +573,14 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.enable_inverted_index_query = false;
         runtime_state.set_query_options(query_options);
-
         // Create a reader to verify the index
         auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
-        status = reader->init();
-        EXPECT_EQ(status, Status::OK());
+                fs, io::Path(index_path_prefix).parent_path(),
+                io::Path(index_path_prefix).filename(), InvertedIndexStorageFormatPB::V2);
+        auto st = reader->init();
+        EXPECT_EQ(st, Status::OK());
         auto result = reader->open(&idx_meta);
         EXPECT_TRUE(result.has_value()) << "Failed to open compound reader" << result.error();
 
@@ -592,17 +588,14 @@ public:
         auto inverted_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
         EXPECT_NE(inverted_reader, nullptr);
 
-        // Create IO context for query
-        io::IOContext io_ctx;
         std::string field_name = std::to_string(field->unique_id());
 
         // Test querying for each value
         for (size_t i = 0; i < values.size(); i++) {
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             StringRef str_ref(values[i].data, values[i].size);
-            auto query_status =
-                    inverted_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                           InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+            auto query_status = inverted_reader->query(&stats, &runtime_state, field_name, &str_ref,
+                                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             // For regular strings, both should work the same
             if (i == 0 || i == 4) {
@@ -674,15 +667,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     idx_meta.init_from_pb(*index_meta_pb.get());
 
     // Create two indexes with different settings
-    std::string index_path_prefix_enabled {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, "test_rowset_compare", 1))};
+    std::string index_path_prefix_enabled = local_segment_path(kTestDir, "test_rowset_compare", 1);
     std::string index_path_enabled =
-            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix_enabled);
+            InvertedIndexDescriptor::get_index_file_name(index_path_prefix_enabled);
 
-    std::string index_path_prefix_disabled {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, "test_rowset_compare", 2))};
+    std::string index_path_prefix_disabled = local_segment_path(kTestDir, "test_rowset_compare", 2);
     std::string index_path_disabled =
-            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix_disabled);
+            InvertedIndexDescriptor::get_index_file_name(index_path_prefix_disabled);
 
     // Create file writers
     io::FileWriterPtr file_writer_enabled, file_writer_disabled;
@@ -694,12 +685,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     ASSERT_TRUE(sts.ok()) << sts;
 
     auto index_file_writer_enabled = std::make_unique<InvertedIndexFileWriter>(
-            fs, index_path_prefix_enabled, "test_rowset_compare", 1,
-            InvertedIndexStorageFormatPB::V2, std::move(file_writer_enabled));
+            fs, io::Path(index_path_prefix_enabled).parent_path(),
+            io::Path(index_path_prefix_enabled).filename(), InvertedIndexStorageFormatPB::V2);
 
     auto index_file_writer_disabled = std::make_unique<InvertedIndexFileWriter>(
-            fs, index_path_prefix_disabled, "test_rowset_compare", 2,
-            InvertedIndexStorageFormatPB::V2, std::move(file_writer_disabled));
+            fs, io::Path(index_path_prefix_disabled).parent_path(),
+            io::Path(index_path_prefix_disabled).filename(), InvertedIndexStorageFormatPB::V2);
 
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
@@ -745,13 +736,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->write();
-    EXPECT_TRUE(status.ok()) << status;
+    auto size_enabled = index_file_writer_enabled->write();
+    EXPECT_TRUE(size_enabled > 0) << "Failed to write index file";
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->write();
-    EXPECT_TRUE(status.ok()) << status;
+    auto size_disabled = index_file_writer_disabled->write();
+    EXPECT_TRUE(size_disabled > 0) << "Failed to write index file";
 
     // Restore original config value
     config::enable_inverted_index_correct_term_write = original_config_value;
@@ -760,25 +751,24 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     OlapReaderStatistics stats;
     RuntimeState runtime_state;
     TQueryOptions query_options;
-    query_options.enable_inverted_index_searcher_cache = false;
+    query_options.enable_inverted_index_query = false;
     runtime_state.set_query_options(query_options);
-    io::IOContext io_ctx;
 
     // Create readers for both indexes
     auto reader_enabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_enabled,
-            InvertedIndexStorageFormatPB::V2);
-    status = reader_enabled->init();
-    EXPECT_EQ(status, Status::OK());
+            fs, io::Path(index_path_prefix_enabled).parent_path(),
+            io::Path(index_path_prefix_enabled).filename(), InvertedIndexStorageFormatPB::V2);
+    auto st = reader_enabled->init();
+    EXPECT_EQ(st, Status::OK());
     auto result_enabled = reader_enabled->open(&idx_meta);
     EXPECT_TRUE(result_enabled.has_value())
             << "Failed to open compound reader" << result_enabled.error();
 
     auto reader_disabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_disabled,
-            InvertedIndexStorageFormatPB::V2);
-    status = reader_disabled->init();
-    EXPECT_EQ(status, Status::OK());
+            fs, io::Path(index_path_prefix_disabled).parent_path(),
+            io::Path(index_path_prefix_disabled).filename(), InvertedIndexStorageFormatPB::V2);
+    st = reader_disabled->init();
+    EXPECT_EQ(st, Status::OK());
     auto result_disabled = reader_disabled->open(&idx_meta);
     EXPECT_TRUE(result_disabled.has_value())
             << "Failed to open compound reader" << result_disabled.error();
@@ -798,13 +788,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
         std::shared_ptr<roaring::Roaring> bitmap_enabled = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> bitmap_disabled = std::make_shared<roaring::Roaring>();
 
-        auto query_status_enabled = inverted_reader_enabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
+        auto query_status_enabled =
+                inverted_reader_enabled->query(&stats, &runtime_state, field_name, &values[i],
+                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
 
         auto query_status_disabled = inverted_reader_disabled->query(
-                &io_ctx, &stats, &runtime_state, field_name, &values[i],
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap_disabled);
+                &stats, &runtime_state, field_name, &values[i], InvertedIndexQueryType::EQUAL_QUERY,
+                bitmap_disabled);
 
         EXPECT_TRUE(query_status_enabled.ok()) << query_status_enabled;
         EXPECT_TRUE(query_status_disabled.ok()) << query_status_disabled;
