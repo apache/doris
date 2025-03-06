@@ -33,15 +33,22 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <string>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <random>
 
+#include "gflags/gflags.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 
 using strings::Substitute;
+
+DEFINE_bool(gen_out, false, "generate expected check data for test");
 
 namespace doris {
 
@@ -127,6 +134,146 @@ std::string rand_rng_by_type(FieldType fieldType) {
         return rand_rng_string(rand_rng_int(1, 100000));
     } else {
         return std::to_string(rand_rng_int(1, 1000000));
+    }
+}
+
+void load_columns_data_from_file(vectorized::MutableColumns& columns,
+                                 vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
+                                 std::set<int> idxes, const std::string& column_data_file) {
+    ASSERT_EQ(serders.size(), columns.size());
+    // Load column data and expected data from CSV files
+    std::vector<std::vector<std::string>> res;
+    struct stat buff;
+    if (stat(column_data_file.c_str(), &buff) == 0) {
+        if (S_ISREG(buff.st_mode)) {
+            // file
+            load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+        } else if (S_ISDIR(buff.st_mode)) {
+            // dir
+            std::filesystem::path fs_path(column_data_file);
+            for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
+                std::string file_path = entry.path().string();
+                std::cout << "load data from file: " << file_path << std::endl;
+                load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
+            }
+        }
+    }
+}
+
+// Helper function to load data from CSV, with index which splited by spliter and load to columns
+void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
+                        vectorized::MutableColumns& columns, const std::string& file_path,
+                        const char spliter, const std::set<int> idxes) {
+    ASSERT_EQ(serders.size(), columns.size())
+            << "serder size: " << serders.size() << " column size: " << columns.size();
+    ASSERT_EQ(serders.size(), idxes.size())
+            << "serder size: " << serders.size() << " idxes size: " << idxes.size();
+    ASSERT_EQ(serders.size(), *idxes.end())
+            << "serder size: " << serders.size() << " idxes size: " << *idxes.end();
+    std::ifstream file(file_path);
+    if (!file) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
+                               file_path);
+    }
+
+    std::string line;
+    vectorized::DataTypeSerDe::FormatOptions options;
+    while (std::getline(file, line)) {
+        std::stringstream lineStream(line);
+        std::string value;
+        int l_idx = 0;
+        int c_idx = 0;
+        while (std::getline(lineStream, value, spliter)) {
+            if (!value.starts_with("//") && idxes.contains(l_idx)) {
+                Slice string_slice(value.data(), value.size());
+                if (auto st = serders[c_idx]->deserialize_one_cell_from_json(*columns[c_idx],
+                                                                             string_slice, options);
+                    !st.ok()) {
+                    LOG(INFO) << "error in deserialize but continue: " << st.to_string();
+                }
+                ++c_idx;
+            }
+            ++l_idx;
+        }
+    }
+    std::cout << "loading data done, file: " << file_path << ", row count: " << columns[0]->size()
+              << std::endl;
+}
+
+//// this is very helpful function to check data in column against expected results according different function in assert function
+//// such as run regress tests
+////  if FLAGS_gen_out is true, we will generate a file for check data, otherwise we will read the file to check data
+////  so the key point is we should how we write assert callback function to check data,
+///   and when check data is generated, we should check result to statisfy the semantic of the function
+void check_or_generate_res_file(const std::string& res_file_path,
+                                const std::vector<std::vector<std::string>>& res, bool is_binary) {
+    if (FLAGS_gen_out) {
+        std::ofstream res_file(res_file_path);
+        std::cout << "gen check data: " << res.size() << " with file: " << res_file_path
+                  << std::endl;
+        if (!res_file.is_open()) {
+            throw std::ios_base::failure("Failed to open file.");
+        }
+
+        for (const auto& row : res) {
+            for (size_t i = 0; i < row.size(); ++i) {
+                auto cell = row[i];
+                if (is_binary) {
+                    size_t data_size = cell.size();
+                    res_file.write((char*)&data_size, sizeof(data_size));
+                    res_file.write(cell.data(), data_size);
+                } else {
+                    res_file << cell;
+                    if (i < row.size() - 1) {
+                        res_file << ";"; // Add semicolon between columns
+                    }
+                }
+            }
+        }
+
+        res_file.close();
+    } else {
+        // we read generate file to check result
+        std::cout << "check data: " << res.size() << " with file: " << res_file_path << std::endl;
+        std::ifstream file(res_file_path);
+        if (!file) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
+                                   res_file_path);
+        }
+
+        if (is_binary) {
+            for (const auto& row : res) {
+                for (const auto& cell : row) {
+                    size_t real_size = cell.size();
+                    size_t expect_row_size = 0;
+                    file.read((char*)&expect_row_size, sizeof(expect_row_size));
+                    EXPECT_EQ(real_size, expect_row_size);
+                    std::string expected_data;
+                    expected_data.resize(expect_row_size);
+                    file.read((char*)expected_data.data(), expect_row_size);
+                    EXPECT_EQ(cell, expected_data);
+                }
+            }
+        } else {
+            std::string line;
+            std::vector<std::vector<std::string>> assert_res;
+            while (std::getline(file, line)) {
+                std::vector<std::string> row;
+                std::stringstream lineStream(line);
+                std::string value;
+                while (std::getline(lineStream, value, ';')) {
+                    row.push_back(value);
+                }
+                assert_res.push_back(row);
+            }
+
+            // we just do check here
+            for (size_t i = 0; i < res.size(); ++i) {
+                for (size_t j = 0; j < res[i].size(); ++j) {
+                    EXPECT_EQ(res[i][j], assert_res[i][j]);
+                }
+            }
+        }
     }
 }
 
