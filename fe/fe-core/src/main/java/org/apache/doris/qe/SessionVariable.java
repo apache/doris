@@ -1038,6 +1038,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean useConsistentHashForExternalScan = false;
 
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true,
+            setter = "setProfileLevel",
             description = { "查询profile的级别，1表示只收集 MergedProfile 级别的 Counter，2 表示打印详细信息，"
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
                             + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
@@ -4693,5 +4694,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public void setProfileLevel(String profileLevel) {
+        int profileLevelTmp = Integer.valueOf(profileLevel);
+        if (profileLevelTmp < 1 || profileLevelTmp > 3) {
+            LOG.warn("Profile level shuold be in the range of 1-3.");
+        } else {
+            this.profileLevel = profileLevelTmp;
+        }
+        
     }
 }
