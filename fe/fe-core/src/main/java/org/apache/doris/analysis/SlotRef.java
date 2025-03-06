@@ -439,7 +439,7 @@ public class SlotRef extends Expr {
         this.tupleId = tupleId;
     }
 
-    TupleId getTupleId() {
+    public TupleId getTupleId() {
         return tupleId;
     }
 

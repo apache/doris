@@ -15,33 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
-import com.google.common.collect.ImmutableList;
-
-import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
-/** CatalogRelation */
-public interface CatalogRelation extends Relation {
+/**
+    wrapper for FileScan used for lazy materialization
+ */
+public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
+    private PhysicalFileScan scan;
+    private SlotReference rowId;
 
-    TableIf getTable();
-
-    DatabaseIf getDatabase() throws AnalysisException;
-
-    List<String> getQualifier();
-
-    default CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
-        return this;
+    public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId) {
+        super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
+                Optional.empty(), scan.getLogicalProperties(), scan.selectedPartitions, scan.getTableSample(),
+                scan.getTableSnapshot());
+        this.scan = scan;
+        this.rowId = rowId;
     }
 
-    default List<Slot> getOperativeSlots() {
-        return ImmutableList.of();
+    @Override
+    public List<String> getQualifier() {
+        return scan.getQualifier();
     }
-
 }

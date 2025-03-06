@@ -131,6 +131,7 @@ public enum PlanType {
     PHYSICAL_TOP_N,
     PHYSICAL_UNION,
     PHYSICAL_WINDOW,
+    PHYSICAL_MATERIALIZE,
 
     // commands
     ADMIN_CHECK_TABLETS_COMMAND,

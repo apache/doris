@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -503,6 +504,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     @Override
+    public Plan visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
+        return scan;
+    }
+
+    @Override
     public PhysicalSetOperation visitPhysicalSetOperation(PhysicalSetOperation setOperation, CascadesContext context) {
         setOperation.children().forEach(child -> child.accept(this, context));
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
@@ -684,6 +692,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public static void getAllScanInfo(Plan root, Set<PhysicalRelation> scans) {
         if (root instanceof PhysicalRelation) {
             scans.add((PhysicalRelation) root);
+            // if (root instanceof PhysicalLazyMaterializeOlapScan) {
+            //     scans.add(((PhysicalLazyMaterializeOlapScan) root).getScan());
+            // } else {
+            //     scans.add((PhysicalRelation) root);
+            // }
         } else {
             for (Plan child : root.children()) {
                 getAllScanInfo(child, scans);
