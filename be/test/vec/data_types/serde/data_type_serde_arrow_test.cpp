@@ -55,6 +55,7 @@
 #include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -76,16 +77,14 @@
 
 namespace doris::vectorized {
 
-void serialize_and_deserialize_arrow_test(
-        std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols) {
-    vectorized::Block block;
-    int row_num = 7;
-    // generate block
-    for (auto t : cols) {
-        std::string col_name = std::get<0>(t);
-        TypeDescriptor type_desc(std::get<3>(t));
-        bool is_nullable(std::get<4>(t));
-        switch (std::get<3>(t)) {
+void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
+                                          bool is_nullable) {
+    auto block_ptr = std::make_shared<Block>();
+    auto block = *block_ptr;
+    for (int i = 0; i < cols.size(); i++) {
+        std::string col_name = std::to_string(i);
+        TypeDescriptor type_desc(cols[i]);
+        switch (cols[i]) {
         case TYPE_BOOLEAN: {
             auto vec = vectorized::ColumnVector<UInt8>::create();
             auto& data = vec->get_data();
@@ -407,66 +406,30 @@ void serialize_and_deserialize_arrow_test(
             block.insert(std::move(type_and_name));
         } break;
         default:
-            break;
+            LOG(FATAL) << "error column type";
         }
     }
-
-    // arrow schema
-    std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(get_arrow_schema_from_block(block, &_arrow_schema, "UTC"), Status::OK());
-
-    // serialize
-    std::shared_ptr<arrow::RecordBatch> result;
-    std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
-    std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
-
-    cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
-    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                             &result, timezone_obj));
-    Block new_block = block.clone_empty();
-    EXPECT_TRUE(result != nullptr);
-    std::cout << "result: " << result->ToString() << std::endl;
-    // deserialize
-    for (auto t : cols) {
-        std::string real_column_name = std::get<0>(t);
-        auto* array = result->GetColumnByName(real_column_name).get();
-        auto& column_with_type_and_name = new_block.get_by_name(real_column_name);
-        static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                                       column_with_type_and_name.type, block.rows(),
-                                                       "UTC"));
-    }
-
-    std::cout << block.dump_data() << std::endl;
-    std::cout << new_block.dump_data() << std::endl;
-    EXPECT_EQ(block.dump_data(), new_block.dump_data());
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block_ptr);
+    auto assert_block = std::make_shared<Block>(block_ptr->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block_ptr, assert_block);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
-    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
-            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
-            {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
-            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
-            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
-            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
-            {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
-            {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
-            {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
-            {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
-            {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-            {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
-            {"k13", FieldType::OLAP_FIELD_TYPE_DATE, 13, TYPE_DATE, false},
-            {"k14", FieldType::OLAP_FIELD_TYPE_DATEV2, 14, TYPE_DATEV2, false},
+    std::vector<PrimitiveType> cols = {
+            TYPE_INT,        TYPE_INT,       TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32,  TYPE_DECIMAL64, TYPE_IPV4,   TYPE_IPV6,        TYPE_DATETIME,
+            TYPE_DATETIMEV2, TYPE_DATE,      TYPE_DATEV2,
     };
-    serialize_and_deserialize_arrow_test(cols);
+    serialize_and_deserialize_arrow_test(cols, 7, true);
+    serialize_and_deserialize_arrow_test(cols, 7, false);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
-    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols = {
-            {"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
-            {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
-            {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
-    serialize_and_deserialize_arrow_test(cols);
+    std::vector<PrimitiveType> cols = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
+    serialize_and_deserialize_arrow_test(cols, 7, true);
+    serialize_and_deserialize_arrow_test(cols, 7, false);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
@@ -474,10 +437,9 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     TypeDescriptor type_desc(TYPE_MAP);
     type_desc.add_sub_type(TYPE_STRING, true);
     type_desc.add_sub_type(TYPE_INT, true);
-    vectorized::Block block;
+    auto block = std::make_shared<Block>();
     {
         DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-        ;
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
         Array k1, k2, v1, v2, k3, v3;
@@ -508,37 +470,14 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         map_column->insert(m2);
         map_column->insert(m3);
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
-        block.insert(type_and_name);
+        block->insert(type_and_name);
     }
 
-    // arrow schema
-    std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(get_arrow_schema_from_block(block, &_arrow_schema, "UTC"), Status::OK());
-
-    // serialize
-    std::shared_ptr<arrow::RecordBatch> result;
-    std::cout << "block structure: " << block.dump_structure() << std::endl;
-    std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
-
-    cctz::time_zone timezone_obj;
-    TimezoneUtils::find_cctz_time_zone("UTC", timezone_obj);
-    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                             &result, timezone_obj));
-    Block new_block = block.clone_empty();
-    EXPECT_TRUE(result != nullptr);
-    std::cout << "result: " << result->ToString() << std::endl;
-    // deserialize
-    auto* array = result->GetColumnByName(col_name).get();
-    auto& column_with_type_and_name = new_block.get_by_name(col_name);
-    static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                                   column_with_type_and_name.type, block.rows(),
-                                                   "UTC"));
-    std::cout << block.dump_data() << std::endl;
-    std::cout << new_block.dump_data() << std::endl;
-    // new block row_index 0, 2 which row has key null will be filter
-    EXPECT_EQ(new_block.dump_one_line(0, 1), "{\"doris\":null, \"clever amory\":30}");
-    EXPECT_EQ(new_block.dump_one_line(2, 1), "{\"test\":11}");
-    EXPECT_EQ(block.dump_data(1, 1), new_block.dump_data(1, 1));
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
 } // namespace doris::vectorized
