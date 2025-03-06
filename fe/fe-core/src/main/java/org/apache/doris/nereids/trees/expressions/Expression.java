@@ -464,6 +464,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     public String getFingerprint() {
-        return "NOT_IMPLEMENTED";
+        return "NOT_IMPLEMENTED_EXPR_FP";
     }
 }

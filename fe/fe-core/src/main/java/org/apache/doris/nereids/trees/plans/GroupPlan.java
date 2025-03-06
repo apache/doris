@@ -101,7 +101,6 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
 
     @Override
     public String getFingerprint() {
-        // FIXME: get 0 can not cover all cases
         if (!getGroup().getLogicalExpressions().isEmpty()
                 && getGroup().getLogicalExpressions().get(0).getPlan() instanceof AbstractLogicalPlan) {
             AbstractLogicalPlan logicalPlan = (AbstractLogicalPlan) getGroup()
@@ -118,7 +117,7 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
                 return ((AbstractPlan) physicalPlan.child(0)).getPlanTreeFingerprint();
             }
         } else {
-            throw new RuntimeException("hboTreeString illegal group plan type");
+            throw new RuntimeException("illegal group plan type during getFingerprint");
         }
     }
 

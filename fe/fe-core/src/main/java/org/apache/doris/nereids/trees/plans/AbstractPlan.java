@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -133,42 +134,25 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             return builder.toString();
         } else {
             List<Plan> mutableChildren = new ArrayList<>(children);
-            // the following sorting will increase the plan matching ratio during cbo stage
-            // e.g, the final physical plan's plan is encoded as 'a join b'
-            // but the group plan is 'b join a' which should be matched also.
-            // but it will increase the risk brought from rf, as above, the physical plan 'a join b'
-            // is with rf's potential influence which will not exactly the same as 'b join a'
-            // but when we ignore the join sides, it will bring the wrong matching and increase the
-            // dependence for the rf-safe checking.
+            // the following sorting by scans depended on will increase the plan matching possibility
+            // during hbo plan matching stage, e.g, the final physical plan is encoded as 'a join b',
+            // but the group plan is 'b join a' which can be matched also.
+            // NOTE: it will increase the risk brought from rf, as above, the physical plan 'a join b'
+            // is with rf's potential influence which will not exactly the same as 'b join a',
+            // but when we ignore the join sides as above and want to increase the hbo plan stats.'s adaptability,
+            // it may bring the unsuitable matching and increase the dependence for the rf-safe checking.
             Collections.sort(mutableChildren, new Comparator<Plan>() {
                 @Override
                 public int compare(Plan plan1, Plan plan2) {
-                    /*if (plan1 instanceof GroupPlan && plan2 instanceof GroupPlan) {
-                        if (((GroupPlan) plan1).getGroup() != null && ((GroupPlan) plan2).getGroup() != null) {
-                            int groupId1 = ((GroupPlan) plan1).getGroup().getGroupId().asInt();
-                            int groupId2 = ((GroupPlan) plan2).getGroup().getGroupId().asInt();
-                            return groupId1 - groupId2;
-                        } else {
-                            return 0;
-                        }
-                    } else if (plan1 instanceof AbstractLogicalPlan && plan2 instanceof AbstractLogicalPlan) {
-                        return ((AbstractLogicalPlan) plan1).getId() - ((AbstractLogicalPlan) plan2).getId();
-                    } else if (plan1 instanceof AbstractPhysicalPlan && plan2 instanceof AbstractPhysicalPlan) {
-                        // TODO: if we won't to change the generation side's sort but only sort the matching side,
-                        //    just return 0 is ok;
-                        return ((AbstractPhysicalPlan) plan1).getId() - ((AbstractPhysicalPlan) plan2).getId();
-                    } else {
-                        return 0;
-                    }*/
-                    List<String> olapTables1 = new ArrayList<>();
-                    List<String> olapTables2 = new ArrayList<>();
-                    HboUtils.collectScanQualifierList((AbstractPlan) plan1, olapTables1);
-                    HboUtils.collectScanQualifierList((AbstractPlan) plan2, olapTables2);
-                    Collections.sort(olapTables1);
-                    Collections.sort(olapTables2);
-                    String str1 = Utils.qualifiedName(olapTables1, "");
-                    String str2 = Utils.qualifiedName(olapTables2, "");
-                    return str1.compareTo(str2);
+                    List<String> scanQualifierList1 = new ArrayList<>();
+                    List<String> scanQualifierList2 = new ArrayList<>();
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan1, scanQualifierList1);
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan2, scanQualifierList2);
+                    Collections.sort(scanQualifierList1);
+                    Collections.sort(scanQualifierList2);
+                    String qualifiedName1 = Utils.qualifiedName(scanQualifierList1, "");
+                    String qualifiedName2 = Utils.qualifiedName(scanQualifierList2, "");
+                    return qualifiedName1.compareTo(qualifiedName2);
                 }
             });
             for (Plan plan : mutableChildren) {
@@ -183,7 +167,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                         builder.append(((AbstractPlan) plan.child(0)).getPlanTreeFingerprint());
                     }
                 } else {
-                    throw new RuntimeException("hboTreeString illegal plan type");
+                    throw new AnalysisException("illegal plan type getPlanTreeFingerprint");
                 }
             }
             return builder.toString();

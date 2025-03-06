@@ -645,7 +645,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "hashCondition", hashJoinConjuncts,
                 "otherCondition", otherJoinConjuncts,
                 "markCondition", markJoinConjuncts);
-        return Utils.toSqlString("JOIN", // + getGroupIdWithPrefix(),
-                args.toArray());
+        return Utils.toSqlString("JOIN", args.toArray());
     }
 }
