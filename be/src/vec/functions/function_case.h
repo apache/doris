@@ -125,6 +125,12 @@ template <bool has_case, bool has_else>
 class FunctionCase : public IFunction {
 public:
     static constexpr auto name = FunctionCaseName<has_case, has_else>::name;
+#ifdef BE_TEST
+    static constexpr auto use_short_circuit_count = 3;
+#else
+    static constexpr auto use_short_circuit_count = UINT8_MAX;
+#endif
+
     static FunctionPtr create() { return std::make_shared<FunctionCase>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
@@ -192,7 +198,7 @@ public:
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, uint32_t result,
                         CaseWhenColumnHolder column_holder) const {
-        if (column_holder.pair_count > UINT8_MAX) {
+        if (column_holder.pair_count > use_short_circuit_count) {
             return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
                                                                            column_holder);
         }
