@@ -403,9 +403,8 @@ Status VariantColumnWriterImpl::_process_sparse_column(
         return status;
     }
     VLOG_DEBUG << "dump sparse "
-               << vectorized::schema_util::dump_column(
-                          vectorized::ColumnObject::get_sparse_column_type(),
-                          ptr->get_sparse_column());
+               << vectorized::Block::dump_column(ptr->get_sparse_column(),
+                          vectorized::ColumnObject::get_sparse_column_type());
     RETURN_IF_ERROR(
             _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
     ++column_id;
