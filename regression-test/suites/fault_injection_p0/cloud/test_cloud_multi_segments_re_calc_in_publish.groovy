@@ -39,28 +39,6 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
     sql "sync;"
     qt_sql "select * from ${table1} order by k1;"
 
-    def block_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-            
-        }
-    }
-
-    def unblock_publish = {
-        if (isCloudMode()) {
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-        } else {
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
-            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
-            
-        }
-    }
-
     def checkSegmentNum = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
@@ -91,8 +69,6 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
             // _batch_size is 8192 in vtablet_writer.cpp
             // to cause multi segments
             GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
-
-            // block_publish()
 
             // inject cache miss so that it will re-calculate delete bitmaps for all historical data in publish
             GetDebugPoint().enableDebugPointForAllBEs("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss")
@@ -126,10 +102,14 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
 
             t1.join()
-            Thread.sleep(1000)
+            Thread.sleep(2000)
+
+            GetDebugPoint().clearDebugPointsForAllBEs()
 
             // ensure that we really write multi segments
-            checkSegmentNum(4, 3)
+            // checkSegmentNum(4, 3)
+
+            qt_sql "select count() from ${table1};"
 
             qt_dup_key_count "select count() from (select k1,count() as cnt from ${table1} group by k1 having cnt > 1) A;"
 

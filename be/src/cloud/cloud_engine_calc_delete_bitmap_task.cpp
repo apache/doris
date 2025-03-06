@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
@@ -287,6 +288,14 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                      << ", status=" << status;
         _engine_calc_delete_bitmap_task->add_error_tablet_id(_tablet_id, status);
         return status;
+    }
+
+    if (rowset_ids.empty()) {
+        // delete bitmap cache missed, should re-calculate delete bitmaps between segments
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(), segments,
+                                                                    delete_bitmap));
     }
 
     rowset->set_version(Version(version, version));
