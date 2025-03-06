@@ -99,7 +99,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            number_input_rows));
+            number_input_rows, _row_distribution.consume_reentry_flag()));
     _skipped = _row_distribution.get_skipped();
     const auto& row_ids = _row_part_tablet_ids[0].row_ids;
     const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
@@ -147,6 +147,7 @@ Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state)
         Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
         _row_distribution.clear_batching_stats();
         VLOG_DEBUG << "sinking batched block:\n" << tmp_block.dump_data();
+        _row_distribution.store_reentry_flag();
         RETURN_IF_ERROR(p.sink(state, &tmp_block, false));
         // finished. recovery back
         _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
