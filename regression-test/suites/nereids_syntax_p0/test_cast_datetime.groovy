@@ -19,14 +19,14 @@ suite("test_cast_datetime") {
 
     sql "drop table if exists casttbl"
     sql """CREATE TABLE casttbl ( 
+        a int null,
         mydate date NULL,
         mydatev2 DATEV2 null,
         mydatetime datetime null,
         mydatetimev2 datetimev2 null
     ) ENGINE=OLAP
-    DUPLICATE KEY(`mydate`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`mydate`) BUCKETS 1
+    DISTRIBUTED BY HASH(`a`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "in_memory" = "false",
@@ -36,11 +36,20 @@ suite("test_cast_datetime") {
     );
     """
 
-    sql "insert into casttbl values ('2000-01-01', '2000-01-01 12:12:12', '2000-01-01', '2000-01-01 12:12:12');"
+    sql "insert into casttbl values (1, '2000-01-01', '2000-01-01 12:12:12', '2000-01-01', '2000-01-01 12:12:12');"
 
     sql "set enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false"
 
 //when BE storage support 'Date < Date', we should remove this case
 //currently, if we rewrite expr to CAST(mydatetime AS DATE) < date '2019-06-01', BE returns 0 tuple. 
     qt_1 "select count(1) from casttbl where CAST(CAST(mydatetime AS DATE) AS DATETIME) < date '2019-06-01';"
+
+    sql "insert into casttbl values(2, '', '', '', ''), (3, '2020', '2020', '2020', '2020')"
+    qt_2 "select * from casttbl"
+
+    qt_3 "select '' > date '2019-06-01'"
+    qt_3 "select '' > date_sub('2019-06-01', -10)"
+    qt_4 "select '' > cast('2019-06-01 00:00:00' as datetime)"
+    qt_5 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 }
