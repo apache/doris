@@ -51,7 +51,7 @@ PhysicalResultSink
 
 -- !infer_predicate_from_subquery --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t.id = t2.id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.id = 1))
 ------PhysicalOlapScan[t]
 ----filter((t2.id = 1))
@@ -292,7 +292,7 @@ PhysicalResultSink
 
 -- !infer0 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.id = 1))
 ------PhysicalOlapScan[t1]
 ----filter((t2.id = 1))
@@ -300,8 +300,8 @@ PhysicalResultSink
 
 -- !infer1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[INNER_JOIN]
 ------filter((t1.id = 1))
 --------PhysicalOlapScan[t1]
 ------filter((t2.id = 1))
@@ -324,7 +324,7 @@ PhysicalResultSink
 
 -- !infer4 --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--NestedLoopJoin[LEFT_SEMI_JOIN]
 ----filter((t1.id = 1))
 ------PhysicalOlapScan[t1]
 ----filter((t2.id = 1))
@@ -332,8 +332,8 @@ PhysicalResultSink
 
 -- !infer5 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[INNER_JOIN]
 ------filter((t1.id = 1))
 --------PhysicalLimit[GLOBAL]
 ----------PhysicalLimit[LOCAL]
@@ -373,7 +373,7 @@ PhysicalResultSink
 
 -- !infer9 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
 ----filter((t2.id = 12345))
