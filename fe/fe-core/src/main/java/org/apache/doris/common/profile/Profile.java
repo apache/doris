@@ -105,7 +105,7 @@ public class Profile {
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
-    private long autoProfileDurationMs = -1;
+    protected long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
     private long profileSize = 0;
 
@@ -264,7 +264,7 @@ public class Profile {
                 return;
             }
 
-            if (planner instanceof NereidsPlanner) {
+            if (planner != null && planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 physicalPlan = nereidsPlanner.getPhysicalPlan();
                 physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
@@ -282,8 +282,21 @@ public class Profile {
             summaryProfile.update(summaryInfo);
 
             if (isFinished) {
-                this.markQueryFinished(System.currentTimeMillis());
+                this.markQueryFinished();
+                long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
+                // Duration ls less than autoProfileDuration, remove it from memory.
+                long durationThreshold = executionProfiles.isEmpty()
+                                    ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
+                if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
+                    ProfileManager.getInstance().removeProfile(this.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Removed profile {} because it's costs {} is less than {}", this.getId(),
+                                durationMs, autoProfileDurationMs * this.executionProfiles.size());
+                    }
+                    return;
+                }
             }
+
             // Nereids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
@@ -432,40 +445,6 @@ public class Profile {
             return false;
         }
 
-        // below is the case where query has finished
-        boolean hasReportingProfile = false;
-
-        if (this.executionProfiles.isEmpty()) {
-            // Query finished, but no execution profile.
-            // 1. Query is executed on FE.
-            // 2. Not a SELECT query, just a DDL.
-            return false;
-        }
-
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            if (!executionProfile.isCompleted()) {
-                hasReportingProfile = true;
-                break;
-            }
-        }
-
-        if (!hasReportingProfile) {
-            // query finished and no flying profile
-            // I do want to use TotalTime in summary profile, but it is an encoded string,
-            // it is hard to write a parse function.
-            long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
-            // time cost of this query is large enough.
-            if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs
-                    > (this.executionProfiles.size() * autoProfileDurationMs)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                            getId(), durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
-                }
-                return true;
-            }
-            return false;
-        }
-
         if (this.queryFinishTimestamp == Long.MAX_VALUE) {
             LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
             return false;
@@ -473,8 +452,8 @@ public class Profile {
 
         long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && (currentTimeMillis - this.queryFinishTimestamp)
-                        > Config.profile_waiting_time_for_spill_seconds * 1000) {
+                && (currentTimeMillis - this.queryFinishTimestamp)
+                > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, current time {} query finished time: {}",
                     getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
@@ -500,7 +479,7 @@ public class Profile {
     }
 
     // Profile IO threads races with Coordinator threads.
-    public void markQueryFinished(long queryFinishTime) {
+    public void markQueryFinished() {
         try {
             if (this.profileHasBeenStored()) {
                 LOG.error("Logical error, profile {} has already been stored to storage", getId());
