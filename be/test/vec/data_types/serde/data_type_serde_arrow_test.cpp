@@ -79,8 +79,7 @@ namespace doris::vectorized {
 
 void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
                                           bool is_nullable) {
-    auto block_ptr = std::make_shared<Block>();
-    auto block = *block_ptr;
+    auto block = std::make_shared<Block>();
     for (int i = 0; i < cols.size(); i++) {
         std::string col_name = std::to_string(i);
         TypeDescriptor type_desc(cols[i]);
@@ -93,7 +92,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             }
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeUInt8>());
             vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
-            block.insert(std::move(type_and_name));
+            block->insert(std::move(type_and_name));
         } break;
         case TYPE_INT:
             if (is_nullable) {
@@ -113,7 +112,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                             std::make_shared<vectorized::DataTypeInt32>());
                     vectorized::ColumnWithTypeAndName type_and_name(
                             mutable_nullable_vector->get_ptr(), data_type, col_name);
-                    block.insert(type_and_name);
+                    block->insert(type_and_name);
                 }
             } else {
                 auto vec = vectorized::ColumnVector<Int32>::create();
@@ -124,7 +123,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
                 vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
                                                                 col_name);
-                block.insert(std::move(type_and_name));
+                block->insert(std::move(type_and_name));
             }
             break;
         case TYPE_DECIMAL32:
@@ -157,7 +156,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
 
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
                                                                 decimal_data_type, col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_DECIMAL64:
@@ -188,7 +187,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
                                                                 decimal_data_type, col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_DECIMAL128I:
@@ -207,7 +206,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
                                                                 decimal_data_type, col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_STRING: {
@@ -218,7 +217,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             }
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
             vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
-            block.insert(type_and_name);
+            block->insert(type_and_name);
         } break;
         case TYPE_HLL: {
             vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
@@ -233,7 +232,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
                                                             col_name);
 
-            block.insert(type_and_name);
+            block->insert(type_and_name);
         } break;
         case TYPE_DATEV2: {
             auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
@@ -246,7 +245,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
             vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
                                                            date_v2_type, col_name);
-            block.insert(test_date_v2);
+            block->insert(test_date_v2);
         } break;
         case TYPE_DATE: // int64
         {
@@ -260,7 +259,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
             vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
                                                         col_name);
-            block.insert(test_date);
+            block->insert(test_date);
         } break;
         case TYPE_DATETIME: // int64
         {
@@ -274,7 +273,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
             vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
                                                             datetime_type, col_name);
-            block.insert(test_datetime);
+            block->insert(test_datetime);
         } break;
         case TYPE_DATETIMEV2: // uint64
         {
@@ -293,7 +292,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));
             vectorized::ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
                                                               datetimev2_type, col_name);
-            block.insert(test_datetimev2);
+            block->insert(test_datetimev2);
         } break;
         case TYPE_ARRAY: // array
             type_desc.add_sub_type(TYPE_STRING, true);
@@ -315,7 +314,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 array_column->insert(a2);
                 vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au,
                                                                 col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_MAP:
@@ -353,7 +352,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 map_column->insert(m1);
                 map_column->insert(m2);
                 vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_STRUCT:
@@ -382,7 +381,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                 struct_column->insert(t2);
                 vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
                                                                 col_name);
-                block.insert(type_and_name);
+                block->insert(type_and_name);
             }
             break;
         case TYPE_IPV4: {
@@ -393,7 +392,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             }
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
             vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
-            block.insert(std::move(type_and_name));
+            block->insert(std::move(type_and_name));
         } break;
         case TYPE_IPV6: {
             auto vec = vectorized::ColumnIPv6::create();
@@ -403,17 +402,17 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             }
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
             vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
-            block.insert(std::move(type_and_name));
+            block->insert(std::move(type_and_name));
         } break;
         default:
             LOG(FATAL) << "error column type";
         }
     }
     std::shared_ptr<arrow::RecordBatch> record_batch =
-            CommonDataTypeSerdeTest::serialize_arrow(block_ptr);
-    auto assert_block = std::make_shared<Block>(block_ptr->clone_empty());
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
-    CommonDataTypeSerdeTest::compare_two_blocks(block_ptr, assert_block);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {

@@ -28,9 +28,19 @@
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/function/function_test_util.h"
 
 /* similar to DataTypeArrayTest
+ *
+ * TODO: `DataTypeMapSerDe::deserialize_one_cell_from_json` has bug, must be fixed before continuing testing.
+ *  1. json->map<float:float> and json->map<double:double> deserialization result lost decimals.
+ *  2. json->map<datetime:datetime> deserialization result is NULL.
+ *  3. json->map<ipv6:ipv6> deserialization result is wrong, '2001:0db8:0:0:0:0:0:1' -> '2001:db8::1'
+ *  4. json->map<array<>, array<>> deserialization result is map<array<>, NULL>, value is NULL.
+ *  6. json->map<map<double, decimal>, map<double, decimal>> deserialization result is map<map<double, decimal>, double>, value is not deserialized into map.
+ *  7. json->map<map<ipv4, ipv6>, map<ipv4, ipv6>> deserialization result is map<map<ipv4, ipv6>, NULL>, value is NULL.
+ *  7. json->map<struct<>, struct<>> deserialization result is map<NULL, NULL>.
 */
 
 namespace doris::vectorized {
@@ -38,8 +48,6 @@ namespace doris::vectorized {
 class DataTypeMapTest : public CommonDataTypeTest {
 protected:
     void SetUp() override {
-        // insert from data csv and assert insert result
-        MutableColumns map_cols;
         // we need to load data from csv file into column_map list
         // step1. create data type for map nested type (const and nullable)
         // map<tinyint, tinyint>
@@ -131,19 +139,19 @@ protected:
         // map<array<varchar>, array<varchar>>
         BaseInputTypeSet map_array_varchar = {TypeIndex::Map, TypeIndex::Array, TypeIndex::String,
                                               TypeIndex::Array, TypeIndex::String};
-        // map<array<decimal32(9, 5)>, array<decimal32(9, 5)>> UT
+        // map<array<decimal32(9, 5)>, array<decimal32(9, 5)>>
         BaseInputTypeSet map_array_decimal = {TypeIndex::Map, TypeIndex::Array,
                                               TypeIndex::Decimal32, TypeIndex::Array,
                                               TypeIndex::Decimal32};
-        // map<array<decimal64(18, 9)>, array<decimal64(18, 9)>> UT
+        // map<array<decimal64(18, 9)>, array<decimal64(18, 9)>>
         BaseInputTypeSet map_array_decimal64 = {TypeIndex::Map, TypeIndex::Array,
                                                 TypeIndex::Decimal64, TypeIndex::Array,
                                                 TypeIndex::Decimal64};
-        // map<array<decimal128(38, 20)>, array<decimal128(38, 20)>> UT
+        // map<array<decimal128(38, 20)>, array<decimal128(38, 20)>>
         BaseInputTypeSet map_array_decimal128 = {TypeIndex::Map, TypeIndex::Array,
                                                  TypeIndex::Decimal128V3, TypeIndex::Array,
                                                  TypeIndex::Decimal128V3};
-        // map<array<decimal256(76, 40)>, array<decimal256(76, 40)>> UT
+        // map<array<decimal256(76, 40)>, array<decimal256(76, 40)>>
         BaseInputTypeSet map_array_decimal256 = {TypeIndex::Map, TypeIndex::Array,
                                                  TypeIndex::Decimal256, TypeIndex::Array,
                                                  TypeIndex::Decimal256};
@@ -180,20 +188,20 @@ protected:
                 map_map_largeint_string};
         std::vector<BaseInputTypeSet> map_struct_typeIndex = {map_struct};
 
-        descs.reserve(map_typeIndex.size() + map_array_typeIndex.size() + map_map_typeIndex.size() +
-                      map_struct_typeIndex.size());
+        descs_.reserve(map_typeIndex.size() + map_array_typeIndex.size() +
+                       map_map_typeIndex.size() + map_struct_typeIndex.size());
         for (int i = 0; i < map_typeIndex.size(); i++) {
-            descs.emplace_back();
+            descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(map_typeIndex[i][0]);
             input_types.emplace_back(Nullable {static_cast<TypeIndex>(map_typeIndex[i][1])});
             input_types.emplace_back(Nullable {static_cast<TypeIndex>(map_typeIndex[i][2])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
-            EXPECT_TRUE(parse_ut_data_type(input_types, descs[i]));
+            EXPECT_TRUE(parse_ut_data_type(input_types, descs_[i]));
         }
         for (int i = 0; i < map_array_typeIndex.size(); i++) {
-            descs.emplace_back();
+            descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(map_array_typeIndex[i][0]);
             input_types.emplace_back(
@@ -206,11 +214,11 @@ protected:
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[3].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[4].type(), &typeid(Nullable)) << "nested type is not nullable";
-            EXPECT_TRUE(parse_ut_data_type(input_types, descs[i + map_typeIndex.size()]));
+            EXPECT_TRUE(parse_ut_data_type(input_types, descs_[i + map_typeIndex.size()]));
         }
 
         for (int i = 0; i < map_map_typeIndex.size(); i++) {
-            descs.emplace_back();
+            descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(map_map_typeIndex[i][0]); // map
             input_types.emplace_back(
@@ -228,11 +236,11 @@ protected:
             EXPECT_EQ(input_types[5].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[6].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
-                    input_types, descs[i + map_typeIndex.size() + map_array_typeIndex.size()]));
+                    input_types, descs_[i + map_typeIndex.size() + map_array_typeIndex.size()]));
         }
 
         for (int i = 0; i < map_struct_typeIndex.size(); i++) {
-            descs.emplace_back();
+            descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(map_struct_typeIndex[i][0]); // map
             input_types.emplace_back(
@@ -248,27 +256,29 @@ protected:
 
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
-                    input_types, descs[i + map_typeIndex.size() + map_array_typeIndex.size() +
-                                       map_map_typeIndex.size()]));
+                    input_types, descs_[i + map_typeIndex.size() + map_array_typeIndex.size() +
+                                        map_map_typeIndex.size()]));
         }
 
         // create column_map for each data type
         // step2. according to the datatype to make column_map
         //          && load data from csv file into column_map
-        EXPECT_EQ(descs.size(), data_files.size());
-        for (int i = 0; i < descs.size(); i++) {
-            auto& desc = descs[i];
+        EXPECT_EQ(descs_.size(), data_files.size());
+        for (int i = 0; i < descs_.size(); i++) {
+            auto& desc = descs_[i];
             auto& data_file = data_files[i];
             // first is map type
             auto& type = desc[0].data_type;
-            std::cout << "type: " << type->get_name() << " with file: " << data_file << std::endl;
             MutableColumns cols;
             cols.push_back(type->create_column());
+            std::cout << "load_data_from_csv type: " << type->get_name()
+                      << ", col: " << cols[0]->get_name() << " with file: " << data_file
+                      << std::endl;
             auto serde = type->get_serde(1);
             load_data_from_csv({serde}, cols, data_file, ';');
-            columns.push_back(std::move(cols[0]));
-            types.push_back(type);
-            serdes.push_back(serde);
+            columns_.push_back(std::move(cols[0]));
+            types_.push_back(type);
+            serdes_.push_back(serde);
         }
     }
 
@@ -278,9 +288,13 @@ protected:
             // map-scalar
             data_file_dir + "test_map_tinyint.csv", data_file_dir + "test_map_smallint.csv",
             data_file_dir + "test_map_int.csv", data_file_dir + "test_map_bigint.csv",
-            data_file_dir + "test_map_largeint.csv", data_file_dir + "test_map_float.csv",
-            data_file_dir + "test_map_double.csv", data_file_dir + "test_map_ipv4.csv",
+            data_file_dir + "test_map_largeint.csv",
+            // TODO, json->map<float:float> and json->map<double:double> deserialization result lost decimals
+            data_file_dir + "test_map_float.csv", data_file_dir + "test_map_double.csv",
+            data_file_dir + "test_map_ipv4.csv",
+            // TODO, json->map<ipv6:ipv6> deserialization result is wrong, '2001:0db8:0:0:0:0:0:1' -> '2001:db8::1'
             data_file_dir + "test_map_ipv6.csv", data_file_dir + "test_map_date.csv",
+            // TODO, json->map<datetime:datetime> deserialization result is null
             data_file_dir + "test_map_datetime.csv", data_file_dir + "test_map_date.csv",
             data_file_dir + "test_map_datetimev2_6.csv",
             data_file_dir + "test_map_varchar_65535.csv",
@@ -289,6 +303,7 @@ protected:
             data_file_dir + "test_map_decimalv3_38_30.csv",
             data_file_dir + "test_map_decimalv3_76_56.csv",
             // map-array
+            // TODO, json->map<array<>, array<>> deserialization result is map<array<>, NULL>, value is NULL.
             data_file_dir + "test_map_array_tinyint.csv",
             data_file_dir + "test_map_array_smallint.csv", data_file_dir + "test_map_array_int.csv",
             data_file_dir + "test_map_array_bigint.csv",
@@ -305,49 +320,186 @@ protected:
             data_file_dir + "test_map_array_decimalv3_38_30.csv",
             data_file_dir + "test_map_array_decimalv3_76_56.csv",
             // map-map
+            // TODO, json->map<map<double, decimal>, map<double, decimal>> deserialization result
+            // is map<map<double, decimal>, double>, value is not deserialized into map.
             data_file_dir + "test_map_map_char_double.csv",
             data_file_dir + "test_map_map_datetime_decimal.csv",
+            // TODO, json->map<map<ipv4, ipv6>, map<ipv4, ipv6>> deserialization result
+            // is map<map<ipv4, ipv6>, NULL>, value is NULL.
             data_file_dir + "test_map_map_ipv4_ipv6.csv",
             data_file_dir + "test_map_map_largeInt_string.csv",
             // map-struct
+            // TODO, json->map<struct<>, struct<>> deserialization result is map<NULL, NULL>.
             data_file_dir + "test_map_struct.csv"};
 
-    vector<ut_type::UTDataTypeDescs> descs; // map<> descs matrix
-    MutableColumns columns;                 // column_map list
-    DataTypes types;
-    DataTypeSerDeSPtrs serdes;
+    vector<ut_type::UTDataTypeDescs> descs_; // map<> descs matrix
+    MutableColumns columns_;                 // column_map list
+    DataTypes types_;
+    DataTypeSerDeSPtrs serdes_;
 };
 
 TEST_F(DataTypeMapTest, SerdeArrowTest) {
-    // todo. fix decimal256 serde
-    MutableColumns map_cols;
-    for (int i = 0; i < 17; i++) {
-        map_cols.push_back(columns[i]->get_ptr());
+    MutableColumns columns;
+    DataTypes types;
+    for (int i = 0; i < descs_.size(); i++) {
+        // todo. fix decimal256 serde
+        if (types_[i]->get_name().find("Decimal(76, 40)") != std::string::npos) {
+            continue;
+        }
+        columns.push_back(columns_[i]->get_ptr());
+        types.push_back(types_[i]);
     }
-    for (int i = 18; i < 35; i++) {
-        map_cols.push_back(columns[i]->get_ptr());
+    CommonDataTypeSerdeTest::assert_arrow_format(columns, types);
+}
+
+// TODO `DataTypeMapSerDe::deserialize_one_cell_from_json` has a bug,
+// `SerdeArrowTest` cannot test Map type nested Array and Struct and Map,
+// so manually construct data to test them.
+// Expect to delete this TEST after `deserialize_one_cell_from_json` is fixed.
+TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
+    auto block = std::make_shared<Block>();
+    {
+        std::string col_name = "map_nesting_array";
+        TypeDescriptor type_desc_1(TYPE_MAP);
+        TypeDescriptor type_desc_2(TYPE_ARRAY);
+        TypeDescriptor type_desc_3(TYPE_ARRAY);
+        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
+        type_desc_3.add_sub_type(TYPE_INT, "age", true);
+        type_desc_1.add_sub_type(type_desc_2, "array1", true);
+        type_desc_1.add_sub_type(type_desc_3, "array2", true);
+        DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+        DataTypePtr dt1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(f1));
+        DataTypePtr dt2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(f2));
+        DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
+
+        Array a1, a2, a3, a4;
+        a1.push_back(Field("cute"));
+        a1.push_back(Null());
+        a2.push_back(Field("clever"));
+        a1.push_back(Field("hello"));
+        a3.push_back(1);
+        a3.push_back(2);
+        a4.push_back(11);
+        a4.push_back(22);
+
+        Array k1, v1;
+        k1.push_back(a1);
+        k1.push_back(a2);
+        v1.push_back(a3);
+        v1.push_back(a4);
+
+        Map m1;
+        m1.push_back(k1);
+        m1.push_back(v1);
+
+        MutableColumnPtr map_column = ma->create_column();
+        map_column->reserve(1);
+        map_column->insert(m1);
+        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        block->insert(type_and_name);
     }
-    // map_cols.push_back(columns[36]->get_ptr());
-    // map_cols.push_back(columns[38]->get_ptr());
-    // DataTypes types;
-    // for (int i = 0; i < 17; i++) {
-    //     types.push_back(types[i]);
-    // }
-    // for (int i = 18; i < 35; i++) {
-    //     types.push_back(types[i]);
-    // }
-    // types.push_back(types[36]);
-    // types.push_back(types[38]);
-    // CommonDataTypeSerdeTest::assert_arrow_format(map_cols, types);
-    // {
-    //     for (int i = 39; i < 41; ++i) {
-    //         MutableColumns error_cols;
-    //         error_cols.push_back(columns[i]->get_ptr());
-    //         DataTypes typ;
-    //         typ.push_back(types[i]);
-    //         EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, typ));
-    //     }
-    // }
+    {
+        std::string col_name = "map_nesting_struct";
+        TypeDescriptor type_desc_1(TYPE_MAP);
+        TypeDescriptor type_desc_2(TYPE_STRUCT);
+        TypeDescriptor type_desc_3(TYPE_STRUCT);
+        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
+        type_desc_2.add_sub_type(TYPE_LARGEINT, "age", true);
+        type_desc_2.add_sub_type(TYPE_BOOLEAN, "is", true);
+        type_desc_3.add_sub_type(TYPE_STRING, "name2", true);
+        type_desc_1.add_sub_type(type_desc_2, "struct1", true);
+        type_desc_1.add_sub_type(type_desc_3, "struct2", true);
+
+        DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+        DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+        DataTypePtr f4 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr dt1 = std::make_shared<DataTypeNullable>(
+                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f1, f2, f3}));
+        DataTypePtr dt2 = std::make_shared<DataTypeNullable>(
+                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f4}));
+        DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
+
+        Tuple t1, t2, t3, t4;
+        t1.push_back(Field("clever"));
+        t1.push_back(__int128_t(37));
+        t1.push_back(true);
+        t2.push_back("null");
+        t2.push_back(__int128_t(26));
+        t2.push_back(false);
+        t3.push_back(Field("cute"));
+        t4.push_back("null");
+
+        Array k1, v1;
+        k1.push_back(t1);
+        k1.push_back(t2);
+        v1.push_back(t3);
+        v1.push_back(t4);
+
+        Map m1;
+        m1.push_back(k1);
+        m1.push_back(v1);
+
+        MutableColumnPtr map_column = ma->create_column();
+        map_column->reserve(1);
+        map_column->insert(m1);
+        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        block->insert(type_and_name);
+    }
+    {
+        std::string col_name = "map_nesting_map";
+        TypeDescriptor type_desc_1(TYPE_MAP);
+        TypeDescriptor type_desc_2(TYPE_STRUCT);
+        TypeDescriptor type_desc_3(TYPE_STRUCT);
+        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
+        type_desc_2.add_sub_type(TYPE_LARGEINT, "age", true);
+        type_desc_2.add_sub_type(TYPE_BOOLEAN, "is", true);
+        type_desc_3.add_sub_type(TYPE_STRING, "name2", true);
+        type_desc_1.add_sub_type(type_desc_2, "struct1", true);
+        type_desc_1.add_sub_type(type_desc_3, "struct2", true);
+
+        DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+        DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+        DataTypePtr f4 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr dt1 = std::make_shared<DataTypeNullable>(
+                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f1, f2, f3}));
+        DataTypePtr dt2 = std::make_shared<DataTypeNullable>(
+                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f4}));
+        DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
+
+        Tuple t1, t2, t3, t4;
+        t1.push_back(Field("clever"));
+        t1.push_back(__int128_t(37));
+        t1.push_back(true);
+        t2.push_back("null");
+        t2.push_back(__int128_t(26));
+        t2.push_back(false);
+        t3.push_back(Field("cute"));
+        t4.push_back("null");
+
+        Array k1, v1;
+        k1.push_back(t1);
+        k1.push_back(t2);
+        v1.push_back(t3);
+        v1.push_back(t4);
+
+        Map m1;
+        m1.push_back(k1);
+        m1.push_back(v1);
+
+        MutableColumnPtr map_column = ma->create_column();
+        map_column->reserve(1);
+        map_column->insert(m1);
+        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
+        block->insert(type_and_name);
+    }
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
 } // namespace doris::vectorized

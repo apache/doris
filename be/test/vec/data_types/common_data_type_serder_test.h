@@ -359,10 +359,15 @@ public:
             block->insert(ColumnWithTypeAndName(std::move(col), types[i], types[i]->get_name()));
         }
         // print block
-        std::cout << "block: " << block->dump_structure() << std::endl;
-        std::cout << "block data: "
+        std::cout << "build block structure: " << block->dump_structure() << std::endl;
+        std::cout << "build block data: "
                   << block->dump_data(0, std::min(max_row_size, static_cast<size_t>(5)))
                   << std::endl;
+        for (int i = 0; i < block->columns(); i++) {
+            auto col = block->get_by_position(i);
+            std::cout << "col: " << i << ", " << col.column->get_name() << ", "
+                      << col.type->get_name() << ", " << col.to_string(0) << std::endl;
+        }
     }
 
     static std::shared_ptr<arrow::RecordBatch> serialize_arrow(
@@ -376,8 +381,8 @@ public:
         Status stt = convert_to_arrow_batch(*block, block_arrow_schema,
                                             arrow::default_memory_pool(), &result, _timezone_obj);
         EXPECT_EQ(Status::OK(), stt) << "convert block to arrow failed" << stt.to_string();
-        std::cout << "arrow result: " << result->num_columns() << ", " << result->num_rows()
-                  << std::endl;
+        std::cout << "arrow serialize result: " << result->num_columns() << ", "
+                  << result->num_rows() << std::endl;
         return result;
     }
 
@@ -387,33 +392,39 @@ public:
         auto rows = record_batch->num_rows();
         for (size_t i = 0; i < record_batch->num_columns(); ++i) {
             auto array = record_batch->column(i);
-            std::cout << array->ToString() << std::endl;
+            std::cout << "arrow record_batch pos: " << i << ", array: " << array->ToString()
+                      << std::endl;
             auto& column_with_type_and_name = new_block->get_by_position(i);
             std::cout << "now we are testing column: "
-                      << column_with_type_and_name.column->get_name() << std::endl;
+                      << column_with_type_and_name.column->get_name()
+                      << ", type: " << column_with_type_and_name.type->get_name() << std::endl;
             auto ret =
                     arrow_column_to_doris_column(array.get(), 0, column_with_type_and_name.column,
                                                  column_with_type_and_name.type, rows, "UTC");
             // do check data
-            std::cout << "arrow_column_to_doris_column done: "
-                      << column_with_type_and_name.column->get_name()
-                      << " with column size: " << column_with_type_and_name.column->size()
-                      << std::endl;
+            std::cout << "arrow_column_to_doris_column done, column data: "
+                      << column_with_type_and_name.to_string(0)
+                      << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }
-        std::cout << "assert block: " << new_block->dump_structure() << std::endl;
+        std::cout << "arrow deserialize block: " << new_block->dump_structure() << std::endl;
     }
 
     static void compare_two_blocks(const std::shared_ptr<Block>& frist_block,
                                    const std::shared_ptr<Block>& second_block) {
         EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
         for (size_t i = 0; i < frist_block->columns(); ++i) {
+            EXPECT_EQ(frist_block->get_by_position(i).type, second_block->get_by_position(i).type);
             auto& col = frist_block->get_by_position(i).column;
             auto& assert_col = second_block->get_by_position(i).column;
-            std::cout << "column: " << col->get_name() << " size: " << col->size()
-                      << " assert size: " << assert_col->size() << std::endl;
+            std::cout << "compare_two_blocks, column: " << col->get_name()
+                      << ", type: " << frist_block->get_by_position(i).type->get_name()
+                      << ", size: " << col->size() << ", assert size: " << assert_col->size()
+                      << std::endl;
             EXPECT_EQ(assert_col->size(), col->size());
             for (size_t j = 0; j < assert_col->size(); ++j) {
+                EXPECT_EQ(frist_block->get_by_position(i).to_string(j),
+                          second_block->get_by_position(i).to_string(j));
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
