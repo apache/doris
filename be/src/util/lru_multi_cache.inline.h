@@ -196,7 +196,7 @@ void LruMultiCache<KeyType, ValueType>::release(ValueType_internal* p_value_inte
 
     // DO NOT update timestamp_seconds when release.
     // Because we are about to evict cache value after a certain period.
-    // p_value_internal->timestamp_seconds = MonotonicSeconds();
+    p_value_internal->timestamp_seconds = MonotonicSeconds();
 
     Container& container = p_value_internal->container;
 
@@ -289,6 +289,7 @@ void LruMultiCache<KeyType, ValueType>::evict_older_than(uint64_t oldest_allowed
     //   - cache size is below capacity and the oldest object is not older than the limit
     while (!_lru_list.empty() &&
            (_size > _capacity || _lru_list.back().timestamp_seconds < oldest_allowed_timestamp)) {
+        LOG(INFO) << "yy debug evict file handle cache with timestamp: " << _lru_list.back().timestamp_seconds;
         _evict_one(_lru_list.back());
     }
 }
