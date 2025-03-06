@@ -391,6 +391,8 @@ struct TQueryOptions {
   161: optional i64 low_memory_mode_buffer_limit = 33554432
   162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
 
+  163: optional i64 check_runtime_filter_partition_prune_counter = -1;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

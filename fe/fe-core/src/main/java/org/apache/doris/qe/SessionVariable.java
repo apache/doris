@@ -362,8 +362,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
-    public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
-            "enable_runtime_filter_partition_prune";
+    public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE = "enable_runtime_filter_partition_prune";
+
+    public static final String CHECK_RUNTIME_FILTER_PARTITION_PRUNE_COUNTER = "check_runtime_filter_partition_prune_counter";
 
     static final String SESSION_CONTEXT = "session_context";
 
@@ -1525,8 +1526,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true, fuzzy = true)
     public boolean enableRuntimeFilterPrune = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PARTITION_PRUNE, needForward = true, fuzzy = true, description = {
+            "是否开启运行时过滤分区裁剪",
+            "Whether to enable runtime filter partition pruning."
+    })
     public boolean enableRuntimeFilterPartitionPrune = true;
+
+    @VariableMgr.VarAttr(name = CHECK_RUNTIME_FILTER_PARTITION_PRUNE_COUNTER, needForward = true, description = {
+            "检查运行时过滤分区裁剪的计数器，用于测试",
+            "Check the counter of runtime filter partition pruning, used for testing."
+    })
+    public long checkRuntimeFilterPartitionPruneCounter = -1;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -3756,6 +3766,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRuntimeFilterPartitionPrune = enableRuntimeFilterPartitionPrune;
     }
 
+    public long getCheckRuntimeFilterPartitionPruneCounter() {
+        return checkRuntimeFilterPartitionPruneCounter;
+    }
+
+    public void setCheckRuntimeFilterPartitionPruneCounter(long checkRuntimeFilterPartitionPruneCounter) {
+        this.checkRuntimeFilterPartitionPruneCounter = checkRuntimeFilterPartitionPruneCounter;
+    }
+
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
@@ -4084,8 +4102,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
-
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+        tResult.setCheckRuntimeFilterPartitionPruneCounter(checkRuntimeFilterPartitionPruneCounter);
         return tResult;
     }
 
