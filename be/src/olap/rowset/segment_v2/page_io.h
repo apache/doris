@@ -70,13 +70,13 @@ struct PageReadOptions {
 
     const EncodingInfo* encoding_info = nullptr;
 
-    io::IOContext& io_ctx;
+    const io::IOContext& io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
-    PageReadOptions() = delete;
+    PageReadOptions(const io::IOContext& ioctx):io_ctx(ioctx) {}
 
     PageReadOptions(const PageReadOptions& old) : io_ctx(old.io_ctx) {
         file_reader = old.file_reader;
