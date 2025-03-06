@@ -448,6 +448,7 @@ template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
     _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
+    info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
