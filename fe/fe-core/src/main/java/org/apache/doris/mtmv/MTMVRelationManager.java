@@ -84,13 +84,17 @@ public class MTMVRelationManager implements MTMVHookService {
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
+        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(ctx);
+
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
                 if (predicate.test(ctx, mtmv)) {
                     continue;
                 }
-                if (isMVPartitionValid(mtmv, ctx, forceConsistent, PartitionCompensator.getQueryUsedPartitions(ctx))) {
+                BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+                if (isMVPartitionValid(mtmv, ctx, forceConsistent,
+                        relatedTableInfo == null ? null : queryUsedPartitions.get(relatedTableInfo.toList()))) {
                     res.add(mtmv);
                 }
             } catch (Exception e) {
@@ -120,10 +124,10 @@ public class MTMVRelationManager implements MTMVHookService {
 
     @VisibleForTesting
     public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-            Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
+            Set<String> relatedPartitions) {
         long currentTimeMillis = System.currentTimeMillis();
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
-                mtmv, ctx, currentTimeMillis, forceConsistent, queryUsedRelatedTablePartitionsMap);
+                mtmv, ctx, currentTimeMillis, forceConsistent, relatedPartitions);
         // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later
         ctx.getStatementContext().getMvCanRewritePartitionsMap().putIfAbsent(
                 new BaseTableInfo(mtmv), mtmvCanRewritePartitions);
