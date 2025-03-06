@@ -605,7 +605,7 @@ public class TypeCoercionUtils {
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
-                    Result<DateTimeLiteral, AnalysisException> parseResult2
+                    Result<DateTimeLiteral, ? extends Exception> parseResult2
                             = DateTimeV2Literal.parseDateTimeLiteral(value, true);
                     if (parseResult2.isOk()) {
                         ret = parseResult2.get();
