@@ -40,8 +40,8 @@ template <typename T>
 void ColumnStr<T>::sanity_check() const {
 #ifndef NDEBUG
     sanity_check_simple();
-    auto count = offsets.size();
-    for (size_t i = 0; i < count; ++i) {
+    auto count = cast_set<int>(offsets.size());
+    for (int i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
@@ -53,10 +53,10 @@ void ColumnStr<T>::sanity_check() const {
 template <typename T>
 void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
-    auto count = offsets.size();
+    auto count = cast_set<int>(offsets.size());
     if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: ",
-                                              count, chars.size(), offsets[count - 1]));
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
     }
     if (offsets[-1] != 0) {
         throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
@@ -639,6 +639,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
+    sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base =
