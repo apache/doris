@@ -94,20 +94,20 @@ public class AlterTableStatsCommand extends AlterCommand {
     }
 
     private void validate(ConnectContext ctx) throws UserException {
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
-                    tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
-        }
-
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                 + "in your FE conf file");
         }
 
         tableNameInfo.analyze(ctx);
+
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
+        }
 
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
                 .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType))
