@@ -270,7 +270,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             throw new ParseException("Error load url is missing");
         }
 
-        if (dbName != null || wildWhere != null || limit != null) {
+        if (dbName != null || wildWhere != null) {
             throw new AnalysisException(
                 "Can not set database, where or limit clause if getting error log from url");
         }
@@ -314,6 +314,9 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
         List<List<String>> rows = Lists.newArrayList();
 
+        if (limit == null) {
+            limit = 100L;
+        }
         if (originUrl != null) {
             URL url = validateUrl(originUrl);
             rows.addAll(showLoadWarningsFromUrl(url));
@@ -339,9 +342,6 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                 rows.addAll(eqExpression(wildWhere));
             }
 
-            if (limit == null) {
-                limit = 100L;
-            }
             if (limit < rows.size()) {
                 rows = rows.subList(0, (int) limit.longValue());
             }
