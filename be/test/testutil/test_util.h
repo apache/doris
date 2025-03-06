@@ -87,9 +87,6 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
                         vectorized::MutableColumns& columns, const std::string& file_path,
                         const char spliter = ';', const std::set<int> idxes = {0});
 void check_or_generate_res_file(const std::string& res_file_path,
-                                const std::vector<std::string>& res_column, bool is_binary);
-void check_or_generate_res_file(const std::string& res_file_path,
-                                const std::vector<std::vector<std::string>>& res,
-                                bool is_binary = false);
+                                const std::vector<std::vector<std::string>>& res_columns);
 
 } // namespace doris

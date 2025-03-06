@@ -215,12 +215,12 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
             if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
                 if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
-                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
+                                                                                             scale);
                     serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
                 } else {
-                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
+                                                                                             scale);
                 }
             } else {
                 serde = block.get_by_position(col_idx).type->get_serde();

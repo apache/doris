@@ -199,75 +199,68 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
     std::cout << "loading data done, file: " << file_path << ", row count: " << columns[0]->size()
               << std::endl;
 }
+// res_columns[i] is the i-th column of the data
 void check_or_generate_res_file(const std::string& res_file_path,
-                                const std::vector<std::vector<std::string>>& res_column, bool is_binary) {
-                                }
-
-//// this is very helpful function to check data in column against expected results according different function in assert function
-//// such as run regress tests
-////  if FLAGS_gen_out is true, we will generate a file for check data, otherwise we will read the file to check data
-////  so the key point is we should how we write assert callback function to check data,
-///   and when check data is generated, we should check result to statisfy the semantic of the function
-void check_or_generate_res_file(const std::string& res_file_path,
-                                const std::vector<std::string>& res_column, bool is_binary) {
+                                const std::vector<std::vector<std::string>>& res_columns) {
+    if (res_columns.empty()) {
+        return;
+    }
+    auto row_count = res_columns[0].size();
     if (FLAGS_gen_out) {
         std::ofstream res_file(res_file_path);
-        std::cout << "gen check data: " << res_column.size() << " rows with file: " << res_file_path
-                  << std::endl;
+        LOG(INFO) << "gen check data with file: " << res_file_path;
         if (!res_file.is_open()) {
-            throw std::ios_base::failure("Failed to open file.");
+            throw std::ios_base::failure("Failed to open file: " + res_file_path);
         }
 
-        for (size_t i = 0; i < res_column.size(); ++i) {
-            auto cell = res_column[i];
-            if (is_binary) {
-                size_t data_size = cell.size();
-                res_file.write((char*)&data_size, sizeof(data_size));
-                res_file.write(cell.data(), data_size);
-            } else {
-                res_file << cell;
-                if (i < res_column.size() - 1) {
-                    res_file << "\n";
+        for (size_t i = 1; i < res_columns.size(); ++i) {
+            EXPECT_EQ(res_columns[i].size(), row_count);
+        }
+        auto column_count = res_columns.size();
+        for (size_t i = 0; i < row_count; ++i) {
+            // output one row
+            for (size_t j = 0; j < column_count; ++j) {
+                const auto& column = res_columns[j];
+                // output one column
+                res_file << column[i];
+                if (j < column_count - 1) {
+                    res_file << ";"; // Add semicolon between columns
                 }
+            }
+            if (i < row_count - 1) {
+                res_file << "\n";
             }
         }
         res_file.close();
     } else {
         // we read generate file to check result
-        std::cout << "check data: " << res_column.size() << " rows with file: " << res_file_path
-                  << std::endl;
+        LOG(INFO) << "check data with file: " << res_file_path;
         std::ifstream file(res_file_path);
         if (!file) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
                                    res_file_path);
         }
 
-        if (is_binary) {
-            for (const auto& cell : res_column) {
-                size_t real_size = cell.size();
-                size_t expect_row_size = 0;
-                file.read((char*)&expect_row_size, sizeof(expect_row_size));
-                EXPECT_EQ(real_size, expect_row_size);
-                std::string expected_data;
-                expected_data.resize(expect_row_size);
-                file.read((char*)expected_data.data(), expect_row_size);
-                EXPECT_EQ(cell, expected_data);
-            }
-        } else {
-            size_t file_line_count = 0;
-            std::string line;
-            while (getline(file, line)) {
-                file_line_count++;
-            }
-            EXPECT_EQ(file_line_count, res_column.size());
-            file.clear();
-            file.seekg(0, std::ios::beg);
+        size_t file_line_count = 0;
+        std::string line;
+        while (getline(file, line)) {
+            file_line_count++;
+        }
+        EXPECT_EQ(file_line_count, row_count);
 
-            size_t line_idx = 0;
-            while (std::getline(file, line)) {
-                EXPECT_EQ(line, res_column[line_idx]) << "line mismatch: " << line_idx;
-                line_idx++;
+        file.clear();
+        file.seekg(0, std::ios::beg);
+
+        size_t line_idx = 0;
+        while (std::getline(file, line)) {
+            std::stringstream line_stream(line);
+            std::string value;
+            size_t col_idx = 0;
+            while (std::getline(line_stream, value, ';')) {
+                EXPECT_EQ(value, res_columns[col_idx][line_idx]);
+                col_idx++;
             }
+            line_idx++;
         }
     }
 }

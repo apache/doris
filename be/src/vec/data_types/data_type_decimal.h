@@ -245,7 +245,7 @@ public:
     std::string to_string(const T& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision, nesting_level);
+        return std::make_shared<DataTypeDecimalSerDe<T>>(precision, scale, nesting_level);
     };
 
     /// Decimal specific
@@ -259,7 +259,7 @@ public:
 
     /// @returns multiplier for U to become T with correct scale
     template <typename U>
-    T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
+    T scale_factor_for(const DataTypeDecimal<U>& x) const {
         if (get_scale() < x.get_scale()) {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "Decimal result's scale is less then argument's one");
@@ -267,14 +267,6 @@ public:
 
         UInt32 scale_delta = get_scale() - x.get_scale(); /// scale_delta >= 0
         return get_scale_multiplier(scale_delta);
-    }
-
-    template <typename U>
-    T scale_factor_for(const DataTypeNumber<U>&, bool is_multiply_or_divisor) const {
-        if (is_multiply_or_divisor) {
-            return 1;
-        }
-        return get_scale_multiplier();
     }
 
     static T get_scale_multiplier(UInt32 scale);
@@ -318,7 +310,7 @@ DataTypePtr decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeDeci
                                 bool is_multiply, bool is_divide, bool is_plus_minus) {
     using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
     if constexpr (IsDecimalV2<T> && IsDecimalV2<U>) {
-        return std::make_shared<DataTypeDecimal<Type>>((max_decimal_precision<T>(), 9));
+        return std::make_shared<DataTypeDecimal<Type>>(max_decimal_precision<T>(), 9);
     } else {
         UInt32 scale = std::max(tx.get_scale(), ty.get_scale());
         auto precision = max_decimal_precision<Type>();
