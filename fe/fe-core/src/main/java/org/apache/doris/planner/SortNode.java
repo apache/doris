@@ -129,9 +129,6 @@ public class SortNode extends PlanNode {
                 }
             }
         }
-        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()) {
-            useLocalMerge = true;
-        }
     }
 
     public void setIsAnalyticSort(boolean v) {
@@ -156,6 +153,17 @@ public class SortNode extends PlanNode {
 
     public void setMergeByExchange() {
         this.mergeByexchange = true;
+        // mergeByexchange = true means that the sort data will be merged once at the
+        // exchange node
+        // If enable_local_merge = true at the same time, it can be merged once before
+        // the exchange node
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()
+                && this.mergeByexchange) {
+            this.useLocalMerge = true;
+        } else {
+            this.useLocalMerge = false;
+        }
     }
 
     public boolean getUseTopnOpt() {
