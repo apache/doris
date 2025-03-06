@@ -80,9 +80,14 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
             // modify UGI instead of returning new UGI
             existingSubject.getPrincipals().addAll(newSubject.getPrincipals());
             Set<Object> privateCredentials = existingSubject.getPrivateCredentials();
-            // clear the old credentials
+            // Commented out the clearing of privateCredentials because the old Kerberos ticket still has about 0.2 of
+            // its remaining time.
+            // During this time window, other threads might still be using the old tickets, so clearing them could
+            // cause issues.
+            // Old tickets will be automatically cleaned up by the expiration logic in SubjectComber#findAux.
+            // This method checks if the ticket has expired, and if so, it destroys the expired tickets.
             synchronized (privateCredentials) {
-                privateCredentials.clear();
+                //privateCredentials.clear();
                 privateCredentials.addAll(newSubject.getPrivateCredentials());
             }
             Set<Object> publicCredentials = existingSubject.getPublicCredentials();
@@ -111,6 +116,17 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         return UserGroupInformation.getUGIFromSubject(subject);
     }
 
+    /**
+     * Calculates the next refresh time for the Kerberos Ticket Granting Ticket (TGT).
+     * <p>
+     * This method retrieves the TGT from the Subject and calculates its refresh time.
+     * The refresh time is set to 80% of the time between the ticket's start time and end time.
+     * The 0.8 threshold is used to ensure the refresh operation happens before the ticket expires,
+     * avoiding authentication failures due to an expired ticket.
+     *
+     * @param subject The Subject object containing Kerberos authentication information
+     * @return The next refresh time (in milliseconds)
+     */
     private static long calculateNextRefreshTime(Subject subject) {
         Preconditions.checkArgument(subject != null, "subject must be present in kerberos based UGI");
         KerberosTicket tgtTicket = KerberosTicketUtils.getTicketGrantingTicket(subject);
@@ -153,10 +169,10 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
                 }
                 Map<String, String> options = builder.build();
                 return new AppConfigurationEntry[]{
-                    new AppConfigurationEntry(
-                        "com.sun.security.auth.module.Krb5LoginModule",
-                        AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
-                        options)};
+                        new AppConfigurationEntry(
+                                "com.sun.security.auth.module.Krb5LoginModule",
+                                AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
+                                options)};
             }
         };
     }
