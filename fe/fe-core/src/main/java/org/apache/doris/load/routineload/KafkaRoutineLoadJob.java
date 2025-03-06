@@ -71,6 +71,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 
 /**
@@ -109,6 +111,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // The kafka partition fetch from kafka server.
     // Will be updated periodically by calling updateKafkaPartitions();
     private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
+
+    private ConcurrentMap<Integer, Long> snapshoPartitionIdToOffset = Maps.newConcurrentMap();
+
+    private String abnormalProgressReason = "";
 
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
@@ -924,5 +930,49 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
+    }
+
+    @Override
+    protected boolean checkAbnormalJobByProgress() {
+        boolean isAbnormalJob = isAbnormalProgress();
+        refreshPartitionIdToOffsetSnapshot();
+        return isAbnormalJob;
+    }
+
+    @Override
+    protected String abnormalProgressReason() {
+        return abnormalProgressReason;
+    }
+
+    public boolean isAbnormalProgress() {
+        Map<Integer, Long> abnormalPartitionMap = Maps.newHashMap();
+
+        for (Map.Entry<Integer, Long> entry : ((KafkaProgress) progress).getOffsetByPartition().entrySet()) {
+            Integer partitionId = entry.getKey();
+            Long partitionOffset = entry.getValue();
+
+            if (snapshoPartitionIdToOffset.containsKey(partitionId)) {
+                Long snapshotOffset = snapshoPartitionIdToOffset.get(partitionId);
+                if (partitionOffset <= snapshotOffset) {
+                    if (cachedPartitionWithLatestOffsets.containsKey(partitionId)
+                            && cachedPartitionWithLatestOffsets.get(partitionId) - partitionOffset != 0) {
+                        // progress has not advanced, and the lag is not zero
+                        abnormalPartitionMap.put(partitionId, partitionOffset);
+                    }
+                }
+            }
+        }
+
+        if (!abnormalPartitionMap.isEmpty()) {
+            abnormalProgressReason = "The progress of certain partitions has not advanced, and the lag is not zero,"
+                                     + " abnormal partition: " + abnormalPartitionMap.toString();
+            return true;
+        }
+
+        return false;
+    }
+
+    public void refreshPartitionIdToOffsetSnapshot() {
+        this.snapshoPartitionIdToOffset = new ConcurrentHashMap<>(((KafkaProgress) progress).getOffsetByPartition());
     }
 }
