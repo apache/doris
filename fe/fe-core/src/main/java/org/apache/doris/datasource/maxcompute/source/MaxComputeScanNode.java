@@ -88,6 +88,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
+    static final DateTimeFormatter dateTime3Formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    static final DateTimeFormatter dateTime6Formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
 
     private final MaxComputeExternalTable table;
     private Predicate filterPredicate;
@@ -495,14 +497,26 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 ScalarType dstType = ScalarType.createDatetimeV2Type(3);
 
-                return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType),
-                                    ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
+                return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime3Formatter,
+                        ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
             }
-            case TIMESTAMP_NTZ: {
-                DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                ScalarType dstType = ScalarType.createDatetimeV2Type(6);
-                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
-            }
+            /**
+             * Disable the predicate pushdown to the odps API because the timestamp precision of odps is 9 and the
+             * mapping precision of Doris is 6. If we insert `2023-02-02 00:00:00.123456789` into odps, doris reads
+             * it as `2023-02-02 00:00:00.123456`. Since "789" is missing, we cannot push it down correctly.
+             */
+            // case TIMESTAMP: {
+            //     DateLiteral dateLiteral = (DateLiteral) literalExpr;
+            //     ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+            //
+            //     return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime6Formatter,
+            //             ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
+            // }
+            // case TIMESTAMP_NTZ: {
+            //     DateLiteral dateLiteral = (DateLiteral) literalExpr;
+            //     ScalarType dstType = ScalarType.createDatetimeV2Type(6);
+            //     return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+            // }
             default: {
                 break;
             }
@@ -511,12 +525,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
 
-    public static String convertDateTimezone(String dateTimeStr, ZoneId toZone) {
+    public static String convertDateTimezone(String dateTimeStr, DateTimeFormatter formatter, ZoneId toZone) {
         if (DateUtils.getTimeZone().equals(toZone)) {
             return dateTimeStr;
         }
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
         LocalDateTime localDateTime = LocalDateTime.parse(dateTimeStr, formatter);
 
         ZonedDateTime sourceZonedDateTime = localDateTime.atZone(DateUtils.getTimeZone());
