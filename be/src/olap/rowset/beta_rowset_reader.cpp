@@ -68,11 +68,10 @@ RowsetReaderSharedPtr BetaRowsetReader::clone() {
     return RowsetReaderSharedPtr(new BetaRowsetReader(_rowset));
 }
 
-bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
+void BetaRowsetReader::update_profile(RuntimeProfile* profile) {
     if (_iterator != nullptr) {
-        return _iterator->update_profile(profile);
+        _iterator->update_profile(profile);
     }
-    return false;
 }
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,

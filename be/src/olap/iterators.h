@@ -182,7 +182,7 @@ public:
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
 
-    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    virtual void update_profile(RuntimeProfile* profile) {}
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
 
