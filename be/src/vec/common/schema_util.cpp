@@ -629,8 +629,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
     res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
-    res.set_unique_id(variant.parent_unique_id() > 0 ? variant.parent_unique_id()
-                                                     : variant.unique_id());
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
@@ -762,10 +760,10 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         // append subcolumns
         for (const auto& subpath : sorted_subpaths) {
             TabletColumn subcolumn;
-            subcolumn.set_name(column->name() + "." + subpath.to_string());
+            subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
             subcolumn.set_parent_unique_id(column->unique_id());
-            subcolumn.set_path_info(PathInData(column->name() + "." + subpath.to_string()));
+            subcolumn.set_path_info(PathInData(column->name_lower_case() + "." + subpath.to_string()));
             subcolumn.set_aggregation_method(column->aggregation());
             subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
             subcolumn.set_is_nullable(true);
