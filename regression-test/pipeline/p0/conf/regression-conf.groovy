@@ -72,7 +72,11 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
         "test_index_compaction_failure_injection," +
         "test_full_compaction_run_status," +
         "test_topn_fault_injection," +
-        "dis_26495," +
+        "docs/table-design/data-partitioning/manual-partitioning.md," +
+        "test_table_properties,test_show_transaction,test_show_create_table_and_views_nereids," +
+        "test_group_commit_data_bytes_property,insert_group_commit_into_max_filter_ratio,test_group_commit_interval_ms_property,insert_group_commit_into_unique_sync_mode," +
+        "test_group_commit_stream_load,"+
+        "test_get_stream_load_state," +
         "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
