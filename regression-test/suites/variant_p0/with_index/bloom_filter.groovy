@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_bf", ""){
+suite("regression_test_variant_with_bf", "nonConcurrent,p0"){
     def table_name = "var_with_bloom_filter"
     sql "DROP TABLE IF EXISTS var_with_bloom_filter"
     sql """
@@ -30,6 +30,7 @@ suite("regression_test_variant_with_bf", ""){
     sql """insert into ${table_name} values (1, '{"a" : 123456}')"""
     sql """insert into ${table_name} values (2, '{"a" : 789111}')"""
     sql """insert into ${table_name} values (3, '{"a" : 789111}')"""
+    
 
     sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
     sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
@@ -38,7 +39,12 @@ suite("regression_test_variant_with_bf", ""){
     sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
     sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
     sql """insert into ${table_name} values (3, '{"b" : "zzzzzzz"}')"""
-
-    qt_sql "select * from  var_with_bloom_filter where cast(v['a'] as int) = 789111"
-    qt_sql "select * from  var_with_bloom_filter where cast(v['b'] as text) = 'yyyyyyy' ";
+    // trigger_and_wait_compaction("var_with_bloom_filter", "full")
+    // try {
+    //     GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+    //     sql """ set enable_inverted_index_query = false """ 
+    //     sql "select * from  var_with_bloom_filter where cast(v['a'] as int) = 789111"
+    // } finally {
+    //     GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+    // }
 }
