@@ -48,7 +48,7 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
             for (Expression child : expression.children()) {
                 Expression newChild = rewrite(child, context, expression);
                 newChildren.add(newChild);
-                changed |= newChild != child;
+                changed |= !newChild.equals(child);
             }
             if (changed) {
                 expression = expression.withChildren(newChildren.build());

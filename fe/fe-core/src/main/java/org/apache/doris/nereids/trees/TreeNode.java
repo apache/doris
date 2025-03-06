@@ -338,6 +338,9 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * @return true if all the tree is equals
      */
     default boolean deepEquals(TreeNode<?> that) {
+        if (this == that) {
+            return true;
+        }
         Deque<TreeNode<?>> thisDeque = new ArrayDeque<>();
         Deque<TreeNode<?>> thatDeque = new ArrayDeque<>();
 

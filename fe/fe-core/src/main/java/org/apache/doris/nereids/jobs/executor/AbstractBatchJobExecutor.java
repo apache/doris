@@ -102,8 +102,8 @@ public abstract class AbstractBatchJobExecutor {
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
-        return new BottomUpVisitorRewriteJob(rules);
-        // return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
+        // return new BottomUpVisitorRewriteJob(rules);
+        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
     }
 
     public static RewriteJob topDown(RuleFactory... ruleFactories) {
@@ -120,8 +120,8 @@ public abstract class AbstractBatchJobExecutor {
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
-        return new TopDownVisitorRewriteJob(rules);
-        // return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
+        // return new TopDownVisitorRewriteJob(rules);
+        return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
     }
 
     public static RewriteJob custom(RuleType ruleType, Supplier<CustomRewriter> planRewriter) {

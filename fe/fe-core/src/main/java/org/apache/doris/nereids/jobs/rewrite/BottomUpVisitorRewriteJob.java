@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob.RewriteState;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -27,10 +28,13 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** BottomUpVisitorRewriteJob */
 public class BottomUpVisitorRewriteJob implements RewriteJob {
     private final Rules rules;
+    private static AtomicInteger batchId = new AtomicInteger(0);
 
     public BottomUpVisitorRewriteJob(Rules rules) {
         this.rules = rules;
@@ -38,7 +42,14 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
-        Plan root = rewrite(jobContext.getCascadesContext().getRewritePlan(), jobContext);
+        Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
+        Optional<Rules> relateRules
+                = TopDownVisitorRewriteJob.getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
+        if (!relateRules.isPresent()) {
+            return;
+        }
+
+        Plan root = rewrite(originPlan, jobContext, rules, batchId.incrementAndGet(), false);
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -47,25 +58,37 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
         return false;
     }
 
-    private Plan rewrite(Plan plan, JobContext jobContext) {
-        if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+    private static Plan rewrite(Plan plan, JobContext jobContext, Rules rules, int batchId, boolean fastReturn) {
+        if (fastReturn && rules.getCurrentAndChildrenRules(plan).isEmpty()) {
             return plan;
         }
-        Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
-        boolean changed = false;
-        for (Plan child : plan.children()) {
-            Plan rewrite = rewrite(child, jobContext);
-            newChildren.add(rewrite);
-            changed = rewrite != child;
+        RewriteState state = PlanTreeRewriteBottomUpJob.getState(plan, batchId);
+        if (state == RewriteState.REWRITTEN) {
+            return plan;
         }
 
-        if (changed) {
-            plan = plan.withChildren(newChildren.build());
+        while (true) {
+            ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
+            boolean changed = false;
+            for (Plan child : plan.children()) {
+                Plan rewrite = rewrite(child, jobContext, rules, batchId, true);
+                newChildren.add(rewrite);
+                changed |= !rewrite.deepEquals(child);
+            }
+            if (changed) {
+                plan = plan.withChildren(newChildren.build());
+            }
+            Plan rewrittenPlan = doRewrite(plan, jobContext, rules);
+            if (!rewrittenPlan.deepEquals(plan)) {
+                plan = rewrittenPlan;
+            } else {
+                PlanTreeRewriteBottomUpJob.setState(rewrittenPlan, RewriteState.REWRITTEN, batchId);
+                return rewrittenPlan;
+            }
         }
-        return doRewrite(plan, jobContext);
     }
 
-    private Plan doRewrite(Plan plan, JobContext jobContext) {
+    private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
         BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
@@ -73,7 +96,7 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
                 continue;
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
-            if (!transform.isEmpty() && transform.get(0) != plan) {
+            if (!transform.isEmpty() && !transform.get(0).deepEquals(plan)) {
                 return transform.get(0);
             }
         }

@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -37,10 +39,12 @@ public class FilteredRules extends Rules {
     private Map<Class<?>, List<Rule>> classToRules = new ConcurrentHashMap<>();
     private List<Rule> typeFilterRules;
     private List<Rule> otherRules;
+    private List<Rule> allRules;
 
     /** FilteredRules */
     public FilteredRules(List<Rule> rules) {
         super(rules);
+        this.allRules = Utils.fastToImmutableList(rules);
 
         this.typeFilterRules = new ArrayList<>();
         this.otherRules = new ArrayList<>();
@@ -95,6 +99,23 @@ public class FilteredRules extends Rules {
             }
         }
         return this.rules;
+    }
+
+    @Override
+    public List<Rule> getAllRules() {
+        return allRules;
+    }
+
+    @Override
+    public List<Rule> filterValidRules(CascadesContext cascadesContext) {
+        BitSet disableRules = cascadesContext.getAndCacheDisableRules();
+        List<Rule> validRules = new ArrayList<>();
+        for (Rule rule : allRules) {
+            if (!disableRules.get(rule.getRuleType().type())) {
+                validRules.add(rule);
+            }
+        }
+        return validRules;
     }
 
     @Override

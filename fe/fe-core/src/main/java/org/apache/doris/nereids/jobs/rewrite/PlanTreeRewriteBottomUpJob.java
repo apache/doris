@@ -166,7 +166,7 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
         }
     }
 
-    private static RewriteState getState(Plan plan, int currentBatchId) {
+    static RewriteState getState(Plan plan, int currentBatchId) {
         Optional<RewriteStateContext> state = plan.getMutableState(REWRITE_STATE_KEY);
         if (!state.isPresent()) {
             return RewriteState.ENSURE_CHILDREN_REWRITTEN;
@@ -178,7 +178,7 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
         return context.rewriteState;
     }
 
-    private static void setState(Plan plan, RewriteState state, int batchId) {
+    static void setState(Plan plan, RewriteState state, int batchId) {
         plan.setMutableState(REWRITE_STATE_KEY, new RewriteStateContext(state, batchId));
     }
 

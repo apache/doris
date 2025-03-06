@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
@@ -36,4 +37,8 @@ public abstract class Rules {
     }
 
     public abstract List<Rule> getCurrentRules(TreeNode<?> treeNode);
+
+    public abstract List<Rule> getAllRules();
+
+    public abstract List<Rule> filterValidRules(CascadesContext cascadesContext);
 }

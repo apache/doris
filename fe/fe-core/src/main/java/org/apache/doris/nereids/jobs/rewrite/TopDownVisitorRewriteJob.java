@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -26,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Optional;
 
 /** TopDownVisitorRewriteJob */
 public class TopDownVisitorRewriteJob implements RewriteJob {
@@ -37,7 +40,12 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
-        Plan root = rewrite(jobContext.getCascadesContext().getRewritePlan(), jobContext);
+        Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
+        Optional<Rules> relateRules = getRelatedRules(originPlan, rules, jobContext.getCascadesContext());
+        if (!relateRules.isPresent()) {
+            return;
+        }
+        Plan root = rewrite(originPlan, jobContext, rules, false);
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -46,19 +54,19 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         return false;
     }
 
-    private Plan rewrite(Plan plan, JobContext jobContext) {
-        if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+    private static Plan rewrite(Plan plan, JobContext jobContext, Rules rules, boolean fastReturn) {
+        if (fastReturn && rules.getCurrentAndChildrenRules(plan).isEmpty()) {
             return plan;
         }
 
-        plan = doRewrite(plan, jobContext);
+        plan = doRewrite(plan, jobContext, rules);
 
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean changed = false;
         for (Plan child : plan.children()) {
-            Plan newChild = rewrite(child, jobContext);
+            Plan newChild = rewrite(child, jobContext, rules, true);
             newChildren.add(newChild);
-            changed |= newChild != child;
+            changed |= !newChild.deepEquals(child);
         }
 
         if (changed) {
@@ -68,7 +76,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         return plan;
     }
 
-    private Plan doRewrite(Plan plan, JobContext jobContext) {
+    private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
         BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
@@ -81,5 +89,23 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
             }
         }
         return plan;
+    }
+
+    /** getRelateRules */
+    public static Optional<Rules> getRelatedRules(Plan plan, Rules originRules, CascadesContext context) {
+        List<Rule> validRules = originRules.filterValidRules(context);
+        if (validRules.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Rules enableRules = originRules;
+        if (validRules.size() != originRules.getAllRules().size()) {
+            enableRules = new FilteredRules(validRules);
+        }
+
+        if (enableRules.getCurrentAndChildrenRules(plan).isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(enableRules);
     }
 }
