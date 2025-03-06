@@ -36,11 +36,11 @@ suite("test_function_string") {
     );
     """
     sql """
-        insert into test_tb_function_space values ('-10000000000', a),('-20000000000', a),('-30000000000', a),('-40000000000', a),('-50000000000', a)
+        insert into test_tb_function_space values ('-126', 'a'),('-125', 'a'),('-124', 'a'),('-123', 'a'),('-121', 'a'),('2', 'a');
     """
 
     qt_sql """ 
-        select length(concat(space(k1), k2)) as k from test_tb_function_space order by k;
+        select concat(space(k1), k2) as k from test_tb_function_space order by k;
     """
 
     sql """
