@@ -27,8 +27,12 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "gutil/strings/substitute.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
@@ -159,6 +163,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
+        TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page_:checksum_mismatch",
+                                      &actual);
         if (expect != actual) {
             return Status::Corruption(
                     "Bad page: checksum mismatch (actual={} vs expect={}), file={}", actual, expect,
@@ -227,6 +233,51 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     }
     page.release(); // memory now managed by handle
     return Status::OK();
+}
+
+io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
+    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
+    return io::BlockFileCache::hash(base);
+}
+
+std::string file_cache_key_str(const std::string& seg_path) {
+    return file_cache_key_from_path(seg_path).to_string();
+}
+
+Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOptions& opts,
+                                                              PageHandle* handle, Slice* body,
+                                                              PageFooterPB* footer) {
+    // First try to read with file cache
+    Status st = read_and_decompress_page(opts, handle, body, footer);
+    if (!st.is<ErrorCode::CORRUPTION>() || !config::is_cloud_mode()) {
+        return st;
+    }
+
+    // If we get CORRUPTION error and using file cache, clear cache and retry
+    LOG(WARNING) << "Bad page may be read from file cache, try to read remote source directly, "
+                 << "file path: " << opts.file_reader->path().native()
+                 << " offset: " << opts.page_pointer.offset;
+
+    // Remove cache if exists
+    const std::string path = opts.file_reader->path().string();
+    auto file_key = file_cache_key_from_path(path);
+    auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+    if (file_cache) {
+        file_cache->remove_if_cached(file_key);
+    }
+
+    // Retry with file cache
+    st = read_and_decompress_page(opts, handle, body, footer);
+    if (st.is<ErrorCode::CORRUPTION>()) {
+        LOG(WARNING) << "Corruption again to read remote source file during retry, "
+                     << "file path: " << opts.file_reader->path().native()
+                     << " offset: " << opts.page_pointer.offset;
+    }
+    // TODO(zhengyu): If still get CORRUPTION error, try to read without cache
+    // but it is hard to implement in PageIO level: file_reader is already
+    // opened as CachedRemoteFileReader and it will bring so much complexity
+    // if we reopen it as RemoteFileReader. So currenty, we just let it fall
+    return st;
 }
 
 } // namespace segment_v2

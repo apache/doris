@@ -130,6 +130,11 @@ public:
                 { return read_and_decompress_page_(opts, handle, body, footer); });
     }
 
+    // deal with CORRUPTION when using file cache, retry from remote
+    static Status read_and_decompress_page_with_file_cache_retry(const PageReadOptions& opts,
+                                                                 PageHandle* handle, Slice* body,
+                                                                 PageFooterPB* footer);
+
 private:
     // An internal method that not deal with exception.
     static Status read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,

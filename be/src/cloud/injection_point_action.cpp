@@ -133,6 +133,14 @@ void register_suites() {
             *arg0 = Status::Corruption<false>("test_file_segment_cache_corruption injection error");
         });
     });
+    suite_map.emplace("test_page_io_checksum_mismatch", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("PageIO::read_and_decompress_page_:checksum_mismatch", [](auto&& args) {
+            LOG(INFO) << "injection PageIO::read_and_decompress_page_:checksum_mismatch";
+            auto* arg0 = try_any_cast<Uint32_t*>(args[0]);
+            *arg0 = 0;
+        });
+    });
     // curl be_ip:http_port/api/injection_point/apply_suite?name=test_cloud_meta_mgr_commit_txn'
     suite_map.emplace("test_cloud_meta_mgr_commit_txn", [] {
         auto* sp = SyncPoint::get_instance();
