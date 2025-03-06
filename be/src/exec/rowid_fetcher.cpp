@@ -469,4 +469,207 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
     return Status::OK();
 }
 
+Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
+                                          PMultiGetResponseV2* response) {
+    if (request.request_block_descs_size()) {
+        OlapReaderStatistics stats;
+        std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
+        int64_t acquire_tablet_ms = 0;
+        int64_t acquire_rowsets_ms = 0;
+        int64_t acquire_segments_ms = 0;
+        int64_t lookup_row_data_ms = 0;
+        std::string row_store_buffer;
+
+        // Add counters for different file mapping types
+        std::unordered_map<FileMappingType, int64_t> file_type_counts;
+
+        auto id_file_map =
+                ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+        if (!id_file_map) {
+            return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
+                                         BackendOptions::get_localhost(),
+                                         print_id(request.query_id()));
+        }
+
+        for (int i = 0; i < request.request_block_descs_size(); ++i) {
+            const auto& request_block_desc = request.request_block_descs(i);
+
+            auto& result_block = result_blocks[i];
+            std::vector<SlotDescriptor> slots;
+            slots.reserve(request_block_desc.slots_size());
+            for (const auto& pslot : request_block_desc.slots()) {
+                slots.push_back(SlotDescriptor(pslot));
+            }
+            if (result_block.is_empty_column()) {
+                result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+            }
+
+            TabletSchema full_read_schema;
+            for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
+                full_read_schema.append_column(TabletColumn(column_pb));
+            }
+            std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+
+            RowStoreReadStruct row_store_read_struct(row_store_buffer);
+            if (request_block_desc.fetch_row_store()) {
+                for (int j = 0; j < request_block_desc.slots_size(); ++j) {
+                    row_store_read_struct.serdes.emplace_back(
+                            slots[i].get_data_type_ptr()->get_serde());
+                    row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
+                    row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
+                }
+            }
+
+            for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+                auto file_id = request_block_desc.file_id(j);
+                auto file_mapping = id_file_map->get_file_mapping(file_id);
+                if (!file_mapping) {
+                    return Status::InternalError(
+                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                            BackendOptions::get_localhost(), print_id(request.query_id()), file_id);
+                }
+
+                // Count file mapping types
+                file_type_counts[file_mapping->type]++;
+
+                if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
+                    RETURN_IF_ERROR(read_doris_format_row(
+                            id_file_map, file_mapping, request_block_desc.row_id(j), slots,
+                            full_read_schema, row_store_read_struct, stats, &acquire_tablet_ms,
+                            &acquire_rowsets_ms, &acquire_segments_ms, &lookup_row_data_ms,
+                            iterator_map, result_block));
+                }
+            }
+
+            [[maybe_unused]] size_t compressed_size = 0;
+            [[maybe_unused]] size_t uncompressed_size = 0;
+            int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+            RETURN_IF_ERROR(result_block.serialize(
+                    be_exec_version, response->add_blocks()->mutable_block(), &uncompressed_size,
+                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
+        }
+
+        // Build file type statistics string
+        std::string file_type_stats;
+        for (const auto& [type, count] : file_type_counts) {
+            if (!file_type_stats.empty()) {
+                file_type_stats += ", ";
+            }
+            file_type_stats += fmt::format("{}:{}", type, count);
+        }
+
+        LOG(INFO) << "Query stats: "
+                  << fmt::format(
+                             "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                             "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
+                             "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
+                             "lookup_row_data_ms:{}, file_types:[{}]",
+                             stats.cached_pages_num, stats.total_pages_num,
+                             stats.compressed_bytes_read, stats.io_ns,
+                             stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                             acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
+                             file_type_stats);
+    }
+
+    if (request.has_gc_id_map() && request.gc_id_map()) {
+        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
+    }
+
+    return Status::OK();
+}
+
+Status RowIdStorageReader::read_doris_format_row(
+        const std::shared_ptr<IdFileMap>& id_file_map,
+        const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
+        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
+        int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+        int64_t* lookup_row_data_ms,
+        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
+        vectorized::Block& result_block) {
+    auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+    BaseTabletSPtr tablet = scope_timer_run(
+            [&]() {
+                auto res = ExecEnv::get_tablet(tablet_id);
+                return !res.has_value() ? nullptr
+                                        : std::dynamic_pointer_cast<BaseTablet>(res.value());
+            },
+            acquire_tablet_ms);
+    if (!tablet) {
+        return Status::InternalError(
+                "Backend:{} tablet not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                "row_id: {}",
+                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                row_id);
+    }
+
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
+            scope_timer_run([&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
+                            acquire_rowsets_ms));
+    if (!rowset) {
+        return Status::InternalError(
+                "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                "row_id: {}",
+                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                row_id);
+    }
+
+    SegmentCacheHandle segment_cache;
+    RETURN_IF_ERROR(scope_timer_run(
+            [&]() {
+                return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
+            },
+            acquire_segments_ms));
+
+    auto it =
+            std::find_if(segment_cache.get_segments().cbegin(), segment_cache.get_segments().cend(),
+                         [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                             return seg->id() == segment_id;
+                         });
+    if (it == segment_cache.get_segments().end()) {
+        return Status::InternalError(
+                "Backend:{} segment not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                "row_id: {}",
+                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                row_id);
+    }
+    segment_v2::SegmentSharedPtr segment = *it;
+
+    // if row_store_read_struct not empty, means the line we should read from row_store
+    if (!row_store_read_struct.default_values.empty()) {
+        CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
+        RowLocation loc(rowset_id, segment->id(), row_id);
+        row_store_read_struct.row_store_buffer.clear();
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return tablet->lookup_row_data({}, loc, rowset, stats,
+                                                   row_store_read_struct.row_store_buffer);
+                },
+                lookup_row_data_ms));
+
+        vectorized::JsonbSerializeUtil::jsonb_to_block(
+                row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
+                row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
+                result_block, row_store_read_struct.default_values, {});
+    } else {
+        for (int x = 0; x < slots.size(); ++x) {
+            vectorized::MutableColumnPtr column =
+                    result_block.get_by_position(x).column->assume_mutable();
+            IteratorKey iterator_key {.tablet_id = tablet_id,
+                                      .rowset_id = rowset_id,
+                                      .segment_id = segment_id,
+                                      .slot_id = slots[x].id()};
+            IteratorItem& iterator_item = iterator_map[iterator_key];
+            if (iterator_item.segment == nullptr) {
+                iterator_map[iterator_key].segment = segment;
+            }
+            segment = iterator_item.segment;
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
+                                                            column, stats, iterator_item.iterator));
+        }
+    }
+
+    return Status::OK();
+}
+
 } // namespace doris

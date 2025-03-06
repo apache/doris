@@ -634,6 +634,41 @@ private:
     int32_t _segment_id = 0;
 };
 
+// Add new RowIdColumnIteratorV2
+class RowIdColumnIteratorV2 : public ColumnIterator {
+public:
+    RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
+            : _version(version), _backend_id(backend_id), _file_id(file_id) {}
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    uint32_t _current_rowid = 0;
+    uint8_t _version;
+    int64_t _backend_id;
+    uint32_t _file_id;
+};
+
 class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;

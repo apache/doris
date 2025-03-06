@@ -36,6 +36,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/id_manager.h"
 #include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
@@ -551,6 +552,10 @@ bool RuntimeState::low_memory_mode() const {
     }
 #endif
     return _query_ctx->low_memory_mode();
+}
+
+void RuntimeState::set_id_file_map() {
+    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
 }
 
 } // end namespace doris
