@@ -40,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Represents the command for SHOW PROCESSLIST
@@ -79,7 +80,7 @@ public class ShowProcessListCommand extends ShowCommand {
                 .listConnection(ctx.getQualifiedUser(), isShowFullSql);
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, Optional.empty()));
         }
 
         if (isShowAllFe) {

@@ -49,6 +49,7 @@ SchemaActiveQueriesScanner::~SchemaActiveQueriesScanner() {}
 Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
     _rpc_timeout = state->execution_timeout() * 1000;
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -62,6 +63,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     }
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
+    schema_table_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);

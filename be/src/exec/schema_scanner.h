@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
@@ -142,6 +143,7 @@ protected:
     std::atomic<bool> _eos = false;
     std::atomic<bool> _opened = false;
     std::atomic<bool> _async_thread_running = false;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris
