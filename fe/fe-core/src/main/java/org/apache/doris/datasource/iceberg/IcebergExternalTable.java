@@ -282,17 +282,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return new IcebergMvccSnapshot(getIcebergSnapshotCacheValue());
     }
 
-    public long getLatestSnapshotId() {
+    public IcebergSnapshot getIcebergSnapshot() {
         table = getIcebergTable();
         Snapshot snapshot = table.currentSnapshot();
-        return snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : table.currentSnapshot().snapshotId();
-    }
-
-    public long getSchemaId(long snapshotId) {
-        table = getIcebergTable();
-        return snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID
-                ? IcebergUtils.UNKNOWN_SNAPSHOT_ID
-                : table.snapshot(snapshotId).schemaId();
+        long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : table.currentSnapshot().snapshotId();
+        int newestSchemaId = table.schema().schemaId();
+        long schemaId = snapshot == null ? newestSchemaId : table.snapshot(snapshotId).schemaId();
+        return new IcebergSnapshot(snapshotId, schemaId, newestSchemaId);
     }
 
     @Override

@@ -138,10 +138,9 @@ public class IcebergMetadataCache {
     private IcebergSnapshotCacheValue loadSnapshot(IcebergMetadataCacheKey key) throws AnalysisException {
         IcebergExternalTable table = (IcebergExternalTable) key.catalog.getDbOrAnalysisException(key.dbName)
                 .getTableOrAnalysisException(key.tableName);
-        long snapshotId = table.getLatestSnapshotId();
-        long schemaId = table.getSchemaId(snapshotId);
-        IcebergPartitionInfo icebergPartitionInfo = table.loadPartitionInfo(snapshotId);
-        return new IcebergSnapshotCacheValue(icebergPartitionInfo, new IcebergSnapshot(snapshotId, schemaId));
+        IcebergSnapshot icebergSnapshot = table.getIcebergSnapshot();
+        IcebergPartitionInfo icebergPartitionInfo = table.loadPartitionInfo(icebergSnapshot.getSnapshotId());
+        return new IcebergSnapshotCacheValue(icebergPartitionInfo, icebergSnapshot);
     }
 
     public void invalidateCatalogCache(long catalogId) {
