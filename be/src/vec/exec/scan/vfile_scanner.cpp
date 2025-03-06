@@ -1360,11 +1360,13 @@ Status VFileScanner::close(RuntimeState* state) {
 
     auto expected_counter = _state->query_options().check_runtime_filter_partition_prune_counter;
     auto actual_counter = _runtime_filter_partition_pruned_range_counter->value();
-    if (expected_counter >= 0 && expected_counter != actual_counter) {
-        return Status::InternalError(
-                "The check_runtime_filter_partition_prune_counter is set but not equal to the "
-                "actual value: expected {} actual {}",
-                expected_counter, actual_counter);
+    if (expected_counter >= 0 && actual_counter > 0 && expected_counter != actual_counter) {
+        // because the close is called in the destructor, the Status::InternalError will be not handled
+        // so we just core dump here
+        DCHECK(false)
+                << "The check_runtime_filter_partition_prune_counter is set but not equal to the "
+                   "actual value: expected: "
+                << expected_counter << " actual: " << actual_counter;
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

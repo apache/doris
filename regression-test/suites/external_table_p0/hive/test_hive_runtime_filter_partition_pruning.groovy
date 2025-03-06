@@ -17,60 +17,71 @@
 
 suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_docker,external_docker_hive") {
     def test_runtime_filter_partition_pruning = {
+        sql """set runtime_filter_wait_time_ms = 10000"""
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_decimal1 """
             select count(*) from decimal_partition_table where partition_col =
                 (select partition_col from decimal_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 1"""
         qt_runtime_filter_partition_pruning_decimal2 """
             select count(*) from decimal_partition_table where partition_col in
                 (select partition_col from decimal_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 2);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_decimal3 """
             select count(*) from decimal_partition_table where abs(partition_col) =
                 (select partition_col from decimal_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_int1 """
             select count(*) from int_partition_table where partition_col =
                 (select partition_col from int_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 1"""
         qt_runtime_filter_partition_pruning_int2 """
             select count(*) from int_partition_table where partition_col in
                 (select partition_col from int_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 2);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_int3 """
             select count(*) from int_partition_table where abs(partition_col) =
                 (select partition_col from int_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_string1 """
             select count(*) from string_partition_table where partition_col =
                 (select partition_col from string_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 0"""
         qt_runtime_filter_partition_pruning_string2 """
             select count(*) from string_partition_table where partition_col in
                 (select partition_col from string_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 2);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 2"""
         qt_runtime_filter_partition_pruning_date1 """
             select count(*) from date_partition_table where partition_col =
                 (select partition_col from date_partition_table
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
+        sql """set check_runtime_filter_partition_prune_counter = 1"""
         qt_runtime_filter_partition_pruning_decimal2 """
             select count(*) from date_partition_table where partition_col in
                 (select partition_col from date_partition_table
@@ -101,6 +112,8 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_d
             test_runtime_filter_partition_pruning()
         
         } finally {
+            sql """set runtime_filter_wait_time_ms = 1000"""
+            sql """set check_runtime_filter_partition_prune_counter = -1"""
         }
     }
 }

@@ -364,7 +364,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE = "enable_runtime_filter_partition_prune";
 
-    public static final String CHECK_RUNTIME_FILTER_PARTITION_PRUNE_COUNTER = "check_runtime_filter_partition_prune_counter";
+    public static final String CHECK_RUNTIME_FILTER_PARTITION_PRUNE_COUNTER =
+            "check_runtime_filter_partition_prune_counter";
 
     static final String SESSION_CONTEXT = "session_context";
 
