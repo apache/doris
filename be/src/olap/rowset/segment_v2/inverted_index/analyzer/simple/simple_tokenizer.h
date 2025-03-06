@@ -17,28 +17,32 @@
 
 #pragma once
 
-#include "ICUTokenizerConfig.h"
+#include <unicode/utext.h>
+
+#include "CLucene.h"
+#include "CLucene/analysis/AnalysisHeader.h"
+#include "CLucene/analysis/icu/ICUCommon.h"
+
+using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
-class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
+class SimpleTokenizer : public Tokenizer {
 public:
-    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
-    ~DefaultICUTokenizerConfig() override = default;
+    SimpleTokenizer();
+    SimpleTokenizer(bool lowercase, bool ownReader);
+    ~SimpleTokenizer() override = default;
 
-    void initialize(const std::string& dictPath) override;
-    bool combine_cj() override { return cjk_as_words_; }
-    icu::BreakIterator* get_break_iterator(int32_t script) override;
+    Token* next(Token* token) override;
+    void reset(lucene::util::Reader* reader) override;
+
+    void cut();
 
 private:
-    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
-
-    static BreakIteratorPtr cjk_break_iterator_;
-    static BreakIteratorPtr default_break_iterator_;
-    static BreakIteratorPtr myanmar_syllable_iterator_;
-
-    bool cjk_as_words_ = false;
-    bool myanmar_as_words_ = false;
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    std::string _buffer;
+    std::vector<std::string_view> _tokens_text;
 };
 
 } // namespace doris::segment_v2
