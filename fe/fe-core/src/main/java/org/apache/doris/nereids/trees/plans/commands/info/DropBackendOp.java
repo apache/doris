@@ -33,6 +33,10 @@ public class DropBackendOp extends BackendOp {
         this.force = force;
     }
 
+    public boolean isForce() {
+        return force;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();

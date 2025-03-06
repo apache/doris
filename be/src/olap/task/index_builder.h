@@ -47,16 +47,16 @@ public:
     IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet, const std::vector<TColumn>& columns,
                  const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                  bool is_drop_op = false);
-    ~IndexBuilder();
+    virtual ~IndexBuilder();
 
-    Status init();
-    Status do_build_inverted_index();
-    Status update_inverted_index_info();
-    Status handle_inverted_index_data();
-    Status handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta,
-                                std::vector<segment_v2::SegmentSharedPtr>& segments);
-    Status modify_rowsets(const Merger::Statistics* stats = nullptr);
-    void gc_output_rowset();
+    virtual Status init();
+    virtual Status do_build_inverted_index();
+    virtual Status update_inverted_index_info();
+    virtual Status handle_inverted_index_data();
+    virtual Status handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta,
+                                        std::vector<segment_v2::SegmentSharedPtr>& segments);
+    virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
+    virtual void gc_output_rowset();
 
 private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int32_t segment_idx,

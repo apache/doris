@@ -503,9 +503,6 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
-    if (!_profile_updated) {
-        _profile_updated = _tablet_reader->update_profile(_profile);
-    }
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
@@ -518,7 +515,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
@@ -542,6 +538,7 @@ void NewOlapScanner::_collect_profile_before_close() {
         return;
     }
     _has_updated_counter = true;
+    _tablet_reader->update_profile(_profile);
 
     VScanner::_collect_profile_before_close();
 
@@ -565,7 +562,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_counter, stats.block_init_seek_num);
-    COUNTER_UPDATE(local_state->_segment_generate_row_range_timer, stats.generate_row_ranges_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_keys_timer,
+                   stats.generate_row_ranges_by_keys_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_column_conditions_timer,
+                   stats.generate_row_ranges_by_column_conditions_ns);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_bf_timer,
                    stats.generate_row_ranges_by_bf_ns);
     COUNTER_UPDATE(local_state->_collect_iterator_merge_next_timer,

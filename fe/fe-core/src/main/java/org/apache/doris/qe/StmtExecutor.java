@@ -1345,7 +1345,7 @@ public class StmtExecutor {
         if (ConnectContext.get() == null || Strings.isNullOrEmpty(clusterName)) {
             return false;
         }
-        return Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        return Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
             clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
     }
 
@@ -2076,7 +2076,7 @@ public class StmtExecutor {
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
+                    context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
                     break;

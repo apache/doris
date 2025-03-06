@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.RemoteFile;
 
@@ -61,7 +62,6 @@ import java.util.TreeMap;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
-    private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net";
     protected Map<String, String> properties;
     private BlobServiceClient client;
     private boolean isUsePathStyle = false;
@@ -99,7 +99,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
         // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
-        // the s3 client will determine whether the endpiont starts with `s3`
+        // the s3 client will determine whether the endpoint starts with `s3`
         // when generating a virtual hosted-sytle request.
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
@@ -116,12 +116,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            String uri = String.format(URI_TEMPLATE, properties.get(S3Properties.ACCESS_KEY));
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(properties.get(S3Properties.ACCESS_KEY),
+            final String accountName = properties.get(S3Properties.ACCESS_KEY);
+            final String endpoint = AzureProperties.formatAzureEndpoint(
+                    properties.get(S3Properties.ENDPOINT), accountName);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(accountName,
                     properties.get(S3Properties.SECRET_KEY));
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
-            builder.endpoint(uri);
+            builder.endpoint(endpoint);
             client = builder.buildClient();
         }
         return client;
@@ -389,7 +391,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     + " failed because azure error: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR,
+                    "errors while glob file " + remotePath + ": " + e.getMessage());
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;

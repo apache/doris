@@ -114,8 +114,8 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::open(state));
+Status SortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     return _vsort_exec_exprs.open(state);
 }
@@ -157,6 +157,11 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
+}
+
+size_t SortSinkOperatorX::get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->get_reserve_mem_size(state, eos);
 }
 
 size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {

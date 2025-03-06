@@ -57,8 +57,8 @@ def clearFileCache = { check_func ->
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_like """
     sql """
@@ -74,7 +74,7 @@ def clearFileCache = { check_func ->
         )
         DUPLICATE KEY(C_CUSTKEY, C_NAME)
         DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
-        PROPERTIES("file_cache_ttl_seconds"="180")
+        PROPERTIES("file_cache_ttl_seconds"="180","disable_auto_compaction" = "true")
     """
     sql """ create table customer_ttl like customer_ttl_like """
 
@@ -90,6 +90,7 @@ def clearFileCache = { check_func ->
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     def loadLabel = "customer_ttl_load_" + uniqueID

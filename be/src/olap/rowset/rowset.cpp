@@ -120,17 +120,12 @@ void Rowset::clear_cache() {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
         clear_inverted_index_cache();
     }
-}
-
-void Rowset::clear_file_cache() const {
-    if (!config::enable_file_cache) {
-        return;
-    }
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        // TODO: Segment::file_cache_key
-        auto file_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
-        auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-        file_cache->remove_if_cached_async(file_key);
+    if (config::enable_file_cache) {
+        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+            auto file_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+        }
     }
 }
 

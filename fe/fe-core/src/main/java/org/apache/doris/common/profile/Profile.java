@@ -38,8 +38,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -51,8 +51,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.Deflater;
-import java.util.zip.Inflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 /**
  * Profile is a class to record the execution time of a query. It has the
@@ -79,6 +80,7 @@ public class Profile {
     private static final int MergedProfileLevel = 1;
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
+    private static final String PROFILE_ENTRY_SUFFIX = ".profile";
 
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
@@ -86,7 +88,7 @@ public class Profile {
     private SummaryProfile summaryProfile = new SummaryProfile();
     // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
-    private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
@@ -94,7 +96,7 @@ public class Profile {
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
-    private boolean isQueryFinished = false;
+    boolean isQueryFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
     // if not, we will store the profile to storage, and release the memory,
@@ -126,7 +128,7 @@ public class Profile {
 
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
-    private static FileInputStream createPorfileFileInputStream(String path) {
+    static FileInputStream createPorfileFileInputStream(String path) {
         File profileFile = new File(path);
         if (!profileFile.isFile()) {
             LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
@@ -149,7 +151,7 @@ public class Profile {
         try {
             profileMetaFileInputStream = new FileInputStream(path);
         } catch (Exception e) {
-            LOG.warn("open profile file {} failed", path, e);
+            LOG.warn("Open profile file {} failed", path, e);
         }
 
         return profileMetaFileInputStream;
@@ -157,6 +159,13 @@ public class Profile {
 
     // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
     public static String[] parseProfileFileName(String profileFileName) {
+        if (!profileFileName.endsWith(".zip")) {
+            LOG.warn("Invalid profile name {}", profileFileName);
+            return null;
+        } else {
+            profileFileName = profileFileName.substring(0, profileFileName.length() - 4);
+        }
+
         String [] timeAndID = profileFileName.split(SEPERATOR);
         if (timeAndID.length != 2) {
             return null;
@@ -165,7 +174,9 @@ public class Profile {
         try {
             DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
         } catch (NumberFormatException e) {
-            if (Long.valueOf(timeAndID[1]) == null) {
+            try {
+                Long.parseLong(timeAndID[1]);
+            } catch (NumberFormatException e2) {
                 return null;
             }
         }
@@ -173,84 +184,61 @@ public class Profile {
         return timeAndID;
     }
 
-    // read method will only read summary profile, and return a Profile object
+
     public static Profile read(String path) {
-        FileInputStream profileFileInputStream = null;
+        FileInputStream fileInputStream = null;
         try {
-            profileFileInputStream = createPorfileFileInputStream(path);
-            // Maybe profile path is invalid
-            if (profileFileInputStream == null) {
-                return null;
-            }
+            fileInputStream = new FileInputStream(path);
             File profileFile = new File(path);
             long fileSize = profileFile.length();
-            // read method will move the cursor to the end of the summary profile
-            DataInput dataInput = new DataInputStream(profileFileInputStream);
+
+            ZipInputStream zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            if (entry == null) {
+                LOG.error("Invalid zip profile file, {}", path);
+                return null;
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
             Profile res = new Profile();
-            res.summaryProfile = SummaryProfile.read(dataInput);
+            res.summaryProfile = SummaryProfile.read(memoryDataInput);
             res.profileStoragePath = path;
             res.isQueryFinished = true;
             res.profileSize = fileSize;
+
             String[] parts = path.split(File.separator);
-            String queryFinishTimeStr = parseProfileFileName(parts[parts.length - 1])[0];
-            // queryFinishTime is used for sorting profile by finish time.
+            String filename = parts[parts.length - 1];
+            String queryFinishTimeStr = parseProfileFileName(filename)[0];
             res.queryFinishTimestamp = Long.valueOf(queryFinishTimeStr);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
             }
             return res;
+
         } catch (Exception exception) {
             LOG.error("read profile failed", exception);
             return null;
         } finally {
-            if (profileFileInputStream != null) {
+            if (fileInputStream != null) {
                 try {
-                    profileFileInputStream.close();
+                    fileInputStream.close();
                 } catch (Exception e) {
                     LOG.warn("close profile file {} failed", path, e);
                 }
             }
         }
-    }
-
-    // Method to compress a string using Deflater
-    public static byte[] compressExecutionProfile(String str) throws IOException {
-        byte[] data = str.getBytes(StandardCharsets.UTF_8);
-        Deflater deflater = new Deflater();
-        deflater.setInput(data);
-        deflater.finish();
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
-        byte[] buffer = new byte[1024];
-        while (!deflater.finished()) {
-            int count = deflater.deflate(buffer);
-            outputStream.write(buffer, 0, count);
-        }
-        deflater.end();
-        outputStream.close();
-        return outputStream.toByteArray();
-    }
-
-    // Method to decompress a byte array using Inflater
-    public static String decompressExecutionProfile(byte[] data) throws IOException {
-        Inflater inflater = new Inflater();
-        inflater.setInput(data, 0, data.length);
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
-        byte[] buffer = new byte[1024];
-        try {
-            while (!inflater.finished()) {
-                int count = inflater.inflate(buffer);
-                outputStream.write(buffer, 0, count);
-            }
-            inflater.end();
-        } catch (Exception e) {
-            throw new IOException("Failed to decompress data", e);
-        } finally {
-            outputStream.close();
-        }
-
-        return new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
     }
 
     // For load task, the profile contains many execution profiles
@@ -539,11 +527,9 @@ public class Profile {
         }
 
         final String profileId = this.summaryProfile.getProfileId();
-
-        // queryFinishTimeStamp_ProfileId
         final String profileFilePath = systemProfileStorageDir + File.separator
                                     + String.valueOf(this.queryFinishTimestamp)
-                                    + SEPERATOR + profileId;
+                                    + SEPERATOR + profileId + ".zip";
 
         File profileFile = new File(profileFilePath);
         if (profileFile.exists()) {
@@ -551,34 +537,44 @@ public class Profile {
             profileFile.delete();
         }
 
-        // File structure of profile:
-        /*
-         * Integer: n(size of summary profile)
-         * String: json of summary profile
-         * Integer: m(size of compressed execution profile)
-         * String: compressed binary of execution profile
-        */
         FileOutputStream fileOutputStream = null;
+        ZipOutputStream zipOut = null;
         try {
             fileOutputStream = new FileOutputStream(profileFilePath);
-            DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
-            this.summaryProfile.write(dataOutputStream);
+            zipOut = new ZipOutputStream(fileOutputStream);
 
-            // store execution profiles as string
-            StringBuilder build = new StringBuilder();
-            getChangedSessionVars(build);
-            getExecutionProfileContent(build);
-            byte[] buf = compressExecutionProfile(build.toString());
-            dataOutputStream.writeInt(buf.length);
-            dataOutputStream.write(buf);
-            build = null;
-            dataOutputStream.flush();
+            // First create memory stream to hold all data
+            ByteArrayOutputStream memoryStream = new ByteArrayOutputStream();
+            DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
+
+            // Write summary profile and execution profile content to memory
+            this.summaryProfile.write(memoryDataStream);
+
+            StringBuilder builder = new StringBuilder();
+            getChangedSessionVars(builder);
+            getExecutionProfileContent(builder);
+            byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            memoryDataStream.writeInt(executionProfileBytes.length);
+            memoryDataStream.write(executionProfileBytes);
+            memoryDataStream.flush();
+
+            // Create zip entry with profileId based name
+            ZipEntry zipEntry = new ZipEntry(profileId + PROFILE_ENTRY_SUFFIX);
+            zipOut.putNextEntry(zipEntry);
+            zipOut.write(memoryStream.toByteArray());
+            zipOut.closeEntry();
+
             this.profileSize = profileFile.length();
+            this.profileStoragePath = profileFilePath;
+
         } catch (Exception e) {
             LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
             try {
+                if (zipOut != null) {
+                    zipOut.close();
+                }
                 if (fileOutputStream != null) {
                     fileOutputStream.close();
                 }
@@ -586,8 +582,6 @@ public class Profile {
                 LOG.warn("close profile file {} failed", profileFilePath, e);
             }
         }
-
-        this.profileStoragePath = profileFilePath;
     }
 
     // remove profile from storage
@@ -674,37 +668,55 @@ public class Profile {
         builder.append("\n");
     }
 
-    private void getOnStorageProfile(StringBuilder builder) {
+    void getOnStorageProfile(StringBuilder builder) {
         if (!profileHasBeenStored()) {
             return;
         }
 
         LOG.info("Profile {} has been stored to storage, reading it from storage", getId());
-
         FileInputStream fileInputStream = null;
+        ZipInputStream zipIn = null;
 
         try {
             fileInputStream = createPorfileFileInputStream(profileStoragePath);
             if (fileInputStream == null) {
-                builder.append("Failed to read execution profile from " + profileStoragePath);
+                builder.append("Failed to read profile from " + profileStoragePath);
                 return;
             }
 
-            DataInputStream dataInput = new DataInputStream(fileInputStream);
-            // skip summary profile
-            Text.readString(dataInput);
-            // read compressed execution profile
-            int binarySize = dataInput.readInt();
-            byte[] binaryExecutionProfile = new byte[binarySize];
-            dataInput.readFully(binaryExecutionProfile, 0, binarySize);
-            // decompress binary execution profile
-            String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
-            builder.append(textExecutionProfile);
-            return;
+            // Directly create ZipInputStream from file input stream
+            zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            String expectedEntryName = summaryProfile.getProfileId() + PROFILE_ENTRY_SUFFIX;
+            if (entry == null || !entry.getName().equals(expectedEntryName)) {
+                throw new IOException("Invalid zip file format - missing entry: " + expectedEntryName);
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
+            // Skip summary profile data
+            Text.readString(memoryDataInput);
+
+            // Read execution profile length and content
+            int executionProfileLength = memoryDataInput.readInt();
+            byte[] executionProfileBytes = new byte[executionProfileLength];
+            memoryDataInput.readFully(executionProfileBytes);
+
+            // Append execution profile content
+            builder.append(new String(executionProfileBytes, StandardCharsets.UTF_8));
         } catch (Exception e) {
-            LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
-                    profileStoragePath, e);
-            builder.append("Failed to read execution profile from " + profileStoragePath);
+            LOG.error("Failed to read profile from storage: {}", profileStoragePath, e);
+            builder.append("Failed to read profile from " + profileStoragePath);
         } finally {
             if (fileInputStream != null) {
                 try {
@@ -714,8 +726,6 @@ public class Profile {
                 }
             }
         }
-
-        return;
     }
 
     public String debugInfo() {

@@ -1082,6 +1082,11 @@ Status ScanLocalState<Derived>::_init_profile() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    std::stringstream result;
+    std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
+              std::ostream_iterator<int>(result, ","));
+    _runtime_profile->add_info_string("TopNFilterSourceNodeIds", result.str());
+
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         vectorized::VExprSPtr topn_pred;
@@ -1212,10 +1217,10 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
+Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 
     const auto slots = _output_tuple_desc->slots();
     for (auto* slot : slots) {
@@ -1285,6 +1290,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
+    DCHECK(local_state._scanner_ctx != nullptr);
     RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
@@ -1295,6 +1301,35 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }
 
     return Status::OK();
+}
+
+template <typename LocalStateType>
+size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+        return config::doris_scanner_row_bytes;
+    }
+
+    if (local_state.low_memory_mode()) {
+        return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
+               local_state._scanner_ctx->low_memory_mode_scanners();
+    } else {
+        const auto peak_usage = local_state._memory_used_counter->value();
+        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        if (peak_usage > 0) {
+            // It is only a safty check, to avoid some counter not right.
+            if (peak_usage > block_usage) {
+                return peak_usage - block_usage;
+            } else {
+                return config::doris_scanner_row_bytes;
+            }
+        } else {
+            // If the scan operator is first time to run, then we think it will occupy doris_scanner_row_bytes.
+            // It maybe a little smaller than actual usage.
+            return config::doris_scanner_row_bytes;
+            // return local_state._scanner_ctx->max_bytes_in_queue();
+        }
+    }
 }
 
 template class ScanOperatorX<OlapScanLocalState>;

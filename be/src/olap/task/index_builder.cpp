@@ -17,6 +17,8 @@
 
 #include "olap/task/index_builder.h"
 
+#include <mutex>
+
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_define.h"
@@ -448,14 +450,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
-            if (return_columns.empty()) {
-                // no columns to read
-                break;
-            }
-
+            // DO NOT forget inverted_index_file_writer for the segment, otherwise, original inverted index will be deleted.
             _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                  std::move(inverted_index_file_writer));
-
+            if (return_columns.empty()) {
+                // no columns to read
+                continue;
+            }
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
@@ -612,17 +613,14 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
         const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
         // total number length
-        auto element_cnt = size_t((unsigned long)(*data_ptr));
         auto offset_data = *(data_ptr + 1);
         const auto* offsets_ptr = (const uint8_t*)offset_data;
         try {
-            if (element_cnt > 0) {
-                auto data = *(data_ptr + 2);
-                auto nested_null_map = *(data_ptr + 3);
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
-            }
+            auto data = *(data_ptr + 2);
+            auto nested_null_map = *(data_ptr + 3);
+            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                    field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
                 _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
             })
@@ -725,11 +723,16 @@ Status IndexBuilder::do_build_inverted_index() {
         return Status::OK();
     }
 
-    std::unique_lock<std::mutex> schema_change_lock(_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::ObtainLockFailed("try schema_change_lock failed. tablet={} ",
-                                        _tablet->tablet_id());
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        return Status::ObtainLockFailed(
+                "try schema_change_lock failed. There might be schema change or cooldown running "
+                "on "
+                "tablet={} ",
+                _tablet->tablet_id());
     }
     // Check executing serially with compaction task.
     std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(),
@@ -843,10 +846,12 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 
+#ifndef BE_TEST
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+#endif
     return Status::OK();
 }
 

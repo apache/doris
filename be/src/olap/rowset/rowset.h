@@ -310,8 +310,6 @@ public:
 
     void clear_cache();
 
-    void clear_file_cache() const;
-
     Result<std::string> segment_path(int64_t seg_id);
 
 protected:

@@ -21,11 +21,14 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -73,13 +76,18 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));
 
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        LOG(WARNING) << "Failed to obtain schema change lock. base_tablet="
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        LOG(WARNING) << "Failed to obtain schema change lock, there might be inverted index being "
+                        "built on base_tablet="
                      << request.base_tablet_id;
-        return Status::Error<TRY_LOCK_FAILED>("Failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built on base_tablet=",
+                request.base_tablet_id);
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
     RETURN_IF_ERROR(_base_tablet->sync_rowsets(request.alter_version));
@@ -415,13 +423,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -463,6 +464,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block",
+                    DBUG_BLOCK);
+
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
@@ -484,6 +488,18 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}, sc job_id={}", sleep_time,
+                     _new_tablet->tablet_id(), _job_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
+
     auto& delete_bitmap = tmp_tablet->tablet_meta()->delete_bitmap();
 
     // step4, store delete bitmap
@@ -495,15 +511,14 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 }
 
 void CloudSchemaChangeJob::clean_up_on_failed() {
-    for (auto output_rs : _output_rowsets) {
-        output_rs->clear_cache();
+    for (const auto& output_rs : _output_rowsets) {
         if (output_rs.use_count() > 2) {
             LOG(WARNING) << "Rowset " << output_rs->rowset_id().to_string() << " has "
                          << output_rs.use_count()
                          << " references. File Cache won't be recycled when query is using it.";
-            continue;
+            return;
         }
-        output_rs->clear_file_cache();
+        output_rs->clear_cache();
     }
 }
 

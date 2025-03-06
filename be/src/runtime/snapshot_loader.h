@@ -32,6 +32,7 @@ namespace io {
 class RemoteFileSystem;
 } // namespace io
 
+class DataDir;
 class TRemoteTabletSnapshot;
 class StorageEngine;
 
@@ -63,6 +64,8 @@ class ExecEnv;
  *
  */
 class SnapshotLoader {
+    friend class SnapshotHttpDownloader;
+
 public:
     SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                    const TNetworkAddress& broker_addr = {},

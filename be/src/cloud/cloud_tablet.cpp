@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -453,14 +454,12 @@ void CloudTablet::clear_cache() {
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
     for (const auto& rs : rowsets) {
-        // Clear cached opened segments and inverted index cache in memory
-        rs->clear_cache();
         if (rs.use_count() > 2) {
             LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
                          << " references. File Cache won't be recycled when query is using it.";
-            continue;
+            return;
         }
-        rs->clear_file_cache();
+        rs->clear_cache();
     }
 }
 
@@ -892,7 +891,7 @@ Status CloudTablet::sync_meta() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            // TODO(Lchangliang): recycle_resources_by_self();
+            clear_cache();
         }
         return st;
     }
@@ -963,6 +962,27 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
     // Currently, this information will not be used by the cloud report,
     // but it may be used in the future.
+}
+
+Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
+                                              DeleteBitmap* expected_delete_bitmap) {
+    DeleteBitmapPtr cached_delete_bitmap;
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
+            txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
+    if (st.ok()) {
+        bool res = (expected_delete_bitmap->cardinality() == cached_delete_bitmap->cardinality());
+        auto msg = fmt::format(
+                "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
+                "txn_id={}, tablet_id={}",
+                expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality(), txn_id,
+                tablet_id());
+        if (!res) {
+            DCHECK(res) << msg;
+            return Status::InternalError<false>(msg);
+        }
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"
