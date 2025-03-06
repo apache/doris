@@ -57,6 +57,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
+    sql """set disable_inverted_index_v1_for_variant = false;"""
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -67,6 +68,7 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
         DISTRIBUTED BY HASH(k) BUCKETS 4 
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
+    sql """set disable_inverted_index_v1_for_variant = true;"""
 
     sql """DROP TABLE IF EXISTS github_events_arr"""
     sql """
