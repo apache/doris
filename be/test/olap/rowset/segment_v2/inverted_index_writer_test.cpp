@@ -259,7 +259,7 @@ public:
     }
 
     void TearDown() override {
-        //ASSERT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
+        ASSERT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
