@@ -113,10 +113,6 @@ public class OneListPartitionEvaluator<K>
             return super.visitInPredicate(inPredicate, context);
         }
 
-        if (inPredicate.optionsContainsNullLiteral()) {
-            return new NullLiteral(BooleanType.INSTANCE);
-        }
-
         Expression newCompareExpr = inPredicate.getCompareExpr().accept(this, context);
         if (newCompareExpr.isNullLiteral()) {
             return new NullLiteral(BooleanType.INSTANCE);
@@ -124,7 +120,14 @@ public class OneListPartitionEvaluator<K>
 
         try {
             // fast path
-            return BooleanLiteral.of(inPredicate.getLiteralOptionSet().contains(newCompareExpr));
+            boolean contains = inPredicate.getLiteralOptionSet().contains(newCompareExpr);
+            if (contains) {
+                return BooleanLiteral.TRUE;
+            }
+            if (inPredicate.optionsContainsNullLiteral()) {
+                return new NullLiteral(BooleanType.INSTANCE);
+            }
+            return BooleanLiteral.FALSE;
         } catch (Throwable t) {
             // slow path
             return super.visitInPredicate(inPredicate, context);
