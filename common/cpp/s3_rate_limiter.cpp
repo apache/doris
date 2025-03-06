@@ -90,7 +90,7 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(long now, size_t a
 
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
-    auto duration = std::chrono::system_clock::now().time_since_epoch();
+    auto duration = std::chrono::steady_clock::now().time_since_epoch();
     auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
     auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
 
