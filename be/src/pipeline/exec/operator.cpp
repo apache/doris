@@ -41,6 +41,8 @@
 #include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/materialization_sink_operator.h"
+#include "pipeline/exec/materialization_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
@@ -706,6 +708,7 @@ DECLARE_OPERATOR(SetSinkLocalState<false>)
 DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
+DECLARE_OPERATOR(MaterializationSinkLocalState)
 
 #undef DECLARE_OPERATOR
 
@@ -738,6 +741,7 @@ DECLARE_OPERATOR(MetaScanLocalState)
 DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
+DECLARE_OPERATOR(MaterializationSourceLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
@@ -770,7 +774,7 @@ template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
-template class PipelineXSinkLocalState<CacheSharedState>;
+template class PipelineXSinkLocalState<DataQueueSharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
 template class PipelineXLocalState<PartitionedHashJoinSharedState>;
@@ -782,7 +786,7 @@ template class PipelineXLocalState<AggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
-template class PipelineXLocalState<CacheSharedState>;
+template class PipelineXLocalState<DataQueueSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;

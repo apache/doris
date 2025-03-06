@@ -37,6 +37,7 @@ public:
     static std::string get_be_endpoint();
     static TBackend get_local_backend();
     static void set_backend_id(int64_t backend_id);
+    static int64_t get_backend_id() { return _s_backend_id; }
     static void set_localhost(const std::string& host);
     static bool is_bind_ipv6();
     static const char* get_service_bind_address();

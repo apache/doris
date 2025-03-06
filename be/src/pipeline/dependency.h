@@ -29,12 +29,14 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/ref_count_closure.h"
 #include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -83,7 +85,8 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
+    virtual Dependency* create_source_dependency(int operator_id, int node_id,
+                                                 const std::string& name);
 
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
 };
@@ -173,12 +176,12 @@ public:
     CountedFinishDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, std::move(name), true) {}
 
-    void add() {
+    void add(uint32_t count = 1) {
         std::unique_lock<std::mutex> l(_mtx);
         if (!_counter) {
             block();
         }
-        _counter++;
+        _counter += count;
     }
 
     void sub() {
@@ -551,8 +554,8 @@ public:
     const int _child_count;
 };
 
-struct CacheSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(CacheSharedState)
+struct DataQueueSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(DataQueueSharedState)
 public:
     DataQueue data_queue;
 };
@@ -871,6 +874,40 @@ class QueryGlobalDependency final : public Dependency {
     QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
     ~QueryGlobalDependency() override = default;
     Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
+};
+
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    PMultiGetRequestV2 request;
+    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
+    MonotonicStopWatch rpc_timer;
+};
+
+struct MaterializationSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
+public:
+    MaterializationSharedState() = default;
+
+    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
+    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
+    Status merge_multi_response(vectorized::Block* block);
+
+    Dependency* create_source_dependency(int operator_id, int node_id,
+                                         const std::string& name) override;
+
+    bool rpc_struct_inited = false;
+    Status rpc_status = Status::OK();
+    bool last_block = false;
+    // empty materialization sink block not need to merge block
+    bool need_merge_block = true;
+    vectorized::Block origin_block;
+    // The rowid column of the origin block. should be replaced by the column of the result block.
+    std::vector<int> rowid_locs;
+    std::vector<vectorized::MutableBlock> response_blocks;
+    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    // Register each line in which block to ensure the order of the result.
+    // Zero means NULL value.
+    std::vector<std::vector<int64_t>> block_order_results;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
