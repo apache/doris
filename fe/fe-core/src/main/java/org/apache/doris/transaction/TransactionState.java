@@ -282,6 +282,7 @@ public class TransactionState implements Writable {
     /**
      * the value is the num delta rows of all replicas in each tablet
      */
+    @SerializedName(value = "deltaRows")
     private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;

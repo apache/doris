@@ -155,13 +155,14 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     }
 
     // new one scanner
-    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
+    auto temp_schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    if (nullptr == _schema_scanner) {
+    if (nullptr == temp_schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(
+            temp_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
     if (columns_desc.empty()) {

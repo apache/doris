@@ -126,8 +126,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
                 return Status::OK();
             }
         }
-        return Status::InternalError("fail to add batch in load channel. unknown load_id={}",
-                                     load_id.to_string());
+        return Status::InternalError<false>(
+                "Fail to add batch in load channel: unknown load_id={}. "
+                "This may be due to a BE restart. Please retry the load.",
+                load_id.to_string());
     }
     channel = it->second;
     return Status::OK();
@@ -144,7 +146,6 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         return status;
     }
     SCOPED_TIMER(channel->get_mgr_add_batch_timer());
-    SCOPED_ATTACH_TASK(channel->resource_ctx());
 
     if (!channel->is_high_priority()) {
         // 2. check if mem consumption exceed limit
