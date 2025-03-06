@@ -4712,7 +4712,7 @@ public class SessionVariable implements Serializable, Writable {
             UnsupportedOperationException exception =
                     new UnsupportedOperationException("Profile level can not be set to " + profileLevel
                             + ", it must be in the range of 1-3");
-            LOG.warn("Check query_timeout failed", exception);
+            LOG.warn("Check profile_level failed", exception);
             throw exception;
         }
     }
