@@ -274,8 +274,8 @@ public class DateLiteral extends Literal {
     }
 
     /** parseDateLiteral */
-    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
-        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
+    public static Result<DateLiteral, ? extends Exception> parseDateLiteral(String s) {
+        Result<TemporalAccessor, ? extends Exception> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
         }
