@@ -32,6 +32,7 @@ suite ("test_casewhen") {
     sql """insert into sales_records values(1,1,1,"2020-02-02",1),(1,2,2,"2020-02-02",1);"""
 
     sql """analyze table sales_records with sync;"""
+    sql """alter table sales_records modify column record_id set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from sales_records order by 1,2;"

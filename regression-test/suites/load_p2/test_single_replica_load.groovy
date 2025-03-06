@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases
 // and modified by Doris.
 
-suite("test_single_replica_load", "p2") {
+suite("test_single_replica_load", "p2, nonConcurrent") {
     
     def load_json_data = {table_name, file_name ->
         // load the json data

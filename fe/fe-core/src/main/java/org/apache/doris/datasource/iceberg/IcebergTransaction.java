@@ -22,6 +22,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -82,14 +83,23 @@ public class IcebergTransaction implements Transaction {
         if (LOG.isDebugEnabled()) {
             LOG.info("iceberg table {} insert table finished!", tableInfo);
         }
-
-        //create and start the iceberg transaction
-        TUpdateMode updateMode = TUpdateMode.APPEND;
-        if (insertCtx.isPresent()) {
-            updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite() ? TUpdateMode.OVERWRITE
-                    : TUpdateMode.APPEND;
+        try {
+            ops.getPreExecutionAuthenticator().execute(() -> {
+                //create and start the iceberg transaction
+                TUpdateMode updateMode = TUpdateMode.APPEND;
+                if (insertCtx.isPresent()) {
+                    updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite()
+                            ? TUpdateMode.OVERWRITE
+                            : TUpdateMode.APPEND;
+                }
+                updateManifestAfterInsert(updateMode);
+                return null;
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to finish insert for iceberg table {}.", tableInfo, e);
+            throw new RuntimeException(e);
         }
-        updateManifestAfterInsert(updateMode);
+
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
@@ -131,7 +141,7 @@ public class IcebergTransaction implements Transaction {
 
     private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
         Objects.requireNonNull(tableInfo);
-        IcebergExternalCatalog externalCatalog = ops.getExternalCatalog();
+        ExternalCatalog externalCatalog = ops.getExternalCatalog();
         return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
     }
 

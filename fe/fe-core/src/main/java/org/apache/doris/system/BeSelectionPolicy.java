@@ -61,6 +61,8 @@ public class BeSelectionPolicy {
 
     public List<String> preferredLocations = new ArrayList<>();
 
+    public boolean requireAliveBe = false;
+
     private BeSelectionPolicy() {
 
     }
@@ -132,6 +134,11 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        public Builder setRequireAliveBe() {
+            policy.requireAliveBe = true;
+            return this;
+        }
+
         public BeSelectionPolicy build() {
             return policy;
         }
@@ -146,10 +153,12 @@ public class BeSelectionPolicy {
             return false;
         }
 
-        if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
-                || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
-                backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
-                storageMedium)) {
+        if (needScheduleAvailable && !backend.isScheduleAvailable()
+                || needQueryAvailable && !backend.isQueryAvailable()
+                || needLoadAvailable && !backend.isLoadAvailable()
+                || (!resourceTags.isEmpty() && !resourceTags.contains(backend.getLocationTag()))
+                || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)
+                || (requireAliveBe && !backend.isAlive())) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }

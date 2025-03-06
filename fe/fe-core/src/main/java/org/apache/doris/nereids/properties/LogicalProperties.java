@@ -37,16 +37,20 @@ import java.util.Set;
  */
 public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
-    protected final Supplier<List<Id>> outputExprIdsSupplier;
+    protected final Supplier<List<Id<?>>> outputExprIdsSupplier;
     protected final Supplier<Set<Slot>> outputSetSupplier;
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
+    protected final Supplier<List<Slot>> asteriskOutputSupplier;
     protected final Supplier<DataTrait> dataTraitSupplier;
     private Integer hashCode = null;
 
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<DataTrait> dataTraitSupplier) {
-        this(outputSupplier, dataTraitSupplier, ImmutableList::of);
+    /**
+     * constructor when output same as asterisk's output.
+     */
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<DataTrait> dataTraitSupplier) {
+        // the second parameters should be null to reuse memorized output supplier
+        this(outputSupplier, null, dataTraitSupplier);
     }
 
     /**
@@ -54,16 +58,17 @@ public class LogicalProperties {
      *
      * @param outputSupplier provide the output. Supplier can lazy compute output without
      *                       throw exception for which children have UnboundRelation
+     * @param asteriskOutputSupplier provide the output when do select *.
+     * @param dataTraitSupplier provide the data trait.
      */
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
-            Supplier<DataTrait> dataTraitSupplier,
-            Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier, Supplier<List<Slot>> asteriskOutputSupplier,
+            Supplier<DataTrait> dataTraitSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
         this.outputExprIdsSupplier = Suppliers.memoize(() -> {
             List<Slot> output = this.outputSupplier.get();
-            ImmutableList.Builder<Id> exprIdSet
+            ImmutableList.Builder<Id<?>> exprIdSet
                     = ImmutableList.builderWithExpectedSize(output.size());
             for (Slot slot : output) {
                 exprIdSet.add(slot.getExprId());
@@ -71,7 +76,7 @@ public class LogicalProperties {
             return exprIdSet.build();
         });
         this.outputSetSupplier = Suppliers.memoize(() -> {
-            List<Slot> output = outputSupplier.get();
+            List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(output.size());
             for (Slot slot : output) {
                 slots.add(slot);
@@ -79,7 +84,7 @@ public class LogicalProperties {
             return slots.build();
         });
         this.outputMapSupplier = Suppliers.memoize(() -> {
-            Set<Slot> slots = outputSetSupplier.get();
+            Set<Slot> slots = this.outputSetSupplier.get();
             ImmutableMap.Builder<Slot, Slot> map = ImmutableMap.builderWithExpectedSize(slots.size());
             for (Slot slot : slots) {
                 map.put(slot, slot);
@@ -95,6 +100,9 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
+        this.asteriskOutputSupplier = asteriskOutputSupplier == null ? this.outputSupplier : Suppliers.memoize(
+                Objects.requireNonNull(asteriskOutputSupplier, "asteriskOutputSupplier can not be null")
+        );
         this.dataTraitSupplier = Suppliers.memoize(
                 Objects.requireNonNull(dataTraitSupplier, "Data Trait can not be null")
         );
@@ -116,12 +124,16 @@ public class LogicalProperties {
         return outputExprIdSetSupplier.get();
     }
 
-    public DataTrait getTrait() {
-        return dataTraitSupplier.get();
+    public List<Id<?>> getOutputExprIds() {
+        return outputExprIdsSupplier.get();
     }
 
-    public List<Id> getOutputExprIds() {
-        return outputExprIdsSupplier.get();
+    public List<Slot> getAsteriskOutput() {
+        return asteriskOutputSupplier.get();
+    }
+
+    public DataTrait getTrait() {
+        return dataTraitSupplier.get();
     }
 
     @Override
@@ -132,6 +144,7 @@ public class LogicalProperties {
                 + "\noutputSetSupplier=" + outputSetSupplier.get()
                 + "\noutputMapSupplier=" + outputMapSupplier.get()
                 + "\noutputExprIdSetSupplier=" + outputExprIdSetSupplier.get()
+                + "\nasteriskOutputSupplier=" + asteriskOutputSupplier.get()
                 + "\nhashCode=" + hashCode
                 + '}';
     }

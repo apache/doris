@@ -30,7 +30,6 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowAuthorStmt;
-import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
@@ -83,6 +82,7 @@ import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowQueryStatsStmt;
+import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
@@ -140,6 +140,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -202,6 +204,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
@@ -213,6 +216,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -254,6 +258,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.GsonBuilder;
 import org.apache.commons.collections.CollectionUtils;
@@ -478,8 +483,8 @@ public class ShowExecutor {
             handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
-        } else if (stmt instanceof ShowAutoAnalyzeJobsStmt) {
-            handleShowAutoAnalyzePendingJobs();
+        } else if (stmt instanceof ShowQueuedAnalyzeJobsStmt) {
+            handleShowQueuedAnalyzeJobs();
         } else if (stmt instanceof ShowTabletsBelongStmt) {
             handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
@@ -808,7 +813,7 @@ public class ShowExecutor {
         for (String clusterName : clusterNameSet) {
             ArrayList<String> row = Lists.newArrayList(clusterName);
             // current_used, users
-            if (!Env.getCurrentEnv().getAuth()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
@@ -826,7 +831,7 @@ public class ShowExecutor {
                 users.remove(Auth.ROOT_USER);
             }
             // common user, not admin
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }
@@ -965,8 +970,7 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(), isShowTablesCaseSensitive());
         }
         for (TableIf tbl : db.getTables()) {
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
@@ -1005,6 +1009,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
+    public boolean isShowTablesCaseSensitive() {
+        if (GlobalVariable.lowerCaseTableNames == 0) {
+            return CaseSensibility.TABLE.getCaseSensibility();
+        }
+        return false;
+    }
+
     // Show table status statement.
     private void handleShowTableStatus() throws AnalysisException {
         ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
@@ -1015,8 +1026,7 @@ public class ShowExecutor {
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(), isShowTablesCaseSensitive());
             }
             for (TableIf table : db.getTables()) {
                 if (matcher != null && !matcher.match(table.getName())) {
@@ -1184,15 +1194,9 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showStmt.getDb());
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
         List<List<String>> rows = Lists.newArrayList();
-
-        mtmv.readLock();
-        try {
-            String mtmvDdl = Env.getMTMVDdl(mtmv);
-            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-        } finally {
-            mtmv.readUnlock();
-        }
+        String mtmvDdl = Env.getMTMVDdl(mtmv);
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Describe statement
@@ -1263,17 +1267,20 @@ public class ShowExecutor {
                 .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
                 .getDbOrAnalysisException(showStmt.getDbName());
         if (db instanceof Database) {
-            OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
-            table.readLock();
-            try {
-                List<Index> indexes = table.getIndexes();
-                for (Index index : indexes) {
-                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                            "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+            TableIf table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+            if (table instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    List<Index> indexes = olapTable.getIndexes();
+                    for (Index index : indexes) {
+                        rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                                "", String.join(",", index.getColumns()), "", "", "", "",
+                                "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                    }
+                } finally {
+                    olapTable.readUnlock();
                 }
-            } finally {
-                table.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1896,6 +1903,8 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
         } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
             handleShowMaxComputeTablePartitions(showStmt);
+        } else if (showStmt.getCatalog() instanceof IcebergExternalCatalog) {
+            handleShowIcebergTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
@@ -1976,6 +1985,40 @@ public class ShowExecutor {
             rows = rows.subList(beginIndex, endIndex);
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowIcebergTablePartitions(ShowPartitionsStmt showStmt) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) showStmt.getCatalog();
+        String db = showStmt.getTableName().getDb();
+        String tbl = showStmt.getTableName().getTbl();
+        IcebergExternalTable icebergTable = (IcebergExternalTable) catalog.getDb(db).get().getTable(tbl).get();
+        LimitElement limit = showStmt.getLimitElement();
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        Map<String, PartitionItem> partitions = icebergTable.getAndCopyPartitionItems(Optional.empty());
+        List<List<String>> rows = new ArrayList<>();
+        for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
+            List<String> row = new ArrayList<>();
+            Range<PartitionKey> items = entry.getValue().getItems();
+            row.add(entry.getKey());
+            row.add(items.lowerEndpoint().toString());
+            row.add(items.upperEndpoint().toString());
+            rows.add(row);
+        }
+        // sort by partition name
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+        if (limit != null && limit.hasLimit()) {
+            int beginIndex = (int) limit.getOffset();
+            int endIndex = (int) (beginIndex + limit.getLimit());
+            if (endIndex > rows.size()) {
+                endIndex = rows.size();
+            }
+            rows = rows.subList(beginIndex, endIndex);
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -3069,9 +3112,10 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
-    private void handleShowAutoAnalyzePendingJobs() {
-        ShowAutoAnalyzeJobsStmt showStmt = (ShowAutoAnalyzeJobsStmt) stmt;
-        List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(showStmt);
+    private void handleShowQueuedAnalyzeJobs() {
+        ShowQueuedAnalyzeJobsStmt showStmt = (ShowQueuedAnalyzeJobsStmt) stmt;
+        List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(
+                showStmt.getTableName(), showStmt.getPriority());
         List<List<String>> resultRows = Lists.newArrayList();
         for (AutoAnalysisPendingJob job : jobs) {
             try {
@@ -3410,10 +3454,10 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            Auth auth = Env.getCurrentEnv().getAuth();
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
                             PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());

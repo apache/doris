@@ -77,6 +77,7 @@ namespace ErrorCode {
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -130,6 +131,9 @@ namespace ErrorCode {
     E(BAD_CAST, -254, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
     E(PERMISSION_DENIED, -256, false);                       \
+    E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
+    E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
+    E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -292,7 +296,8 @@ namespace ErrorCode {
     E(ENTRY_NOT_FOUND, -7002, false);                        \
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
-    E(CGROUP_ERROR, -7411, false);
+    E(CGROUP_ERROR, -7411, false);                           \
+    E(FATAL_ERROR, -7412, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -379,6 +384,11 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
+        } else {
+            // If rhs error msg is empty, then should also clear current error msg
+            // For example, if rhs is OK and current status is error, then copy to current
+            // status, should clear current error message.
+            _err_msg.reset();
         }
         return *this;
     }
@@ -388,6 +398,8 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::move(rhs._err_msg);
+        } else {
+            _err_msg.reset();
         }
         return *this;
     }
@@ -445,6 +457,14 @@ public:
 
     static Status OK() { return {}; }
 
+    template <bool stacktrace = true, typename... Args>
+    static Status FatalError(std::string_view msg, Args&&... args) {
+#ifndef NDEBUG
+        LOG(FATAL) << fmt::format(msg, std::forward<Args>(args)...);
+#endif
+        return Error<ErrorCode::FATAL_ERROR, stacktrace>(msg, std::forward<Args>(args)...);
+    }
+
 // default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
@@ -488,6 +508,7 @@ public:
     ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
     ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
     ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
+    ERROR_CTOR_NOSTACK(NetworkError, NETWORK_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
@@ -568,7 +589,7 @@ private:
 // and another thread is call to_string method, it may core, because the _err_msg is an unique ptr and
 // it is deconstructed during copy method.
 // And also we could not use lock, because we need get status frequently to check if it is cancelled.
-// The defaule value is ok.
+// The default value is ok.
 class AtomicStatus {
 public:
     AtomicStatus() : error_st_(Status::OK()) {}

@@ -253,4 +253,11 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from triggers"
     qt_sql "select * from parameters"
     qt_sql "select * from profiling"
+
+    // test systable is queryable
+    String[][] systabs = sql "USE information_schema;show tables"
+    System.out.println(systabs)
+    for (String[] tab : systabs) {
+        sql "select * from ${tab[0]} limit 10"
+    }
 }

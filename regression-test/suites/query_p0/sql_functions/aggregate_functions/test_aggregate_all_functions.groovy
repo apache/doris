@@ -286,6 +286,40 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     qt_select20_1 "select id,percentile(level + 0.1,0.5) from ${tableName_13} group by id order by id"
     qt_select21_1 "select id,percentile(level + 0.1,0.55) from ${tableName_13} group by id order by id"
     qt_select22_1 "select id,percentile(level + 0.1,0.805) from ${tableName_13} group by id order by id"
+    qt_select22_1_1 "select id,percentile(level + 0.1, null) from ${tableName_13} group by id order by id"
+
+    try {
+        sql "select id,percentile(level + 0.1, -1) from ${tableName_13} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+    try {
+        sql "select id,percentile(level + 0.1, 3000) from ${tableName_13} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
+
+    sql """
+        drop table if exists percentile_input_no_nullable;
+    """
+    sql """
+        create table percentile_input_no_nullable(a int, b int not null) properties ("replication_num" = "1");
+    """
+    sql """
+        insert into percentile_input_no_nullable values (10, 100), (20,200), (30, 300), (40, 400);
+    """
+
+    try {
+        sql " select percentile(b, -1) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+
+    try {
+        sql " select percentile(b, 3000) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
 
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 
@@ -313,6 +347,18 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
     qt_select26 "select id,PERCENTILE_APPROX(level,0.5,2048) from ${tableName_14} group by id order by id"
     qt_select27 "select id,PERCENTILE_APPROX(level,0.55,2048) from ${tableName_14} group by id order by id"
     qt_select28 "select id,PERCENTILE_APPROX(level,0.805,2048) from ${tableName_14} group by id order by id"
+    qt_select28_1 "select id,PERCENTILE_APPROX(level, null ,2048) from ${tableName_14} group by id order by id"
+
+    try {
+        sql "select id,PERCENTILE_APPROX(level, -1, 2048) from ${tableName_14} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+    try {
+        sql "select id,PERCENTILE_APPROX(level, 3000 ,2048) from ${tableName_14} group by id order by id"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
 
     sql "DROP TABLE IF EXISTS ${tableName_14}"
     

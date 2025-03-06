@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 
@@ -67,7 +68,8 @@ public:
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
-    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
+    // currently used by schema change, inverted index building, and cooldown
+    std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
         if (_tablet_meta == nullptr) {
@@ -143,8 +145,7 @@ public:
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           OlapReaderStatistics& stats, std::string& values,
+                           RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
@@ -156,7 +157,8 @@ public:
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
-                          OlapReaderStatistics* stats = nullptr);
+                          OlapReaderStatistics* stats = nullptr,
+                          DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -169,16 +171,18 @@ public:
                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
                                      DeleteBitmapPtr delete_bitmap, int64_t version,
                                      CalcDeleteBitmapToken* token,
-                                     RowsetWriter* rowset_writer = nullptr);
+                                     RowsetWriter* rowset_writer = nullptr,
+                                     DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                       const segment_v2::SegmentSharedPtr& seg,
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      RowsetWriter* rowset_writer);
+                                      RowsetWriter* rowset_writer,
+                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(
@@ -235,11 +239,13 @@ public:
             int64_t txn_expiration = 0) = 0;
 
     static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
-                                       int64_t txn_id, int64_t txn_expiration = 0);
+                                       int64_t txn_id, int64_t txn_expiration = 0,
+                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                      const RowsetIdUnorderedSet& cur_rowset_ids) = 0;
+                                      const RowsetIdUnorderedSet& cur_rowset_ids,
+                                      int64_t lock_id = -1) = 0;
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(
@@ -271,10 +277,13 @@ public:
     // Find the first consecutive empty rowsets. output->size() >= limit
     void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                                        int limit);
+                                        int64_t limit);
 
     // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const { return _max_version_schema; }
+    virtual TabletSchemaSPtr merged_tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _max_version_schema;
+    }
 
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
@@ -289,12 +298,20 @@ public:
     }
 
     Status calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
-                         int32_t* rowset_count, int64_t* file_count);
+                         uint32_t* rowset_count, int64_t* file_count);
 
     Status show_nested_index_file(std::string* json_meta);
 
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
     TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
+
+    void get_base_rowset_delete_bitmap_count(
+            uint64_t* max_base_rowset_delete_bitmap_score,
+            int64_t* max_base_rowset_delete_bitmap_score_tablet_id);
+
+    virtual Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
+        return Status::OK();
+    }
 
 protected:
     // Find the missed versions until the spec_version.
@@ -334,7 +351,7 @@ protected:
     std::shared_ptr<MetricEntity> _metric_entity;
 
 protected:
-    std::mutex _schema_change_lock;
+    std::timed_mutex _schema_change_lock;
 
 public:
     IntCounter* query_scan_bytes = nullptr;

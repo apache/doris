@@ -234,8 +234,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
-                            maxBatchIntervalS * Config.routine_load_task_timeout_multiplier * 1000,
-                            taskKafkaProgress, isMultiTable());
+                            getTimeout() * 1000, taskKafkaProgress, isMultiTable(), -1, false);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -367,22 +366,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected void unprotectUpdateProgress() throws UserException {
+        // For cloud mode, should update cloud progress from meta service,
+        // then update progress with default offset from Kafka if necessary.
+        if (Config.isCloudMode()) {
+            updateCloudProgress();
+        }
         updateNewPartitionProgress();
     }
 
     @Override
-    protected void preCheckNeedSchedule() throws UserException {
+    protected boolean refreshKafkaPartitions(boolean needAutoResume) throws UserException {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
-        if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
+        if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE || needAutoResume) {
             if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
-                return;
+                return true;
             }
-            updateKafkaPartitions();
+            return updateKafkaPartitions();
         }
+        return true;
     }
 
-    private void updateKafkaPartitions() throws UserException {
+    private boolean updateKafkaPartitions() throws UserException {
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
         } catch (Exception e) {
@@ -397,7 +402,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
                         false /* not replay */);
             }
+            return false;
         }
+        return true;
     }
 
     // if customKafkaPartition is not null, then return false immediately
@@ -409,33 +416,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected boolean unprotectNeedReschedule() throws UserException {
         // only running and need_schedule job need to be changed current kafka partitions
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
-            if (CollectionUtils.isNotEmpty(customKafkaPartitions)) {
-                currentKafkaPartitions = customKafkaPartitions;
-                return false;
-            }
-            // the newCurrentKafkaPartition should be already updated in preCheckNeedScheduler()
-            Preconditions.checkNotNull(this.newCurrentKafkaPartition);
-            if (new HashSet<>(currentKafkaPartitions).containsAll(this.newCurrentKafkaPartition)) {
-                if (currentKafkaPartitions.size() > this.newCurrentKafkaPartition.size()) {
-                    currentKafkaPartitions = this.newCurrentKafkaPartition;
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
-                                .add("msg", "current kafka partitions has been change")
-                                .build());
-                    }
-                    return true;
-                } else {
-                    // if the partitions of currentKafkaPartitions and progress are inconsistent,
-                    // We should also update the progress
-                    for (Integer kafkaPartition : currentKafkaPartitions) {
-                        if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            } else {
+            return isKafkaPartitionsChanged();
+        }
+        return false;
+    }
+
+    private boolean isKafkaPartitionsChanged() throws UserException {
+        if (CollectionUtils.isNotEmpty(customKafkaPartitions)) {
+            currentKafkaPartitions = customKafkaPartitions;
+            return false;
+        }
+        // the newCurrentKafkaPartition should be already updated in preCheckNeedScheduler()
+        Preconditions.checkNotNull(this.newCurrentKafkaPartition);
+        if (new HashSet<>(currentKafkaPartitions).containsAll(this.newCurrentKafkaPartition)) {
+            if (currentKafkaPartitions.size() > this.newCurrentKafkaPartition.size()) {
                 currentKafkaPartitions = this.newCurrentKafkaPartition;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
@@ -444,14 +438,39 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                             .build());
                 }
                 return true;
+            } else {
+                // if the partitions of currentKafkaPartitions and progress are inconsistent,
+                // We should also update the progress
+                for (Integer kafkaPartition : currentKafkaPartitions) {
+                    if (!((KafkaProgress) progress).containsPartition(kafkaPartition)) {
+                        return true;
+                    }
+                }
+                return false;
             }
-
+        } else {
+            currentKafkaPartitions = this.newCurrentKafkaPartition;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                        .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
+                        .add("msg", "current kafka partitions has been change")
+                        .build());
+            }
+            return true;
         }
-        if (this.state == JobState.PAUSED) {
-            return ScheduleRule.isNeedAutoSchedule(this);
-        }
-        return false;
+    }
 
+    @Override
+    protected boolean needAutoResume() {
+        writeLock();
+        try {
+            if (this.state == JobState.PAUSED) {
+                return ScheduleRule.isNeedAutoSchedule(this);
+            }
+            return false;
+        } finally {
+            writeUnlock();
+        }
     }
 
     @Override

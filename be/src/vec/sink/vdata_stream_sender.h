@@ -56,7 +56,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
-class MemTracker;
 class RowDescriptor;
 class TDataSink;
 class TDataStreamSink;
@@ -77,24 +76,34 @@ namespace vectorized {
 class BlockSerializer {
 public:
     BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
+#ifdef BE_TEST
+    BlockSerializer() : _batch_size(0) {};
+#endif
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
-                                 bool eos, const std::vector<uint32_t>* rows = nullptr);
-    Status serialize_block(PBlock* dest, size_t num_receivers = 1);
+                                 bool eos, const uint32_t* data = nullptr,
+                                 const uint32_t offset = 0, const uint32_t size = 0);
     Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
+
+    size_t mem_usage() const { return _mutable_block ? _mutable_block->allocated_bytes() : 0; }
 
     void reset_block() { _mutable_block.reset(); }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
     bool is_local() const { return _is_local; }
 
+    void set_low_memory_mode(RuntimeState* state) { _buffer_mem_limit = 4 * 1024 * 1024; }
+
 private:
+    Status _serialize_block(PBlock* dest, size_t num_receivers = 1);
+
     pipeline::ExchangeSinkLocalState* _parent;
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _is_local;
     const int _batch_size;
+    std::atomic<size_t> _buffer_mem_limit = UINT64_MAX;
 };
 
 class Channel {
@@ -121,7 +130,7 @@ public:
     Status init(RuntimeState* state);
     Status open(RuntimeState* state);
 
-    Status send_local_block(Block* block, bool eos, bool can_be_moved);
+    MOCK_FUNCTION Status send_local_block(Block* block, bool eos, bool can_be_moved);
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
@@ -145,31 +154,16 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
-    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
+    MOCK_FUNCTION Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
+    MOCK_FUNCTION Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
+                                              bool eos = false);
 
-    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
-        if (_fragment_instance_id.lo == -1) {
-            return Status::OK();
-        }
+    Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
+                    bool eos);
 
-        bool serialized = false;
-        if (_pblock == nullptr) {
-            _pblock = std::make_unique<PBlock>();
-        }
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
-                                                          &rows));
-        if (serialized) {
-            RETURN_IF_ERROR(_send_current_block(eos));
-        }
+    void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
-        return Status::OK();
-    }
-
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
-    }
+    InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {
@@ -184,9 +178,14 @@ public:
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
 
-protected:
+    void set_low_memory_mode(RuntimeState* state) { _serializer.set_low_memory_mode(state); }
+
+private:
     Status _send_local_block(bool eos);
     Status _send_current_block(bool eos);
+
+    MOCK_FUNCTION Status _init_brpc_stub(RuntimeState* state);
+    MOCK_FUNCTION Status _find_local_recvr(RuntimeState* state);
 
     Status _recvr_status() const {
         if (_local_recvr && !_local_recvr->is_closed()) {
@@ -206,11 +205,9 @@ protected:
 
     TNetworkAddress _brpc_dest_addr;
 
-    PBlock _pb_block;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
-    RuntimeState* _state = nullptr;
 
     bool _is_local;
     std::shared_ptr<VDataStreamRecvr> _local_recvr;

@@ -38,6 +38,8 @@ suite ("dup_mv_year") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_year with sync;"
+    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 

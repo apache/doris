@@ -26,6 +26,7 @@
 #include "pipeline/exec/scan_operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class NewEsScanner;
@@ -71,7 +72,7 @@ public:
                     const DescriptorTbl& descs, int parallel_tasks);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
 private:
     friend class EsScanLocalState;
@@ -86,4 +87,5 @@ private:
     std::vector<std::string> _column_names;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

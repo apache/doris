@@ -60,6 +60,7 @@ import java.util.Map;
  * 4. get spark etl file paths
  * 5. delete etl output path
  */
+@Deprecated
 public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 

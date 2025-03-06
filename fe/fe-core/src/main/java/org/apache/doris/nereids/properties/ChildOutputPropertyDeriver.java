@@ -71,6 +71,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -371,22 +372,16 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                             intersectGroupingKeys, Utils.fastToImmutableSet(groupingSets.get(i))
                     );
                 }
-                if (!intersectGroupingKeys.isEmpty()) {
-                    List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
-                    boolean hashColumnsChanged = false;
-                    for (Expression intersectGroupingKey : intersectGroupingKeys) {
-                        if (!(intersectGroupingKey instanceof SlotReference)) {
-                            hashColumnsChanged = true;
-                            break;
-                        }
-                        if (!(orderedShuffledColumns.contains(((SlotReference) intersectGroupingKey).getExprId()))) {
-                            hashColumnsChanged = true;
-                            break;
-                        }
+                List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
+                Set<ExprId> intersectGroupingKeysId = new HashSet<>();
+                for (Expression key : intersectGroupingKeys) {
+                    if (!(key instanceof SlotReference)) {
+                        break;
                     }
-                    if (!hashColumnsChanged) {
-                        return childrenOutputProperties.get(0);
-                    }
+                    intersectGroupingKeysId.add(((SlotReference) key).getExprId());
+                }
+                if (intersectGroupingKeysId.containsAll(orderedShuffledColumns)) {
+                    return childrenOutputProperties.get(0);
                 }
             }
             output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);
@@ -510,32 +505,42 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
                     );
+                } else if (shuffleSide == ShuffleSide.BOTH) {
+                    return new PhysicalProperties(
+                            DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
+                                    .withShuffleTypeAndForbidColocateJoin(leftHashSpec.getShuffleType())
+                    );
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
-                if (shuffleSide == ShuffleSide.LEFT) {
+                if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(leftHashSpec);
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.BOTH) {
+                    return new PhysicalProperties(
+                            rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
+                    );
+                } else if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(rightHashSpec);
                 } else {
-                    // retain left shuffle type, since coordinator use left most node to schedule fragment
-                    // forbid colocate join, since right table already shuffle
-                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                            leftHashSpec.getShuffleType()));
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
@@ -549,30 +554,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         ShuffleType rightShuffleType = rightHashSpec.getShuffleType();
         switch (leftShuffleType) {
             case EXECUTION_BUCKETED:
-                if (rightShuffleType == ShuffleType.EXECUTION_BUCKETED) {
-                    return ShuffleSide.BOTH;
-                }
-                break;
             case STORAGE_BUCKETED:
-                if (rightShuffleType == ShuffleType.NATURAL) {
-                    // use storage hash to shuffle left to right to do bucket shuffle join
-                    return ShuffleSide.LEFT;
-                }
-                break;
+                return rightShuffleType == ShuffleType.NATURAL ? ShuffleSide.LEFT : ShuffleSide.BOTH;
             case NATURAL:
-                switch (rightShuffleType) {
-                    case NATURAL:
-                        // colocate join
-                        return ShuffleSide.NONE;
-                    case STORAGE_BUCKETED:
-                        // use storage hash to shuffle right to left to do bucket shuffle join
-                        return ShuffleSide.RIGHT;
-                    case EXECUTION_BUCKETED:
-                        // compatible old ut
-                        return ShuffleSide.RIGHT;
-                    default:
-                }
-                break;
+                return rightShuffleType == ShuffleType.NATURAL ? ShuffleSide.NONE : ShuffleSide.RIGHT;
             default:
         }
         throw new IllegalStateException(

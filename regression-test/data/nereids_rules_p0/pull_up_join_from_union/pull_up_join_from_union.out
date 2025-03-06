@@ -80,13 +80,11 @@ PhysicalResultSink
 
 -- !complex_join_condition1 --
 PhysicalResultSink
---PhysicalUnion
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
-------PhysicalOlapScan[table_a]
+--hashJoin[INNER_JOIN] hashCondition=((expr_(cast(id as BIGINT) - 1) = expr_cast(id as BIGINT))) otherCondition=()
+----PhysicalUnion
 ------PhysicalOlapScan[table_b]
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
-------PhysicalOlapScan[table_a]
 ------PhysicalOlapScan[table_c]
+----PhysicalOlapScan[table_a]
 
 -- !complex_join_condition2 --
 PhysicalResultSink

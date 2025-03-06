@@ -35,16 +35,16 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 
 /** OneListPartitionInputs */
-public class OneListPartitionEvaluator
-        extends DefaultExpressionRewriter<Map<Slot, PartitionSlotInput>> implements OnePartitionEvaluator {
-    private final long partitionId;
+public class OneListPartitionEvaluator<K>
+        extends DefaultExpressionRewriter<Map<Slot, PartitionSlotInput>> implements OnePartitionEvaluator<K> {
+    private final K partitionIdent;
     private final List<Slot> partitionSlots;
     private final ListPartitionItem partitionItem;
     private final ExpressionRewriteContext expressionRewriteContext;
 
-    public OneListPartitionEvaluator(long partitionId, List<Slot> partitionSlots,
+    public OneListPartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
             ListPartitionItem partitionItem, CascadesContext cascadesContext) {
-        this.partitionId = partitionId;
+        this.partitionIdent = partitionIdent;
         this.partitionSlots = Objects.requireNonNull(partitionSlots, "partitionSlots cannot be null");
         this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem cannot be null");
         this.expressionRewriteContext = new ExpressionRewriteContext(
@@ -52,8 +52,8 @@ public class OneListPartitionEvaluator
     }
 
     @Override
-    public long getPartitionId() {
-        return partitionId;
+    public K getPartitionIdent() {
+        return partitionIdent;
     }
 
     @Override

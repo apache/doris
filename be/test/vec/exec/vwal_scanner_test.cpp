@@ -79,6 +79,7 @@ public:
         WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(_wal_dir),
                       fmt::format("fail to delete dir={}", _wal_dir));
         SAFE_STOP(_env->_wal_manager);
+        _env->clear_wal_mgr();
     }
 
 protected:
@@ -260,7 +261,7 @@ void VWalScannerTest::init() {
             std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
-    WARN_IF_ERROR(_scan_node->open(&_runtime_state), "fail to prepare scan_node");
+    WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to prepare scan_node");
 
     auto local_state =
             pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
@@ -286,7 +287,7 @@ void VWalScannerTest::init() {
     _env->_cluster_info->master_fe_addr.hostname = "host name";
     _env->_cluster_info->master_fe_addr.port = _backend_id;
     _env->_cluster_info->backend_id = 1001;
-    _env->_wal_manager = WalManager::create_shared(_env, _wal_dir);
+    _env->set_wal_mgr(WalManager::create_unique(_env, _wal_dir));
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
     st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_1, _label_1, base_path,

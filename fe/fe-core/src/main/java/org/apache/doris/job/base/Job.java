@@ -101,7 +101,7 @@ public interface Job<T extends AbstractTask, C> {
      * Cancels all running tasks of this job.
      * @throws JobException If cancelling a running task fails.
      */
-    void cancelAllTasks() throws JobException;
+    void cancelAllTasks(boolean needWaitCancelComplete) throws JobException;
 
     /**
      * register job

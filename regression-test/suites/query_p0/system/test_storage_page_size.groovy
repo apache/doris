@@ -33,7 +33,7 @@ suite ("test_storage_page_size") {
     test {
         sql "show create table table_1;"
         check { result, exception, startTime, endTime ->
-            assertFalse(result[0][1].contains("\"storage_page_size\" = \"65536\""))
+            assertFalse(result[0][1].contains("storage_page_size"))
         }
     }
 

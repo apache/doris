@@ -25,6 +25,7 @@
 #include "vec/common/sort/topn_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -71,13 +72,18 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     _shared_state->sorter->init_profile(_profile);
 
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    _profile->add_info_string(
+            "SortAlgorithm",
+            p._algorithm == TSortAlgorithm::HEAP_SORT
+                    ? "HEAP_SORT"
+                    : (p._algorithm == TSortAlgorithm::TOPN_SORT ? "TOPN_SORT" : "FULL_SORT"));
     return Status::OK();
 }
 
-SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs,
+SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs,
                                      const bool require_bucket_distribution)
-        : DataSinkOperatorX(operator_id, tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode, dest_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
           _limit(tnode.limit),
@@ -92,9 +98,7 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
                                                                : std::vector<TExpr> {}),
           _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
                                                        : TSortAlgorithm::FULL_SORT),
-          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -110,8 +114,8 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status SortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::open(state));
+Status SortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     return _vsort_exec_exprs.open(state);
 }
@@ -128,7 +132,6 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         int64_t data_size = local_state._shared_state->sorter->data_size();
         COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
         COUNTER_SET(local_state._memory_used_counter, data_size);
-        COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
 
         RETURN_IF_CANCELLED(state);
 
@@ -156,6 +159,11 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     return Status::OK();
 }
 
+size_t SortSinkOperatorX::get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->get_reserve_mem_size(state, eos);
+}
+
 size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->data_size();
@@ -177,4 +185,5 @@ void SortSinkOperatorX::reset(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     local_state._shared_state->sorter->reset();
 }
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

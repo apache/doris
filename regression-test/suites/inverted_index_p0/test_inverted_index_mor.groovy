@@ -62,7 +62,7 @@ suite("test_inverted_index_mor", "p0"){
 
     // can not add INVERTED INDEX with parser
     test{
-        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) USING INVERTED PROPERTIES("parser"="english"); """
+        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"); """
         exception "errCode = 2, detailMessage = INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable. invalid index: idx_c_string"
     }
 

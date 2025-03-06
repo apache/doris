@@ -23,6 +23,7 @@ import jsonpickle
 import os
 import os.path
 import utils
+import time
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
 LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH", "/tmp/doris")
@@ -137,13 +138,24 @@ def gen_subnet_prefix16():
     raise Exception("Failed to gen subnet")
 
 
-def get_master_fe_endpoint(cluster_name):
-    master_fe_ip_file = get_cluster_path(cluster_name) + "/status/master_fe_ip"
-    if os.path.exists(master_fe_ip_file):
-        with open(master_fe_ip_file, "r") as f:
-            return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+def get_master_fe_endpoint(cluster_name, wait_master_fe_ip_file=False):
+    cluster_path = get_cluster_path(cluster_name)
+    if os.path.exists(cluster_path):
+        master_fe_ip_file = "{}/status/master_fe_ip".format(cluster_path)
+        max_retries = 10 if wait_master_fe_ip_file else 0
+        i = 0
+        while True:
+            if os.path.exists(master_fe_ip_file):
+                with open(master_fe_ip_file, "r") as f:
+                    return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+            i += 1
+            if i < max_retries:
+                time.sleep(1)
+            else:
+                break
     try:
         cluster = Cluster.load(cluster_name)
+        LOG.info("master file not exist, master ip get from node 1")
         return "{}:{}".format(
             cluster.get_node(Node.TYPE_FE, 1).get_ip(), FE_QUERY_PORT)
     except:
@@ -468,6 +480,7 @@ class FE(Node):
             for key in ("JAVA_OPTS", "JAVA_OPTS_FOR_JDK_17"):
                 value = parser["dummy_section"].get(key)
                 if value:
+                    value = value.strip().strip('"')
                     cfg.append(
                         f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:{FE_JAVA_DBG_PORT}\""
                     )

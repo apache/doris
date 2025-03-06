@@ -22,7 +22,12 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TStorageType;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -34,6 +39,7 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -97,7 +103,7 @@ public class OlapTableTest {
         olapTable.resetPropertiesForRestore(false, false, replicaAlloc, false);
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
-        Assert.assertFalse(olapTable.isColocateTable());
+        Assert.assertTrue(olapTable.isColocateTable());
         Assert.assertEquals((short) 4, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // restore with dynamic partition keys
@@ -244,5 +250,37 @@ public class OlapTableTest {
         Assert.assertTrue(schemaAllIndexes.contains(col4));
         Assert.assertFalse(schemaAllIndexes.contains(col1));
         Assert.assertTrue(schemaAllIndexes.contains(col2));
+    }
+
+    @Test
+    public void testTopNPushDownWithTag() throws Exception {
+        FeConstants.runningUnitTest = true;
+
+        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
+        Backend be1 = new Backend(10001, "192.168.1.1", 9050);
+        be1.setTagMap(taga.toMap());
+        be1.setAlive(true);
+
+        Tag tagb = Tag.create(Tag.TYPE_LOCATION, "tagb");
+        Backend be2 = new Backend(10002, "192.168.1.2", 9050);
+        be2.setAlive(true);
+        be2.setTagMap(tagb.toMap());
+
+        Env.getCurrentSystemInfo().addBackend(be1);
+        Env.getCurrentSystemInfo().addBackend(be2);
+
+        OlapTable tab = new OlapTable();
+        TFetchOption tfetchOption = tab.generateTwoPhaseReadOption(-1);
+        Assert.assertTrue(tfetchOption.nodes_info.nodes.size() == 2);
+
+        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
+        Set<Tag> tagSet = new HashSet<>();
+        tagSet.add(taga);
+
+        connectContext.setResourceTags(tagSet);
+        TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
+        Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
+        ConnectContext.remove();
+
     }
 }

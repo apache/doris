@@ -178,6 +178,7 @@ public class StorageBackend implements ParseNode {
                     return TStorageBackendType.JFS;
                 case LOCAL:
                     return TStorageBackendType.LOCAL;
+                // deprecated
                 case AZURE:
                     return TStorageBackendType.AZURE;
                 default:

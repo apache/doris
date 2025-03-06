@@ -34,6 +34,8 @@ suite("test_jdbc_catalog_push_cast", "p0,external,mysql,external_docker,external
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
+        sql "set enable_jdbc_cast_predicate_push_down = false;"
+
         sql "use jdbc_catalog_push_cast.doris_test"
 
         qt_sql """select * from test_cast where date(datetime_c) = '2022-01-01';"""

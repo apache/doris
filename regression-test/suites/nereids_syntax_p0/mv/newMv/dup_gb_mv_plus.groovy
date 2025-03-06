@@ -45,6 +45,8 @@ suite ("dup_gb_mv_plus") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_gb_mv_plus with sync;"
+    sql """alter table dup_gb_mv_plus modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 

@@ -85,7 +85,7 @@ public class Variable extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return toString();
     }
 
@@ -112,7 +112,7 @@ public class Variable extends Expression implements LeafExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), name, type, realExpression);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), name, type, realExpression);
     }
 }

@@ -62,7 +62,7 @@ suite("test_jdbc") {
     ]
 
     def insert = { jdbc_url ->
-        connect(user = user, password = password, url = jdbc_url) {
+        connect(user, password, jdbc_url) {
             logger.info("insert url: {}", jdbc_url)
             def ps = prepareStatement "insert into ${tableName} values(?, ?)"
             for (int i = 0; i < batchSize; i++) {
@@ -79,7 +79,7 @@ suite("test_jdbc") {
     }
 
     def update = { jdbc_url ->
-        connect(user = user, password = password, url = jdbc_url) {
+        connect(user, password, jdbc_url) {
             logger.info("update url: {}", jdbc_url)
             def ps = prepareStatement "update ${tableName} set phone = ? where id = ?";
             for (int i = 0; i < batchSize; i++) {

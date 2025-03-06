@@ -73,7 +73,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
@@ -317,9 +317,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         // call _do_lazy_read recursively when current batch is skipped
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
-        ColumnSelectVector run_length_vector;
+        FilterMap filter_map;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, batch_eof, run_length_vector));
+                                          read_rows, batch_eof, filter_map));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -389,7 +389,7 @@ void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
 
 Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::string>& columns,
                                          size_t batch_size, size_t* read_rows, bool* batch_eof,
-                                         ColumnSelectVector& select_vector) {
+                                         FilterMap& filter_map) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
     for (auto& read_col_name : columns) {
@@ -420,11 +420,12 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         size_t col_read_rows = 0;
         bool col_eof = false;
         // Should reset _filter_map_index to 0 when reading next column.
-        select_vector.reset();
+        //        select_vector.reset();
+        _column_readers[read_col_name]->reset_filter_map_index();
         while (!col_eof && col_read_rows < batch_size) {
             size_t loop_rows = 0;
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
-                    column_ptr, column_type, select_vector, batch_size - col_read_rows, &loop_rows,
+                    column_ptr, column_type, filter_map, batch_size - col_read_rows, &loop_rows,
                     &col_eof, is_dict_filter));
             col_read_rows += loop_rows;
         }
@@ -445,11 +446,11 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
 
 Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* read_rows,
                                      bool* batch_eof) {
-    std::unique_ptr<ColumnSelectVector> select_vector_ptr = nullptr;
+    std::unique_ptr<FilterMap> filter_map_ptr = nullptr;
     size_t pre_read_rows;
     bool pre_eof;
     std::vector<uint32_t> columns_to_filter;
-    size_t origin_column_num = block->columns();
+    uint32_t origin_column_num = block->columns();
     columns_to_filter.resize(origin_column_num);
     for (uint32_t i = 0; i < origin_column_num; ++i) {
         columns_to_filter[i] = i;
@@ -460,9 +461,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         // read predicate columns
         pre_read_rows = 0;
         pre_eof = false;
-        ColumnSelectVector run_length_vector;
+        FilterMap filter_map;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns.first, batch_size,
-                                          &pre_read_rows, &pre_eof, run_length_vector));
+                                          &pre_read_rows, &pre_eof, filter_map));
         if (pre_read_rows == 0) {
             DCHECK_EQ(pre_eof, true);
             break;
@@ -504,9 +505,10 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             block->get_by_position(0).column->assume_mutable()->clear();
         }
 
-        const uint8_t* __restrict filter_map = result_filter.data();
-        select_vector_ptr.reset(new ColumnSelectVector(filter_map, pre_read_rows, can_filter_all));
-        if (select_vector_ptr->filter_all()) {
+        const uint8_t* __restrict filter_map_data = result_filter.data();
+        filter_map_ptr.reset(new FilterMap());
+        RETURN_IF_ERROR(filter_map_ptr->init(filter_map_data, pre_read_rows, can_filter_all));
+        if (filter_map_ptr->filter_all()) {
             for (auto& col : _lazy_read_ctx.predicate_columns.first) {
                 // clean block to read predicate columns
                 block->get_by_name(col).column->assume_mutable()->clear();
@@ -520,16 +522,18 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             Block::erase_useless_column(block, origin_column_num);
 
             if (!pre_eof) {
-                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
-                    break;
-                }
                 // If continuous batches are skipped, we can cache them to skip a whole page
                 _cached_filtered_rows += pre_read_rows;
+                if (pre_raw_read_rows >= config::doris_scanner_row_num) {
+                    *read_rows = 0;
+                    _convert_dict_cols_to_string_cols(block);
+                    return Status::OK();
+                }
             } else { // pre_eof
-                // If select_vector_ptr->filter_all() and pre_eof, we can skip whole row group.
+                // If filter_map_ptr->filter_all() and pre_eof, we can skip whole row group.
                 *read_rows = 0;
                 *batch_eof = true;
-                _lazy_read_filtered_rows += pre_read_rows;
+                _lazy_read_filtered_rows += (pre_read_rows + _cached_filtered_rows);
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
@@ -541,17 +545,17 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         return Status::Cancelled("cancelled");
     }
 
-    if (select_vector_ptr == nullptr) {
+    if (filter_map_ptr == nullptr) {
         DCHECK_EQ(pre_read_rows + _cached_filtered_rows, 0);
         *read_rows = 0;
         *batch_eof = true;
         return Status::OK();
     }
 
-    ColumnSelectVector& select_vector = *select_vector_ptr;
+    FilterMap& filter_map = *filter_map_ptr;
     std::unique_ptr<uint8_t[]> rebuild_filter_map = nullptr;
     if (_cached_filtered_rows != 0) {
-        _rebuild_select_vector(select_vector, rebuild_filter_map, pre_read_rows);
+        RETURN_IF_ERROR(_rebuild_filter_map(filter_map, rebuild_filter_map, pre_read_rows));
         pre_read_rows += _cached_filtered_rows;
         _cached_filtered_rows = 0;
     }
@@ -560,7 +564,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     size_t lazy_read_rows;
     bool lazy_eof;
     RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.lazy_read_columns, pre_read_rows,
-                                      &lazy_read_rows, &lazy_eof, select_vector));
+                                      &lazy_read_rows, &lazy_eof, filter_map));
+
     if (pre_read_rows != lazy_read_rows) {
         return Status::Corruption("Can't read the same number of rows when doing lazy read");
     }
@@ -568,7 +573,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     // we set pre_read_rows as batch_size for lazy read columns, so pre_eof != lazy_eof
 
     // filter data in predicate columns, and remove filter column
-    if (select_vector.has_filter()) {
+    if (filter_map.has_filter()) {
         if (block->columns() == origin_column_num) {
             // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
             // generated from next batch, so the filter column is removed ahead.
@@ -613,24 +618,24 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     return Status::OK();
 }
 
-void RowGroupReader::_rebuild_select_vector(ColumnSelectVector& select_vector,
-                                            std::unique_ptr<uint8_t[]>& filter_map,
-                                            size_t pre_read_rows) const {
+Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
+                                           std::unique_ptr<uint8_t[]>& filter_map_data,
+                                           size_t pre_read_rows) const {
     if (_cached_filtered_rows == 0) {
-        return;
+        return Status::OK();
     }
     size_t total_rows = _cached_filtered_rows + pre_read_rows;
-    if (select_vector.filter_all()) {
-        select_vector.build(nullptr, total_rows, true);
-        return;
+    if (filter_map.filter_all()) {
+        RETURN_IF_ERROR(filter_map.init(nullptr, total_rows, true));
+        return Status::OK();
     }
 
     uint8_t* map = new uint8_t[total_rows];
-    filter_map.reset(map);
+    filter_map_data.reset(map);
     for (size_t i = 0; i < _cached_filtered_rows; ++i) {
         map[i] = 0;
     }
-    const uint8_t* old_map = select_vector.filter_map();
+    const uint8_t* old_map = filter_map.filter_map_data();
     if (old_map == nullptr) {
         // select_vector.filter_all() == true is already built.
         for (size_t i = _cached_filtered_rows; i < total_rows; ++i) {
@@ -639,7 +644,8 @@ void RowGroupReader::_rebuild_select_vector(ColumnSelectVector& select_vector,
     } else {
         memcpy(map + _cached_filtered_rows, old_map, pre_read_rows);
     }
-    select_vector.build(map, total_rows, false);
+    RETURN_IF_ERROR(filter_map.init(map, total_rows, false));
+    return Status::OK();
 }
 
 Status RowGroupReader::_fill_partition_columns(
@@ -653,7 +659,7 @@ Status RowGroupReader::_fill_partition_columns(
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        int num_deserialized = 0;
+        uint64_t num_deserialized = 0;
         // Be careful when reading empty rows from parquet row groups.
         if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
                                                             &num_deserialized,
@@ -678,8 +684,8 @@ Status RowGroupReader::_fill_missing_columns(
     for (auto& kv : missing_columns) {
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(block->get_by_name(kv.first).column)).mutate().get());
+            auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -693,8 +699,9 @@ Status RowGroupReader::_fill_missing_columns(
                 // call resize because the first column of _src_block_ptr may not be filled by reader,
                 // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
                 // has only one row.
-                std::move(*block->get_by_position(result_column_id).column).mutate()->resize(rows);
                 auto result_column_ptr = block->get_by_position(result_column_id).column;
+                auto mutable_column = result_column_ptr->assume_mutable();
+                mutable_column->resize(rows);
                 // result_column_ptr maybe a ColumnConst, convert it to a normal column
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_name(kv.first).type;
@@ -819,7 +826,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         int dict_pos = -1;
         int index = 0;
         for (const auto slot_desc : _tuple_descriptor->slots()) {
-            if (!slot_desc->need_materialize()) {
+            if (!slot_desc->is_materialized()) {
                 // should be ignored from reading
                 continue;
             }
@@ -1033,5 +1040,6 @@ ParquetColumnReader::Statistics RowGroupReader::statistics() {
     }
     return st;
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

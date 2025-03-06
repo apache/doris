@@ -30,7 +30,7 @@ suite("test_dml_update_table_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -55,21 +55,21 @@ suite("test_dml_update_table_auth","p0,auth_call") {
         (3, "333");
         """
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """UPDATE ${dbName}.${tableName} SET username = "444" WHERE id=1;"""
             exception "denied"
         }
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """UPDATE ${dbName}.${tableName} SET username = "444" WHERE id=1;"""
             exception "denied"
         }
     }
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """UPDATE ${dbName}.${tableName} SET username = "444" WHERE id=1;"""
     }
 

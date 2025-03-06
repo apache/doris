@@ -112,15 +112,12 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Array"; }
-    bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
@@ -132,9 +129,7 @@ public:
     void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
     bool is_default_at(size_t n) const;
-    void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
@@ -164,10 +159,9 @@ public:
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
-    ColumnPtr convert_to_full_column_if_const() const override;
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
@@ -195,14 +189,6 @@ public:
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
-    }
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {

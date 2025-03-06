@@ -60,8 +60,10 @@ public class BackendServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
 
-    private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
+    private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
+
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
     public BackendServiceProxy() {

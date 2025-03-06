@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -41,7 +42,7 @@ import java.util.List;
  */
 public class DaysSub extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args {
+        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args, DateAddSubMonotonic {
     // When enable_date_conversion is true, we prefer to V2 signature.
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
     private static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
@@ -76,5 +77,10 @@ public class DaysSub extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDaysSub(this, context);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return new DaysSub(literal, child(1));
     }
 }

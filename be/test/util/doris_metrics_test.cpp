@@ -34,14 +34,14 @@ TEST_F(DorisMetricsTest, Normal) {
     auto server_entity = DorisMetrics::instance()->server_entity();
     // check metric
     {
-        DorisMetrics::instance()->fragment_requests_total->reset();
+        DorisMetrics::instance()->fragment_requests_total->set_value(0);
         DorisMetrics::instance()->fragment_requests_total->increment(12);
         auto metric = server_entity->get_metric("fragment_requests_total");
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("12", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->fragment_request_duration_us->reset();
+        DorisMetrics::instance()->fragment_request_duration_us->set_value(0);
         DorisMetrics::instance()->fragment_request_duration_us->increment(101);
         auto metric = server_entity->get_metric("fragment_request_duration_us");
         EXPECT_TRUE(metric != nullptr);
@@ -92,7 +92,7 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     // engine request
     {
-        DorisMetrics::instance()->create_tablet_requests_total->reset();
+        DorisMetrics::instance()->create_tablet_requests_total->set_value(0);
         DorisMetrics::instance()->create_tablet_requests_total->increment(15);
         auto metric =
                 server_entity->get_metric("create_tablet_requests_total", "engine_requests_total");
@@ -100,7 +100,7 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("15", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->drop_tablet_requests_total->reset();
+        DorisMetrics::instance()->drop_tablet_requests_total->set_value(0);
         DorisMetrics::instance()->drop_tablet_requests_total->increment(16);
         auto metric =
                 server_entity->get_metric("drop_tablet_requests_total", "engine_requests_total");
@@ -129,7 +129,7 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("20", metric->to_string().c_str());
     }
     {
-        DorisMetrics::instance()->storage_migrate_requests_total->reset();
+        DorisMetrics::instance()->storage_migrate_requests_total->set_value(0);
         DorisMetrics::instance()->storage_migrate_requests_total->increment(21);
         auto metric = server_entity->get_metric("storage_migrate_requests_total",
                                                 "engine_requests_total");

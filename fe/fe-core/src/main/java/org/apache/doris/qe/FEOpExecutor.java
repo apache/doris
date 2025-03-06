@@ -161,9 +161,6 @@ public class FEOpExecutor {
         if (!Strings.isNullOrEmpty(cluster)) {
             params.setCloudCluster(cluster);
         }
-
-        // query options
-        params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));

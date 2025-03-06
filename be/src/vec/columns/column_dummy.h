@@ -44,6 +44,7 @@ public:
     void pop_back(size_t n) override { s -= n; }
     size_t byte_size() const override { return 0; }
     size_t allocated_bytes() const override { return 0; }
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
     int compare_at(size_t, size_t, const IColumn&, int) const override { return 0; }
 
     [[noreturn]] Field operator[](size_t) const override {

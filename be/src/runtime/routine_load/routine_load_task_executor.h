@@ -73,6 +73,8 @@ public:
                                                  std::vector<PIntegerPair>* partition_offsets,
                                                  int timeout);
 
+    ThreadPool& get_thread_pool() { return *_thread_pool; }
+
 private:
     // execute the task
     void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,

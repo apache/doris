@@ -16,6 +16,7 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -51,7 +52,7 @@ namespace doris::config {
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 
 // Dir of jdbc drivers
-DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/jdbc_drivers");
+DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
@@ -63,8 +64,29 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
-DEFINE_mString(public_access_ip, "");
-DEFINE_Int32(public_access_port, "-1");
+// If the external client cannot directly access priority_networks, set public_host to be accessible
+// to external client.
+// There are usually two usage scenarios:
+// 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
+// However, a reverse proxy (such as Nginx) can be added to all Doris BE nodes, and the external client will be
+// randomly routed to a Doris BE node when connecting to Nginx. set public_host to the host of Nginx.
+// 2. if priority_networks is an internal network IP, and BE node has its own independent external IP,
+// but Doris currently does not support modifying priority_networks, setting public_host to the real external IP.
+DEFINE_mString(public_host, "");
+
+// If the BE node is connected to the external network through a reverse proxy like Nginx
+// and need to use Arrow Flight SQL, should add a server in Nginx to reverse proxy
+// `Nginx:arrow_flight_sql_proxy_port` to `BE_priority_networks:arrow_flight_sql_port`. For example:
+// upstream arrowflight {
+//    server 10.16.10.8:8069;
+//    server 10.16.10.8:8068;
+//}
+// server {
+//    listen 8167 http2;
+//    listen [::]:8167 http2;
+//    server_name doris.arrowflight.com;
+// }
+DEFINE_Int32(arrow_flight_sql_proxy_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -97,7 +119,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
@@ -210,6 +232,7 @@ DEFINE_Int32(check_consistency_worker_count, "1");
 DEFINE_Int32(upload_worker_count, "1");
 // the count of thread to download
 DEFINE_Int32(download_worker_count, "1");
+DEFINE_Int32(num_query_ctx_map_partitions, "128");
 // the count of thread to make snapshot
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
@@ -229,6 +252,12 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
+// whether to download small files in batch
+DEFINE_mBool(enable_batch_download, "true");
+// whether to check md5sum when download
+DEFINE_mBool(enable_download_md5sum_check, "true");
+// download binlog meta timeout, default 30s
+DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -269,7 +298,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     return true;
 });
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
-DEFINE_Int32(remote_split_source_batch_size, "10240");
+DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -397,7 +426,9 @@ DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-DEFINE_Bool(enable_skip_tablet_compaction, "false");
+DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_mInt32(skip_tablet_compaction_second, "10");
+
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -430,10 +461,10 @@ DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 DEFINE_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-DEFINE_mInt64(total_permits_for_compaction_score, "10000");
+DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
 
 // sleep interval in ms after generated compaction tasks
-DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
+DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
 
 // sleep interval in second after update replica infos
 DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
@@ -503,7 +534,7 @@ DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
 DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
-DEFINE_Int32(webserver_num_workers, "48");
+DEFINE_Int32(webserver_num_workers, "128");
 
 DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
@@ -530,6 +561,8 @@ DEFINE_Bool(enable_brpc_builtin_services, "true");
 
 // Enable brpc connection check
 DEFINE_Bool(enable_brpc_connection_check, "false");
+
+DEFINE_mInt64(brpc_connection_check_timeout_ms, "10000");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
@@ -585,7 +618,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
-DEFINE_mString(je_dirty_pages_mem_limit_percent, "2%");
+DEFINE_mInt32(je_dirty_decay_ms, "5000");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -650,7 +683,7 @@ DEFINE_mBool(sync_file_on_close, "true");
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -681,6 +714,8 @@ DEFINE_mInt32(es_http_timeout_ms, "5000");
 // same cache size configuration.
 // TODO(cmy): use different config to set different client cache if necessary.
 DEFINE_Int32(max_client_cache_size_per_host, "10");
+
+DEFINE_Int32(max_master_fe_client_cache_size, "10");
 
 // Dir to save files downloaded by SmallFileMgr
 DEFINE_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
@@ -839,8 +874,8 @@ DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
 // The default delete bitmap cache is set to 100MB,
 // which can be insufficient and cause performance issues when the amount of user data is large.
 // To mitigate the problem of an inadequate cache,
-// we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
-DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "0.5%");
+// we will take the larger of 1.0% of the total memory and 100MB as the delete bitmap cache size.
+DEFINE_String(delete_bitmap_dynamic_agg_cache_limit, "1.0%");
 DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
 
 // reference https://github.com/edenhill/librdkafka/blob/master/INTRODUCTION.md#broker-version-compatibility
@@ -887,7 +922,7 @@ DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
-DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
+DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
@@ -936,8 +971,6 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
-DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
-DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -965,7 +998,7 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 DEFINE_Bool(enable_segcompaction, "true");
 
 // Max number of segments allowed in a single segcompaction task.
-DEFINE_Int32(segcompaction_batch_size, "10");
+DEFINE_mInt32(segcompaction_batch_size, "10");
 
 // Max row count allowed in a single source segment, bigger segments will be skipped.
 DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
@@ -985,6 +1018,9 @@ DEFINE_mInt32(segcompaction_num_threads, "5");
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
 
+// enable prefetch tablets before opening
+DEFINE_mBool(enable_prefetch_tablet, "true");
+
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
@@ -995,7 +1031,7 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict, "true");
+DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1004,7 +1040,7 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
 // format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
 // Note1: storage is "disk" by default
 // Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
@@ -1020,20 +1056,30 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
+DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
-DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
-DEFINE_mBool(enbale_dump_error_file, "true");
+DEFINE_mBool(enbale_dump_error_file, "false");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
+DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
+DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
+DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
+DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
+DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
@@ -1108,8 +1154,9 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
+DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1140,6 +1187,9 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the size of primary keys in memory exceeds this value, finish current segment
+// and create a new segment, used in compaction. Default 50MB.
+DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
@@ -1180,10 +1230,12 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_String(doris_cgroup_cpu_path, "");
 
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
+DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
@@ -1237,7 +1289,12 @@ DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
 });
 DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
+// paused query in queue timeout(ms) will be resumed or canceled
+DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
+
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1245,14 +1302,22 @@ DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_limit, "0");
 
 DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_limit, "0");
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/connectors");
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1301,8 +1366,6 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
-// The max ratio for ttl cache's size
-DEFINE_mInt64(max_ttl_cache_ratio, "50");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1370,6 +1433,21 @@ DEFINE_Int32(query_cache_size, "512");
 DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
+DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
+
+DEFINE_mInt32(compaction_num_per_round, "1");
+
+DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
+DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
+DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+DEFINE_mInt32(schema_dict_cache_capacity, "4096");
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST

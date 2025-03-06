@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -80,6 +81,8 @@ public:
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+
+    void set_speed_limit();
 
     // TODO(zc): support set header
     // void set_header(const std::string& key, const std::string& value) {
@@ -141,6 +144,8 @@ public:
     // helper function to download a file, you can call this function to download
     // a file to local_path
     Status download(const std::string& local_path);
+    Status download_multi_files(const std::string& local_dir,
+                                const std::unordered_set<std::string>& expected_files);
 
     Status execute_post_request(const std::string& payload, std::string* response);
 
@@ -151,6 +156,10 @@ public:
 
     // execute remote call action
     Status execute(const std::function<bool(const void* data, size_t length)>& callback = {});
+
+    // execute remote call action with retry, like execute_with_retry but keep the http client instance
+    Status execute(int retry_times, int sleep_time,
+                   const std::function<Status(HttpClient*)>& callback);
 
     size_t on_response_data(const void* data, size_t length);
 
@@ -164,7 +173,8 @@ public:
     Status _escape_url(const std::string& url, std::string* escaped_url);
 
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;
@@ -172,6 +182,7 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
+    HttpMethod _method = GET;
 };
 
 } // namespace doris

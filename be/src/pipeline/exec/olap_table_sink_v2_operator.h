@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class OlapTableSinkV2OperatorX;
 
@@ -40,7 +41,7 @@ public:
     using Base = DataSinkOperatorX<OlapTableSinkV2LocalState>;
     OlapTableSinkV2OperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0),
+            : Base(operator_id, 0, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -52,8 +53,8 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::prepare(state));
         RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
@@ -63,6 +64,11 @@ public:
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         return local_state.sink(state, in_block, eos);
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state._writer->set_low_memory_mode();
     }
 
 private:
@@ -76,4 +82,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

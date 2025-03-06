@@ -31,7 +31,7 @@ namespace doris::segment_v2 {
 class PhraseEdgeQuery : public Query {
 public:
     PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                    const TQueryOptions& query_options);
+                    const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~PhraseEdgeQuery() override = default;
 
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;

@@ -492,14 +492,14 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     auto* output_ptr = output;
 
     while (input_len > 0) {
-        //if faild ,  fall back to large block begin
+        if (input_len < sizeof(uint32_t)) {
+            *more_input_bytes = sizeof(uint32_t) - input_len;
+            break;
+        }
+
+        //if faild, fall back to large block begin
         auto* large_block_input_ptr = input_ptr;
         auto* large_block_output_ptr = output_ptr;
-
-        if (input_len < sizeof(uint32_t)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "fail to do hadoop-lz4 decompress, input_len=$0", input_len));
-        }
 
         uint32_t remaining_decompressed_large_block_len = BigEndian::Load32(input_ptr);
 
@@ -609,14 +609,14 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
     auto* output_ptr = output;
 
     while (input_len > 0) {
-        //if faild ,  fall back to large block begin
+        if (input_len < sizeof(uint32_t)) {
+            *more_input_bytes = sizeof(uint32_t) - input_len;
+            break;
+        }
+
+        //if faild, fall back to large block begin
         auto* large_block_input_ptr = input_ptr;
         auto* large_block_output_ptr = output_ptr;
-
-        if (input_len < sizeof(uint32_t)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "fail to do hadoop-snappy decompress, input_len=$0", input_len));
-        }
 
         uint32_t remaining_decompressed_large_block_len = BigEndian::Load32(input_ptr);
 

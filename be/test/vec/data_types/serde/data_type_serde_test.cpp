@@ -166,7 +166,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
@@ -175,7 +175,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
@@ -240,7 +240,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                                   jsonb_writer.getOutput()->getSize());
         StringRef jsonb_data = jsonb_column->get_data_at(0);
-        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+        auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
         JsonbDocument& doc = *pdoc;
         for (auto it = doc->begin(); it != doc->end(); ++it) {
             serde->read_one_cell_from_jsonb(*vec, it->value());
@@ -270,7 +270,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                                   jsonb_writer.getOutput()->getSize());
         StringRef jsonb_data = jsonb_column->get_data_at(0);
-        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+        auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
         JsonbDocument& doc = *pdoc;
         for (auto it = doc->begin(); it != doc->end(); ++it) {
             serde->read_one_cell_from_jsonb(*vec, it->value());

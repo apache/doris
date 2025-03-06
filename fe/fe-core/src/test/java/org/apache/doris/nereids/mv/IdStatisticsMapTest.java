@@ -76,7 +76,7 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 .rewrite();
         // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
         Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
-                .getScanPlan(null).getOutputSet();
+                .getScanPlan(null, c1).getOutputSet();
         tmpPlanChecker
                 .optimize()
                 .printlnBestPlanTree();

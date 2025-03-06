@@ -49,7 +49,7 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
     }
 

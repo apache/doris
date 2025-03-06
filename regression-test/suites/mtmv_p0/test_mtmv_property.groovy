@@ -60,7 +60,8 @@ suite("test_mtmv_property","mtmv") {
 
     def showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains('tag.location.default: 1'))
+    // Cannot compare the number of replicas to 1, as the pipeline may force the number of replicas to be set
+    assertTrue(showCreateTableResult.toString().contains('tag.location.default:'))
     assertTrue(showCreateTableResult.toString().contains('"min_load_replica_num" = "-1"'))
     assertTrue(showCreateTableResult.toString().contains('"storage_medium" = "hdd"'))
     assertTrue(showCreateTableResult.toString().contains('"store_row_column" = "true"'))

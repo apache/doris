@@ -18,6 +18,7 @@
 package org.pentaho.di.trans.steps.dorisstreamloader.load;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang.StringUtils;
 import org.apache.http.client.entity.GzipCompressingEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -48,7 +49,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.ARROW;
@@ -92,6 +95,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private final AtomicLong currentCacheBytes = new AtomicLong(0L);
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
+    private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
     private final int FLUSH_QUEUE_SIZE = 2;
     private DorisOptions options;
     private LogChannelInterface log;
@@ -184,9 +188,11 @@ public class DorisBatchStreamLoad implements Serializable {
      * @param record
      * @throws IOException
      */
-    public synchronized void writeRecord(String database, String table, byte[] record) {
+    public void writeRecord(String database, String table, byte[] record) {
         checkFlushException();
         String bufferKey = getTableIdentifier(database, table);
+
+        getLock(bufferKey).readLock().lock();
         BatchRecordBuffer buffer =
                 bufferMap.computeIfAbsent(
                         bufferKey,
@@ -199,10 +205,13 @@ public class DorisBatchStreamLoad implements Serializable {
 
         int bytes = buffer.insert(record);
         currentCacheBytes.addAndGet(bytes);
+        getLock(bufferKey).readLock().unlock();
+
         if (currentCacheBytes.get() > maxBlockedBytes) {
             lock.lock();
             try {
                 while (currentCacheBytes.get() >= maxBlockedBytes) {
+                    checkFlushException();
                     log.logDetailed(
                             "Cache full, waiting for flush, currentBytes: " + currentCacheBytes.get()
                                     + ", maxBlockedBytes: " + maxBlockedBytes);
@@ -231,19 +240,15 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    public synchronized boolean bufferFullFlush(String bufferKey) {
+    public boolean bufferFullFlush(String bufferKey) {
         return doFlush(bufferKey, false, true);
-    }
-
-    public synchronized boolean intervalFlush() {
-        return doFlush(null, false, false);
     }
 
     /**
      * Force flush and wait for success.
      * @return
      */
-    public synchronized boolean forceFlush() {
+    public boolean forceFlush() {
         return doFlush(null, true, false);
     }
 
@@ -261,6 +266,11 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     private synchronized boolean flush(String bufferKey, boolean waitUtilDone) {
+        if (!waitUtilDone && bufferMap.isEmpty()) {
+            // bufferMap may have been flushed by other threads
+            log.logDetailed("bufferMap is empty, no need to flush {}", bufferKey);
+            return false;
+        }
         if (null == bufferKey) {
             boolean flush = false;
             for (String key : bufferMap.keySet()) {
@@ -277,7 +287,7 @@ public class DorisBatchStreamLoad implements Serializable {
         } else if (bufferMap.containsKey(bufferKey)) {
             flushBuffer(bufferKey);
         } else {
-            throw new DorisRuntimeException("buffer not found for key: " + bufferKey);
+            log.logDetailed("buffer not found for key: {}, may be already flushed.", bufferKey);
         }
         if (waitUtilDone) {
             waitAsyncLoadFinish();
@@ -286,12 +296,21 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     private synchronized void flushBuffer(String bufferKey) {
-        BatchRecordBuffer buffer = bufferMap.get(bufferKey);
+        BatchRecordBuffer buffer;
+        try {
+            getLock(bufferKey).writeLock().lock();
+            buffer = bufferMap.remove(bufferKey);
+        } finally {
+            getLock(bufferKey).writeLock().unlock();
+        }
+        if (buffer == null) {
+            log.logDetailed("buffer key is not exist {}, skipped", bufferKey);
+            return;
+        }
         String label = String.format("%s_%s_%s", "kettle", buffer.getTable(), UUID.randomUUID());
         buffer.setLabelName(label);
         log.logDetailed("Flush buffer, table " + bufferKey + ", records " + buffer.getNumOfRecords());
         putRecordToFlushQueue(buffer);
-        bufferMap.remove(bufferKey);
     }
 
     private void putRecordToFlushQueue(BatchRecordBuffer buffer) {
@@ -304,6 +323,9 @@ public class DorisBatchStreamLoad implements Serializable {
         } catch (InterruptedException e) {
             throw new RuntimeException("Failed to put record buffer to flush queue");
         }
+        // When the load thread reports an error, the flushQueue will be cleared,
+        // and need to force a check for the exception.
+        checkFlushException();
     }
 
     private void checkFlushException() {
@@ -313,7 +335,9 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     private void waitAsyncLoadFinish() {
-        for (int i = 0; i < FLUSH_QUEUE_SIZE + 1; i++) {
+        // Because the flush thread will drainTo once after polling is completed
+        // if queue_size is 2, at least 4 empty queues must be consumed to ensure that flush has been completed
+        for (int i = 0; i < FLUSH_QUEUE_SIZE * 2 + 1; i++) {
             BatchRecordBuffer empty = new BatchRecordBuffer();
             putRecordToFlushQueue(empty);
         }
@@ -327,8 +351,6 @@ public class DorisBatchStreamLoad implements Serializable {
         // close async executor
         this.loadExecutorService.shutdown();
         this.started.set(false);
-        // clear buffer
-        this.flushQueue.clear();
     }
 
     public boolean mergeBuffer(List<BatchRecordBuffer> recordList, BatchRecordBuffer buffer) {
@@ -377,6 +399,10 @@ public class DorisBatchStreamLoad implements Serializable {
         return true;
     }
 
+    private ReadWriteLock getLock(String bufferKey) {
+        return bufferMapLock.computeIfAbsent(bufferKey, k -> new ReentrantReadWriteLock());
+    }
+
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
@@ -416,11 +442,6 @@ public class DorisBatchStreamLoad implements Serializable {
                             load(bf.getLabelName(), bf);
                         }
                     }
-
-                    if (flushQueue.size() < flushQueueSize) {
-                        // Avoid waiting for 2 rounds of intervalMs
-                        doFlush(null, false, false);
-                    }
                 } catch (Exception e) {
                     log.logError("worker running error", e);
                     exception.set(e);
@@ -448,6 +469,7 @@ public class DorisBatchStreamLoad implements Serializable {
                     .setLabel(label)
                     .addCommonHeader()
                     .setEntity(entity)
+                    .addHiddenColumns(options.isDeletable())
                     .addProperties(options.getStreamLoadProp());
 
             if (enableGzCompress) {
@@ -482,17 +504,23 @@ public class DorisBatchStreamLoad implements Serializable {
                                     lock.unlock();
                                 }
                                 return;
-                            } else if (LoadStatus.LABEL_ALREADY_EXIST.equals(
-                                    respContent.getStatus())) {
-                                // todo: need to abort transaction when JobStatus not finished
-                                putBuilder.setLabel(label + "_" + retry);
-                                reason = respContent.getMessage();
                             } else {
-                                String errMsg =
+                                String errMsg = null;
+                                if (StringUtils.isBlank(respContent.getMessage())
+                                    && StringUtils.isBlank(respContent.getErrorURL())) {
+                                    // sometimes stream load will not return message
+                                    errMsg =
                                         String.format(
-                                                "stream load error: %s, see more in %s",
-                                                respContent.getMessage(),
-                                                respContent.getErrorURL());
+                                            "stream load error, response is %s",
+                                            loadResult);
+                                    throw new DorisRuntimeException(errMsg);
+                                } else {
+                                    errMsg =
+                                        String.format(
+                                            "stream load error: %s, see more in %s",
+                                            respContent.getMessage(),
+                                            respContent.getErrorURL());
+                                }
                                 throw new DorisRuntimeException(errMsg);
                             }
                         }
@@ -512,6 +540,12 @@ public class DorisBatchStreamLoad implements Serializable {
                 // get available backend retry
                 refreshLoadUrl(buffer.getDatabase(), buffer.getTable());
                 putBuilder.setUrl(loadUrl);
+                putBuilder.setLabel(label + "_" + retry);
+
+                try {
+                    Thread.sleep(1000L * retry);
+                } catch (InterruptedException e) {
+                }
             }
             buffer.clear();
             buffer = null;

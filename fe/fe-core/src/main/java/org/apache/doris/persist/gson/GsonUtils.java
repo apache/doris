@@ -146,6 +146,7 @@ import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergS3TablesExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -172,6 +173,7 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -182,6 +184,8 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob.IngestionLoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -200,6 +204,7 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
@@ -385,7 +390,9 @@ public class GsonUtils {
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
-            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
+            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName())
+            .registerSubtype(IngestionLoadJobStateUpdateInfo.class,
+                    IngestionLoadJobStateUpdateInfo.class.getSimpleName());
 
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
@@ -412,6 +419,8 @@ public class GsonUtils {
                 .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergS3TablesExternalCatalog.class,
+                        IcebergS3TablesExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
@@ -446,6 +455,7 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
                     .registerSubtype(MTMVMaxTimestampSnapshot.class, MTMVMaxTimestampSnapshot.class.getSimpleName())
                     .registerSubtype(MTMVTimestampSnapshot.class, MTMVTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVSnapshotIdSnapshot.class, MTMVSnapshotIdSnapshot.class.getSimpleName())
                     .registerSubtype(MTMVVersionSnapshot.class, MTMVVersionSnapshot.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
@@ -566,7 +576,8 @@ public class GsonUtils {
             .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
             .registerSubtype(OFSFileSystem.class, OFSFileSystem.class.getSimpleName())
             .registerSubtype(ObjFileSystem.class, ObjFileSystem.class.getSimpleName())
-            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName());
+            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
+            .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
@@ -582,7 +593,8 @@ public class GsonUtils {
                     .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
                     .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
                     .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
-                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName())
+                    .registerSubtype(IngestionLoadJob.class, IngestionLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")

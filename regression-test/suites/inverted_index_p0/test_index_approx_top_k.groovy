@@ -88,15 +88,11 @@ suite("test_index_approx_top_k", "p0"){
 
         sql """ set debug_skip_fold_constant = true; """
         qt_sql """ select clientip, count(*) as count from ${tableName} group by clientip order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, 10) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, 10, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, 5 + 5, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, abs(-10), 300) from ${tableName}; """
 
         qt_sql """ select clientip, status, size, count(*) as count from ${tableName} group by clientip, status, size order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, status, size) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, 10) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, 10, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, 5 + 5, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, abs(-10), 300) from ${tableName}; """
@@ -123,15 +119,11 @@ suite("test_index_approx_top_k", "p0"){
 
         sql """ set debug_skip_fold_constant = true; """
         qt_sql """ select clientip, count(*) as count from ${tableName} group by clientip order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, 10) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, 10, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, 5 + 5, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, abs(-10), 300) from ${tableName}; """
 
         qt_sql """ select clientip, status, size, count(*) as count from ${tableName} group by clientip, status, size order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, status, size) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, 10) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, 10, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, 5 + 5, 300) from ${tableName}; """
         qt_sql """ select approx_top_k(clientip, status, size, abs(-10), 300) from ${tableName}; """

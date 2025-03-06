@@ -301,6 +301,10 @@ public:
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
 
+    void get_schema_dict(::google::protobuf::RpcController* controller,
+                         const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
     // ATTN: If you add a new method, please also add the corresponding implementation in `MetaServiceProxy`.
 
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
@@ -694,6 +698,12 @@ public:
         call_impl(&cloud::MetaService::get_txn_id, controller, request, response, done);
     }
 
+    void get_schema_dict(::google::protobuf::RpcController* controller,
+                         const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_schema_dict, controller, request, response, done);
+    }
+
 private:
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -729,6 +739,7 @@ private:
         int32_t retry_times = 0;
         uint64_t duration_ms = 0, retry_drift_ms = 0;
         while (true) {
+            resp->Clear(); // reset the response message in case it is reused for retry
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             MetaServiceCode code = resp->status().code();
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&

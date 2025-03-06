@@ -32,17 +32,25 @@ public class ReplaceTableOperationLog implements Writable {
     private long dbId;
     @SerializedName(value = "origTblId")
     private long origTblId;
+    @SerializedName(value = "origTblName")
+    private String origTblName;
     @SerializedName(value = "newTblName")
     private long newTblId;
+    @SerializedName(value = "actualNewTblName")
+    private String newTblName;
     @SerializedName(value = "swapTable")
     private boolean swapTable;
     @SerializedName(value = "isForce")
     private boolean isForce = true; // older version it was force. so keep same.
 
-    public ReplaceTableOperationLog(long dbId, long origTblId, long newTblId, boolean swapTable, boolean isForce) {
+    public ReplaceTableOperationLog(long dbId, long origTblId,
+            String origTblName, long newTblId, String newTblName,
+            boolean swapTable, boolean isForce) {
         this.dbId = dbId;
         this.origTblId = origTblId;
+        this.origTblName = origTblName;
         this.newTblId = newTblId;
+        this.newTblName = newTblName;
         this.swapTable = swapTable;
         this.isForce = isForce;
     }
@@ -55,8 +63,16 @@ public class ReplaceTableOperationLog implements Writable {
         return origTblId;
     }
 
+    public String getOrigTblName() {
+        return origTblName;
+    }
+
     public long getNewTblId() {
         return newTblId;
+    }
+
+    public String getNewTblName() {
+        return newTblName;
     }
 
     public boolean isSwapTable() {
@@ -67,13 +83,21 @@ public class ReplaceTableOperationLog implements Writable {
         return isForce;
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    public static ReplaceTableOperationLog fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, ReplaceTableOperationLog.class);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
 
-    public static ReplaceTableOperationLog read(DataInput in) throws  IOException {
+    public static ReplaceTableOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ReplaceTableOperationLog.class);
     }

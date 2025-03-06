@@ -123,6 +123,10 @@ suite("inner_join_dphyp") {
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // without filter
     def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
             "from lineitem " +

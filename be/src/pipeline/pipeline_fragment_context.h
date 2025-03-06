@@ -69,6 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
+    void print_profile(const std::string& extra_info);
+
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
@@ -84,7 +86,7 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
-    [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
+    [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
     Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
 
@@ -100,7 +102,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline(PipelineId pipeline_id);
+    void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
 
@@ -114,6 +116,24 @@ public:
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
+
+    [[nodiscard]] size_t get_revocable_size(bool* has_running_task) const;
+
+    [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
+
+    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = _fragment_instance_ids[i];
+        }
+    }
+
+    void instance_ids(std::vector<string>& ins_ids) const {
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = print_id(_fragment_instance_ids[i]);
+        }
+    }
 
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
@@ -228,8 +248,6 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
-    bool _need_local_merge = false;
-
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
 #ifdef __clang__
@@ -277,8 +295,7 @@ private:
             _op_id_to_le_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
-    // UniqueId -> runtime mgr
-    std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
     //Here are two types of runtime states:
     //    - _runtime state is at the Fragment level.
@@ -301,7 +318,7 @@ private:
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
-    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

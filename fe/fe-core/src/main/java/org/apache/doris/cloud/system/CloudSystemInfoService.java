@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
@@ -327,9 +328,9 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("unable to alter backends due to empty cloud_instance_id");
         }
         // Issue rpc to meta to alter node, then fe master would add this node to its frontends
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(computeGroupId)
-                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .setType(ClusterPB.Type.COMPUTE)
                 .build();
 
         for (HostInfo hostInfo : hostInfos) {
@@ -434,7 +435,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
         throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
@@ -457,6 +468,9 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
+        if (memBe == null) {
+            return;
+        }
         // for rename cluster
         String originalClusterName = memBe.getCloudClusterName();
         String originalClusterId = memBe.getCloudClusterId();
@@ -489,12 +503,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean containClusterName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.containsKey(clusterName);
-        } finally {
-            rlock.unlock();
-        }
+        return clusterNameToId.containsKey(clusterName);
     }
 
     @Override
@@ -547,27 +556,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (clusterId.isEmpty()) {
-                return new ArrayList<>();
-            }
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (clusterId.isEmpty()) {
+            return new ArrayList<>();
         }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
-        rlock.lock();
-        try {
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
-        }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -585,27 +584,18 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<String> getCloudClusterIds() {
-        rlock.lock();
-        try {
-            return new ArrayList<>(clusterIdToBackend.keySet());
-        } finally {
-            rlock.unlock();
-        }
+        return new ArrayList<>(clusterIdToBackend.keySet());
     }
 
     public String getCloudStatusByName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (Strings.isNullOrEmpty(clusterId)) {
-                // for rename cluster or dropped cluster
-                LOG.warn("cant find clusterId by clusteName {}", clusterName);
-                return "";
-            }
-            return getCloudStatusByIdNoLock(clusterId);
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (Strings.isNullOrEmpty(clusterId)) {
+            // for rename cluster or dropped cluster
+            LOG.warn("cant find clusterId by clusteName {}", clusterName);
+            return "";
         }
+        // It is safe to return a null/empty status string, the caller handles it properly
+        return getCloudStatusByIdNoLock(clusterId);
     }
 
     public String getCloudStatusById(final String clusterId) {
@@ -844,10 +834,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                 .setCtime(System.currentTimeMillis() / 1000)
                 .build();
 
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(Config.cloud_sql_server_cluster_id)
                 .setClusterName(Config.cloud_sql_server_cluster_name)
-                .setType(Cloud.ClusterPB.Type.SQL)
+                .setType(ClusterPB.Type.SQL)
                 .addNodes(nodeInfoPB)
                 .build();
 
@@ -885,13 +875,13 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     private String tryCreateComputeGroup(String clusterName, String computeGroupId) throws UserException {
         if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
-            throw new DdlException("unable to create compute group due to empty cluster_id");
+            throw new DdlException("unable to create compute group due to empty cloud_instance_id");
         }
 
-        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+        ClusterPB clusterPB = ClusterPB.newBuilder()
                 .setClusterId(computeGroupId)
                 .setClusterName(clusterName)
-                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .setType(ClusterPB.Type.COMPUTE)
                 .build();
 
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
@@ -917,7 +907,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 Cloud.GetClusterResponse clusterResponse = getCloudCluster(clusterName, "", "");
                 if (clusterResponse.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
                     if (clusterResponse.getClusterCount() > 0) {
-                        Cloud.ClusterPB cluster = clusterResponse.getCluster(0);
+                        ClusterPB cluster = clusterResponse.getCluster(0);
                         return cluster.getClusterId();
                     } else {
                         throw new UserException("Cluster information not found in the response");
@@ -1054,7 +1044,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             builder.setCloudUniqueId(Config.cloud_unique_id);
             builder.setOp(Cloud.AlterClusterRequest.Operation.SET_CLUSTER_STATUS);
 
-            Cloud.ClusterPB.Builder clusterBuilder = Cloud.ClusterPB.newBuilder();
+            ClusterPB.Builder clusterBuilder = ClusterPB.newBuilder();
             clusterBuilder.setClusterId(getCloudClusterIdByName(clusterName));
             clusterBuilder.setClusterStatus(Cloud.ClusterStatus.TO_RESUME);
             builder.setCluster(clusterBuilder);
@@ -1156,6 +1146,53 @@ public class CloudSystemInfoService extends SystemInfoService {
         } catch (RpcException e) {
             LOG.warn("Failed to get instance info {}", cloudUniqueId, e);
             throw new IOException("Failed to get instance info");
+        }
+    }
+
+    public void renameComputeGroup(String originalName, String newGroupName) throws UserException {
+        String cloudInstanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
+        if (Strings.isNullOrEmpty(cloudInstanceId)) {
+            throw new DdlException("unable to rename compute group due to empty cloud_instance_id");
+        }
+        String originalComputeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(originalName);
+        if (Strings.isNullOrEmpty(originalComputeGroupId)) {
+            LOG.info("rename original compute group {} not found, unable to rename", originalName);
+            throw new DdlException("compute group '" + originalName + "' not found, unable to rename");
+        }
+        // check newGroupName has existed
+        if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(newGroupName)) {
+            LOG.info("rename new compute group {} has existed in instance, unable to rename", newGroupName);
+            throw new DdlException("compute group '" + newGroupName + "' has existed in warehouse, unable to rename");
+        }
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(originalComputeGroupId)
+                .setClusterName(newGroupName)
+                .setType(ClusterPB.Type.COMPUTE)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.RENAME_CLUSTER)
+                .setReplaceIfExistingEmptyTargetCluster(true)
+                .setCluster(clusterPB)
+                .build();
+
+
+        Cloud.AlterClusterResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter rename compute group not ok, response: {}", response);
+                throw new UserException("failed to rename compute group errorCode: " + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg() + " may be you can try later");
+            }
+        } catch (RpcException e) {
+            LOG.warn("alter rename compute group rpc exception");
+            throw new UserException("failed to alter rename compute group", e);
+        } finally {
+            LOG.info("alter rename compute group, request: {}, response: {}", request, response);
         }
     }
 }

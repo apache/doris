@@ -21,26 +21,18 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 class PartitionData : public iceberg::StructLike {
 public:
     explicit PartitionData(std::vector<std::any> partition_values)
             : _partition_values(std::move(partition_values)) {}
 
-    int size() const override { return _partition_values.size(); }
-
-    std::any get(int pos) const override {
-        if (pos < 0 || pos >= _partition_values.size()) {
+    std::any get(size_t pos) const override {
+        if (pos >= _partition_values.size()) {
             throw std::out_of_range("Index out of range");
         }
         return _partition_values[pos];
-    }
-
-    void set(int pos, const std::any& value) override {
-        if (pos < 0 || pos >= _partition_values.size()) {
-            throw std::out_of_range("Index out of range");
-        }
-        _partition_values[pos] = value;
     }
 
 private:
@@ -49,3 +41,4 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

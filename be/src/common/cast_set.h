@@ -61,12 +61,24 @@ void cast_set(T& a, U b) {
     a = static_cast<T>(b);
 }
 
+template <typename T, typename U>
+    requires std::is_floating_point_v<T> and std::is_integral_v<U>
+void cast_set(T& a, U b) {
+    a = static_cast<T>(b);
+}
+
 template <typename T, typename U, bool need_check_value = true>
     requires std::is_integral_v<T> && std::is_integral_v<U>
 T cast_set(U b) {
     if constexpr (need_check_value) {
         check_cast_value<T>(b);
     }
+    return static_cast<T>(b);
+}
+
+template <typename T, typename U>
+    requires std::is_floating_point_v<T> and std::is_integral_v<U>
+T cast_set(U b) {
     return static_cast<T>(b);
 }
 

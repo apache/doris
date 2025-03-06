@@ -21,11 +21,9 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -34,9 +32,9 @@
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/exec_env.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -49,6 +47,12 @@ const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
 const std::string kSegmentIndexIdParameter = "segment_index_id";
 const std::string kAcquireMD5Parameter = "acquire_md5";
+
+bvar::LatencyRecorder g_get_binlog_info_latency("doris_download_binlog", "get_binlog_info");
+bvar::LatencyRecorder g_get_segment_file_latency("doris_download_binlog", "get_segment_file");
+bvar::LatencyRecorder g_get_segment_index_file_latency("doris_download_binlog",
+                                                       "get_segment_index_file");
+bvar::LatencyRecorder g_get_rowset_meta_latency("doris_download_binlog", "get_rowset_meta");
 
 // get http param, if no value throw exception
 const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
@@ -147,8 +151,19 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
-        segment_index_file_path =
-                tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+        auto segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
+        if (tablet->tablet_schema()->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            // now CCR not support for variant + index v1
+            constexpr std::string_view index_suffix = "";
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
+                    std::stoll(segment_index_id), index_suffix);
+        } else {
+            DCHECK(segment_index_id == "-1");
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
+        }
         is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
@@ -225,14 +240,20 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
     const std::string& method = req->param(kMethodParameter);
 
     // Step 3: dispatch
+    MonotonicStopWatch watch;
+    watch.start();
     if (method == "get_binlog_info") {
         handle_get_binlog_info(_engine, req);
+        g_get_binlog_info_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_segment_file") {
         handle_get_segment_file(_engine, req, _rate_limit_group.get());
+        g_get_segment_file_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_segment_index_file") {
         handle_get_segment_index_file(_engine, req, _rate_limit_group.get());
+        g_get_segment_index_file_latency << watch.elapsed_time_microseconds();
     } else if (method == "get_rowset_meta") {
         handle_get_rowset_meta(_engine, req);
+        g_get_rowset_meta_latency << watch.elapsed_time_microseconds();
     } else {
         auto error_msg = fmt::format("invalid method: {}", method);
         LOG(WARNING) << error_msg;

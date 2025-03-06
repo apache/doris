@@ -70,7 +70,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
-    _query_thread_context.init_unlocked();
+    _resource_ctx = thread_context()->resource_ctx();
 
     _reset_mem_table();
 
@@ -86,7 +86,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
 }
 
 Status MemTableWriter::write(const vectorized::Block* block,
-                             const std::vector<uint32_t>& row_idxs) {
+                             const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -105,7 +105,20 @@ Status MemTableWriter::write(const vectorized::Block* block,
     }
 
     _total_received_rows += row_idxs.size();
-    RETURN_IF_ERROR(_mem_table->insert(block, row_idxs));
+    auto st = _mem_table->insert(block, row_idxs);
+
+    // Reset memtable immediately after insert failure to prevent potential flush operations.
+    // This is a defensive measure because:
+    // 1. When insert fails (e.g., memory allocation failure during add_rows),
+    //    the memtable is in an inconsistent state and should not be flushed
+    // 2. However, memory pressure might trigger a flush operation on this failed memtable
+    // 3. By resetting here, we ensure the failed memtable won't be included in any subsequent flush,
+    //    thus preventing potential crashes
+    if (!st.ok()) [[unlikely]] {
+        std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
+        _reset_mem_table();
+        return st;
+    }
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
@@ -139,12 +152,11 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    // In order to avoid repeated ATTACH, use SWITCH here. have two calling paths:
-    // 1. call by local, from `VTabletWriterV2::_write_memtable`, has been ATTACH Load memory tracker
-    // into thread context, ATTACH cannot be repeated here.
-    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`, no ATTACH because LoadChannelMgr
-    // not know Load context.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    // Three calling paths:
+    // 1. call by local, from `VTabletWriterV2::_write_memtable`.
+    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
+    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
+    SCOPED_SWITCH_RESOURCE_CONTEXT(_resource_ctx);
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -158,8 +170,8 @@ Status MemTableWriter::flush_async() {
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
+                << PrettyPrinter::print_bytes(_mem_table->memory_usage())
+                << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
     return s;

@@ -82,30 +82,18 @@ suite("test_trim_in") {
 
 
     /// folding
-    def re_fe
-    def re_be
-    def re_no_fold
-    def check_three_ways = { test_sql ->
-        re_fe = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        re_be = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        re_no_fold = order_sql "select/*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        logger.info("check on sql ${test_sql}")
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "trim_in(' hello world ', ' ld')"
-    check_three_ways "ltrim_in(' hello world ', ' ld')"
-    check_three_ways "rtrim_in(' hello world ', ' ld')"
-    check_three_ways "trim_in(' hello world ', ' ehlowrd')"
-    check_three_ways "ltrim_in(' hello world ', ' ehlowrd')"
-    check_three_ways "rtrim_in(' hello world ', ' ehlowrd')"
-    check_three_ways "trim_in(' hello world ', '')"
-    check_three_ways "ltrim_in(' hello world ', '')"
-    check_three_ways "rtrim_in(' hello world ', '')"
-    check_three_ways "trim_in(' hello world ', ' ')"
-    check_three_ways "ltrim_in(' hello world ', ' ')"
-    check_three_ways "rtrim_in(' hello world ', ' ')"
+    check_fold_consistency "trim_in(' hello world ', ' ld')"
+    check_fold_consistency "ltrim_in(' hello world ', ' ld')"
+    check_fold_consistency "rtrim_in(' hello world ', ' ld')"
+    check_fold_consistency "trim_in(' hello world ', ' ehlowrd')"
+    check_fold_consistency "ltrim_in(' hello world ', ' ehlowrd')"
+    check_fold_consistency "rtrim_in(' hello world ', ' ehlowrd')"
+    check_fold_consistency "trim_in(' hello world ', '')"
+    check_fold_consistency "ltrim_in(' hello world ', '')"
+    check_fold_consistency "rtrim_in(' hello world ', '')"
+    check_fold_consistency "trim_in(' hello world ', ' ')"
+    check_fold_consistency "ltrim_in(' hello world ', ' ')"
+    check_fold_consistency "rtrim_in(' hello world ', ' ')"
 
     order_qt_1 "SELECT ltrim_in('');"
     order_qt_2 "SELECT ltrim_in('   ');"

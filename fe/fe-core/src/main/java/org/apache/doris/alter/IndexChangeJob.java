@@ -348,6 +348,7 @@ public class IndexChangeJob implements Writable {
             olapTable.readUnlock();
         }
         this.jobState = JobState.RUNNING;
+        // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer inverted index job {} state to {}", jobId, this.jobState);
     }
 
@@ -467,6 +468,10 @@ public class IndexChangeJob implements Writable {
         this.errMsg = replayedJob.errMsg;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 
     public static IndexChangeJob read(DataInput in) throws IOException {

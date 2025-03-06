@@ -24,9 +24,12 @@ import org.apache.doris.common.jni.vec.NativeColumnValue.NativeValue;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,9 +44,13 @@ import java.util.Map;
  * see <a href="https://github.com/apache/spark/blob/master/sql/core/src/main/java/org/apache/spark/sql/execution/vectorized/WritableColumnVector.java">WritableColumnVector</a>
  */
 public class VectorColumn {
+    public static final Logger LOG = Logger.getLogger(VectorColumn.class);
     // String is stored as array<byte>
     // The default string length to initialize the capacity.
     private static final int DEFAULT_STRING_LENGTH = 4;
+
+    //add a new flag for const column
+    private boolean isConst = false;
 
     // NullMap column address
     private long nullMap;
@@ -73,8 +80,22 @@ public class VectorColumn {
     // todo: support pruned struct fields
     private List<Integer> structFieldIndex;
 
+
+    public static final InetAddress DEFAULT_IPV4;
+    public static final InetAddress DEFAULT_IPV6;
+
+    static {
+        try {
+            DEFAULT_IPV4 = InetAddress.getByName("127.0.0.1");
+            DEFAULT_IPV6 = InetAddress.getByName("::1");
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("Failed to initialize default InetAddress values", e);
+        }
+    }
+
     // Create writable column
     private VectorColumn(ColumnType columnType, int capacity) {
+        this.isConst = false;
         this.columnType = columnType;
         this.capacity = 0;
         this.nullMap = 0;
@@ -106,6 +127,7 @@ public class VectorColumn {
 
     // restore the child of string column & restore meta column
     private VectorColumn(long address, int capacity, ColumnType columnType) {
+        this.isConst = false;
         this.columnType = columnType;
         this.capacity = capacity;
         this.nullMap = 0;
@@ -122,7 +144,7 @@ public class VectorColumn {
         }
     }
 
-    // Create readable column
+    // Create readable column, and maybe pass by const column in Readable column
     private VectorColumn(ColumnType columnType, int numRows, long columnMetaAddress) {
         if (columnType.isUnsupported()) {
             throw new RuntimeException("Unsupported type for column: " + columnType.getName());
@@ -130,14 +152,27 @@ public class VectorColumn {
         long address = columnMetaAddress;
         this.capacity = numRows;
         this.columnType = columnType;
+        Long constFlag = OffHeap.getLong(null, address);
+        address += 8;
+        if (constFlag != 0) {
+            this.isConst = true;
+        }
+        // record the real rows even if it's const column
+        // as only one rows in const column
+        int realRows = this.isConst ? 1 : numRows;
         this.nullMap = OffHeap.getLong(null, address);
         address += 8;
         this.numNulls = 0;
         if (this.nullMap != 0) {
-            nulls = OffHeap.getBoolean(null, nullMap, numRows);
+            nulls = OffHeap.getBoolean(null, nullMap, realRows);
             for (boolean isNull : nulls) {
                 if (isNull) {
-                    this.numNulls++;
+                    if (this.isConst) {
+                        // all of const is null value
+                        this.numNulls += numRows;
+                    } else {
+                        this.numNulls++;
+                    }
                 }
             }
         }
@@ -149,7 +184,7 @@ public class VectorColumn {
             if (!columnType.isStruct()) {
                 this.offsets = OffHeap.getLong(null, address);
                 address += 8;
-                childRows = getArrayEndOffset(numRows - 1);
+                childRows = getArrayEndOffset(realRows - 1);
             }
             this.data = 0;
             List<ColumnType> children = columnType.getChildTypes();
@@ -162,7 +197,7 @@ public class VectorColumn {
             this.offsets = OffHeap.getLong(null, address);
             address += 8;
             this.data = 0;
-            int length = OffHeap.getInt(null, this.offsets + (numRows - 1) * 4L);
+            int length = OffHeap.getInt(null, this.offsets + (realRows - 1) * 4L);
             childColumns = new VectorColumn[1];
             childColumns[0] = new VectorColumn(OffHeap.getLong(null, address), length,
                     new ColumnType("#stringBytes", Type.BYTE));
@@ -221,6 +256,10 @@ public class VectorColumn {
         return columnType;
     }
 
+    public boolean isConst() {
+        return isConst;
+    }
+
     /**
      * Release columns and meta information
      */
@@ -248,6 +287,7 @@ public class VectorColumn {
         capacity = 0;
         numNulls = 0;
         appendIndex = 0;
+        isConst = false;
     }
 
     private void throwReserveException(int requiredCapacity, Throwable cause) {
@@ -351,6 +391,10 @@ public class VectorColumn {
                 return appendLong(0);
             case LARGEINT:
                 return appendBigInteger(BigInteger.ZERO);
+            case IPV4:
+                return appendInetAddress(DEFAULT_IPV4);
+            case IPV6:
+                return appendInetAddress(DEFAULT_IPV6);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -830,6 +874,56 @@ public class VectorColumn {
             }
         }
         return result;
+    }
+
+    public byte[] getInetAddressBytes(int rowId) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = new byte[typeSize];
+        OffHeap.copyMemory(null, data + (long) rowId * typeSize, bytes, OffHeap.BYTE_ARRAY_OFFSET, typeSize);
+        return bytes;
+    }
+
+    public InetAddress getInetAddress(int rowId) {
+        return TypeNativeBytes.getInetAddress(getInetAddressBytes(rowId));
+    }
+
+    public InetAddress[] getInetAddressColumn(int start, int end) {
+        InetAddress[] result = new InetAddress[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getInetAddress(i);
+            }
+        }
+        return result;
+    }
+
+    public int appendInetAddress(InetAddress v) {
+        reserve(appendIndex + 1);
+        putInetAddress(appendIndex, v);
+        return appendIndex++;
+    }
+
+    public void appendInetAddress(InetAddress[] batch, boolean isNullable) {
+        reserve(appendIndex + batch.length);
+        for (InetAddress v : batch) {
+            if (v == null) {
+                putNull(appendIndex);
+                if (columnType.isIpv4()) {
+                    putInetAddress(appendIndex, DEFAULT_IPV4);
+                } else {
+                    putInetAddress(appendIndex, DEFAULT_IPV6);
+                }
+            } else {
+                putInetAddress(appendIndex, v);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putInetAddress(int rowId, InetAddress v) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = TypeNativeBytes.getInetAddressBytes(v);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
     }
 
     public int appendDecimal(BigDecimal v) {
@@ -1357,6 +1451,9 @@ public class VectorColumn {
                 return new Long[size];
             case LARGEINT:
                 return new BigInteger[size];
+            case IPV4:
+            case IPV6:
+                return new InetAddress[size];
             case FLOAT:
                 return new Float[size];
             case DOUBLE:
@@ -1406,6 +1503,10 @@ public class VectorColumn {
             case LARGEINT:
                 appendBigInteger((BigInteger[]) batch, isNullable);
                 break;
+            case IPV4:
+            case IPV6:
+                appendInetAddress((InetAddress[]) batch, isNullable);
+                break;
             case FLOAT:
                 appendFloat((Float[]) batch, isNullable);
                 break;
@@ -1450,6 +1551,11 @@ public class VectorColumn {
     }
 
     public Object[] getObjectColumn(int start, int end) {
+        // for const column only one row in column
+        if (isConst()) {
+            start = 0;
+            end = 1;
+        }
         switch (columnType.getType()) {
             case BOOLEAN:
                 return getBooleanColumn(start, end);
@@ -1463,6 +1569,9 @@ public class VectorColumn {
                 return getLongColumn(start, end);
             case LARGEINT:
                 return getBigIntegerColumn(start, end);
+            case IPV4:
+            case IPV6:
+                return getInetAddressColumn(start, end);
             case FLOAT:
                 return getFloatColumn(start, end);
             case DOUBLE:
@@ -1583,6 +1692,7 @@ public class VectorColumn {
 
     // for test only.
     public void dump(StringBuilder sb, int i) {
+        i = isConst() ? 0 : i;
         if (isNullAt(i)) {
             sb.append("NULL");
             return;

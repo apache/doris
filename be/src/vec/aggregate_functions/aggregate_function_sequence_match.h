@@ -51,6 +51,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -88,10 +89,10 @@ public:
 
     size_t get_arg_count() const { return arg_count; }
 
-    void init(const std::string pattern, size_t arg_count) {
+    void init(const std::string pattern_, size_t arg_count_) {
         if (!init_flag) {
-            this->pattern = pattern;
-            this->arg_count = arg_count;
+            this->pattern = pattern_;
+            this->arg_count = arg_count_;
             parse_pattern();
             init_flag = true;
         }
@@ -144,7 +145,8 @@ public:
             write_binary(events.second.to_ulong(), buf);
         }
 
-        UInt32 conditions_met_value = conditions_met.to_ulong();
+        // This is std::bitset<32>, which will not exceed 32 bits.
+        UInt32 conditions_met_value = (UInt32)conditions_met.to_ulong();
         write_binary(conditions_met_value, buf);
 
         write_binary(pattern, buf);
@@ -627,8 +629,7 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         const std::string pattern = this->data(rhs).get_pattern();
-        size_t arg_count = this->data(rhs).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -640,8 +641,7 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
         const std::string pattern = this->data(place).get_pattern();
-        size_t arg_count = this->data(place).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(place).get_arg_count());
     }
 
 private:
@@ -754,3 +754,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

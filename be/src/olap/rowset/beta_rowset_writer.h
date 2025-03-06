@@ -257,6 +257,7 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
+    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
@@ -298,9 +299,9 @@ private:
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
     Status _rename_compacted_segments(int64_t begin, int64_t end);
-    Status _rename_compacted_segment_plain(uint64_t seg_id);
+    Status _rename_compacted_segment_plain(uint32_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
-    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
+    void _clear_statistics_for_deleting_segments_unsafe(uint32_t begin, uint32_t end);
 
     StorageEngine& _engine;
 

@@ -120,6 +120,10 @@ suite("agg_optimize_when_uniform") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     sql """analyze table lineitem with sync;"""
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
@@ -365,6 +369,10 @@ suite("agg_optimize_when_uniform") {
             """
     order_qt_query6_0_before "${query6_0}"
     async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+
+    def plan_6 = """explain verbose ${query6_0}"""
+    logger.info("plan_6 is " + plan_6)
+
     qt_shape6_0_after """explain shape plan ${query6_0}"""
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
@@ -438,7 +446,6 @@ suite("agg_optimize_when_uniform") {
     order_qt_query7_1_before "${query7_1}"
     // query where has a column not in agg output
     async_mv_rewrite_fail(db, mv7_1, query7_1, "mv7_1")
-    qt_shape7_1_after """explain shape plan ${query7_1}"""
     order_qt_query7_1_after "${query7_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
 
@@ -474,7 +481,11 @@ suite("agg_optimize_when_uniform") {
     order_qt_query8_0_before "${query8_0}"
     // query success but add agg
     async_mv_rewrite_success(db, mv8_0, query8_0, "mv8_0")
+
+    def plan_8 = """explain verbose ${query6_0}"""
+    logger.info("plan_8 is " + plan_8)
+
     qt_shape8_0_after """explain shape plan ${query8_0}"""
     order_qt_query8_0_after "${query8_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0;"""
 }

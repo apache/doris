@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("retention",
                                    creator_without_type::creator<AggregateFunctionRetention>);

@@ -41,6 +41,7 @@
 #include "exprs/function_filter.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
@@ -422,9 +423,6 @@ Status NewOlapScanner::_init_variant_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (!slot->need_materialize()) {
-            continue;
-        }
         if (slot->type().is_variant_type()) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
@@ -443,9 +441,6 @@ Status NewOlapScanner::_init_variant_columns() {
 Status NewOlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
-            continue;
-        }
-        if (!slot->need_materialize()) {
             continue;
         }
 
@@ -524,14 +519,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    // olap scan node will call scanner.close() when finished
-    // will release resources here
-    // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but
-    // deconstructor in reader references runtime state
-    // so that it will core
-    _tablet_reader_params.rs_splits.clear();
-    _tablet_reader.reset();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
@@ -578,7 +565,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_block_init_timer, stats.block_init_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_counter, stats.block_init_seek_num);
-    COUNTER_UPDATE(local_state->_segment_generate_row_range_timer, stats.generate_row_ranges_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_keys_timer,
+                   stats.generate_row_ranges_by_keys_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_column_conditions_timer,
+                   stats.generate_row_ranges_by_column_conditions_ns);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_bf_timer,
                    stats.generate_row_ranges_by_bf_ns);
     COUNTER_UPDATE(local_state->_collect_iterator_merge_next_timer,
@@ -600,10 +590,12 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_filtered_counter,
                    stats.rows_short_circuit_cond_filtered);
+    COUNTER_UPDATE(local_state->_rows_expr_cond_filtered_counter, stats.rows_expr_cond_filtered);
     COUNTER_UPDATE(local_state->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
-    for (auto& [id, info] : stats.filter_info) {
+    COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
+    for (const auto& [id, info] : stats.filter_info) {
         local_state->add_filter_info(id, info);
     }
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
@@ -640,6 +632,11 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+
+    InvertedIndexProfileReporter inverted_index_profile;
+    inverted_index_profile.update(local_state->_index_filter_profile.get(),
+                                  &stats.inverted_index_stats);
+
     if (config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
@@ -649,6 +646,47 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
 
+    COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,
+                   stats.tablet_reader_capture_rs_readers_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_return_columns_timer,
+                   stats.tablet_reader_init_return_columns_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_keys_param_timer,
+                   stats.tablet_reader_init_keys_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_orderby_keys_param_timer,
+                   stats.tablet_reader_init_orderby_keys_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_conditions_param_timer,
+                   stats.tablet_reader_init_conditions_param_timer_ns);
+    COUNTER_UPDATE(local_state->_tablet_reader_init_delete_condition_param_timer,
+                   stats.tablet_reader_init_delete_condition_param_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_vcollect_iter_init_timer,
+                   stats.block_reader_vcollect_iter_init_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_rs_readers_init_timer,
+                   stats.block_reader_rs_readers_init_timer_ns);
+    COUNTER_UPDATE(local_state->_block_reader_build_heap_init_timer,
+                   stats.block_reader_build_heap_init_timer_ns);
+
+    COUNTER_UPDATE(local_state->_rowset_reader_get_segment_iterators_timer,
+                   stats.rowset_reader_get_segment_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_create_iterators_timer,
+                   stats.rowset_reader_create_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_init_iterators_timer,
+                   stats.rowset_reader_init_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_rowset_reader_load_segments_timer,
+                   stats.rowset_reader_load_segments_timer_ns);
+
+    COUNTER_UPDATE(local_state->_segment_iterator_init_timer, stats.segment_iterator_init_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_return_column_iterators_timer,
+                   stats.segment_iterator_init_return_column_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_bitmap_index_iterators_timer,
+                   stats.segment_iterator_init_bitmap_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_inverted_index_iterators_timer,
+                   stats.segment_iterator_init_inverted_index_iterators_timer_ns);
+
+    COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
+                   stats.segment_create_column_readers_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_load_index_timer, stats.segment_load_index_timer_ns);
+
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(
             local_state->_read_compressed_counter->value());
@@ -657,12 +695,10 @@ void NewOlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
-    if (_query_statistics) {
-        _query_statistics->add_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
-        _query_statistics->add_scan_bytes_from_remote_storage(
-                stats.file_cache_stats.bytes_read_from_remote);
-    }
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            stats.file_cache_stats.bytes_read_from_local);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            stats.file_cache_stats.bytes_read_from_remote);
 }
 
 } // namespace doris::vectorized

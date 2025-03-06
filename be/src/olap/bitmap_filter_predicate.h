@@ -37,7 +37,7 @@ public:
     using SpecificFilter = BitmapFilterFunc<T>;
 
     BitmapFilterColumnPredicate(uint32_t column_id,
-                                const std::shared_ptr<BitmapFilterFuncBase>& filter, int)
+                                const std::shared_ptr<BitmapFilterFuncBase>& filter)
             : ColumnPredicate(column_id),
               _filter(filter),
               _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}

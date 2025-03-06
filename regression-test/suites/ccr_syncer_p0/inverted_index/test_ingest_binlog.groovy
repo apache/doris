@@ -59,7 +59,7 @@ suite("test_ingest_binlog_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -77,7 +77,7 @@ suite("test_ingest_binlog_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -95,7 +95,7 @@ suite("test_ingest_binlog_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
@@ -116,7 +116,7 @@ suite("test_ingest_binlog_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
@@ -152,7 +152,7 @@ suite("test_ingest_binlog_index") {
         }
 
         target_sql " sync "
-        res = target_sql """SELECT * FROM ${tableName}"""
+        def res = target_sql """SELECT * FROM ${tableName}"""
         if (tableName.contains("mow")) {
             assertEquals(res.size(), insert_data(tableName).size() / 2 as Integer)
         } else {

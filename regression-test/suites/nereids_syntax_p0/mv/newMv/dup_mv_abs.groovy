@@ -31,7 +31,6 @@ suite ("dup_mv_abs") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
-
     sql "insert into dup_mv_abs select 1,1,1,'a';"
     sql "insert into dup_mv_abs select 2,2,2,'b';"
     sql "insert into dup_mv_abs select 3,-3,null,'c';"
@@ -45,6 +44,8 @@ suite ("dup_mv_abs") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_abs with sync;"
+    sql """alter table dup_mv_abs modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 

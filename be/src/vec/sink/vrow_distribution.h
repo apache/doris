@@ -48,9 +48,9 @@ class VNodeChannel;
 // <row_idx, partition_id, tablet_id>
 class RowPartTabletIds {
 public:
-    std::vector<int64_t> row_ids;
-    std::vector<int64_t> partition_ids;
-    std::vector<int64_t> tablet_ids;
+    DorisVector<uint32_t> row_ids;
+    DorisVector<int64_t> partition_ids;
+    DorisVector<int64_t> tablet_ids;
 
     std::string debug_string() const {
         std::string value;
@@ -80,6 +80,7 @@ public:
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
         void* caller = nullptr;
+        bool write_single_replica = false;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -101,6 +102,7 @@ public:
         _vec_output_expr_ctxs = ctx.vec_output_expr_ctxs;
         _schema = ctx.schema;
         _caller = ctx.caller;
+        _write_single_replica = ctx.write_single_replica;
         _create_partition_callback = ctx.create_partition_callback;
     }
 
@@ -132,6 +134,7 @@ public:
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
+    size_t batching_rows() const { return _batching_rows; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
@@ -219,6 +222,7 @@ private:
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
+    bool _write_single_replica = false;
 
     // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;

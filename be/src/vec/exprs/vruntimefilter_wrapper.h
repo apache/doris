@@ -77,7 +77,8 @@ public:
     template <typename T>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
                                   T& always_true) {
-        always_true = filter_rows / (input_rows * 1.0L) < ignore_threshold;
+        always_true = static_cast<double>(filter_rows) / static_cast<double>(input_rows) <
+                      ignore_threshold;
     }
 
     bool is_rf_wrapper() const override { return true; }

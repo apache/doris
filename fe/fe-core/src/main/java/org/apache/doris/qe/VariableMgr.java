@@ -34,6 +34,8 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -307,27 +309,11 @@ public class VariableMgr {
         return joiner.toString();
     }
 
-    // The only difference between setVar and setVarForNonMasterFE
-    // is that setVarForNonMasterFE will just return if "checkUpdate" throw exception.
-    // This is because, when setting global variables from Non Master FE, Doris will do following step:
-    //      1. forward this SetStmt to Master FE to execute.
-    //      2. Change this SetStmt to "SESSION" level, and execute it again on this Non Master FE.
-    // But for "GLOBAL only" variable, such ash "password_history", it doesn't allow to set on SESSION level.
-    // So when doing step 2, "set password_history=xxx" without "GLOBAL" keywords will throw exception.
-    // So in this case, we should just ignore this exception and return.
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
-        }
-        try {
-            checkUpdate(setVar, varCtx.getFlag());
-        } catch (DdlException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
-            }
-            return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
@@ -457,21 +443,21 @@ public class VariableMgr {
             }
             variablesToRead.readFields(in);
             GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
-            replayGlobalVariableV2(info);
+            replayGlobalVariableV2(info, true);
         } finally {
             wlock.unlock();
         }
     }
 
     // this method is used to replace the `replayGlobalVariable()`
-    public static void replayGlobalVariableV2(GlobalVarPersistInfo info) throws DdlException {
+    public static void replayGlobalVariableV2(GlobalVarPersistInfo info, boolean fromImage) throws DdlException {
         wlock.lock();
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
             // if not variable version, we set it to 0 to ensure we could force set global variable.
             boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
-            if (!hasVariableVersion) {
+            if (fromImage && !hasVariableVersion) {
                 GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
             }
             for (Object varName : root.keySet()) {
@@ -983,6 +969,20 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables("update variable version",
                     SessionVariable.ENABLE_PIPELINE_X_ENGINE,
                     String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
+            if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
+                    < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
+            }
+            if (StatisticsUtil.getTableStatsHealthThreshold()
+                    < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
+            }
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_200) {
             // update from 3.0.2 or below to 3.0.3 or higher

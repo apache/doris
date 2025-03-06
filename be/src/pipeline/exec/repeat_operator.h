@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -67,7 +68,7 @@ public:
                     const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override;
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override;
@@ -92,4 +93,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

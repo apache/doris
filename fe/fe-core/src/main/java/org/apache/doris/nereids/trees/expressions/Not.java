@@ -92,7 +92,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(child().hashCode(), isGeneratedIsNotNull);
     }
 
@@ -102,7 +102,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "( not " + child().toSql() + ")";
     }
 

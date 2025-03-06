@@ -22,6 +22,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ExecNode;
 } // namespace doris
 
@@ -69,7 +70,7 @@ public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs, int num_senders);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -109,4 +110,5 @@ private:
     std::vector<bool> _nulls_first;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

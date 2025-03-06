@@ -125,9 +125,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     }
 
     private void extractMv(SelectHintUseMv selectHint, StatementContext statementContext) {
-        boolean isAllMv = selectHint.getParameters().isEmpty();
-        UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getParameters(),
-                selectHint.isUseMv(), isAllMv);
+        boolean isAllMv = selectHint.getTables().isEmpty();
+        UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getTables(),
+                selectHint.isUseMv(), isAllMv, statementContext.getHints());
         for (Hint hint : statementContext.getHints()) {
             if (hint.getHintName().equals(selectHint.getHintName())) {
                 hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
@@ -135,9 +135,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
                 useMvHint.setErrorMessage("only one " + selectHint.getHintName() + " hint is allowed");
             }
-        }
-        if (!useMvHint.isSyntaxError()) {
-            ConnectContext.get().getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
         }
         statementContext.addHint(useMvHint);
     }

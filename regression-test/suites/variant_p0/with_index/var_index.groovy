@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_var_index", "p0"){
+suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def table_name = "var_index"
     sql "DROP TABLE IF EXISTS var_index"
     sql """

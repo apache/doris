@@ -30,7 +30,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 // binary: const flag| row num | real saved num | size array | bitmap array
 // <size array>:   bitmap1 size | bitmap2 size | ...
 // <bitmap array>: bitmap1 | bitmap2 | ...
@@ -159,7 +159,7 @@ MutableColumnPtr DataTypeBitMap::create_column() const {
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     auto& value = const_cast<BitmapValue&>(cvalue);
     std::string memory_buffer;
-    int bytesize = value.getSizeInBytes();
+    size_t bytesize = value.getSizeInBytes();
     memory_buffer.resize(bytesize);
     value.write_to(const_cast<char*>(memory_buffer.data()));
     write_string_binary(memory_buffer, buf);

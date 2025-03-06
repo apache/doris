@@ -49,4 +49,6 @@ suite("simplify_conditional_function") {
     qt_test_outer_ref_coalesce "select c1 from (select coalesce(null,a,c) c1,a,b from test_simplify_conditional_function order by c1,a,b limit 2) t group by c1 order by c1"
     qt_test_outer_ref_nvl "select c1 from (select ifnull(null, c) c1 from test_simplify_conditional_function order by 1 limit 2) t group by c1 order by c1"
     qt_test_outer_ref_nullif "select c1 from (select nullif(a, null) c1,c from test_simplify_conditional_function order by c1,c limit 2 ) t group by c1 order by c1"
+
+    qt_test_nullable_nullif "SELECT COUNT( DISTINCT NULLIF ( 1, NULL ) ), COUNT( DISTINCT 72 )"
 }

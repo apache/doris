@@ -47,9 +47,6 @@ struct UnaryOperationImpl {
     static void constant(A a, ResultType& c) { c = Op::apply(a); }
 };
 
-template <typename FunctionName>
-struct FunctionUnaryArithmeticMonotonicity;
-
 template <typename>
 struct AbsImpl;
 template <typename>
@@ -146,11 +143,6 @@ public:
         }
         return Status::OK();
     }
-};
-
-struct PositiveMonotonicity {
-    static bool has() { return true; }
-    static IFunction::Monotonicity get(const Field&, const Field&) { return {true}; }
 };
 
 } // namespace doris::vectorized

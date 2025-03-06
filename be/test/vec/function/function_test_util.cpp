@@ -34,7 +34,9 @@
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -101,6 +103,10 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
     case TypeIndex::BitMap:
         desc.type = doris::PrimitiveType::TYPE_OBJECT;
         type = std::make_shared<DataTypeBitMap>();
+        return 1;
+    case TypeIndex::HLL:
+        desc.type = doris::PrimitiveType::TYPE_OBJECT;
+        type = std::make_shared<DataTypeHLL>();
         return 1;
     case TypeIndex::IPv4:
         desc.type = doris::PrimitiveType::TYPE_IPV4;
@@ -189,7 +195,59 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
             return ret;
         }
         desc.children.push_back(sub_desc.type_desc);
+        if (sub_desc.is_nullable) {
+            sub_type = make_nullable(sub_type);
+        }
         type = std::make_shared<DataTypeArray>(sub_type);
+        return ret + 1;
+    }
+    case TypeIndex::Map: {
+        desc.type = doris::PrimitiveType::TYPE_MAP;
+        ut_type::UTDataTypeDesc key_desc;
+        DataTypePtr key_type = nullptr;
+        ut_type::UTDataTypeDesc value_desc;
+        DataTypePtr value_type = nullptr;
+        ++index;
+        size_t ret = type_index_to_data_type(input_types, index, key_desc, key_type);
+        if (ret <= 0) {
+            return ret;
+        }
+        ++index;
+        ret = type_index_to_data_type(input_types, index, value_desc, value_type);
+        if (ret <= 0) {
+            return ret;
+        }
+        desc.children.push_back(key_desc.type_desc);
+        desc.children.push_back(value_desc.type_desc);
+        if (key_desc.is_nullable) {
+            key_type = make_nullable(key_type);
+        }
+        if (value_desc.is_nullable) {
+            value_type = make_nullable(value_type);
+        }
+        type = std::make_shared<DataTypeMap>(key_type, value_type);
+        return ret + 1;
+    }
+    case TypeIndex::Struct: {
+        desc.type = doris::PrimitiveType::TYPE_STRUCT;
+        ++index;
+        size_t ret = 0;
+        DataTypes sub_types;
+        while (index < input_types.size()) {
+            ut_type::UTDataTypeDesc sub_desc;
+            DataTypePtr sub_type = nullptr;
+            ret = type_index_to_data_type(input_types, index, sub_desc, sub_type);
+            if (ret <= 0) {
+                return ret;
+            }
+            desc.children.push_back(sub_desc.type_desc);
+            if (sub_desc.is_nullable) {
+                sub_type = make_nullable(sub_type);
+                sub_types.push_back(sub_type);
+            }
+            ++index;
+        }
+        type = std::make_shared<DataTypeStruct>(sub_types);
         return ret + 1;
     }
     case TypeIndex::Nullable: {
@@ -220,6 +278,9 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
         }
         size_t res = type_index_to_data_type(input_types, i, desc, desc.data_type);
         if (res <= 0) {
+            std::cout << "return error, res:" << res << ", i:" << i
+                      << ", input_types.size():" << input_types.size()
+                      << "desc : " << desc.type_desc.debug_string() << std::endl;
             return false;
         }
         if (desc.is_nullable) {
@@ -274,6 +335,9 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.idx == TypeIndex::BitMap) {
         auto* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
+    } else if (type.idx == TypeIndex::HLL) {
+        auto* hll = any_cast<HyperLogLog*>(cell);
+        column->insert_data((char*)hll, sizeof(HyperLogLog));
     } else if (type.is_ipv4()) {
         auto value = any_cast<ut_type::IPV4>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);

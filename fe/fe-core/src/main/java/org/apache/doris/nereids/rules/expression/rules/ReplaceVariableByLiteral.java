@@ -21,6 +21,7 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 
@@ -46,7 +47,7 @@ public class ReplaceVariableByLiteral implements ExpressionPatternRuleFactory {
                     sqlCacheContext.get().addUsedVariable(variable);
                 }
                 return variable.getRealExpression();
-            })
+            }).toRule(ExpressionRuleType.REPLACE_VARIABLE_BY_LITERAL)
         );
     }
 }

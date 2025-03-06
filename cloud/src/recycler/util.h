@@ -85,4 +85,9 @@ inline std::string tablet_path_prefix(int64_t tablet_id) {
     return fmt::format("data/{}/", tablet_id);
 }
 
+int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                   TabletIndexPB& tablet_idx);
+
+int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                    TabletMetaCloudPB& tablet_meta);
 } // namespace doris::cloud

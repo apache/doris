@@ -17,6 +17,8 @@
 
 #include "olap/task/index_builder.h"
 
+#include <mutex>
+
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_define.h"
@@ -81,7 +83,7 @@ Status IndexBuilder::update_inverted_index_info() {
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
         const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
-        size_t total_index_size = 0;
+        int64_t total_index_size = 0;
         auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
         auto size_st = beta_rowset->get_inverted_index_size(&total_index_size);
         DBUG_EXECUTE_IF("IndexBuilder::update_inverted_index_info_size_st_not_ok", {
@@ -166,7 +168,6 @@ Status IndexBuilder::update_inverted_index_info() {
                     LOG(WARNING) << "referenced column was missing. "
                                  << "[column=" << t_inverted_index.columns[0]
                                  << " referenced_column=" << column_uid << "]";
-                    output_rs_tablet_schema->append_index(std::move(index));
                     continue;
                 }
                 const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
@@ -449,14 +450,13 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
             }
 
-            if (return_columns.empty()) {
-                // no columns to read
-                break;
-            }
-
+            // DO NOT forget inverted_index_file_writer for the segment, otherwise, original inverted index will be deleted.
             _inverted_index_file_writers.emplace(seg_ptr->id(),
                                                  std::move(inverted_index_file_writer));
-
+            if (return_columns.empty()) {
+                // no columns to read
+                continue;
+            }
             // create iterator for each segment
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
@@ -590,9 +590,9 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
             return converted_result.first;
         }
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
-        if (converted_result.second->get_nullmap()) {
-            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(),
-                                          converted_result.second->get_nullmap(), &ptr,
+        const auto* null_map = converted_result.second->get_nullmap();
+        if (null_map) {
+            RETURN_IF_ERROR(_add_nullable(column_name, writer_sign, field.get(), null_map, &ptr,
                                           block->rows()));
         } else {
             RETURN_IF_ERROR(_add_data(column_name, writer_sign, field.get(), &ptr, block->rows()));
@@ -607,6 +607,32 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
                                    const std::pair<int64_t, int64_t>& index_writer_sign,
                                    Field* field, const uint8_t* null_map, const uint8_t** ptr,
                                    size_t num_rows) {
+    // TODO: need to process null data for inverted index
+    if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        DCHECK(field->get_sub_field_count() == 1);
+        // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+        const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+        // total number length
+        auto offset_data = *(data_ptr + 1);
+        const auto* offsets_ptr = (const uint8_t*)offset_data;
+        try {
+            auto data = *(data_ptr + 2);
+            auto nested_null_map = *(data_ptr + 3);
+            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                    field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
+                _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
+            })
+            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_nulls(null_map,
+                                                                                         num_rows));
+        } catch (const std::exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError occured: {}", e.what());
+        }
+
+        return Status::OK();
+    }
     size_t offset = 0;
     auto next_run_step = [&]() {
         size_t step = 1;
@@ -619,40 +645,6 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         }
         return step;
     };
-    // TODO: need to process null data for inverted index
-    if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        DCHECK(field->get_sub_field_count() == 1);
-        // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-        // total number length
-        auto element_cnt = size_t((unsigned long)(*data_ptr));
-        auto offset_data = *(data_ptr + 1);
-        const auto* offsets_ptr = (const uint8_t*)offset_data;
-        try {
-            if (element_cnt > 0) {
-                auto data = *(data_ptr + 2);
-                auto nested_null_map = *(data_ptr + 3);
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
-            }
-            DBUG_EXECUTE_IF("IndexBuilder::_add_nullable_add_array_values_error", {
-                _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_add_array_values_error");
-            })
-        } catch (const std::exception& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occured: {}", e.what());
-        }
-        // we should refresh nullmap for array
-        for (int row_id = 0; row_id < num_rows; row_id++) {
-            if (null_map && null_map[row_id] == 1) {
-                RETURN_IF_ERROR(
-                        _inverted_index_builders[index_writer_sign]->add_array_nulls(row_id));
-            }
-        }
-        return Status::OK();
-    }
-
     try {
         do {
             auto step = next_run_step();
@@ -731,11 +723,16 @@ Status IndexBuilder::do_build_inverted_index() {
         return Status::OK();
     }
 
-    std::unique_lock<std::mutex> schema_change_lock(_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::ObtainLockFailed("try schema_change_lock failed. tablet={} ",
-                                        _tablet->tablet_id());
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        return Status::ObtainLockFailed(
+                "try schema_change_lock failed. There might be schema change or cooldown running "
+                "on "
+                "tablet={} ",
+                _tablet->tablet_id());
     }
     // Check executing serially with compaction task.
     std::unique_lock<std::mutex> base_compaction_lock(_tablet->get_base_compaction_lock(),
@@ -849,10 +846,12 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     }
 
+#ifndef BE_TEST
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
+#endif
     return Status::OK();
 }
 

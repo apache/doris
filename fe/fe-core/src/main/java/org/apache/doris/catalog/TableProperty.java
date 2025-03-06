@@ -467,7 +467,10 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
+        dynamicPartitionProperty.clearStoragePolicy();
     }
 
     public List<String> getCopiedRowStoreColumns() {
@@ -630,10 +633,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
-    public void setEnableUniqueKeySkipBitmap(boolean enable) {
-        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, Boolean.toString(enable));
-    }
-
     public boolean getEnableUniqueKeySkipBitmap() {
         return Boolean.parseBoolean(properties.getOrDefault(
             PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false"));
@@ -737,6 +736,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildStoreRowColumn();
         buildRowStoreColumns();
         buildRowStorePageSize();
+        buildStoragePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -789,10 +789,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
-    }
-
-    public void setStorageVaultName(String storageVaultName) {
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 
     public String getPropertiesString() throws IOException {

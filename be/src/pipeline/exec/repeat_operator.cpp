@@ -24,6 +24,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -62,9 +63,9 @@ Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status RepeatOperatorX::open(RuntimeState* state) {
+Status RepeatOperatorX::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::open";
-    RETURN_IF_ERROR(OperatorXBase::open(state));
+    RETURN_IF_ERROR(OperatorXBase::prepare(state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -182,6 +183,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     auto& expr_ctxs = local_state._expr_ctxs;
     DCHECK(!intermediate_block || intermediate_block->rows() == 0);
     if (input_block->rows() > 0) {
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         intermediate_block = vectorized::Block::create_unique();
 
         for (auto& expr : expr_ctxs) {
@@ -207,6 +209,9 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     auto& _child_eos = local_state._child_eos;
     auto& _intermediate_block = local_state._intermediate_block;
     RETURN_IF_CANCELLED(state);
+
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
         DCHECK(_repeat_id_idx <= (int)v.size());
@@ -221,8 +226,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 
             _repeat_id_idx++;
 
-            int size = _repeat_id_list.size();
-            if (_repeat_id_idx >= size) {
+            if (_repeat_id_idx >= _repeat_id_list.size()) {
                 _intermediate_block->clear();
                 _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
                 _repeat_id_idx = 0;
@@ -241,14 +245,17 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
         }
     }
+
     {
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                                output_block->columns()));
     }
+
     *eos = _child_eos && _child_block.rows() == 0;
     local_state.reached_limit(output_block, eos);
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

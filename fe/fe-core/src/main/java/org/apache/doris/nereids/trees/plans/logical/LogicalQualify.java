@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -130,9 +131,9 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public void computeUniform(Builder builder) {
         for (Expression e : getConjuncts()) {
-            Set<Slot> uniformSlots = ExpressionUtils.extractUniformSlot(e);
-            for (Slot slot : uniformSlots) {
-                builder.addUniformSlot(slot);
+            Map<Slot, Expression> uniformSlots = ExpressionUtils.extractUniformSlot(e);
+            for (Map.Entry<Slot, Expression> entry : uniformSlots.entrySet()) {
+                builder.addUniformSlotAndLiteral(entry.getKey(), entry.getValue());
             }
         }
         builder.addUniformSlot(child(0).getLogicalProperties().getTrait());

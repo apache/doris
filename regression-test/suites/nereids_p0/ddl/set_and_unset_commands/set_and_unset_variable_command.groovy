@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_and_unset_variable_command") {
+suite("set_and_unset_variable_command", "nonConcurrent") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
@@ -59,22 +59,22 @@ suite("set_and_unset_variable_command") {
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
 
     // test variables with deprecated_ prefix
-    checkNereidsExecute("set deprecated_enable_local_exchange = false")
-    qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
-    qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
-    checkNereidsExecute("UNSET global VARIABLE deprecated_enable_local_exchange")
-    qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
-    qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
+    checkNereidsExecute("set deprecated_group_by_and_having_use_alias_first = false")
+    qt_cmd """show session variables like 'deprecated_group_by_and_having_use_alias_first'"""
+    qt_cmd """show global variables like 'deprecated_group_by_and_having_use_alias_first'"""
+    checkNereidsExecute("UNSET global VARIABLE deprecated_group_by_and_having_use_alias_first")
+    qt_cmd """show session variables like 'deprecated_group_by_and_having_use_alias_first'"""
+    qt_cmd """show global variables like 'deprecated_group_by_and_having_use_alias_first'"""
 
     // test UNSET VARIABLE ALL
     checkNereidsExecute("set runtime_filter_type='BLOOM_FILTER'")
     checkNereidsExecute("set experimental_enable_agg_state='true'")
-    checkNereidsExecute("set deprecated_enable_local_exchange = false")
+    checkNereidsExecute("set deprecated_group_by_and_having_use_alias_first = false")
     checkNereidsExecute("set show_hidden_columns=true")
     checkNereidsExecute("UNSET VARIABLE ALL")
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
-    qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
+    qt_cmd """show session variables like 'deprecated_group_by_and_having_use_alias_first'"""
     qt_cmd """show session variables like 'show_hidden_columns'"""
 
     qt_cmd """select * from information_schema.session_variables where variable_name = 'show_hidden_columns'"""
@@ -82,12 +82,12 @@ suite("set_and_unset_variable_command") {
     // test UNSET GLOBAL VARIABLE ALL
     checkNereidsExecute("set global runtime_filter_type='BLOOM_FILTER'")
     checkNereidsExecute("set global experimental_enable_agg_state='true'")
-    checkNereidsExecute("set global deprecated_enable_local_exchange = false")
+    checkNereidsExecute("set global deprecated_group_by_and_having_use_alias_first = false")
     checkNereidsExecute("set show_hidden_columns=true")
     checkNereidsExecute("UNSET global VARIABLE ALL")
     qt_cmd """show global variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
-    qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
+    qt_cmd """show global variables like 'deprecated_group_by_and_having_use_alias_first'"""
     qt_cmd """show global variables like 'show_hidden_columns'"""
 
     qt_cmd """select * from information_schema.global_variables where variable_name = 'show_hidden_columns'"""

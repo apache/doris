@@ -26,11 +26,9 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
 
     def changed_variables = sql "show variables where Changed = 1"
     logger.info("changed variables: " + changed_variables.toString())
-    // sql "UNSET GLOBAL VARIABLE ALL;"
-    sql "SET global enable_match_without_inverted_index = false"
 
     boolean disableAutoCompaction = false
-  
+
     def set_be_config = { key, value ->
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
@@ -110,7 +108,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
     }
 
-    def insert_data = { -> 
+    def insert_data = { ->
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
         sql """ INSERT INTO ${tableName} VALUES (1, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
         sql """ INSERT INTO ${tableName} VALUES (2, "andy", 10, [89, 80, 98], ["football", "basketball"], "andy is good at sports", ["andy has a good heart", "andy is so nice"]); """
@@ -119,8 +117,8 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", 11, [79, 85, 97], ["singing", "dancing"], "bason is good at singing", ["bason is very clever", "bason is very healthy"]); """
     }
 
-    def run_sql = { -> 
-        def result = sql_return_maparray "SELECT * FROM ${tableName} WHERE name MATCH 'bason'"
+    def run_sql = { ->
+        def result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE name MATCH 'bason'"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("bason", result[0]['name'])
@@ -129,7 +127,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("bason", result[2]['name'])
 
-        result = sql_return_maparray "SELECT * FROM ${tableName} WHERE age = 11"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE age = 11"
         assertEquals(3, result.size())
         assertEquals(1, result[0]['id'])
         assertEquals("bason", result[0]['name'])
@@ -138,7 +136,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals(3, result[2]['id'])
         assertEquals("bason", result[2]['name'])
 
-        result = sql_return_maparray "SELECT * FROM ${tableName} WHERE description MATCH 'singing'"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE description MATCH 'singing'"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals("bason is good at singing", result[0]['description'])
@@ -147,7 +145,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals("bason is good at singing", result[2]['description'])
 
-        result = sql_return_maparray "SELECT * FROM ${tableName} WHERE array_contains(scores, 79)"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(scores, 79)"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals("[79, 85, 97]", result[0]['scores'])
@@ -156,7 +154,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals("[79, 85, 97]", result[2]['scores'])
 
-        result = sql_return_maparray "SELECT * FROM ${tableName} WHERE array_contains(hobbies, 'dancing')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(hobbies, 'dancing')"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals('["singing", "dancing"]', result[0]['hobbies'])
@@ -165,7 +163,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         assertEquals("bason", result[2]['name'])
         assertEquals('["singing", "dancing"]', result[2]['hobbies'])
 
-        result = sql_return_maparray "SELECT * FROM ${tableName} WHERE array_contains(evaluation, 'bason is very clever')"
+        result = sql_return_maparray "SELECT /*+ SET_VAR(enable_match_without_inverted_index = false, enable_common_expr_pushdown = true) */ * FROM ${tableName} WHERE array_contains(evaluation, 'bason is very clever')"
         assertEquals(3, result.size())
         assertEquals("bason", result[0]['name'])
         assertEquals('["bason is very clever", "bason is very healthy"]', result[0]['evaluation'])
@@ -181,30 +179,26 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         "compact_column_create_index_writer_error",
         "compact_column_indexCompaction_error",
         "compact_column_index_writer_close_error",
-        "compact_column_src_index_dirs_close_error",
+        "compact_column_delete_tmp_path_error",
         "Compaction::do_inverted_index_compaction_find_rowset_error",
         "Compaction::do_inverted_index_compaction_get_fs_error",
-        "Compaction::do_inverted_index_compaction_index_file_reader_init_error",
-        // "Compaction::do_inverted_index_compaction_file_size_status_not_ok", // v2 do not do index compaction
         "Compaction::do_inverted_index_compaction_can_not_find_index_meta",
-        "Compaction::do_inverted_index_compaction_index_properties_different",
-        "Compaction::do_inverted_index_compaction_index_file_writer_close_not_ok",
-        "Compaction::construct_skip_inverted_index_index_reader_close_error"
+        "Compaction::do_inverted_index_compaction_rowid_conversion_null",
+        "Compaction::do_inverted_index_compaction_seg_path_nullptr",
+        "Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
+        "Compaction::do_inverted_index_compaction_inverted_index_file_writers_size_error"
     ]
 
     def debug_points_normal_compaction = [
-        "compact_column_local_tmp_dir_delete_error",
-        // "Compaction::do_inverted_index_compaction_dest_segment_num_is_zero", // query result not match without inverted index
-        "Compaction::do_inverted_index_compaction_index_file_reader_init_not_found",
         "Compaction::construct_skip_inverted_index_is_skip_index_compaction",
         "Compaction::construct_skip_inverted_index_get_fs_error",
         "Compaction::construct_skip_inverted_index_index_meta_nullptr",
         "Compaction::construct_skip_inverted_index_seg_path_nullptr",
+        "Compaction::do_inverted_index_compaction_index_properties_different",
+        "Compaction::construct_skip_inverted_index_index_files_count",
+        "Compaction::construct_skip_inverted_index_index_reader_close_error",
         "Compaction::construct_skip_inverted_index_index_file_reader_init_status_not_ok",
-        "Compaction::construct_skip_inverted_index_index_file_reader_exist_status_not_ok",
-        "Compaction::construct_skip_inverted_index_index_file_reader_exist_false",
-        "Compaction::construct_skip_inverted_index_index_file_reader_open_error",
-        "Compaction::construct_skip_inverted_index_index_files_count"
+        "Compaction::construct_skip_inverted_index_index_file_reader_open_error"
     ]
 
     def run_test = { tablets, debug_point, abnormal ->
@@ -221,6 +215,9 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
             }
         }
 
+        if (debug_point == "compact_column_delete_tmp_path_error") {
+            set_be_config.call("inverted_index_ram_dir_enable", "false")
+        }
         // before full compaction, there are 7 rowsets.
         int rowsetCount = get_rowset_count.call(tablets);
         assert (rowsetCount == 7 * replicaNum)
@@ -258,6 +255,10 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         }
 
         run_sql.call()
+
+        if (debug_point == "compact_column_delete_tmp_path_error") {
+            set_be_config.call("inverted_index_ram_dir_enable", "true")
+        }
     }
 
     def create_and_test_table = { table_name, key_type, debug_points, is_abnormal ->
@@ -300,7 +301,7 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -330,12 +331,10 @@ suite("test_index_compaction_exception_fault_injection", "nonConcurrent") {
         tableName = "test_index_compaction_exception_fault_injection_unique"
         create_and_test_table.call(tableName, "UNIQUE", debug_points_abnormal_compaction, true)
         create_and_test_table.call(tableName, "UNIQUE", debug_points_normal_compaction, false)
-       
+
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
-        sql "SET global enable_match_without_inverted_index = true"
     }
-
 }
