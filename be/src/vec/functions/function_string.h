@@ -847,8 +847,9 @@ public:
                 auto& target_column = block.get_by_position(arguments[pos]).column;
                 if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
                     auto target_data = target_const_column->get_data_at(0);
+                    // return NULL, no target data
                     if (target_data.data == nullptr) {
-                        null_map = ColumnUInt8::create(input_rows_count, is_null);
+                        null_map = ColumnUInt8::create(input_rows_count, true);
                         res->insert_many_defaults(input_rows_count);
                     } else {
                         res->insert_many_data(target_data.data, target_data.size, input_rows_count);
