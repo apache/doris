@@ -750,8 +750,7 @@ public class StmtExecutor {
                     if (logicalPlan instanceof InsertIntoTableCommand) {
                         profileType = ProfileType.LOAD;
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
-                            || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
