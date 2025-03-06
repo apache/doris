@@ -47,9 +47,11 @@ suite("test_cast_datetime") {
 
     sql "insert into casttbl values(2, '', '', '', ''), (3, '2020', '2020', '2020', '2020')"
     qt_2 "select * from casttbl"
+    qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 
-    qt_3 "select '' > date '2019-06-01'"
-    qt_3 "select '' > date_sub('2019-06-01', -10)"
-    qt_4 "select '' > cast('2019-06-01 00:00:00' as datetime)"
-    qt_5 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
+    qt_4 "select '' > date '2019-06-01'"
+    qt_5 "select '' > date_sub('2019-06-01', -10)"
+    qt_7 "select '' > cast('2019-06-01 00:00:00' as datetime)"
+    qt_8 "select date_add('', 10)"
+    qt_9 "select date_add('2020', 10)"
 }
