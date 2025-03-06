@@ -50,8 +50,8 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user2}""";
     }
 
     try_sql """drop table if exists ${dbName}.${tableName1}"""

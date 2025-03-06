@@ -56,13 +56,13 @@ suite('compaction_width_array_column', "p2") {
     }
 
     def table_load_task = { table_name ->
-        uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
-        loadLabel = table_name + "_" + uniqueID
+        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
+        def loadLabel = table_name + "_" + uniqueID
         //loadLabel = table_name + '_load_5'
-        loadSql = new File("""${context.file.parent}/ddl/${table_name}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+        def loadSql = new File("""${context.file.parent}/ddl/${table_name}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel)
         loadSql = loadSql.replaceAll("\\\$\\{table\\_name\\}", table_name)
-        nowloadSql = loadSql + s3WithProperties
+        def nowloadSql = loadSql + s3WithProperties
         try_sql nowloadSql
 
         while (true) {
@@ -88,7 +88,8 @@ suite('compaction_width_array_column', "p2") {
     while (isOverLap && tryCnt < 3) {
         isOverLap = false
 
-        trigger_and_wait_compaction(tableName, "cumulative")
+        // in asan compile, it may cost 30min to compact.
+        trigger_and_wait_compaction(tableName, "cumulative", 40*60)
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)

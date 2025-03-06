@@ -48,4 +48,60 @@ suite("test_query_json_object", "query") {
 
     qt_sql2 """select json_object ( CONCAT('k',t.number%30926%3000 + 0),CONCAT('k',t.number%30926%3000 + 0,t.number%1000000) ) from numbers("number" = "2") t order by 1;"""
     sql "DROP TABLE ${tableName};"
+
+    // test json_object with complex type
+    // literal cases
+    // array
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array('"aaa"','"bbb"')); """
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array('aaa','bbb')); """
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array(1,2)); """
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array(1.1,2.2)); """
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array(1.1,2)); """
+    qt_sql_array """ SELECT json_object('id', 1, 'level', array(cast(1 as decimal), cast(1.2 as decimal))); """
+    // map
+    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 'b', 'c', 'd')); """
+    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1, 'c', 2)); """
+    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1.1, 'c', 2.2)); """
+    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', 1.1, 'c', 2)); """
+    qt_sql_map """ SELECT json_object('id', 1, 'level', map('a', cast(1 as decimal), 'c', cast(1.2 as decimal))); """
+    // struct
+    qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1)); """
+    qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1.1)); """
+    qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1)); """
+    qt_sql_struct """ SELECT json_object('id', 1, 'level', named_struct('name', 'a', 'age', 1.1)); """
+    // json
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":\"b\"}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
+    qt_sql_json """ SELECT json_object('id', 1, 'level', cast('{\"a\":1.1}' as JSON)); """
+
+
+
+    tableName = "test_query_json_object_complex"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+            CREATE TABLE test_query_json_object_complex (
+              `k0` int(11) not null,
+              `k1` array<string> NULL,
+              `k2` map<string, string> NULL,
+              `k3` struct<name:string, age:int> NULL,
+              `k4` json NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k0`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+    sql "insert into ${tableName} values(1,null,null,null,null);"
+    sql "insert into ${tableName} values(2, array('a','b'), map('a','b'), named_struct('name','a','age',1), '{\"a\":\"b\"}');"
+    sql """insert into ${tableName} values(3, array('"a"', '"b"'), map('"a"', '"b"', '"c"', '"d"'), named_struct('name','"a"','age', 1), '{\"c\":\"d\"}');"""
+    sql """insert into ${tableName} values(4, array(1,2), map(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
+    sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
+    qt_sql2 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4) from ${tableName} order by k0;"
+
 }

@@ -178,12 +178,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     LOG.warn("insert plan failed {} times. query id is {}. table id changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
                             targetTableIf.getId(), newestTargetTableIf.getId());
+                    newestTargetTableIf.readUnlock();
                     continue;
                 }
-                if (!targetTableIf.getFullSchema().equals(newestTargetTableIf.getFullSchema())) {
+                // Use the schema saved during planning as the schema of the original target table.
+                if (!ctx.getStatementContext().getInsertTargetSchema().equals(newestTargetTableIf.getFullSchema())) {
                     LOG.warn("insert plan failed {} times. query id is {}. table schema changed from {} to {}",
                             retryTimes, DebugUtil.printId(ctx.queryId()),
-                            targetTableIf.getFullSchema(), newestTargetTableIf.getFullSchema());
+                            ctx.getStatementContext().getInsertTargetSchema(), newestTargetTableIf.getFullSchema());
+                    newestTargetTableIf.readUnlock();
                     continue;
                 }
                 if (!insertExecutor.isEmptyInsert()) {

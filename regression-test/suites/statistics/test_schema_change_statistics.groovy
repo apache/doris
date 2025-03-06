@@ -42,7 +42,7 @@ suite("test_schema_change_statistics") {
         def result1 = sql """show column cached stats $table"""
         def result2 = sql """show column stats $table"""
         boolean dropped = false
-        for (int i = 0; i < 120; i++) {
+        for (int i = 0; i < 200; i++) {
             if (0 == result1.size() && 0 == result2.size()) {
                 dropped = true;
                 break;

@@ -274,6 +274,6 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql "desc large_tablets"
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
     }
 }

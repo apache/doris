@@ -40,6 +40,7 @@ suite ("test_tbl_name") {
     sql """insert into functionality_olap values(143,'mv',18);"""
 
     sql """analyze table functionality_olap with sync;"""
+    sql """alter table functionality_olap modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("""select 
@@ -66,7 +67,6 @@ suite ("test_tbl_name") {
         group by id order by 1,2;
         """
     sql """set enable_stats=true;"""
-    sql """alter table functionality_olap modify column id set stats ('row_count'='2');"""
     mv_rewrite_success("""select 
             functionality_olap.id as id,
             sum(functionality_olap.score) as score_max

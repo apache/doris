@@ -672,7 +672,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request->eos()) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
+            cancel(fmt::format("{}, err: load timeout after {} ms", channel_info(),
+                               _rpc_timeout_ms));
             _send_block_callback->clear_in_flight();
             return;
         } else {

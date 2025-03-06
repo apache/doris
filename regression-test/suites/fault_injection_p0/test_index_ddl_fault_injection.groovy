@@ -74,7 +74,7 @@ suite("test_index_ddl_fault_injection", "nonConcurrent") {
     sql """
         CREATE TABLE `${tableName2}` (
           `col0` bigint NOT NULL,
-          `col1` boolean NULL,
+          `col1` boolean NOT NULL,
           `col2` tinyint NOT NULL,
           INDEX col1 (`col1`) USING INVERTED,
           INDEX col2 (`col2`) USING INVERTED

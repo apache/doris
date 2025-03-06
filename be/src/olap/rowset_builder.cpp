@@ -263,13 +263,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
-    }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
@@ -277,6 +270,14 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(
                 _tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
+    }
+
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -311,8 +312,6 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
-              << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
 }
 

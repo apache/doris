@@ -154,6 +154,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.indexes = newIndexes;
     }
 
+    public String getDbName() {
+        return dbName;
+    }
+
     public List<Column> getSchema() {
         return getSchema(true);
     }

@@ -142,10 +142,6 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
-    // Don't use.
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // In some places, temporarily use num_columns() as TabletSchema size.
-    int64_t mem_size() const;
     size_t tablet_columns_num() const { return _schema->num_columns(); }
 
     TabletTypePB tablet_type() const { return _tablet_type; }
@@ -503,6 +499,14 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Gets count of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     */
+    size_t get_count_with_range(const BitmapKey& start, const BitmapKey& end) const;
 
     /**
      * Merges the given segment delete bitmap into *this

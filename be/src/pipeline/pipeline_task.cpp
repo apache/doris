@@ -311,11 +311,26 @@ Status PipelineTask::execute(bool* eos) {
         query_context()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
+        if (config::enable_prefetch_tablet) {
+            RETURN_IF_ERROR(_source->hold_tablets(_state));
+        }
         return Status::OK();
     }
 
     // The status must be runnable
     if (!_opened && !_fragment_context->is_canceled()) {
+        DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
+            auto required_pipeline_id =
+                    DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                            "PipelineTask::execute.open_sleep", "pipeline_id", -1);
+            auto required_task_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "PipelineTask::execute.open_sleep", "task_id", -1);
+            if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                LOG(WARNING) << "PipelineTask::execute.open_sleep sleep 5s";
+                sleep(5);
+            }
+        });
+
         if (_wake_up_early) {
             *eos = true;
             _eos = true;
@@ -382,6 +397,19 @@ Status PipelineTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
+            DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
+                auto required_pipeline_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "pipeline_id", -1);
+                auto required_task_id =
+                        DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                "PipelineTask::execute.sink_eos_sleep", "task_id", -1);
+                if (required_pipeline_id == pipeline_id() && required_task_id == task_id()) {
+                    LOG(WARNING) << "PipelineTask::execute.sink_eos_sleep sleep 10s";
+                    sleep(10);
+                }
+            });
+
             Status status = _sink->sink(_state, block, *eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {

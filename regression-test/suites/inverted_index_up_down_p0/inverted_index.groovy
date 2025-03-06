@@ -114,7 +114,7 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
             }
         }
         sql "alter table ${tableName} drop index idx_b"
-
+        wait_for_latest_op_on_table_finish(tableName, timeout)
         // unique table
         tableName = "t_up_down_inverted_index${version}_unique"
         result = sql(String.format("show create table %s", tableName))
@@ -131,10 +131,14 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
         }
 
         sql "alter table ${tableName} add index idx_b(b)"
-        sql "alter table ${tableName} add index idx_en(en) using inverted properties(\"parser\" = \"english\", \"support_phrase\" = \"true\")"
         wait_for_latest_op_on_table_finish(tableName, timeout)
         if (!isCloudMode()) {
             sql "build index idx_b on ${tableName}"
+            wait_for_build_index_on_partition_finish(tableName, timeout)
+        }
+        sql "alter table ${tableName} add index idx_en(en) using inverted properties(\"parser\" = \"english\", \"support_phrase\" = \"true\")"
+        wait_for_latest_op_on_table_finish(tableName, timeout)
+        if (!isCloudMode()) {
             sql "build index idx_en on ${tableName}"
             wait_for_build_index_on_partition_finish(tableName, timeout)
         }
@@ -170,7 +174,9 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
             }
         }
         sql "alter table ${tableName} drop index idx_b"
+        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql "alter table ${tableName} drop index idx_en"
+        wait_for_latest_op_on_table_finish(tableName, timeout)
 
         // agg table
         tableName = "t_up_down_inverted_index${version}_agg"
@@ -216,5 +222,6 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
             }
         }
         sql "alter table ${tableName} drop index idx_b"
+        wait_for_latest_op_on_table_finish(tableName, timeout)
     }
 }

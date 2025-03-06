@@ -52,6 +52,46 @@ inline std::string md5(const std::string& str) {
     return ss.str();
 }
 
+/**
+ * Encrypts all "sk" values in the given debug string with MD5 hashes.
+ * 
+ * Assumptions:
+ * - Input string contains one or more occurrences of "sk: " followed by a value in double quotes.
+ * - An md5() function exists that takes a std::string and returns its MD5 hash as a string.
+ * 
+ * @param debug_string Input string containing "sk: " fields to be encrypted.
+ * @return A new string with all "sk" values replaced by their MD5 hashes.
+ * 
+ * Behavior:
+ * 1. Searches for all occurrences of "sk: " in the input string.
+ * 2. For each occurrence, extracts the value between double quotes.
+ * 3. Replaces the original value with "md5: " followed by its MD5 hash.
+ * 4. Returns the modified string with all "sk" values encrypted.
+ */
+inline std::string encryt_sk(std::string debug_string) {
+    // Start position for searching "sk" fields
+    size_t pos = 0;
+    // Iterate through the string and find all occurrences of "sk: "
+    while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
+        // Find the start and end of the "sk" value (assumed to be within quotes)
+        // Start after the quote
+        size_t sk_value_start = debug_string.find('\"', pos) + 1;
+        // End at the next quote
+        size_t sk_value_end = debug_string.find('\"', sk_value_start);
+
+        // Extract the "sk" value
+        std::string sk_value = debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+        // Encrypt the "sk" value with MD5
+        std::string encrypted_sk = "md5: " + md5(sk_value);
+
+        // Replace the original "sk" value with the encrypted MD5 value
+        debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+        // Move the position to the end of the current "sk" field and continue searching
+        pos = sk_value_end;
+    }
+    return debug_string;
+}
+
 template <class Request>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
     if constexpr (std::is_same_v<Request, CreateRowsetRequest>) {
@@ -60,8 +100,8 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side();
     } else if constexpr (std::is_same_v<Request, UpdateDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
-                  << " tablet_id=" << req->tablet_id() << " lock_id=" << req->lock_id()
-                  << " initiator=" << req->initiator()
+                  << " table_id=" << req->table_id() << " tablet_id=" << req->tablet_id()
+                  << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " delete_bitmap_size=" << req->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Request, GetDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
@@ -77,6 +117,11 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
+    } else if constexpr (std::is_same_v<Request, GetDeleteBitmapUpdateLockRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " table_id=" << req->table_id() << " lock_id=" << req->lock_id()
+                  << " initiator=" << req->initiator() << " expiration=" << req->expiration()
+                  << " require_compaction_stats=" << req->require_compaction_stats();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();
@@ -124,31 +169,11 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
             res->clear_cumulative_compaction_cnts();
             res->clear_cumulative_points();
         }
+        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+                  << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
-        std::string debug_string = res->DebugString();
-        // Start position for searching "sk" fields
-        size_t pos = 0;
-        // Iterate through the string and find all occurrences of "sk: "
-        while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
-            // Find the start and end of the "sk" value (assumed to be within quotes)
-            // Start after the quote
-            size_t sk_value_start = debug_string.find('\"', pos) + 1;
-            // End at the next quote
-            size_t sk_value_end = debug_string.find('\"', sk_value_start);
-
-            // Extract the "sk" value
-            std::string sk_value =
-                    debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
-            // Encrypt the "sk" value with MD5
-            std::string encrypted_sk = "md5: " + md5(sk_value);
-
-            // Replace the original "sk" value with the encrypted MD5 value
-            debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
-
-            // Move the position to the end of the current "sk" field and continue searching
-            pos = sk_value_end;
-        }
+        std::string debug_string = encryt_sk(res->DebugString());
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " response=" << debug_string;

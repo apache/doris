@@ -232,6 +232,7 @@ import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
@@ -604,6 +605,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
+            ConnectContext.get().setDatabase(name.getDb());
         } else {
             throw new ParseException("tableName and tableId cannot both be null");
         }
@@ -1602,7 +1604,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (expression instanceof NamedExpression) {
                     return (NamedExpression) expression;
                 } else {
-                    return new UnboundAlias(expression);
+                    int start = ctx.expression().start.getStartIndex();
+                    int stop = ctx.expression().stop.getStopIndex();
+                    String alias = ctx.start.getInputStream()
+                            .getText(new org.antlr.v4.runtime.misc.Interval(start, stop));
+                    if (expression instanceof Literal) {
+                        return new Alias(expression, alias, true);
+                    } else {
+                        return new UnboundAlias(expression, alias, true);
+                    }
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
@@ -2055,37 +2065,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCurrentDate(DorisParser.CurrentDateContext ctx) {
-        return new CurrentDate().alias("CURRENT_DATE");
+        return new CurrentDate();
     }
 
     @Override
     public Expression visitCurrentTime(DorisParser.CurrentTimeContext ctx) {
-        return new CurrentTime().alias("CURRENT_TIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitCurrentTimestamp(DorisParser.CurrentTimestampContext ctx) {
-        return new Now().alias("CURRENT_TIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitLocalTime(DorisParser.LocalTimeContext ctx) {
-        return new CurrentTime().alias("LOCALTIME");
+        return new CurrentTime();
     }
 
     @Override
     public Expression visitLocalTimestamp(DorisParser.LocalTimestampContext ctx) {
-        return new Now().alias("LOCALTIMESTAMP");
+        return new Now();
     }
 
     @Override
     public Expression visitCurrentUser(DorisParser.CurrentUserContext ctx) {
-        return new CurrentUser().alias("CURRENT_USER");
+        return new CurrentUser();
     }
 
     @Override
     public Expression visitSessionUser(DorisParser.SessionUserContext ctx) {
-        return new SessionUser().alias("SESSION_USER");
+        return new SessionUser();
     }
 
     @Override

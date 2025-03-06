@@ -350,7 +350,8 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t generate_row_ranges_ns = 0;
+    int64_t generate_row_ranges_by_keys_ns = 0;
+    int64_t generate_row_ranges_by_column_conditions_ns = 0;
     int64_t generate_row_ranges_by_bf_ns = 0;
     int64_t generate_row_ranges_by_zonemap_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
@@ -419,8 +420,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -441,7 +440,7 @@ struct RowsetId {
             if (ec != std::errc {}) [[unlikely]] {
                 if (config::force_regenerate_rowsetid_on_start_error) {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = next_rowset_id().hi;
+                    high = MAX_ROWSET_ID - 1;
                 } else {
                     LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
                 }

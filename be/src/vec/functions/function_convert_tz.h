@@ -165,18 +165,23 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        if (col_const[1] && col_const[2]) {
+        if (convert_tz_state->use_state) {
             auto result_column = ColumnType::create();
-            if (convert_tz_state->use_state) {
-                execute_tz_const_with_state(
-                        convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                        assert_cast<ReturnColumnType*>(result_column.get()),
-                        assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                        input_rows_count);
-            } else {
-                return Status::RuntimeError("ConvertTzState is not initialized in function {}",
-                                            get_name());
-            }
+            execute_tz_const_with_state(
+                    convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                    assert_cast<ReturnColumnType*>(result_column.get()),
+                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                    input_rows_count);
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_column), std::move(result_null_map_column));
+        } else if (col_const[1] && col_const[2]) {
+            auto result_column = ColumnType::create();
+            execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                             assert_cast<const ColumnString*>(argument_columns[1].get()),
+                             assert_cast<const ColumnString*>(argument_columns[2].get()),
+                             assert_cast<ReturnColumnType*>(result_column.get()),
+                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                             input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else {
@@ -258,6 +263,21 @@ private:
             }
 
             result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+        }
+    }
+
+    static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
+                                 const ColumnString* from_tz_column,
+                                 const ColumnString* to_tz_column, ReturnColumnType* result_column,
+                                 NullMap& result_null_map, size_t input_rows_count) {
+        auto from_tz = from_tz_column->get_data_at(0).to_string();
+        auto to_tz = to_tz_column->get_data_at(0).to_string();
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (result_null_map[i]) {
+                result_column->insert_default();
+                continue;
+            }
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 

@@ -485,12 +485,9 @@ suite('test_manager_interface_1',"p0") {
     }
     test_table_index()
 
-
-//select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
     def  test_active_query = {
 
         List<List<Object>> result = sql """ select 1;"""
-
 
         def futures = []
         futures.add( thread {
@@ -504,9 +501,16 @@ suite('test_manager_interface_1',"p0") {
         futures.add( thread {
             sleep(1500)
 
-            result = sql_return_maparray """ 
+            result = sql """ 
             select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
             information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
+            """
+            logger.info("result = ${result}")
+
+            result = sql_return_maparray """ 
+                select a.*, b.TASK_CPU_TIME_MS, b.SCAN_ROWS, b.SCAN_BYTES, b.SHUFFLE_SEND_BYTES, b.SHUFFLE_SEND_ROWS, b.CURRENT_USED_MEMORY_BYTES, c.NAME as WORKLOAD_GROUP_NAME 
+                from information_schema.active_queries a left join 
+                information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
             """
             logger.info("result = ${result}")
             
@@ -527,7 +531,7 @@ suite('test_manager_interface_1',"p0") {
                     assertTrue(result[i]["SHUFFLE_SEND_BYTES"].toBigInteger() ==0) // SHUFFLE_SEND_BYTES     
                     assertTrue(result[i]["SHUFFLE_SEND_ROWS"].toBigInteger() ==0) // SHUFFLE_SEND_ROWS   
                     assertTrue(result[i]["CURRENT_USED_MEMORY_BYTES"]!=null) // CURRENT_USED_MEMORY_BYTES   
-                    assertTrue(result[i]["WORKLOAD_GROUP_ID"]!=null) // WORKLOAD_GROUP_NAME              
+                    assertTrue(result[i]["WORKLOAD_GROUP_NAME"]!=null) // WORKLOAD_GROUP_NAME              
                 }
             }
             assertTrue(x == 1)

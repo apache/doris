@@ -799,12 +799,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_level_threshold());
 }
 
-int64_t TabletMeta::mem_size() const {
-    auto size = sizeof(TabletMeta);
-    size += _schema->mem_size();
-    return size;
-}
-
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
@@ -1183,6 +1177,20 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
         }
         subset_rowset_map->set(k, bm);
     }
+}
+
+size_t DeleteBitmap::get_count_with_range(const BitmapKey& start, const BitmapKey& end) const {
+    DCHECK(start < end);
+    size_t count = 0;
+    std::shared_lock l(lock);
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+        auto& [k, bm] = *it;
+        if (k >= end) {
+            break;
+        }
+        count++;
+    }
+    return count;
 }
 
 void DeleteBitmap::merge(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {

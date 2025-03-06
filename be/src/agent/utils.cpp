@@ -91,12 +91,12 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
         try {
             client->finishTask(*result, request);
         } catch ([[maybe_unused]] TTransportException& e) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to get master client from cache. "
                              << "host=" << _cluster_info->master_fe_addr.hostname
                              << ", port=" << _cluster_info->master_fe_addr.port
@@ -136,14 +136,14 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                     LOG(WARNING) << "fail to get master client from cache. "
                                  << "host=" << _cluster_info->master_fe_addr.hostname
                                  << ", port=" << _cluster_info->master_fe_addr.port
@@ -156,7 +156,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to report to master: " << e.what();
 #endif
                 return Status::InternalError("Fail to report to master");
@@ -192,8 +192,10 @@ Status MasterServerClient::confirm_unused_remote_files(
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
+#endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {

@@ -57,8 +57,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -83,28 +81,18 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
-
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
-                         [this]() { return _tablet_meta_mem_tracker->consumption(); });
 }
 
-TabletManager::~TabletManager() {
-#ifndef BE_TEST
-    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
-#endif
-}
+TabletManager::~TabletManager() = default;
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force, RuntimeProfile* profile) {
@@ -242,10 +230,6 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
-    // TODO: remove multiply 2 of tablet meta mem size
-    // Because table schema will copy in tablet, there will be double mem cost
-    // so here multiply 2
-    _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
                    static_cast<int64_t>(watch.reset()));
@@ -605,7 +589,6 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     }
 
     to_drop_tablet->deregister_tablet_from_dir();
-    _tablet_meta_mem_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << -to_drop_tablet->tablet_meta()->tablet_columns_num();
     return Status::OK();
 }
@@ -1768,6 +1751,49 @@ bool TabletManager::update_tablet_partition_id(::doris::TPartitionId partition_i
     }
     _add_tablet_to_partition(tablet);
     return true;
+}
+
+void TabletManager::get_topn_tablet_delete_bitmap_score(
+        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+    int64_t max_delete_bitmap_score_tablet_id = 0;
+    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
+    OlapStopWatch watch;
+    uint64_t total_delete_map_count = 0;
+    int n = config::check_tablet_delete_bitmap_score_top_n;
+    std::vector<std::pair<std::shared_ptr<Tablet>, int64_t>> buf;
+    buf.reserve(n + 1);
+    auto handler = [&](const TabletSharedPtr& tablet) {
+        uint64_t delete_bitmap_count =
+                tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        total_delete_map_count += delete_bitmap_count;
+        if (delete_bitmap_count > *max_delete_bitmap_score) {
+            max_delete_bitmap_score_tablet_id = tablet->tablet_id();
+            *max_delete_bitmap_score = delete_bitmap_count;
+        }
+        buf.emplace_back(std::move(tablet), delete_bitmap_count);
+        std::sort(buf.begin(), buf.end(), [](auto& a, auto& b) { return a.second > b.second; });
+        if (buf.size() > n) {
+            buf.pop_back();
+        }
+    };
+    for_each_tablet(handler, filter_all_tablets);
+    for (auto& [t, _] : buf) {
+        t->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
+                                               &max_base_rowset_delete_bitmap_score_tablet_id);
+    }
+    std::stringstream ss;
+    for (auto& i : buf) {
+        ss << i.first->tablet_id() << ":" << i.second << ",";
+    }
+    LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
+              << ",tablet size=" << _tablets_shards.size()
+              << ",total_delete_map_count=" << total_delete_map_count
+              << ",cost(us)=" << watch.get_elapse_time_us()
+              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ",max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
 }
 
 } // end namespace doris

@@ -21,6 +21,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
         logger.info("diable Hive test. then doesn't test mv rewrite")
         return;
     }
+    def suite_name = 'mv_contain_external_table'
     // prepare table and data in hive
     def hive_database = "test_mv_contain_external_table_rewrite_db"
     def hive_table = "orders"
@@ -142,7 +143,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     order_qt_query_sql """${query_sql}"""
 
     // create mv
-    def mv_name = 'mv_join'
+    def mv_name = suite_name + 'mv_join'
     sql """drop materialized view if exists ${mv_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mv_name}

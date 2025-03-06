@@ -222,6 +222,7 @@ public class GroupCommitPlanner {
             boolean reuse = false;
             GroupCommitPlanner groupCommitPlanner;
             if (preparedStmtCtx.groupCommitPlanner.isPresent()
+                    && table.getId() == preparedStmtCtx.groupCommitPlanner.get().table.getId()
                     && table.getBaseSchemaVersion() == preparedStmtCtx.groupCommitPlanner.get().baseSchemaVersion) {
                 groupCommitPlanner = preparedStmtCtx.groupCommitPlanner.get();
                 reuse = true;

@@ -71,7 +71,7 @@ suite ("test_alter_table_property") {
     assertEquals(2, queryReplicaCount("p3"))
 
     sql """ ALTER TABLE ${tableName} MODIFY PARTITION p1 SET ( "replication_allocation" = "tag.location.default: 2" ) """
-    for (i = 0; i < 300; i++) {
+    for (def i = 0; i < 300; i++) {
         if (queryReplicaCount("p1") != 2) {
             Thread.sleep(3000)
         }

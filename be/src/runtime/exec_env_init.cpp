@@ -243,6 +243,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     CgroupCpuCtl::init_doris_cgroup_path();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
@@ -282,7 +283,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
@@ -574,16 +574,21 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _page_no_cache_mem_tracker = std::make_shared<MemTracker>("PageNoCache");
     _brpc_iobuf_block_memory_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "IOBufBlockMemory");
     _segcompaction_mem_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
+    _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+    _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
+    _rowsets_no_cache_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::METADATA, "Rowsets");
     _point_query_executor_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
     _query_cache_mem_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "QueryCache");
-    _block_compression_mem_tracker = _block_compression_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE, "QueryCache");
+    _block_compression_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
@@ -678,7 +683,7 @@ void ExecEnv::destroy() {
     _file_cache_open_fd_cache.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
+    // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 

@@ -249,7 +249,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
-    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+    public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -1060,7 +1060,7 @@ public class SessionVariable implements Serializable, Writable {
     public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     public int maxPushdownConditionsPerColumn = 1024;
-    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
+    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY, needForward = true)
     public boolean showHiddenColumns = false;
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
@@ -1217,7 +1217,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = false)
     private boolean enableParallelResultSink = false;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
@@ -1501,25 +1501,25 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true)
     public boolean skipStorageEngineMerge = false;
 
     /**
      * For debug purpose, skip delete predicate when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true)
     public boolean skipDeletePredicate = false;
 
     /**
      * For debug purpose, skip delete sign when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true)
     public boolean skipDeleteSign = false;
 
     /**
      * For debug purpose, skip delete bitmap when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true)
     public boolean skipDeleteBitmap = false;
 
     // This variable replace the original FE config `recover_with_skip_missing_version`.
@@ -2135,6 +2135,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
+
     public static final String ENABLE_SEGMENT_CACHE = "enable_segment_cache";
 
     public Set<String> getIgnoreShapePlanNodes() {
@@ -2149,6 +2151,23 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapePlanNodes",
+            description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
+                    "the plan node type show detail in 'explain shape plan' command"})
+    public String detailShapePlanNodes = "";
+
+    private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
+
+    public Set<String> getDetailShapePlanNodesSet() {
+        return detailShapePlanNodesSet;
+    }
+
+    public void setDetailShapePlanNodes(String detailShapePlanNodes) {
+        this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
+                .collect(ImmutableSet.toImmutableSet());
+        this.detailShapePlanNodes = detailShapePlanNodes;
+    }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" })
@@ -2382,7 +2401,6 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         // this.enableHashJoinEarlyStartProbe = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;

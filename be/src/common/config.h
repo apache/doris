@@ -302,6 +302,10 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to check md5sum when download
+DECLARE_mBool(enable_download_md5sum_check);
+// download binlog meta timeout
+DECLARE_mInt32(download_binlog_meta_timeout_ms);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -1076,6 +1080,9 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable prefetch tablets before opening
+DECLARE_mBool(enable_prefetch_tablet);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1104,17 +1111,21 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
+DECLARE_mBool(enable_evict_file_cache_in_advance);
+DECLARE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent);
+DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
+DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
+DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
-DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
-DECLARE_mInt64(cache_lock_long_tail_threshold);
-DECLARE_Int64(file_cache_recycle_keys_size);
+DECLARE_mInt64(cache_lock_wait_long_tail_threshold_us);
+DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // Base compaction may retrieve and produce some less frequently accessed data,
 // potentially affecting the file cache hit rate.
 // This configuration determines whether to retain the output within the file cache.
@@ -1122,7 +1133,7 @@ DECLARE_Int64(file_cache_recycle_keys_size);
 // If your file cache is ample enough to accommodate all the data in your database,
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
-
+DECLARE_mInt64(file_cache_remove_block_qps_limit);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1507,6 +1518,10 @@ DECLARE_Bool(enable_table_size_correctness_check);
 DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 DECLARE_mInt32(compaction_num_per_round);
+
+DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
+DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
+DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 
 #ifdef BE_TEST
 // test s3

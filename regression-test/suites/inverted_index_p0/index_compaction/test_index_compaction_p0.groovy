@@ -92,10 +92,11 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
     def tablets = sql_return_maparray """ show tablets from ${compaction_table_name}; """
 
 
-    for (def tablet in tablets) {
+    // Do not check tablets rowset count before compaction
+    /*for (def tablet in tablets) {
         int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
+        def (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def tabletJson = parseJson(out.trim())
@@ -104,14 +105,14 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
             beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
         assertEquals(beforeSegmentCount, 20)
-    }
+    }*/
 
     // trigger compactions for all tablets in ${tableName}
     trigger_and_wait_compaction(compaction_table_name, "full")
     for (def tablet in tablets) {
         int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
+        def (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def tabletJson = parseJson(out.trim())

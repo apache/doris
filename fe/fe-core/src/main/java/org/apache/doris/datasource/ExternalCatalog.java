@@ -139,6 +139,9 @@ public abstract class ExternalCatalog
     // <db name, table name> to tableAutoAnalyzePolicy
     @SerializedName(value = "taap")
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -147,7 +150,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
@@ -390,7 +392,7 @@ public abstract class ExternalCatalog
                     db.setRemoteName(remoteDbName);
                 }
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
+                initCatalogLog.addRefreshDb(dbId, remoteDbName);
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(localDbName, dbId);
@@ -722,8 +724,12 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
-        // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
+        // If the remote name is missing during upgrade, or
+        // the refresh db's remote name is empty,
+        // all databases in the Map will be reinitialized.
+        if ((log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()))
+                || (log.getRefreshCount() > 0
+                && (log.getRefreshRemoteDbNames() == null || log.getRefreshRemoteDbNames().isEmpty()))) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -743,6 +749,7 @@ public abstract class ExternalCatalog
                         log.getRefreshDbIds().get(i), name);
                 continue;
             }
+            db.get().setRemoteName(log.getRefreshRemoteDbNames().get(i));
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -757,6 +764,18 @@ public abstract class ExternalCatalog
                 tmpIdToDb.put(db.getId(), db);
                 LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
                         db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
+            }
+        }
+        // Check whether the remoteName of db in tmpIdToDb is empty
+        for (ExternalDatabase<? extends ExternalTable> db : tmpIdToDb.values()) {
+            if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                        db.getFullName(), name);
+                dbNameToId = Maps.newConcurrentMap();
+                idToDb = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
             }
         }
         dbNameToId = tmpDbNameToId;

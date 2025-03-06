@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <memory>
+#include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -377,6 +378,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     }
 
     cloud::FinishTabletJobResponse finish_resp;
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict", {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        int random_value = std::rand() % 100;
+        if (random_value < 20) {
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("test txn conflict");
+        }
+    });
     auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
@@ -441,6 +449,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block",
+                    DBUG_BLOCK);
+
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
@@ -461,6 +472,18 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
     }
+
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}, sc job_id={}", sleep_time,
+                     _new_tablet->tablet_id(), _job_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
 
     auto& delete_bitmap = tmp_tablet->tablet_meta()->delete_bitmap();
 
