@@ -71,6 +71,8 @@ public class SortNode extends PlanNode {
     // exchange node, and the sort node is used for the ORDER BY .
     private boolean mergeByexchange = false;
 
+    private boolean useLocalMerge = false;  
+
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private boolean isColocate = false;
@@ -126,6 +128,9 @@ public class SortNode extends PlanNode {
                     algorithm = TSortAlgorithm.TOPN_SORT;
                 }
             }
+        }
+        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()) {
+            useLocalMerge = true;
         }
     }
 
@@ -217,6 +222,12 @@ public class SortNode extends PlanNode {
             output.append("full sort\n");
         }
 
+        if (useLocalMerge) {
+            output.append(detailPrefix + "local merge sort\n");
+        }
+        if (mergeByexchange) {
+            output.append(detailPrefix + "merge by exchange\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
@@ -342,6 +353,7 @@ public class SortNode extends PlanNode {
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
         msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setUseLocalMerge(this.useLocalMerge);
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 

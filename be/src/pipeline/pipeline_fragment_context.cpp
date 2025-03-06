@@ -1494,7 +1494,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         const auto should_spill = _runtime_state->enable_spill() &&
                                   tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
         const bool use_local_merge =
-                tnode.sort_node.merge_by_exchange && _runtime_state->enable_local_merge_sort();
+                tnode.sort_node.__isset.use_local_merge && tnode.sort_node.use_local_merge;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else if (use_local_merge) {
