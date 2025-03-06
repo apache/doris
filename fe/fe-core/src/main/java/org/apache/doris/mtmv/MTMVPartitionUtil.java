@@ -319,12 +319,23 @@ public class MTMVPartitionUtil {
         }
         // check if partitions of related table if changed
         Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
+
+        LOG.info(String.format("isSyncWithPartitions before mvName is %s\n, relatedPartitionNames is %s\n, "
+                        + "mtmv snapshotPartitions is %s\n", mtmv.getName(), relatedPartitionNames,
+                snapshotPartitions));
+
         if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
             return false;
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
                     .getPartitionSnapshot(relatedPartitionName, context, Optional.empty());
+
+            // TODO: 2025/3/3 this log level is info tmp, should be debug
+            LOG.info(String.format("isSyncWithPartitions after mvName is %s\n, mtmvPartitionName is %s\n, "
+                            + "mtmv refreshSnapshot is %s\n, relatedPartitionName is %s\n, "
+                            + "relatedPartitionCurrentSnapshot is %s", mtmv.getName(), mtmvPartitionName,
+                    mtmv.getRefreshSnapshot(), relatedPartitionName, relatedPartitionCurrentSnapshot));
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
