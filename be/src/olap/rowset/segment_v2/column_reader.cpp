@@ -454,7 +454,9 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
             _statistics->sparse_column_non_null_size.lower_bound(prefix)->first.starts_with(prefix);
     // if prefix exists in sparse column, read sparse column with hierarchical reader
     if (prefix_existed_in_sparse_column) {
-        return _create_hierarchical_reader(iterator, relative_path, nullptr, root);
+        // Example {"b" : {"c":456,"e":7.111}}
+        // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and subcolumn
+        return _create_hierarchical_reader(iterator, relative_path, node, root);
     }
 
     // if path exists in sparse column, read sparse column with extract reader
