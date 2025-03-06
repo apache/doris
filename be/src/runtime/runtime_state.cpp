@@ -357,8 +357,7 @@ Status RuntimeState::create_error_log_file() {
 
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
                                               std::function<std::string()> error_msg,
-                                              bool* stop_processing, bool is_summary) {
-    *stop_processing = false;
+                                              bool is_summary) {
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
@@ -379,7 +378,10 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM &&
         !is_summary) {
         if (_load_zero_tolerance) {
-            *stop_processing = true;
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
         }
         return Status::OK();
     }

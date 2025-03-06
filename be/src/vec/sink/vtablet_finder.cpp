@@ -35,8 +35,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
-                                      std::vector<uint32_t>& tablet_index, bool& stop_processing,
-                                      std::vector<bool>& skip, std::vector<int64_t>* miss_rows) {
+                                      std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
+                                      std::vector<int64_t>* miss_rows) {
     for (int index = 0; index < rows; index++) {
         _vpartition->find_partition(block, index, partitions[index]);
     }
@@ -51,6 +51,9 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                 skip[row_index] = true;
                 continue;
             }
+            _num_filtered_rows++;
+            _filter_bitmap.Set(row_index, true);
+            skip[row_index] = true;
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
@@ -58,14 +61,7 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                         fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
                                        block->dump_data(row_index, 1));
                         return fmt::to_string(buf);
-                    },
-                    &stop_processing));
-            _num_filtered_rows++;
-            _filter_bitmap.Set(row_index, true);
-            if (stop_processing) {
-                return Status::DataQualityError("Encountered unqualified data, stop processing");
-            }
-            skip[row_index] = true;
+                    }));
             continue;
         }
         if (!partitions[row_index]->is_mutable) [[unlikely]] {
