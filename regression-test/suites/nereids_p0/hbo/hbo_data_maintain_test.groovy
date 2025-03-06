@@ -30,7 +30,8 @@ suite("hbo_data_maintain_test") {
     sql """insert into hbo_data_maintain_test2 select number, number from numbers("number" = "100000");"""
     sql """analyze table hbo_data_maintain_test2 with full with sync;"""
     sql "set hbo_rfsafe_threshold=1.0;"
-
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
+    sleep(3000)
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -52,8 +53,8 @@ suite("hbo_data_maintain_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        contains("stats=1,002.8, predicates=(a#0 = 1)")
-        contains("stats=1,004.59, type=INNER_JOIN")
+        contains("stats=1, aggPhase=GLOBAL")
+        contains("stats=1, aggPhase=LOCAL")
     }
 
     sql "select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"

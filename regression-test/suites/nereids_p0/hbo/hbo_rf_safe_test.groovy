@@ -32,6 +32,7 @@ suite("hbo_rf_safe_test") {
     // exclude min/max rf to ensure the bloom filter can be generated
     sql "set runtime_filter_type=IN_OR_BLOOM_FILTER;"
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "select count(1) from hbo_rf_safe_test1 t1, hbo_rf_safe_test2 t2 where t1.b = t2.b and t2.a < 200000;"
     sleep(3000)
     /**

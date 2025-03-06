@@ -28,6 +28,7 @@ suite("hbo_agg_stage_opt_test") {
     sql """alter table hbo_agg_stage_opt_test modify column c set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
     sql """alter table hbo_agg_stage_opt_test modify column d set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                 |

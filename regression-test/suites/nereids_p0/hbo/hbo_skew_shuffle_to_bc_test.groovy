@@ -35,6 +35,7 @@ suite("hbo_skew_shuffle_to_bc_test") {
     // increase the parallel to make enough skew between different instances
     sql "set parallel_pipeline_task_num=100;"
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "set enable_hbo_optimization=false;"
     /**
      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+

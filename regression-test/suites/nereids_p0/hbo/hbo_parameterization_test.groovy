@@ -110,6 +110,7 @@ suite("hbo_parameterization_test") {
             "replication_num" = "1"
     );"""
 
+    sql "drop table if exists store;"
     sql """
     CREATE TABLE IF NOT EXISTS store (
         s_store_sk bigint not null,
@@ -125,6 +126,7 @@ suite("hbo_parameterization_test") {
 
     sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION';"
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     // group by 1 order by 1 will not impact the hbo cache matching since hbo is processed during cbo stage
     // and these kinds of info have been processed during rewriting, including real column replacement and
     // constant folding

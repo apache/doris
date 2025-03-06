@@ -19,8 +19,8 @@ suite("hbo_cache_usability_test") {
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
 
-    sql "drop table if exists store_sales_p;"
-    sql """CREATE TABLE `store_sales_p` (
+    sql "drop table if exists cache_usability_store_sales_p;"
+    sql """CREATE TABLE `cache_usability_store_sales_p` (
     `ss_item_sk` bigint NOT NULL,
     `ss_ticket_number` bigint NOT NULL,
     `ss_sold_date_sk` bigint NULL,
@@ -110,8 +110,8 @@ suite("hbo_cache_usability_test") {
             "replication_num" = "1"
     );"""
 
-    sql "drop table if exists date_dim;"
-    sql """CREATE TABLE `date_dim` (
+    sql "drop table if exists cache_usability_date_dim;"
+    sql """CREATE TABLE `cache_usability_date_dim` (
     `d_date_sk` bigint NOT NULL,
     `d_date_id` char(16) NOT NULL,
     `d_date` date NULL,
@@ -125,8 +125,8 @@ suite("hbo_cache_usability_test") {
             "replication_num" = "1"
     );"""
 
-    sql "drop table if exists item;"
-    sql """CREATE TABLE `item` (
+    sql "drop table if exists cache_usability_item;"
+    sql """CREATE TABLE `cache_usability_item` (
     `i_item_sk` bigint NOT NULL,
     `i_item_id` char(16) NOT NULL,
     `i_brand_id` int NULL,
@@ -140,6 +140,7 @@ suite("hbo_cache_usability_test") {
 
     sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION';"
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "set enable_hbo_optimization=false;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -154,22 +155,22 @@ suite("hbo_cache_usability_test") {
      |             +--PhysicalHashJoin[436]@6 ( stats=1, type=INNER_JOIN, hashCondition=[(ss_sold_date_sk#2 = d_date_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[d_date_sk#7->[ss_sold_date_sk#2](ndv/size = 1/1) , RF1[d_date_sk#7->[ss_sold_date_sk#2](ndv/size = 1/1) ] )             |
      |                |--PhysicalProject[415]@2 ( stats=1, projects=[ss_sold_date_sk#2, ss_store_sk#4] )                                                                                                                                                                                                      |
      |                |  +--PhysicalFilter[410]@1 ( stats=1, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                                  |
-     |                |     +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=4, RFs= RF0 RF1 )                                                                                                                                                                                                   |
+     |                |     +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=4, RFs= RF0 RF1 )                                                                                                                                                                                                   |
      |                +--PhysicalDistribute[431]@5 ( stats=0.25, distributionSpec=DistributionSpecReplicated )                                                                                                                                                                                                |
      |                   +--PhysicalProject[426]@5 ( stats=0.25, projects=[d_date_sk#7] )                                                                                                                                                                                                                     |
      |                      +--PhysicalFilter[421]@4 ( stats=0.25, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200)] )                                                                                                                                                                        |
-     |                         +--PhysicalOlapScan[date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                    |
+     |                         +--PhysicalOlapScan[cache_usability_date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                    |
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         contains("stats=1, type=INNER_JOIN")
         contains("stats=1, aggPhase=LOCAL")
         contains("stats=1, aggPhase=GLOBAL")
     }
 
     sql "set enable_hbo_optimization=true;"
-    sql "select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+    sql "select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
     sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -185,15 +186,15 @@ suite("hbo_cache_usability_test") {
      |                |--PhysicalDistribute[452]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[2], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[2]], exprIdToEquivalenceSet={2=0} ) )                                      |
      |                |  +--PhysicalProject[447]@2 ( stats=0, projects=[ss_sold_date_sk#2, ss_store_sk#4] )                                                                                                                                                                                                        |
      |                |     +--PhysicalFilter[442]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                                    |
-     |                |        +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF0 RF1 )                                                                                                                                                                                                     |
+     |                |        +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF0 RF1 )                                                                                                                                                                                                     |
      |                +--PhysicalDistribute[468]@5 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[7], shuffleType=EXECUTION_BUCKETED, tableId=1740488762102, selectedIndexId=1740488762103, partitionIds=[1740488762101], equivalenceExprIds=[[7]], exprIdToEquivalenceSet={7=0} ) )   |
      |                   +--PhysicalProject[463]@5 ( stats=0, projects=[d_date_sk#7] )                                                                                                                                                                                                                             |
      |                      +--PhysicalFilter[458]@4 ( stats=0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200)] )                                                                                                                                                                                |
-     |                         +--PhysicalOlapScan[date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                         |
+     |                         +--PhysicalOlapScan[cache_usability_date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                         |
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
@@ -210,20 +211,20 @@ suite("hbo_cache_usability_test") {
      |          +--PhysicalProject[432]@6 ( stats=1, projects=[ss_store_sk#4] )                                                                                                                                                                                                                              |
      |             +--PhysicalHashJoin[427]@5 ( stats=1, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) , RF1[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) ] )                           |
      |                |--PhysicalProject[406]@4 ( stats=1, projects=[i_item_sk#7] )                                                                                                                                                                                                                          |
-     |                |  +--PhysicalOlapScan[item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                               |
+     |                |  +--PhysicalOlapScan[cache_usability_item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                               |
      |                +--PhysicalDistribute[422]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) )                                  |
      |                   +--PhysicalProject[417]@2 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                       |
      |                      +--PhysicalFilter[412]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                              |
-     |                         +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                             |
+     |                         +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                             |
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         // TODO: actually to find the ss filter entry in hbo cache but not with (hbo) mark
         contains("stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
     }
 
-    sql "select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+    sql "select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
     sleep(3000)
     /**
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -237,15 +238,15 @@ suite("hbo_cache_usability_test") {
      |          +--PhysicalProject[429]@6 ( stats=0, projects=[ss_store_sk#4] )                                                                                                                                                                                                                                   |
      |             +--PhysicalHashJoin[424]@5 ( stats=0, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) , RF1[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) ] )                                |
      |                |--PhysicalProject[403]@4 ( stats=1, projects=[i_item_sk#7] )                                                                                                                                                                                                                               |
-     |                |  +--PhysicalOlapScan[item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                                    |
+     |                |  +--PhysicalOlapScan[cache_usability_item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                                    |
      |                +--PhysicalDistribute[419]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) )                                       |
      |                   +--PhysicalProject[414]@2 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                            |
      |                      +--PhysicalFilter[409]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                                   |
-     |                         +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                                  |
+     |                         +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                                  |
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         contains("stats=(hbo)0, aggPhase=GLOBAL")
         contains("stats=(hbo)0, aggPhase=LOCAL")
     }
@@ -262,15 +263,15 @@ suite("hbo_cache_usability_test") {
      |          +--PhysicalProject[429]@6 ( stats=0, projects=[ss_store_sk#4] )                                                                                                                                                                                                                                   |
      |             +--PhysicalHashJoin[424]@5 ( stats=0, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) , RF1[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) ] )                                |
      |                |--PhysicalProject[403]@4 ( stats=1, projects=[i_item_sk#7] )                                                                                                                                                                                                                               |
-     |                |  +--PhysicalOlapScan[item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                                    |
+     |                |  +--PhysicalOlapScan[cache_usability_item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                                    |
      |                +--PhysicalDistribute[419]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) )                                       |
      |                   +--PhysicalProject[414]@2 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                            |
      |                      +--PhysicalFilter[409]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451101),(ss_sold_date_sk#2 <= 2451201)] )                                                                                                                                                                   |
-     |                         +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                                  |
+     |                         +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                                  |
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451101 and 2451201 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451101 and 2451201 group by ss_store_sk;"
         contains("stats=(hbo)0, aggPhase=GLOBAL")
         contains("stats=(hbo)0, aggPhase=LOCAL")
     }
@@ -288,19 +289,19 @@ suite("hbo_cache_usability_test") {
      |             +--PhysicalHashJoin[486]@6 ( stats=1, type=INNER_JOIN, hashCondition=[(ss_sold_date_sk#2 = d_date_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_sold_date_sk#2->[d_date_sk#7](ndv/size = 1/1) , RF1[ss_sold_date_sk#2->[d_date_sk#7](ndv/size = 1/1) ] )             |
      |                |--PhysicalProject[465]@5 ( stats=0.06, projects=[d_date_sk#7] )                                                                                                                                                                                                                        |
      |                |  +--PhysicalFilter[460]@4 ( stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )                                                                                                                                          |
-     |                |     +--PhysicalOlapScan[date_dim]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                         |
+     |                |     +--PhysicalOlapScan[cache_usability_date_dim]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                         |
      |                +--PhysicalDistribute[481]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[2], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[2]], exprIdToEquivalenceSet={2=0} ) )                                   |
      |                   +--PhysicalProject[476]@2 ( stats=0, projects=[ss_sold_date_sk#2, ss_store_sk#4] )                                                                                                                                                                                                   |
      |                      +--PhysicalFilter[471]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                               |
-     |                         +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                              |
+     |                         +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                              |
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
         contains("stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]")
     }
 
-    sql "select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
+    sql "select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
     sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -316,15 +317,15 @@ suite("hbo_cache_usability_test") {
      |                |--PhysicalDistribute[464]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[2], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[2]], exprIdToEquivalenceSet={2=0} ) )                                      |
      |                |  +--PhysicalProject[459]@2 ( stats=0, projects=[ss_sold_date_sk#2, ss_store_sk#4] )                                                                                                                                                                                                        |
      |                |     +--PhysicalFilter[454]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                                    |
-     |                |        +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF0 RF1 )                                                                                                                                                                                                     |
+     |                |        +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF0 RF1 )                                                                                                                                                                                                     |
      |                +--PhysicalDistribute[480]@5 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[7], shuffleType=EXECUTION_BUCKETED, tableId=1740488762102, selectedIndexId=1740488762103, partitionIds=[1740488762101], equivalenceExprIds=[[7]], exprIdToEquivalenceSet={7=0} ) )   |
      |                   +--PhysicalProject[475]@5 ( stats=0, projects=[d_date_sk#7] )                                                                                                                                                                                                                             |
      |                      +--PhysicalFilter[470]@4 ( stats=0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )                                                                                                                                               |
-     |                         +--PhysicalOlapScan[date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                         |
+     |                         +--PhysicalOlapScan[cache_usability_date_dim]@3 ( stats=1 )                                                                                                                                                                                                                                         |
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
         contains("stats=(hbo)0, aggPhase=GLOBAL")
         contains("stats=0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]");
     }
@@ -344,23 +345,23 @@ suite("hbo_cache_usability_test") {
      |                |  +--PhysicalHashJoin[689]@6 ( stats=1, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) , RF1[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) ] )                         |
      |                |     |--PhysicalProject[668]@5 ( stats=0.5, projects=[i_item_sk#7] )                                                                                                                                                                                                                      |
      |                |     |  +--PhysicalFilter[663]@4 ( stats=0.5, predicates=(i_brand_id#9 > 1003001) )                                                                                                                                                                                                       |
-     |                |     |     +--PhysicalOlapScan[item]@3 ( stats=1, RFs= RF0 RF1 RF2 RF3 )                                                                                                                                                                                                                  |
+     |                |     |     +--PhysicalOlapScan[cache_usability_item]@3 ( stats=1, RFs= RF0 RF1 RF2 RF3 )                                                                                                                                                                                                                  |
      |                |     +--PhysicalDistribute[684]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) )                                |
      |                |        +--PhysicalProject[679]@2 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                     |
      |                |           +--PhysicalFilter[674]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                            |
-     |                |              +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF2 RF3 )                                                                                                                                                                                             |
+     |                |              +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0, RFs= RF2 RF3 )                                                                                                                                                                                             |
      |                +--PhysicalProject[705]@10 ( stats=0.5, projects=[i_item_sk#11] )                                                                                                                                                                                                                          |
      |                   +--PhysicalFilter[700]@9 ( stats=0.5, predicates=(i_brand_id#13 < 10014017) )                                                                                                                                                                                                           |
-     |                      +--PhysicalOlapScan[item]@8 ( stats=1 )                                                                                                                                                                                                                                              |
+     |                      +--PhysicalOlapScan[cache_usability_item]@8 ( stats=1 )                                                                                                                                                                                                                                              |
      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item i1, cache_usability_item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
         contains("stats=0.5, predicates=(i_brand_id#9 > 1003001) )")
         contains("stats=0.5, predicates=(i_brand_id#13 < 10014017) )")
     }
 
-    sql "select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
+    sql "select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item i1, cache_usability_item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
     sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -375,20 +376,20 @@ suite("hbo_cache_usability_test") {
      |             +--PhysicalHashJoin[753]@11 ( stats=0, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#11)], otherCondition=[], markCondition=[], runtimeFilters=[RF2[ss_item_sk#0->[i_item_sk#11](ndv/size = 1/1) , RF3[ss_item_sk#0->[i_item_sk#11](ndv/size = 1/1) ] )                             |
      |                |--PhysicalProject[711]@10 ( stats=0, projects=[i_item_sk#11] )                                                                                                                                                                                                                              |
      |                |  +--PhysicalFilter[706]@9 ( stats=0, predicates=(i_brand_id#13 < 10014017) )                                                                                                                                                                                                               |
-     |                |     +--PhysicalOlapScan[item]@8 ( stats=1, RFs= RF2 RF3 )                                                                                                                                                                                                                                  |
+     |                |     +--PhysicalOlapScan[cache_usability_item]@8 ( stats=1, RFs= RF2 RF3 )                                                                                                                                                                                                                                  |
      |                +--PhysicalProject[748]@7 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                                |
      |                   +--PhysicalHashJoin[743]@6 ( stats=0, type=INNER_JOIN, hashCondition=[(ss_item_sk#0 = i_item_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) , RF1[ss_item_sk#0->[i_item_sk#7](ndv/size = 1/1) ] )                           |
      |                      |--PhysicalProject[722]@5 ( stats=0, projects=[i_item_sk#7] )                                                                                                                                                                                                                          |
      |                      |  +--PhysicalFilter[717]@4 ( stats=0, predicates=(i_brand_id#9 > 1003001) )                                                                                                                                                                                                           |
-     |                      |     +--PhysicalOlapScan[item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                            |
+     |                      |     +--PhysicalOlapScan[cache_usability_item]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                                            |
      |                      +--PhysicalDistribute[738]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[0], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[0]], exprIdToEquivalenceSet={0=0} ) )                                  |
      |                         +--PhysicalProject[733]@2 ( stats=0, projects=[ss_item_sk#0, ss_store_sk#4] )                                                                                                                                                                                                       |
      |                            +--PhysicalFilter[728]@1 ( stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)] )                                                                                                                                                              |
-     |                               +--PhysicalOlapScan[store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                             |
+     |                               +--PhysicalOlapScan[cache_usability_store_sales_p partitions(4/72)]@0 ( stats=0 )                                                                                                                                                                                                             |
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
+        sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item i1, cache_usability_item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
         contains("stats=(hbo)0, aggPhase=GLOBAL")
         contains("stats=0, predicates=(i_brand_id#9 > 1003001) )")
         contains("stats=0, predicates=(i_brand_id#13 < 10014017) )")
