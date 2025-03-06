@@ -459,6 +459,7 @@ public class DBBinlog {
         if (lastExpiredBinlog != null) {
             final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
             dummy.setCommitSeq(expiredCommitSeq);
+            dummy.setTimestamp(lastExpiredBinlog.getTimestamp());
 
             // release expired timestamps by commit seq.
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
