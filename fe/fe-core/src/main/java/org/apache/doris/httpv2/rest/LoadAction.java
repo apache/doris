@@ -904,4 +904,35 @@ public class LoadAction extends RestBaseController {
 
     }
 
+    @RequestMapping(path = "/api/routine_load/abnormal_jobs", method = RequestMethod.GET)
+    public Object getRoutineLoadAbnormalJobs(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        Map<Long, String> abnormalJobs = Env.getCurrentEnv().getRoutineLoadManager().getAbnormalJobs();
+        List<Map<String, String>> result = new LinkedList<>();
+        for (Long id : abnormalJobs.keySet()) {
+            String fullJobName = Env.getCurrentEnv().getRoutineLoadManager().fullJobName(id);
+            Map<String, String> jobInfo = new HashMap<>();
+            jobInfo.put("routineload_job_name", fullJobName);
+            jobInfo.put("reason", abnormalJobs.get(id));
+            result.add(jobInfo);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    @RequestMapping(path = "/api/routine_load/clean_abnormal_jobs", method = RequestMethod.POST)
+    public Object cleanRoutineLoadAbnormalJobs(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+
+        executeCheckPassword(request, response);
+
+        Env.getCurrentEnv().getRoutineLoadManager().cleanAbnormalJobs();
+        return ResponseEntityBuilder.ok();
+    }
 }

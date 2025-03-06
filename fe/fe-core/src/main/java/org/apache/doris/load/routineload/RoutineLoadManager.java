@@ -91,6 +91,9 @@ public class RoutineLoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
+    // key:jobid, value: abnormal reason
+    private Map<Long, String> abnormalJobs = new ConcurrentHashMap<>();
+
     private void readLock() {
         lock.readLock().lock();
     }
@@ -134,6 +137,31 @@ public class RoutineLoadManager implements Writable {
     // this is not real-time number
     public int getTotalMaxConcurrentTaskNum() {
         return beIdToMaxConcurrentTasks.values().stream().mapToInt(i -> i).sum();
+    }
+
+    public Map<Long, String> getAbnormalJobs() {
+        return abnormalJobs;
+    }
+
+    public void cleanAbnormalJobs() {
+        abnormalJobs.clear();
+    }
+
+    public void addAbnormalJob(Long id, String reason) {
+        abnormalJobs.put(id, reason);
+    }
+
+    public void removeAbnormalJob(Long id) {
+        abnormalJobs.remove(id);
+    }
+
+    public String fullJobName(Long id) {
+        RoutineLoadJob job = idToRoutineLoadJob.get(id);
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(idToRoutineLoadJob.get(id).getDbId());
+        if (db == null) {
+            return job.getName();
+        }
+        return db.getName() + "." + job.getName();
     }
 
     // return the map of be id -> running tasks num
