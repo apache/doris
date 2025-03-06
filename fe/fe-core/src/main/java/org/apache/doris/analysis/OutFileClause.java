@@ -436,6 +436,7 @@ public class OutFileClause {
                 case SMALLINT:
                 case INT:
                 case DATE:
+                case DATEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("int32").equals(type)) {
                         throw new AnalysisException("project field type is TINYINT/SMALLINT/INT,"
                                 + "should use int32, " + "but the definition type of column " + i + " is " + type);
@@ -443,6 +444,7 @@ public class OutFileClause {
                     break;
                 case BIGINT:
                 case DATETIME:
+                case DATETIMEV2:
                     if (!PARQUET_DATA_TYPE_MAP.get("int64").equals(type)) {
                         throw new AnalysisException("project field type is BIGINT/DATE/DATETIME,"
                                 + "should use int64, but the definition type of column " + i + " is " + type);
@@ -474,8 +476,6 @@ public class OutFileClause {
                 case CHAR:
                 case VARCHAR:
                 case STRING:
-                case DATETIMEV2:
-                case DATEV2:
                 case LARGEINT:
                     if (!PARQUET_DATA_TYPE_MAP.get("byte_array").equals(type)) {
                         throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL/DATEV2"
@@ -521,10 +521,12 @@ public class OutFileClause {
                 case SMALLINT:
                 case INT:
                 case DATE:
+                case DATEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int32");
                     break;
                 case BIGINT:
                 case DATETIME:
+                case DATETIMEV2:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int64");
                     break;
                 case FLOAT:
@@ -543,8 +545,6 @@ public class OutFileClause {
                 case CHAR:
                 case VARCHAR:
                 case STRING:
-                case DATETIMEV2:
-                case DATEV2:
                 case LARGEINT:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     break;
@@ -574,9 +574,11 @@ public class OutFileClause {
                     break;
                 }
                 case DATE:
+                case DATEV2:
                     parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("date");
                     break;
                 case DATETIME:
+                case DATETIMEV2:
                     parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("datetime");
                     break;
                 default:
