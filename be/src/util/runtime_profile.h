@@ -528,9 +528,6 @@ private:
     int64_t _metadata;
     bool _is_set_metadata = false;
 
-    bool _is_sink = false;
-    bool _is_set_sink = false;
-
     // The timestamp when the profile was modified, make sure the update is up to date.
     time_t _timestamp;
 
