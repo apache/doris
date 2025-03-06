@@ -900,6 +900,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnUrgentHighDisk(tabletCtx, force)
+                || deleteFromScaleInDropReplicas(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
@@ -1089,20 +1090,26 @@ public class TabletScheduler extends MasterDaemon {
         return deleteFromHighLoadBackend(tabletCtx, tabletCtx.getReplicas(), force, statistic);
     }
 
+    private boolean deleteFromScaleInDropReplicas(TabletSchedCtx tabletCtx, boolean force) {
+        // Check if there are any scale drop replicas
+        return tabletCtx.getReplicas().stream()
+            .filter(Replica::isScaleInDrop)
+            .findFirst()
+            .map(chosenReplica -> {
+                try {
+                    deleteReplicaInternal(tabletCtx, chosenReplica, "scale drop replica", force);
+                } catch (SchedException e) {
+                    LOG.warn("delete from scale", e);
+                    return false;
+                }
+                return true;
+            })
+            .orElse(false);
+    }
+
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
-        boolean hasScaleDropReplica = replicas.stream().anyMatch(Replica::isScaleInDrop);
-        if (hasScaleDropReplica) {
-            Optional<Replica> scaleDropReplica = replicas.stream()
-                    .filter(Replica::isScaleInDrop)
-                    .findFirst();
-            if (scaleDropReplica.isPresent()) {
-                chosenReplica = scaleDropReplica.get();
-                deleteReplicaInternal(tabletCtx, chosenReplica, "scale drop replica", force);
-                return true;
-            }
-        }
         double maxScore = 0;
         long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {

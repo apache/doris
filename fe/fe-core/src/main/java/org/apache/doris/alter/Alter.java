@@ -1066,12 +1066,11 @@ public class Alter {
                                  ReplicaAllocation oldReplicaAlloc,
                                  ReplicaAllocation newReplicaAlloc) {
         Set<Tag> scaleInTags = getScaleInTags(oldReplicaAlloc, newReplicaAlloc);
-
         Map<Long, Long> replicaCountByBackend = getReplicaCountByBackend(partition);
 
         for (Tag tag : scaleInTags) {
             int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag) - newReplicaAlloc.getReplicaNumByTag(tag);
-            dropReplicasFromTablets(partition, replicasToDrop, replicaCountByBackend);
+            dropReplicasFromTablets(partition, replicasToDrop, replicaCountByBackend, tag);
         }
     }
 
@@ -1084,38 +1083,38 @@ public class Alter {
     }
 
     private Map<Long, Long> getReplicaCountByBackend(Partition partition) {
-        Map<Long, Long> replicaCountByBackend = Maps.newHashMap();
-        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
-            for (Tablet tablet : index.getTablets()) {
-                for (Long backendId : tablet.getBackendIds()) {
-                    replicaCountByBackend.put(backendId, replicaCountByBackend.getOrDefault(backendId, 0L) + 1);
-                }
-            }
-        }
-        return replicaCountByBackend;
+        return partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).stream()
+                .flatMap(index -> index.getTablets().stream())
+                .flatMap(tablet -> tablet.getBackendIds().stream())
+                .collect(Collectors.groupingBy(id -> id, Collectors.counting()));
     }
 
-    private void dropReplicasFromTablets(Partition partition, int replicasToDrop,
-                                         Map<Long, Long> replicaCountByBackend) {
+    private void dropReplicasFromTablets(Partition partition, int tabletToDropCount,
+                                         Map<Long, Long> replicaCountByBackend, Tag tag) {
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
             for (Tablet tablet : index.getTablets()) {
-                if (replicasToDrop <= 0) {
+                if (tabletToDropCount <= 0) {
                     return;
                 }
+                int replicaDropCounter = tabletToDropCount;
                 for (Replica replica : tablet.getReplicas()) {
-                    Long maxBackendId = getMaxBackendId(replicaCountByBackend);
-                    if (replicasToDrop > 0 && replica.getBackendIdWithoutException() == maxBackendId) {
-                        replica.setScaleInDropTimeStamp(System.currentTimeMillis());
-                        replicaCountByBackend.put(maxBackendId, replicaCountByBackend.get(maxBackendId) - 1);
-                        replicasToDrop--;
+                    long beId = replica.getBackendIdWithoutException();
+                    if (tag.equals(Env.getCurrentSystemInfo().getBackend(beId).getLocationTag())) {
+                        Long maxBackendId = getMaxBackendIdInTag(replicaCountByBackend, tag);
+                        if (replicaDropCounter > 0 && beId == maxBackendId) {
+                            replica.setScaleInDropTimeStamp(System.currentTimeMillis());
+                            replicaCountByBackend.put(maxBackendId, replicaCountByBackend.get(maxBackendId) - 1);
+                            replicaDropCounter--;
+                        }
                     }
                 }
             }
         }
     }
 
-    private Long getMaxBackendId(Map<Long, Long> replicaCountByBackend) {
+    private Long getMaxBackendIdInTag(Map<Long, Long> replicaCountByBackend, Tag tag) {
         return replicaCountByBackend.entrySet().stream()
+                .filter(entry -> tag.equals(Env.getCurrentSystemInfo().getBackend(entry.getKey()).getLocationTag()))
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
                 .orElse(-1L);
