@@ -18,10 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PasswordPolicy.FailedLoginPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -131,6 +133,12 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
 
         if (ops.size() != 1) {
             throw new AnalysisException("Only support doing one type of operation at one time");
+        }
+
+        if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
+                && !ClusterNamespace.getNameFromFullName(ConnectContext.get().getQualifiedUser())
+                .equals(Auth.ROOT_USER)) {
+            throw new AnalysisException("Can not alter root user, except itself");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
