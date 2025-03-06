@@ -619,7 +619,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
                         transactionId, callbackId, txnState);
                 cb.afterCommitted(txnState, txnOperated);
-                cb.afterVisible(txnState, txnOperated);
+                // do not exectue afterVisible if commit txn fail in cloud mode
+                if (txnOperated) {
+                    cb.afterVisible(txnState, txnOperated);
+                }
             }
         }
     }
