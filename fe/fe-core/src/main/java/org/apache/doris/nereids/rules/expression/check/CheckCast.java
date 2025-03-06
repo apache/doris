@@ -66,7 +66,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 && (targetType.isVariantType() || targetType.isJsonType())) {
             // complex type and json could cast to variant or json
             return true;
-        }	
+        }
         if (originalType.isNullType()) {
             return true;
         }
