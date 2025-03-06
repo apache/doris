@@ -71,7 +71,7 @@ TEST(QuantileStateSerdeTest, writeOneCellToJsonb) {
     jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                               jsonb_writer.getOutput()->getSize());
     StringRef jsonb_data = jsonb_column->get_data_at(0);
-    auto* pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+    auto* pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
     JsonbDocument& doc = *pdoc;
     for (auto it = doc->begin(); it != doc->end(); ++it) {
         quantile_state_serde->read_one_cell_from_jsonb(*column_quantile_state, it->value());

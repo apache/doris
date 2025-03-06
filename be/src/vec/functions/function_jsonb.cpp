@@ -561,7 +561,7 @@ private:
                 continue;
             }
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
-            JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+            JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
             if (UNLIKELY(!doc || !doc->getValue())) {
                 dst_arr.clear();
                 return Status::InvalidArgument("jsonb data is invalid");
@@ -669,7 +669,7 @@ private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, const char* l_raw_str,
                                               size_t l_str_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             return;
         }
@@ -764,7 +764,7 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -890,7 +890,7 @@ public:
                 writer->writeStartArray();
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
 
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
                     if (UNLIKELY(!doc || !doc->getValue())) {
@@ -1031,7 +1031,7 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             null_map[i] = 1;
             res[i] = 0;
@@ -1409,7 +1409,8 @@ struct JsonbLengthUtil {
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
+            JsonbDocument* doc =
+                    JsonbDocument::checkAndCreateDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(!value)) {
                 null_map->get_data()[i] = 1;
@@ -1544,9 +1545,9 @@ struct JsonbContainsUtil {
             }
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             JsonbDocument* doc1 =
-                    JsonbDocument::createDocument(jsonb_value1.data, jsonb_value1.size);
+                    JsonbDocument::checkAndCreateDocument(jsonb_value1.data, jsonb_value1.size);
             JsonbDocument* doc2 =
-                    JsonbDocument::createDocument(jsonb_value2.data, jsonb_value2.size);
+                    JsonbDocument::checkAndCreateDocument(jsonb_value2.data, jsonb_value2.size);
 
             JsonbValue* value1 = doc1->getValue()->findValue(path, nullptr);
             JsonbValue* value2 = doc2->getValue();

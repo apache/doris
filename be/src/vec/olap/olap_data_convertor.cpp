@@ -179,7 +179,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal256>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        return std::make_unique<OlapColumnDataConvertorVarChar>(true);
+        return std::make_unique<OlapColumnDataConvertorVarChar>(true, true);
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
@@ -233,7 +233,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
                                                 size_t num_rows) {
     DCHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
-           block->columns() == _convertors.size());
+           block->columns() == _convertors.size())
+            << "block=" << block->dump_structure() << ", block rows=" << block->rows()
+            << ", row_pos=" << row_pos << ", num_rows=" << num_rows
+            << ", convertors.size=" << _convertors.size();
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
@@ -629,8 +632,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
 
 // class OlapBlockDataConvertor::OlapColumnDataConvertorVarChar
 OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::OlapColumnDataConvertorVarChar(
-        bool check_length)
-        : _check_length(check_length) {}
+        bool check_length, bool is_jsonb)
+        : _check_length(check_length), _is_jsonb(is_jsonb) {}
 
 void OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
@@ -674,6 +677,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                             "Not support string len over than "
                             "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
+                // Make sure that the json binary data written in is the correct jsonb value.
+                if (_is_jsonb &&
+                    !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
+                    return Status::InvalidArgument("invalid json binary value: {}",
+                                                   std::string_view(slice->data, slice->size));
+                }
             } else {
                 // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
@@ -694,6 +703,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                 return Status::NotSupported(
                         "Not support string len over than `string_type_length_soft_limit_bytes`"
                         " in vec engine.");
+            }
+            // Make sure that the json binary data written in is the correct jsonb value.
+            if (_is_jsonb &&
+                !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
+                return Status::InvalidArgument("invalid json binary value: {}",
+                                               std::string_view(slice->data, slice->size));
             }
             string_offset = *offset_cur;
             ++slice;

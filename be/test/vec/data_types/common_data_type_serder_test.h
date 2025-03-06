@@ -291,7 +291,7 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+            auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
             JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
