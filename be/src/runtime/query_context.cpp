@@ -250,6 +250,7 @@ void QueryContext::cancel(std::string msg, Status new_status, int fragment_id) {
 
 void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& reason,
                                                const std::string& msg) {
+    set_execution_dependency_ready();
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
@@ -267,6 +268,7 @@ void QueryContext::cancel_all_pipeline_context(const PPlanFragmentCancelReason& 
 Status QueryContext::cancel_pipeline_context(const int fragment_id,
                                              const PPlanFragmentCancelReason& reason,
                                              const std::string& msg) {
+    set_execution_dependency_ready();
     std::weak_ptr<pipeline::PipelineFragmentContext> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
