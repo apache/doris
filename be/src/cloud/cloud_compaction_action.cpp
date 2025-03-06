@@ -168,8 +168,7 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
               << " table id: " << table_id;
     *json_result =
-            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
-            "id: " +
+            R"({"status": "Success", "msg": "compaction task is successfully triggered. Table id: )" +
             std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
     return Status::OK();
 }
