@@ -72,6 +72,38 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
                         logicalResultSink(
                                 logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                                        .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                        .when(s -> s.getTable().isDupKeysOrMergeOnWrite())
+                                        )
+                                ).when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> {
+                                            for (OrderKey orderKey : t.getOrderKeys()) {
+                                                if (!orderKey.getExpr().isColumnFromTable()) {
+                                                    return false;
+                                                }
+                                                if (!(orderKey.getExpr() instanceof SlotReference)) {
+                                                    return false;
+                                                }
+                                                SlotReference slotRef = (SlotReference) orderKey.getExpr();
+                                                // do not support alias in project now
+                                                if (!t.child().getProjects().contains(slotRef)) {
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        })
+                        ).then(r -> {
+                            LogicalProject<LogicalOlapScan> project = r.child().child();
+                            return deferMaterialize(r, r.child(), Optional.of(project),
+                                    Optional.empty(), project.child());
+                        })
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(
+                                logicalTopN(
                                         logicalFilter(
                                                 logicalOlapScan()
                                                         .when(s -> s.getTable().getEnableLightSchemaChange())
@@ -121,6 +153,42 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             return deferMaterialize(r, r.child(), Optional.of(project),
                                     Optional.of(filter), filter.child());
+                        })
+                ),
+                RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
+                        logicalResultSink(logicalProject(
+                                logicalTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                                        .when(s -> s.getTable().getEnableLightSchemaChange())
+                                                        .when(s -> s.getTable().isDupKeysOrMergeOnWrite())
+
+                                        )
+                                ).when(t -> t.getLimit() < getTopNOptLimitThreshold())
+                                        .whenNot(t -> t.getOrderKeys().isEmpty())
+                                        .when(t -> {
+                                            for (OrderKey orderKey : t.getOrderKeys()) {
+                                                if (!orderKey.getExpr().isColumnFromTable()) {
+                                                    return false;
+                                                }
+                                                if (!(orderKey.getExpr() instanceof SlotReference)) {
+                                                    return false;
+                                                }
+                                                SlotReference slotRef = (SlotReference) orderKey.getExpr();
+                                                // do not support alias in project now
+                                                if (!t.child().getProjects().contains(slotRef)) {
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        })
+                        ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
+                            LogicalProject<?> upperProject = r.child();
+                            LogicalProject<LogicalOlapScan> bottomProject = r.child().child().child();
+                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
+                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            return deferMaterialize(r, r.child().child(), Optional.of(project),
+                                    Optional.empty(), bottomProject.child());
                         })
                 ),
                 RuleType.DEFER_MATERIALIZE_TOP_N_RESULT.build(
