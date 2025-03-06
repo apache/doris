@@ -121,7 +121,9 @@ public class HdfsStorageVault extends StorageVault {
         Preconditions.checkArgument(!Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", VAULT_PATH_PREFIX);
 
         try (DFSFileSystem dfsFileSystem = new DFSFileSystem(newProperties)) {
-            String remotePath = hadoopFsName + "/" + pathPrefix + "/checkConnectivity";
+            Long timestamp = System.currentTimeMillis();
+            String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
+
             Status st = dfsFileSystem.makeDir(remotePath);
             if (st != Status.OK) {
                 throw new DdlException(
