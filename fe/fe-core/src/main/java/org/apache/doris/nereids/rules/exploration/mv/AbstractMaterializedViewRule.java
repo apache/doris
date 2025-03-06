@@ -498,12 +498,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // TODO: 2025/3/3 this log level is info tmp, should be debug
         LOG.info(String.format("calcInvalidPartitions mv name is %s,\n mvValidBaseTablePartitionNameSet is %s,\n "
                         + "mvValidHasDataRelatedBaseTableNameSet is %s,\n queryUsedBaseTablePartitionNameSet is %s,\n "
-                        + "partitionMapping is %s",
+                        + "partitionMapping is %s \n, sql hash is %s",
                 materializationContext.generateMaterializationIdentifier(),
                 mvValidBaseTablePartitionNameSet,
                 mvValidHasDataRelatedBaseTableNameSet,
                 queryUsedBaseTablePartitionNameSet,
-                partitionMapping));
+                partitionMapping,
+                cascadesContext.getConnectContext().getSqlHash()));
         // Check when mv partition relates base table partition data change or delete partition
         Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
         List<Object> mvOlapScanList = rewrittenPlan.collectToList(node ->
