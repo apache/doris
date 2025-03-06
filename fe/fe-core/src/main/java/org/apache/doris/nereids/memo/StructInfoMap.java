@@ -139,7 +139,6 @@ public class StructInfoMap {
                     childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                refreshedGroup.add(child.getGroupId().asInt());
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
