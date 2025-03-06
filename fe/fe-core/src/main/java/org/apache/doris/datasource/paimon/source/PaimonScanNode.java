@@ -176,6 +176,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
 
+        fileDesc.setSchemaFilePath(paimonSplit.getSchemaFilePath());
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
@@ -277,10 +278,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
+                    String tablePath = source.getPaimonTable().options().get("path");
                     for (int i = 0; i < rawFiles.size(); i++) {
                         RawFile file = rawFiles.get(i);
                         LocationPath locationPath = new LocationPath(file.path(),
                                 source.getCatalog().getProperties());
+                        String schemaFilePath = tablePath + "/schema/" + "schema-" + file.schemaId();
+
                         try {
                             List<Split> dorisSplits = FileSplitter.splitFile(
                                     locationPath,
@@ -294,6 +298,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     null,
                                     PaimonSplit.PaimonSplitCreator.DEFAULT);
                             for (Split dorisSplit : dorisSplits) {
+                                ((PaimonSplit) dorisSplit).setSchemaFilePath(schemaFilePath);
                                 // try to set deletion file
                                 if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
                                     ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
