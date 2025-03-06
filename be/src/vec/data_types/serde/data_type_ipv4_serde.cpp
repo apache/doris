@@ -69,6 +69,9 @@ Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
                                                      FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -76,11 +79,17 @@ Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int 
     IPv4Value ipv4_value(data);
     std::string ipv4_str = ipv4_value.to_string();
     bw.write(ipv4_str.c_str(), ipv4_str.length());
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
 Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
     ReadBuffer rb(slice.data, slice.size);
     IPv4 val = 0;
