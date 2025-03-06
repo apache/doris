@@ -367,11 +367,10 @@ public:
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (_cur_iter != nullptr) {
-            return _cur_iter->update_profile(profile);
+            _cur_iter->update_profile(profile);
         }
-        return false;
     }
 
 private:

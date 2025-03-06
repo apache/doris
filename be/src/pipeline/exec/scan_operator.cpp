@@ -1082,6 +1082,11 @@ Status ScanLocalState<Derived>::_init_profile() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    std::stringstream result;
+    std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
+              std::ostream_iterator<int>(result, ","));
+    _runtime_profile->add_info_string("TopNFilterSourceNodeIds", result.str());
+
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         vectorized::VExprSPtr topn_pred;
