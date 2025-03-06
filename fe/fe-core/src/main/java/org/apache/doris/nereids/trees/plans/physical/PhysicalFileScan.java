@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
@@ -82,6 +83,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
+        tableSnapshot.ifPresent(s -> ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, s));
     }
 
     protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
@@ -95,6 +97,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
+        tableSnapshot.ifPresent(s -> ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, s));
     }
 
     public DistributionSpec getDistributionSpec() {
