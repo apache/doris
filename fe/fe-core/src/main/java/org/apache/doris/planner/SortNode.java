@@ -71,7 +71,7 @@ public class SortNode extends PlanNode {
     // exchange node, and the sort node is used for the ORDER BY .
     private boolean mergeByexchange = false;
 
-    private boolean useLocalMerge = false;  
+    private boolean useLocalMerge = false;
 
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
