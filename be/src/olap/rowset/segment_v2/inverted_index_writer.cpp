@@ -204,6 +204,7 @@ public:
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
+        index_writer->setEnableCorrectTermWrite(config::enable_inverted_index_correct_term_write);
 
         return index_writer;
     }
