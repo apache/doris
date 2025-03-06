@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -49,7 +50,6 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
-import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -436,17 +436,17 @@ public class NereidsPlanner extends Planner {
             int nodeId = ((AbstractPlan) root).getId();
             PlanNodeId planId = context.getNereidsIdToPlanNodeIdMap().get(nodeId);
             if (planId != null) {
-                Map<Integer, PhysicalPlan> idToPlanMap = HboPlanStatisticsManager.getInstance()
+                Map<Integer, PhysicalPlan> idToPlanMap = Env.getCurrentEnv().getHboPlanStatisticsManager()
                         .getHboPlanInfoProvider().getIdToPlanMap(queryId);
                 if (idToPlanMap.isEmpty()) {
-                    HboPlanStatisticsManager.getInstance()
+                    Env.getCurrentEnv().getHboPlanStatisticsManager()
                             .getHboPlanInfoProvider().putIdToPlanMap(queryId, idToPlanMap);
                 }
                 idToPlanMap.put(planId.asInt(), root);
-                Map<PhysicalPlan, Integer> planToIdMap = HboPlanStatisticsManager.getInstance()
+                Map<PhysicalPlan, Integer> planToIdMap = Env.getCurrentEnv().getHboPlanStatisticsManager()
                                 .getHboPlanInfoProvider().getPlanToIdMap(queryId);
                 if (planToIdMap.isEmpty()) {
-                    HboPlanStatisticsManager.getInstance()
+                    Env.getCurrentEnv().getHboPlanStatisticsManager()
                             .getHboPlanInfoProvider().putPlanToIdMap(queryId, planToIdMap);
                 }
                 planToIdMap.put(root, planId.asInt());

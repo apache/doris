@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -149,7 +150,7 @@ public class HboPlanInfoProvider {
      * Reference the above UpdateConfig comments.
      */
     public static synchronized void updateConfig() {
-        HboPlanStatisticsManager hboManger = HboPlanStatisticsManager.getInstance();
+        HboPlanStatisticsManager hboManger = Env.getCurrentEnv().getHboPlanStatisticsManager();
         if (hboManger == null) {
             return;
         }

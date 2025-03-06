@@ -17,38 +17,18 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.common.util.MasterDaemon;
-
 /**
  * Global service for hbo plan stats. manager, including:
  * - HboPlanStatisticsProvider instance: hbo plan stats. cache
  * - HboPlanInfoProvider instance: plan info for runtime stats. identification
  */
-public class HboPlanStatisticsManager extends MasterDaemon {
-    private static volatile HboPlanStatisticsManager INSTANCE = null;
+public class HboPlanStatisticsManager {
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
     private HboPlanInfoProvider hboPlanInfoProvider;
 
-    HboPlanStatisticsManager() {
-        super("hbo-manager", 1000);
+    public HboPlanStatisticsManager() {
         hboPlanStatisticsProvider = new MemoryHboPlanStatisticsProvider();
         hboPlanInfoProvider = new HboPlanInfoProvider();
-    }
-
-    /**
-     * HboPlanStatisticsManager global instance.
-     * @return global HboPlanStatisticsManager
-     */
-    public static HboPlanStatisticsManager getInstance() {
-        if (INSTANCE == null) {
-            synchronized (HboPlanStatisticsManager.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new HboPlanStatisticsManager();
-                    INSTANCE.start();
-                }
-            }
-        }
-        return INSTANCE;
     }
 
     public HboPlanStatisticsProvider getHboPlanStatisticsProvider() {
@@ -57,9 +37,5 @@ public class HboPlanStatisticsManager extends MasterDaemon {
 
     public HboPlanInfoProvider getHboPlanInfoProvider() {
         return hboPlanInfoProvider;
-    }
-
-    @Override
-    protected void runAfterCatalogReady() {
     }
 }

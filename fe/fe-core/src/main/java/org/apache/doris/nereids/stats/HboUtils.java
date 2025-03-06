@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -346,7 +347,7 @@ public class HboUtils {
     private static Optional<List<PlanStatistics>> getFilterAdjustedInputTableStatistics(
             List<PlanStatistics> currentInputTableStatistics, ConnectContext connectContext) {
         ImmutableList.Builder<PlanStatistics> outputTableStatisticsBuilder = ImmutableList.builder();
-        HboPlanStatisticsManager hboManager = HboPlanStatisticsManager.getInstance();
+        HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
         HboPlanInfoProvider planInfoProvider = hboManager.getHboPlanInfoProvider();
 
         if (hboManager != null && planInfoProvider != null) {

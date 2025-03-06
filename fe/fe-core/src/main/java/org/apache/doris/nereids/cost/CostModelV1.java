@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -83,8 +83,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
     private final int parallelInstance;
-    private final boolean isHboEnabled;
-    private final boolean isHboInfoCollected;
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
 
     public CostModelV1(ConnectContext connectContext) {
@@ -97,9 +95,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
             parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
-        this.isHboEnabled = sessionVariable.isEnableHboOptimization();
-        this.isHboInfoCollected = sessionVariable.isEnableHboInfoCollection();
-        this.hboPlanStatisticsProvider = Objects.requireNonNull(HboPlanStatisticsManager.getInstance()
+        this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 

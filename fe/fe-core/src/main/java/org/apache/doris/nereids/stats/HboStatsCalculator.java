@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -45,7 +46,7 @@ public class HboStatsCalculator extends StatsCalculator {
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         super(groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump,
                 cteIdToStats, context);
-        this.hboPlanStatisticsProvider = Objects.requireNonNull(HboPlanStatisticsManager.getInstance()
+        this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
                         .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 

@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -49,10 +49,10 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
                     }
                     LogicalOlapScan scan = filter.child();
                     String queryId = DebugUtil.printId(ConnectContext.get().queryId());
-                    Map<RelationId, Set<Expression>> scanToFilterMap = HboPlanStatisticsManager.getInstance()
+                    Map<RelationId, Set<Expression>> scanToFilterMap = Env.getCurrentEnv().getHboPlanStatisticsManager()
                             .getHboPlanInfoProvider().getScanToFilterMap(queryId);
                     if (scanToFilterMap.isEmpty()) {
-                        HboPlanStatisticsManager.getInstance()
+                        Env.getCurrentEnv().getHboPlanStatisticsManager()
                                 .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
                     scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());
@@ -67,10 +67,10 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
                     }
                     LogicalOlapScan scan = filter.child().child();
                     String queryId = DebugUtil.printId(ConnectContext.get().queryId());
-                    Map<RelationId, Set<Expression>> scanToFilterMap = HboPlanStatisticsManager.getInstance()
+                    Map<RelationId, Set<Expression>> scanToFilterMap = Env.getCurrentEnv().getHboPlanStatisticsManager()
                             .getHboPlanInfoProvider().getScanToFilterMap(queryId);
                     if (scanToFilterMap.isEmpty()) {
-                        HboPlanStatisticsManager.getInstance()
+                        Env.getCurrentEnv().getHboPlanStatisticsManager()
                                 .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
                     scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());

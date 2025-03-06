@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
@@ -380,7 +381,7 @@ public class Profile {
     }
 
     public void publishHboPlanStatistics(String queryId, List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {
-        HboPlanStatisticsManager hboManager = HboPlanStatisticsManager.getInstance();
+        HboPlanStatisticsManager hboManager = Env.getCurrentEnv().getHboPlanStatisticsManager();
         MemoryHboPlanStatisticsProvider hboPlanStatisticsProvider = (MemoryHboPlanStatisticsProvider)
                 hboManager.getHboPlanStatisticsProvider();
         HboPlanInfoProvider planInfoProvider = hboManager.getHboPlanInfoProvider();
