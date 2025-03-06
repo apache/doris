@@ -416,7 +416,7 @@ private:
     IntCounter* task_execution_time_ns_total = nullptr;
     IntCounter* task_execution_count_total = nullptr;
     IntCounter* task_wait_worker_time_ns_total = nullptr;
-    IntCounter* task_wait_worker_count_total = nullptr; 
+    IntCounter* task_wait_worker_count_total = nullptr;
 
     IntCounter* thread_pool_submit_failed = nullptr;
 };
