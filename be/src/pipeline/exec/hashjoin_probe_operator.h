@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
@@ -43,7 +44,7 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState final
+class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
@@ -124,7 +125,8 @@ private:
     RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
+class HashJoinProbeOperatorX MOCK_REMOVE(final)
+        : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
