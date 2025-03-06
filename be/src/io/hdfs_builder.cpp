@@ -156,6 +156,7 @@ Status HDFSCommonBuilder::set_kerberos_ticket_cache() {
     // ATTN, can't use ticket_cache->get_ticket_cache_path() directly,
     // it may cause the kerberos ticket cache path in libhdfs is empty,
     kerberos_ticket_path = ticket_cache->get_ticket_cache_path();
+    hdfsBuilderSetUserName(hdfs_builder, hdfs_kerberos_principal.c_str());
     hdfsBuilderSetKerbTicketCachePath(hdfs_builder, kerberos_ticket_path.c_str());
     hdfsBuilderSetForceNewInstance(hdfs_builder);
     LOG(INFO) << "get kerberos ticket path: " << kerberos_ticket_path
