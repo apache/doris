@@ -62,6 +62,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             // variant could cast to primitive types and array
             return true;
         }
+        if ((originalType.isComplexType() || originalType.isJsonType())
+                && (targetType.isVariantType() || targetType.isJsonType())) {
+            // complex type and json could cast to variant or json
+            return true;
+        }	
         if (originalType.isNullType()) {
             return true;
         }
