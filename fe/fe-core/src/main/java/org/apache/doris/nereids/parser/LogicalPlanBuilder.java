@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -560,12 +561,14 @@ import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -574,6 +577,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -840,6 +844,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -6091,6 +6096,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException(e.getDetailMessage());
         }
         return new DescribeCommand(tableValuedFunctionRef);
+    }
+
+    @Override
+    public LogicalPlan visitDropStats(DorisParser.DropStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+        Set<String> columnNames = new HashSet<>();
+        if (ctx.identifierList() != null) {
+            columnNames.addAll(visitIdentifierList(ctx.identifierList()));
+        }
+
+        PartitionNames partitionNames = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+        }
+        return new DropStatsCommand(tableNameInfo, columnNames, partitionNames);
+    }
+
+    @Override
+    public LogicalPlan visitDropCachedStats(DorisParser.DropCachedStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        return new DropCachedStatsCommand(tableNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitDropExpiredStats(DorisParser.DropExpiredStatsContext ctx) {
+        return new DropExpiredStatsCommand();
     }
 }
 

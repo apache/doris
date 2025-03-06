@@ -62,11 +62,13 @@ import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -75,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -833,5 +836,17 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
         return visitCommand(showTableCommand, context);
+    }
+
+    default R visitDropStatsCommand(DropStatsCommand dropStatsCommand, C context) {
+        return visitCommand(dropStatsCommand, context);
+    }
+
+    default R visitDropCachedStatsCommand(DropCachedStatsCommand dropCachedStatsCommand, C context) {
+        return visitCommand(dropCachedStatsCommand, context);
+    }
+
+    default R visitDropExpiredStatsCommand(DropExpiredStatsCommand dropExpiredStatsCommand, C context) {
+        return visitCommand(dropExpiredStatsCommand, context);
     }
 }

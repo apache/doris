@@ -217,7 +217,7 @@ public class StatisticsRepository {
 
     public static void dropStatistics(
             long ctlId, long dbId, long tblId, Set<String> colNames, Set<String> partNames) throws DdlException {
-        if (colNames == null && partNames == null) {
+        if ((colNames == null || colNames.isEmpty()) && partNames == null) {
             executeDropStatisticsAllColumnSql(ctlId, dbId, tblId);
         } else {
             dropStatisticsByColAndPartitionName(ctlId, dbId, tblId, colNames, partNames);

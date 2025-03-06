@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -851,6 +852,37 @@ public class AnalysisManager implements Writable {
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
                         .build(), new BlockedPolicy(poolName,
                 StatisticsUtil.getAnalyzeTimeout()));
+    }
+
+    public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
+        if (tableStats == null) {
+            return;
+        }
+        Set<String> cols = dropStatsCommand.getColumnNames();
+        PartitionNames partitionNames = dropStatsCommand.getOpPartitionNames();
+        long catalogId = dropStatsCommand.getCatalogId();
+        long dbId = dropStatsCommand.getDbId();
+        long tblId = dropStatsCommand.getTblId();
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
+        // Remove tableMetaStats if drop whole table stats.
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
+                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+            removeTableStats(tblId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+        }
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
+        // Drop stats ddl is master only operation.
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
+    }
+
+    public void dropExpiredStats() {
+        Env.getCurrentEnv().getStatisticsCleaner().clear();
     }
 
     public void dropCachedStats(DropCachedStatsStmt stmt) {
