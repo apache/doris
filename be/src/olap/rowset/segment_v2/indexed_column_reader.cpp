@@ -139,7 +139,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;
     }
-    auto st = PageIO::read_and_decompress_page(opts, handle, body, footer);
+    auto st = PageIO::read_and_decompress_page_with_file_cache_retry(opts, handle, body, footer);
     g_index_reader_compressed_bytes << pp.size;
     g_index_reader_bytes << footer->uncompressed_size();
     g_index_reader_pages << 1;

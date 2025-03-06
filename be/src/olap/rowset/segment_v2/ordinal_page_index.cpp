@@ -108,7 +108,8 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     PageHandle page_handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &page_handle, &body, &footer));
+    RETURN_IF_ERROR(PageIO::read_and_decompress_page_with_file_cache_retry(opts, &page_handle,
+                                                                           &body, &footer));
 
     // parse and save all (ordinal, pp) from index page
     IndexPageReader reader;

@@ -78,15 +78,6 @@ namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
 
-io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
-    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base);
-}
-
-std::string file_cache_key_str(const std::string& seg_path) {
-    return file_cache_key_from_path(seg_path).to_string();
-}
-
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
@@ -533,8 +524,8 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             };
             Slice body;
             PageFooterPB footer;
-            RETURN_IF_ERROR(
-                    PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+            RETURN_IF_ERROR(PageIO::read_and_decompress_page_with_file_cache_retry(
+                    opts, &_sk_index_handle, &body, &footer));
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 

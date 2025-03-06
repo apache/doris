@@ -33,6 +33,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
@@ -115,6 +116,15 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     return Status::OK();
 }
 
+io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
+    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
+    return io::BlockFileCache::hash(base);
+}
+
+std::string file_cache_key_str(const std::string& seg_path) {
+    return file_cache_key_from_path(seg_path).to_string();
+}
+
 Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
                                          Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
@@ -163,8 +173,9 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
-        TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page_:checksum_mismatch",
-                                      &actual);
+        InjectionContext ctx = {&actual, const_cast<PageReadOptions*>(&opts)};
+        (void)ctx;
+        TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page:crc_failure_inj", &ctx);
         if (expect != actual) {
             return Status::Corruption(
                     "Bad page: checksum mismatch (actual={} vs expect={}), file={}", actual, expect,
@@ -235,15 +246,6 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     return Status::OK();
 }
 
-io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
-    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base);
-}
-
-std::string file_cache_key_str(const std::string& seg_path) {
-    return file_cache_key_from_path(seg_path).to_string();
-}
-
 Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOptions& opts,
                                                               PageHandle* handle, Slice* body,
                                                               PageFooterPB* footer) {
@@ -253,9 +255,15 @@ Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOpti
         return st;
     }
 
+    auto* cached_file_reader = dynamic_cast<io::CachedRemoteFileReader*>(opts.file_reader);
+    if (cached_file_reader == nullptr) {
+        return st;
+    }
+
     // If we get CORRUPTION error and using file cache, clear cache and retry
-    LOG(WARNING) << "Bad page may be read from file cache, try to read remote source directly, "
-                 << "file path: " << opts.file_reader->path().native()
+    LOG(WARNING) << "Bad page may be read from file cache, need retry."
+                 << " error msg: " << st.msg()
+                 << " file path: " << opts.file_reader->path().native()
                  << " offset: " << opts.page_pointer.offset;
 
     // Remove cache if exists
@@ -268,15 +276,24 @@ Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOpti
 
     // Retry with file cache
     st = read_and_decompress_page(opts, handle, body, footer);
-    if (st.is<ErrorCode::CORRUPTION>()) {
-        LOG(WARNING) << "Corruption again to read remote source file during retry, "
-                     << "file path: " << opts.file_reader->path().native()
-                     << " offset: " << opts.page_pointer.offset;
+    if (!st.is<ErrorCode::CORRUPTION>()) {
+        return st;
     }
-    // TODO(zhengyu): If still get CORRUPTION error, try to read without cache
-    // but it is hard to implement in PageIO level: file_reader is already
-    // opened as CachedRemoteFileReader and it will bring so much complexity
-    // if we reopen it as RemoteFileReader. So currenty, we just let it fall
+
+    LOG(WARNING) << "Corruption again with retry downloading cache,"
+                 << " error msg: " << st.msg()
+                 << " file path: " << opts.file_reader->path().native()
+                 << " offset: " << opts.page_pointer.offset;
+
+    PageReadOptions new_opts = opts;
+    new_opts.file_reader = cached_file_reader->get_remote_reader();
+    st = read_and_decompress_page(new_opts, handle, body, footer);
+    if (!st.ok()) {
+        LOG(WARNING) << "Corruption again with retry read directly from remote,"
+                     << " error msg: " << st.msg()
+                     << " file path: " << opts.file_reader->path().native()
+                     << " offset: " << opts.page_pointer.offset << " Give up.";
+    }
     return st;
 }
 
