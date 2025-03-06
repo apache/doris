@@ -77,7 +77,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
                 if (childrenSet.size() == 1) {
                     return childrenSet.iterator().next();
                 } else {
-                    return originExpr.withChildren(childrenSet.stream().collect(Collectors.toList()));
+                    return originExpr.withChildren(Utils.fastToImmutableList(childrenSet));
                 }
             }
             return originExpr;

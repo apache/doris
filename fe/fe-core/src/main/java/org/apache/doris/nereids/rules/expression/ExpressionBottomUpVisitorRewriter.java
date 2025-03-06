@@ -54,13 +54,11 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
                 expression = expression.withChildren(newChildren.build());
             }
         }
-
-        return doRewrite(expression, context, parent);
-    }
-
-    private Expression doRewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
         Optional<Expression> result = rules.matchesAndApply(expression, context, parent);
         return result.orElse(expression);
+    }
+
+    // private Expression doRewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
         // List<Rule> currentRules = (List<Rule>) expression1;
         // BitSet forbidRules = context.getCascadesContext().getAndCacheDisableRules();
         // for (Rule currentRule : currentRules) {
@@ -74,7 +72,7 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
         //     }
         // }
         // return expression;
-    }
+    // }
 
     @Override
     public String getRewriteStateKey() {

@@ -75,6 +75,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
+                        .when(c -> c.containsType(Literal.class))
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.SIMPLIFY_RANGE)
         );

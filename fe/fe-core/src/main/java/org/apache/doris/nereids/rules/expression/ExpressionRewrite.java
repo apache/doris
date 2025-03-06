@@ -352,12 +352,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             }
         }
 
-        // return new ExpressionBottomUpVisitorRewriter(new ExpressionPatternRules(rules.build()));
+        return new ExpressionBottomUpVisitorRewriter(new ExpressionPatternRules(rules.build()));
 
-        return new ExpressionBottomUpRewriter(
-                new ExpressionPatternRules(rules.build()),
-                new ExpressionPatternTraverseListeners(listeners.build())
-        );
+        // return new ExpressionBottomUpRewriter(
+        //         new ExpressionPatternRules(rules.build()),
+        //         new ExpressionPatternTraverseListeners(listeners.build())
+        // );
     }
 
     public static <E extends Expression> List<E> rewriteAll(

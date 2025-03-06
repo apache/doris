@@ -66,7 +66,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Supplier<Expression> predicate, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
-        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
+        this.conjuncts = Utils.fastToImmutableSet(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
         this.predicate = predicate == null ? Suppliers.memoize(Filter.super::getPredicate) : predicate;
     }
 
@@ -81,7 +81,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public List<Expression> getExpressions() {
-        return ImmutableList.copyOf(conjuncts);
+        return Utils.fastToImmutableList(conjuncts);
     }
 
     @Override

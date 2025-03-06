@@ -50,7 +50,8 @@ public class LogicalProperties {
      * @param outputSupplier provide the output. Supplier can lazy compute output without
      *                       throw exception for which children have UnboundRelation
      */
-    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+    public LogicalProperties(
+            Supplier<List<Slot>> outputSupplier,
             Supplier<DataTrait> dataTraitSupplier) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
@@ -65,7 +66,7 @@ public class LogicalProperties {
             return exprIdSet.build();
         });
         this.outputSetSupplier = Suppliers.memoize(() -> {
-            List<Slot> output = outputSupplier.get();
+            List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(output.size());
             for (Slot slot : output) {
                 slots.add(slot);
@@ -73,7 +74,7 @@ public class LogicalProperties {
             return slots.build();
         });
         this.outputMapSupplier = Suppliers.memoize(() -> {
-            Set<Slot> slots = outputSetSupplier.get();
+            Set<Slot> slots = this.outputSetSupplier.get();
             ImmutableMap.Builder<Slot, Slot> map = ImmutableMap.builderWithExpectedSize(slots.size());
             for (Slot slot : slots) {
                 map.put(slot, slot);

@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -61,11 +63,14 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.BitSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,40 +114,28 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
      * 1. used for count(*), '*' is replaced by the smallest(data type in byte size) column
      * 2. for StatsDerive, only when col-stats of keys are not available, we fall back to no-stats algorithm
      */
-    public static class KeyColumnCollector
-            extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-        public Set<Slot> keys = Sets.newHashSet();
-
-        @Override
-        public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-            return plan.accept(this, jobContext);
-        }
-
-        @Override
-        public Plan visit(Plan plan, JobContext jobContext) {
-            for (Plan child : plan.children()) {
-                child.accept(this, jobContext);
-            }
-            for (Expression expression : plan.getExpressions()) {
-                if (!(expression instanceof SlotReference)) {
-                    keys.addAll(expression.getInputSlots());
-                }
-            }
-            return plan;
-        }
-
-        @Override
-        public LogicalAggregate<? extends Plan> visitLogicalAggregate(LogicalAggregate<? extends Plan> agg,
-                JobContext jobContext) {
-            agg.child().accept(this, jobContext);
-            for (Expression expression : agg.getExpressions()) {
-                if (expression instanceof SlotReference) {
-                    keys.add((Slot) expression);
+    public static class KeyColumnCollector {
+        public static Set<Slot> collect(Plan plan) {
+            Set<Slot> keys = Sets.newLinkedHashSet();
+            plan.foreachUp(p -> {
+                if (p instanceof LogicalAggregate) {
+                    LogicalAggregate<?> agg = (LogicalAggregate) p;
+                    for (Expression expression : agg.getExpressions()) {
+                        if (expression instanceof SlotReference) {
+                            keys.add((Slot) expression);
+                        } else {
+                            keys.addAll(expression.getInputSlots());
+                        }
+                    }
                 } else {
-                    keys.addAll(expression.getInputSlots());
+                    for (Expression expression : plan.getExpressions()) {
+                        if (!(expression instanceof SlotReference)) {
+                            keys.addAll(expression.getInputSlots());
+                        }
+                    }
                 }
-            }
-            return agg;
+            });
+            return keys;
         }
     }
 
@@ -152,9 +145,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
         this.alreadyCheckedPrivileges = statementContext.isPrivChecked();
         try {
-            KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
-            plan.accept(keyColumnCollector, jobContext);
-            keys = keyColumnCollector.keys;
+            keys = KeyColumnCollector.collect(plan);
             if (ConnectContext.get() != null) {
                 StatementContext stmtContext = ConnectContext.get().getStatementContext();
                 // in ut, stmtContext is null
@@ -167,7 +158,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 }
             }
 
-            return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
+            return plan.accept(this, new PruneContext(plan.getOutputExprIdBitSet(), null));
         } finally {
             if (!alreadyCheckedPrivileges) {
                 statementContext.setPrivChecked(true);
@@ -182,7 +173,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // two steps: prune current output and prune children
             OutputPrunable outputPrunable = (OutputPrunable) plan;
             plan = pruneOutput(plan, outputPrunable.getOutputs(), outputPrunable::pruneOutputs, context);
-            return pruneChildren(plan);
+            return pruneChildren(plan, new BitSet());
         } else {
             // e.g.
             //
@@ -198,14 +189,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             //
             // the filter is not OutputPrunable, we should pass through the parent required slots
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
-            return pruneChildren(plan, context.requiredSlots);
+            return pruneChildren(plan, context.requiredSlotsIds);
         }
     }
 
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
         return withOuterCheck(
-                () -> checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots)),
+                () -> checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlotsIds)),
                 () -> {
                     Plan plan = super.visitLogicalView(view, context);
                     while (plan instanceof LogicalView) {
@@ -232,7 +223,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 () -> {
                     if (relation instanceof LogicalCatalogRelation) {
                         TableIf table = ((LogicalCatalogRelation) relation).getTable();
-                        checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlots));
+                        checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlotsIds));
                     }
                 },
                 () -> super.visitLogicalRelation(relation, context)
@@ -258,11 +249,20 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
         for (int i = 0; i < prunedOutputUnion.arity(); i++) {
             List<SlotReference> regularChildOutputs = prunedOutputUnion.getRegularChildOutput(i);
-            List<SlotReference> prunedChildOutput = prunedOutputIndexes.stream()
-                    .map(regularChildOutputs::get)
-                    .collect(ImmutableList.toImmutableList());
-            Set<Slot> prunedChildOutputSet = ImmutableSet.copyOf(prunedChildOutput);
-            Plan prunedChild = doPruneChild(prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutputSet);
+
+            BitSet prunedChildOutputExprIds = new BitSet();
+            Builder<SlotReference> prunedChildOutputBuilder
+                    = ImmutableList.builderWithExpectedSize(regularChildOutputs.size());
+            for (Integer index : prunedOutputIndexes) {
+                SlotReference slot = regularChildOutputs.get(index);
+                prunedChildOutputBuilder.add(slot);
+                prunedChildOutputExprIds.set(slot.getExprId().asInt());
+            }
+
+            List<SlotReference> prunedChildOutput = prunedChildOutputBuilder.build();
+            Plan prunedChild = doPruneChild(
+                    prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutput
+            );
             prunedChildrenOutputs.add(prunedChildOutput);
             prunedChildren.add(prunedChild);
         }
@@ -282,7 +282,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
-        return pruneChildren(logicalSink, logicalSink.getOutputSet());
+        return pruneChildren(logicalSink, logicalSink.getOutputExprIdBitSet());
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
@@ -314,7 +314,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         boolean reserved = false;
         ImmutableList.Builder<NamedExpression> reservedWindowExpressions = ImmutableList.builder();
         for (NamedExpression windowExpression : window.getWindowExpressions()) {
-            if (context.requiredSlots.contains(windowExpression.toSlot())) {
+            if (context.requiredSlotsIds.get(windowExpression.getExprId().asInt())) {
                 reservedWindowExpressions.add(windowExpression);
                 reserved = true;
             } else {
@@ -322,29 +322,25 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             }
         }
         if (!pruned) {
-            return pruneChildren(window, context.requiredSlots);
+            return pruneChildren(window, context.requiredSlotsIds);
         }
         if (!reserved) {
             return window.child().accept(this, context);
         }
         LogicalWindow<? extends Plan> prunedWindow
                 = window.withExpressionsAndChild(reservedWindowExpressions.build(), window.child());
-        return pruneChildren(prunedWindow, context.requiredSlots);
+        return pruneChildren(prunedWindow, context.requiredSlotsIds);
     }
 
     private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {
         // first try to prune group by and aggregate functions
         Aggregate<? extends Plan> prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
         Aggregate<?> fillUpAggregate = fillUpGroupByAndOutput(prunedOutputAgg);
-        return pruneChildren(fillUpAggregate);
+        return pruneChildren(fillUpAggregate, new BitSet());
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        ImmutableSet.Builder<Slot> requireAllOutputOfChildren = ImmutableSet.builder();
-        for (Plan child : plan.children()) {
-            requireAllOutputOfChildren.addAll(child.getOutput());
-        }
-        return pruneChildren(plan, requireAllOutputOfChildren.build());
+        return pruneChildren(plan, plan.getOutputExprIdBitSet());
     }
 
     private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {
@@ -384,7 +380,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         }
         List<NamedExpression> prunedOutputs =
-                Utils.filterImmutableList(originOutput, output -> context.requiredSlots.contains(output.toSlot()));
+                Utils.filterImmutableList(originOutput, output -> context.requiredSlotsIds.get(output.getExprId().asInt()));
 
         if (prunedOutputs.isEmpty()) {
             List<NamedExpression> candidates = Lists.newArrayList(originOutput);
@@ -415,7 +411,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         List<Integer> extractColumnIndex = Lists.newArrayList();
         for (int i = 0; i < originOutput.size(); i++) {
             NamedExpression output = originOutput.get(i);
-            if (context.requiredSlots.contains(output.toSlot())) {
+            if (context.requiredSlotsIds.get(output.getExprId().asInt())) {
                 prunedOutputs.add(output);
                 extractColumnIndex.add(i);
             }
@@ -450,7 +446,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             }
         }
 
-        if (prunedOutputs.equals(originOutput) && !context.requiredSlots.isEmpty()) {
+        if (prunedOutputs.equals(originOutput) && !context.requiredSlotsIds.isEmpty()) {
             return union;
         } else {
             return union.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
@@ -458,38 +454,35 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
     }
 
-    private <P extends Plan> P pruneChildren(P plan) {
-        return pruneChildren(plan, ImmutableSet.of());
-    }
-
-    private <P extends Plan> P pruneChildren(P plan, Set<Slot> parentRequiredSlots) {
+    private <P extends Plan> P pruneChildren(P plan, BitSet parentRequiredSlotIds) {
         if (plan.arity() == 0) {
             // leaf
             return plan;
         }
 
-        Set<Slot> currentUsedSlots = plan.getInputSlots();
-        Set<Slot> childrenRequiredSlots = parentRequiredSlots.isEmpty()
-                ? currentUsedSlots
-                : ImmutableSet.<Slot>builderWithExpectedSize(parentRequiredSlots.size() + currentUsedSlots.size())
-                        .addAll(parentRequiredSlots)
-                        .addAll(currentUsedSlots)
-                        .build();
+        BitSet childrenRequiredSlotIds = new BitSet();
+        childrenRequiredSlotIds.or(parentRequiredSlotIds);
+        for (Expression expression : plan.getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof Slot) {
+                    childrenRequiredSlotIds.set(((Slot) e).getExprId().asInt());
+                }
+            });
+        }
 
         ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
-            Set<Slot> childRequiredSlots;
             List<Slot> childOutputs = child.getOutput();
-            ImmutableSet.Builder<Slot> childRequiredSlotBuilder
-                    = ImmutableSet.builderWithExpectedSize(childOutputs.size());
+            ImmutableList.Builder<Slot> childRequiredSlotBuilder
+                    = ImmutableList.builderWithExpectedSize(childOutputs.size());
             for (Slot childOutput : childOutputs) {
-                if (childrenRequiredSlots.contains(childOutput)) {
+                int id = childOutput.getExprId().asInt();
+                if (childrenRequiredSlotIds.get(id)) {
                     childRequiredSlotBuilder.add(childOutput);
                 }
             }
-            childRequiredSlots = childRequiredSlotBuilder.build();
-            Plan prunedChild = doPruneChild(plan, child, childRequiredSlots);
+            Plan prunedChild = doPruneChild(plan, child, childRequiredSlotBuilder.build());
             if (prunedChild != child) {
                 hasNewChildren = true;
             }
@@ -498,51 +491,67 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return hasNewChildren ? (P) plan.withChildren(newChildren.build()) : plan;
     }
 
-    private Plan doPruneChild(Plan plan, Plan child, Set<Slot> childRequiredSlots) {
+    private Plan doPruneChild(
+            Plan plan, Plan child, List<? extends Slot> childRequiredSlots) {
         if (child instanceof LogicalCTEProducer) {
             return child;
         }
-        boolean isProject = plan instanceof LogicalProject;
-        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
+
+        BitSet childRequiredSlotIds = new BitSet();
+        for (Slot childRequiredSlot : childRequiredSlots) {
+            childRequiredSlotIds.set(childRequiredSlot.getExprId().asInt());
+        }
+
+        boolean isProject = plan instanceof Project;
+        boolean isFilter = plan instanceof Filter;
+        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlotIds, plan));
 
         // the case 2 in the class comment, prune child's output failed
-        if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
-            prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
+        if (!isProject && !isFilter) {
+            for (Slot prunedChildOutput : prunedChild.getOutput()) {
+                if (!childRequiredSlotIds.get(prunedChildOutput.getExprId().asInt())) {
+                    prunedChild = new LogicalProject<>((List) childRequiredSlots, prunedChild);
+                    break;
+                }
+            }
         }
         return prunedChild;
     }
 
     /** PruneContext */
     public static class PruneContext {
-        public Set<Slot> requiredSlots;
+        public BitSet requiredSlotsIds;
         public Optional<Plan> parent;
 
-        public PruneContext(Set<Slot> requiredSlots, Plan parent) {
-            this.requiredSlots = requiredSlots;
+        public PruneContext(BitSet requiredSlotsIds, Plan parent) {
+            this.requiredSlotsIds = requiredSlotsIds;
             this.parent = Optional.ofNullable(parent);
         }
     }
 
-    private Set<String> computeUsedColumns(Plan plan, Set<Slot> requiredSlots) {
+    private Set<String> computeUsedColumns(Plan plan, BitSet requiredSlotsIds) {
         List<Slot> outputs = plan.getOutput();
         Map<Integer, Slot> idToSlot = new LinkedHashMap<>(outputs.size());
         for (Slot output : outputs) {
             idToSlot.putIfAbsent(output.getExprId().asInt(), output);
         }
 
-        Set<String> usedColumns = Sets.newLinkedHashSetWithExpectedSize(requiredSlots.size());
-        for (Slot requiredSlot : requiredSlots) {
-            Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
+        Set<String> usedSlotIds = new LinkedHashSet<>();
+
+        for (int id = requiredSlotsIds.nextSetBit(0);
+                id >= 0;
+                id = requiredSlotsIds.nextSetBit(id + 1)) {
+            Slot slot = idToSlot.get(id);
             if (slot != null) {
                 // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
                 if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
                         && !((SlotReference) slot).getColumn().get().isVisible()) {
                     continue;
                 }
-                usedColumns.add(slot.getName());
+                usedSlotIds.add(slot.getName());
             }
         }
-        return usedColumns;
+        return usedSlotIds;
     }
 
     private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {

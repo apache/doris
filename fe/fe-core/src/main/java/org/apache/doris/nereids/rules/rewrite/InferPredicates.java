@@ -37,6 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import software.amazon.awssdk.services.glue.model.Join;
 
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -68,6 +69,9 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.containsType(Join.class)) {
+            return plan;
+        }
         // Preparing stmt requires that the predicate cannot be changed, so no predicate inference is performed.
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
         if (connectContext != null && connectContext.getCommand() == MysqlCommand.COM_STMT_PREPARE) {

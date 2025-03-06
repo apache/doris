@@ -173,6 +173,7 @@ public class StatementContext implements Closeable {
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
+    public final BitSet keySlotsIds = new BitSet();
     private BitSet disableRules;
 
     // table locks
