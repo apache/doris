@@ -512,25 +512,14 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     }
     types.push_back(array_types[36]);
     types.push_back(array_types[38]);
-    DataTypeSerDeSPtrs serde;
-    for (int i = 0; i < 17; i++) {
-        serde.push_back(serdes[i]);
-    }
-    for (int i = 18; i < 35; i++) {
-        serde.push_back(serdes[i]);
-    }
-    serde.push_back(serdes[36]);
-    serde.push_back(serdes[38]);
-    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, serde, types);
+    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, types);
     {
         for (int i = 39; i < 41; ++i) {
             MutableColumns error_cols;
             error_cols.push_back(array_columns[i]->get_ptr());
-            DataTypeSerDeSPtrs serde1;
-            serde1.push_back(serdes[i]);
             DataTypes typ;
             typ.push_back(array_types[i]);
-            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, serde1, typ));
+            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, typ));
         }
     }
 }
