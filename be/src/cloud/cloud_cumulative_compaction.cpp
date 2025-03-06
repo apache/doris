@@ -380,6 +380,41 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     return Status::OK();
 }
 
+/**
+ * Determines if the compaction task should be delayed based on thread pool availability and task size.
+ * 
+ * This strategy checks if a cloud cumulative compaction should be delayed when:
+ * 1. The thread pool has enough threads to apply the delay strategy (threshold check)
+ * 2. The thread pool is near capacity (only 0-1 threads remaining)
+ * 3. The compaction task is resource-intensive (input size or row count exceeds thresholds)
+ * 
+ * @param pool The thread pool that would execute the compaction task
+ * @return true if the submission should be delayed, false otherwise
+ */
+bool CloudCumulativeCompaction::should_delay_submission(const std::unique_ptr<ThreadPool>& pool) {
+    if (pool->max_threads() < config::min_threads_for_cumu_delay_strategy) {
+        return false;
+    }
+    int64 remaining_threads = pool->max_threads() - pool->num_active_threads();
+    if (remaining_threads > 1) {
+        return false;
+    }
+    if (_input_rowsets_total_size > config::cumu_delay_strategy_size ||
+        _input_row_num > config::cumu_delay_strategy_row_num) {
+        LOG_WARNING(
+                "failed to do CloudCumulativeCompaction, cumu thread pool is intensive, delay big "
+                "task.")
+                .tag("tablet_id", _tablet->tablet_id())
+                .tag("input_rows", _input_row_num)
+                .tag("input_rowsets_total_size", _input_rowsets_total_size)
+                .tag("config::cumu_delay_strategy_size", config::cumu_delay_strategy_size)
+                .tag("config::cumu_delay_strategy_row_num", config::cumu_delay_strategy_row_num)
+                .tag("remaining threads", remaining_threads);
+        return true;
+    }
+    return false;
+}
+
 Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};

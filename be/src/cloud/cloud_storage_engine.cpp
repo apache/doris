@@ -26,6 +26,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
+#include <mutex>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
@@ -643,6 +644,12 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     }
     auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
     auto st = compaction->prepare_compact();
+    {
+        std::lock_guard lock(_compaction_mtx);
+        if (compaction->should_delay_submission(_cumu_compaction_thread_pool)) {
+            st = Status::TooManyTasks("cumu thread pool is intensive, delay big task.");
+        }
+    }
     if (!st.ok()) {
         long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&

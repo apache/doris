@@ -34,6 +34,7 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact() override;
+    bool should_delay_submission(const std::unique_ptr<ThreadPool>& pool);
 
     void do_lease();
 
