@@ -211,7 +211,8 @@ public class HyperGraph {
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
         return join.getJoinType() == JoinType.INNER_JOIN
                 && !join.isMarkJoin()
-                && !join.getExpressions().isEmpty();
+                && !join.getExpressions().isEmpty()
+                && !join.isLeadingJoin();
     }
 
     /**
