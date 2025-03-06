@@ -453,11 +453,19 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
         if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
             // if not partition, if rewrite success, it means mv is available
+            LOG.info(String.format("calcInvalidPartitions PartitionType wrong name is %s,\n "
+                            + "sql hash is %s,\n mvPartitionInfo is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), mvPartitionInfo));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
         BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
         if (relatedPartitionTable == null) {
+            LOG.info(String.format("calcInvalidPartitions relatedPartitionTable null name is %s,\n "
+                            + "sql hash is %s,\n mvCustomPartitionInfo is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), mvCustomPartitionInfo));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
@@ -466,6 +474,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         // Bail out, not check invalid partition if not olap scan, support later
         if (queryUsedBaseTablePartitions.isEmpty()) {
+            LOG.info(String.format("calcInvalidPartitions queryUsedBaseTablePartitions empty name is %s,\n "
+                            + "sql hash is %s,\n queryUsedBaseTablePartitions is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), queryUsedBaseTablePartitions));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
