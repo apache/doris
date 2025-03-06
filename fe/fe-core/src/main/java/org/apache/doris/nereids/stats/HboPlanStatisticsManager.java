@@ -40,9 +40,6 @@ public class HboPlanStatisticsManager extends MasterDaemon {
      * @return global HboPlanStatisticsManager
      */
     public static HboPlanStatisticsManager getInstance() {
-        // TODO: should with current session and configuration info
-        // and will be used in runtime stats collection and plan
-        // matching during stats calculator.
         if (INSTANCE == null) {
             synchronized (HboPlanStatisticsManager.class) {
                 if (INSTANCE == null) {

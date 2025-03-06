@@ -19,16 +19,15 @@ suite("hbo_agg_stage_opt_test") {
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
 
-    sql "drop table if exists hbo_agg_stage_opt_test;"
-    sql "create table hbo_agg_stage_opt_test(a int, b int, c int, d int) distributed by hash(a) buckets 32 properties("replication_num"="1");"
-    //sql "insert into hbo_agg_stage_opt_test select number, number from numbers("number" = "100000");"
-    sql "insert into hbo_agg_stage_opt_test select 1,1,1,1 from numbers("number" = "100000000");"
-    sql "analyze table hbo_agg_stage_opt_test with full with sync;"
-    sql "alter table hbo_agg_stage_opt_test modify column a set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"
-    sql "alter table hbo_agg_stage_opt_test modify column b set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"
-    sql "alter table hbo_agg_stage_opt_test modify column c set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"
-    sql "alter table hbo_agg_stage_opt_test modify column d set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"
-
+    sql """drop table if exists hbo_agg_stage_opt_test;"""
+    sql """create table hbo_agg_stage_opt_test(a int, b int, c int, d int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_agg_stage_opt_test select 1,1,1,1 from numbers("number" = "100000000");"""
+    sql """analyze table hbo_agg_stage_opt_test with full with sync;"""
+    sql """alter table hbo_agg_stage_opt_test modify column a set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
+    sql """alter table hbo_agg_stage_opt_test modify column b set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
+    sql """alter table hbo_agg_stage_opt_test modify column c set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
+    sql """alter table hbo_agg_stage_opt_test modify column d set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
+    sql "set hbo_rfsafe_threshold=1.0;"
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                 |
@@ -44,12 +43,12 @@ suite("hbo_agg_stage_opt_test") {
      */
     explain {
         sql "physical plan select b, c, count(1) from hbo_agg_stage_opt_test group by b, c;"
-        contains("PhysicalHashAggregate[137]@4 ( stats=100,000,000, aggPhase=LOCAL")
-        contains("PhysicalHashAggregate[147]@2 ( stats=100,000,000, aggPhase=GLOBAL")
+        contains("stats=100,000,000, aggPhase=LOCAL")
+        contains("stats=100,000,000, aggPhase=GLOBAL")
     }
 
     sql "select b, c, count(1) from hbo_agg_stage_opt_test group by b, c;"
-
+    sleep(3000)
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                            |
@@ -64,8 +63,8 @@ suite("hbo_agg_stage_opt_test") {
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+*/
     explain {
         sql "physical plan select b, c, count(1) from hbo_agg_stage_opt_test group by b, c;"
-        contains("PhysicalHashAggregate[137]@4 ( stats=(hbo)1, aggPhase=LOCAL")
-        contains("PhysicalHashAggregate[147]@2 ( stats=(hbo)1, aggPhase=GLOBAL")
+        contains("stats=(hbo)1, aggPhase=LOCAL")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
 }

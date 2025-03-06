@@ -20,20 +20,20 @@ suite("hbo_rf_safe_test") {
     sql "use hbo_test;"
 
     sql "drop table if exists hbo_rf_safe_test1;"
-    sql "create table hbo_rf_safe_test1(a int, b int) duplicate key (a) distributed by hash(b) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_rf_safe_test1 select number, number from numbers("number" = "100000000");"
-    sql "analyze table hbo_rf_safe_test1 with full with sync;"
+    sql """create table hbo_rf_safe_test1(a int, b int) duplicate key (a) distributed by hash(b) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_rf_safe_test1 select number, number from numbers("number" = "100000000");"""
+    sql """analyze table hbo_rf_safe_test1 with full with sync;"""
 
     sql "drop table if exists hbo_rf_safe_test2;"
-    sql "create table hbo_rf_safe_test2(a int, b int) duplicate key (a) distributed by hash(b) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_rf_safe_test2 select number, number from numbers("number" = "100000000");"
-    sql "analyze table hbo_rf_safe_test2 with full with sync;"
+    sql """create table hbo_rf_safe_test2(a int, b int) duplicate key (a) distributed by hash(b) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_rf_safe_test2 select number, number from numbers("number" = "100000000");"""
+    sql """analyze table hbo_rf_safe_test2 with full with sync;"""
 
     // exclude min/max rf to ensure the bloom filter can be generated
     sql "set runtime_filter_type=IN_OR_BLOOM_FILTER;"
-
+    sql "set hbo_rfsafe_threshold=1.0;"
     sql "select count(1) from hbo_rf_safe_test1 t1, hbo_rf_safe_test2 t2 where t1.b = t2.b and t2.a < 200000;"
-
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                   |
@@ -52,12 +52,11 @@ suite("hbo_rf_safe_test") {
      |                      +--PhysicalFilter[335]@3 ( stats=200,000, predicates=(a#2 < 200000) )                                                                                                                                                                        |
      |                         +--PhysicalOlapScan[hbo_rf_safe_test2]@2 ( stats=100,000,000 )                                                                                                                                                                            |
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-
      */
     explain {
         // if rfSafeRatio == 1.0, rf safe, hit hbo cache
         sql "physical plan select count(1) from hbo_rf_safe_test1 t1, hbo_rf_safe_test2 t2 where t1.b = t2.b and t2.a < 200000;"
-        contains("PhysicalHashAggregate[370]@7 ( stats=(hbo)1, aggPhase=GLOBAL")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
     sql "set hbo_rfsafe_threshold=0.5;"
@@ -80,12 +79,11 @@ suite("hbo_rf_safe_test") {
      |                      +--PhysicalFilter[335]@3 ( stats=200,000, predicates=(a#2 < 200000) )                                                                                                                                                                   |
      |                         +--PhysicalOlapScan[hbo_rf_safe_test2]@2 ( stats=100,000,000 )                                                                                                                                                                       |
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-
      */
     explain {
         // if rfSafeRatio == 0.5, rf unsafe, not hit hbo cache
         sql "physical plan select count(1) from hbo_rf_safe_test1 t1, hbo_rf_safe_test2 t2 where t1.b = t2.b and t2.a < 200000;"
-        contains("PhysicalHashAggregate[370]@7 ( stats=1, aggPhase=GLOBAL")
+        contains("stats=1, aggPhase=GLOBAL")
     }
 
 }

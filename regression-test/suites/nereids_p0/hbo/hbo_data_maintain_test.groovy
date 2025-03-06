@@ -20,16 +20,16 @@ suite("hbo_data_maintain_test") {
     sql "use hbo_test;"
 
     sql "drop table if exists hbo_data_maintain_test1;"
-    sql "create table hbo_data_maintain_test1(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_data_maintain_test1 select number, number from numbers("number" = "100000");"
-    sql "insert into hbo_data_maintain_test1 select 1,1 from numbers("number" = "100000000");"
-    sql "analyze table hbo_data_maintain_test1 with full with sync;"
+    sql """create table hbo_data_maintain_test1(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_data_maintain_test1 select number, number from numbers("number" = "100000");"""
+    sql """insert into hbo_data_maintain_test1 select 1,1 from numbers("number" = "100000000");"""
+    sql """analyze table hbo_data_maintain_test1 with full with sync;"""
 
     sql "drop table if exists hbo_data_maintain_test2;"
-    sql "create table hbo_data_maintain_test2(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_data_maintain_test2 select number, number from numbers("number" = "100000");"
-    sql "analyze table hbo_data_maintain_test2 with full with sync;"
-
+    sql """create table hbo_data_maintain_test2(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_data_maintain_test2 select number, number from numbers("number" = "100000");"""
+    sql """analyze table hbo_data_maintain_test2 with full with sync;"""
+    sql "set hbo_rfsafe_threshold=1.0;"
 
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -52,13 +52,12 @@ suite("hbo_data_maintain_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        nocontains("(hbo)")
-        contains("PhysicalFilter[347]@1 ( stats=1,002.8, predicates=(a#0 = 1) )")
-        contains("PhysicalHashJoin[362]@5 ( stats=1,004.59, type=INNER_JOIN")
+        contains("stats=1,002.8, predicates=(a#0 = 1)")
+        contains("stats=1,004.59, type=INNER_JOIN")
     }
 
     sql "select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
-
+    sleep(3000)
 
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -81,9 +80,9 @@ suite("hbo_data_maintain_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        contains("PhysicalFilter[338]@1 ( stats=100,000,001, predicates=(a#0 = 1) )")
-        contains("PhysicalHashJoin[359]@5 ( stats=100,000,001, type=INNER_JOIN")
-        contains("PhysicalHashAggregate[379]@7 ( stats=(hbo)1, aggPhase=GLOBAL")
+        contains("stats=100,000,001, predicates=(a#0 = 1)")
+        contains("stats=100,000,001, type=INNER_JOIN")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
     // data maintain
@@ -111,11 +110,12 @@ suite("hbo_data_maintain_test") {
     explain {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
         // data of table has been changed and can't hit hbo cache
-        nocontains("(hbo)")
+        contains("stats=1, aggPhase=GLOBAL")
+        contains("stats=1, aggPhase=LOCAL")
     }
 
     sql "select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
-
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                   |
@@ -138,7 +138,7 @@ suite("hbo_data_maintain_test") {
     explain {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
         // hit hbo cache again
-        contains("PhysicalHashAggregate[382]@7 ( stats=(hbo)1, aggPhase=GLOBAL")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 }
 

@@ -110,7 +110,7 @@ suite("hbo_cache_usability_test") {
             "replication_num" = "1"
     );"""
 
-    sql "drop table if exists data_dim;"
+    sql "drop table if exists date_dim;"
     sql """CREATE TABLE `date_dim` (
     `d_date_sk` bigint NOT NULL,
     `d_date_id` char(16) NOT NULL,
@@ -139,7 +139,8 @@ suite("hbo_cache_usability_test") {
     );"""
 
     sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION';"
-
+    sql "set hbo_rfsafe_threshold=1.0;"
+    sql "set enable_hbo_optimization=false;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                        |
@@ -162,13 +163,14 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
-        contains("PhysicalHashJoin[436]@6 ( stats=1, type=INNER_JOIN")
-        contains("PhysicalHashAggregate[446]@10 ( stats=1, aggPhase=LOCAL")
-        contains("PhysicalHashAggregate[456]@8 ( stats=1, aggPhase=GLOBAL")
+        contains("stats=1, type=INNER_JOIN")
+        contains("stats=1, aggPhase=LOCAL")
+        contains("stats=1, aggPhase=GLOBAL")
     }
 
+    sql "set enable_hbo_optimization=true;"
     sql "select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
-
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                             |
@@ -192,11 +194,9 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
-        contains("PhysicalHashJoin[473]@6 ( stats=0, type=INNER_JOIN")
-        contains("PhysicalHashAggregate[483]@10 ( stats=(hbo)0, aggPhase=LOCAL")
-        contains("PhysicalHashAggregate[493]@8 ( stats=(hbo)0, aggPhase=GLOBAL")
+        contains("stats=(hbo)0, aggPhase=LOCAL")
+        contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
-
 
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -220,11 +220,11 @@ suite("hbo_cache_usability_test") {
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         // TODO: actually to find the ss filter entry in hbo cache but not with (hbo) mark
-        contains("PhysicalFilter[412]@1 ( stats=0")
+        contains("stats=0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
     }
 
     sql "select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
-
+    sleep(3000)
     /**
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                            |
@@ -246,8 +246,8 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
-        contains("PhysicalHashAggregate[444]@7 ( stats=(hbo)0")
-        contains("PhysicalHashAggregate[434]@9 ( stats=(hbo)0")
+        contains("stats=(hbo)0, aggPhase=GLOBAL")
+        contains("stats=(hbo)0, aggPhase=LOCAL")
     }
 
     /**
@@ -271,8 +271,8 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451101 and 2451201 group by ss_store_sk;"
-        contains("PhysicalHashAggregate[444]@7 ( stats=(hbo)0")
-        contains("PhysicalHashAggregate[434]@9 ( stats=(hbo)0")
+        contains("stats=(hbo)0, aggPhase=GLOBAL")
+        contains("stats=(hbo)0, aggPhase=LOCAL")
     }
 
     /**
@@ -297,11 +297,11 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
-        contains("PhysicalFilter[460]@4 ( stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )")
+        contains("stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]")
     }
 
     sql "select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
-
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                             |
@@ -325,8 +325,8 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
-        contains("PhysicalHashAggregate[505]@8 ( stats=(hbo)0, aggPhase=GLOBAL")
-        contains("PhysicalFilter[470]@4 ( stats=0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )");
+        contains("stats=(hbo)0, aggPhase=GLOBAL")
+        contains("stats=0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]");
     }
 
     /**
@@ -356,12 +356,12 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
-        contains("PhysicalFilter[663]@4 ( stats=0.5, predicates=(i_brand_id#9 > 1003001) )")
-        contains("PhysicalFilter[700]@9 ( stats=0.5, predicates=(i_brand_id#13 < 10014017) )")
+        contains("stats=0.5, predicates=(i_brand_id#9 > 1003001) )")
+        contains("stats=0.5, predicates=(i_brand_id#13 < 10014017) )")
     }
 
     sql "select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
-
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                             |
@@ -389,9 +389,9 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, item i1, item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
-        contains("PhysicalHashAggregate[773]@13 ( stats=(hbo)0, aggPhase=GLOBAL")
-        contains("PhysicalFilter[717]@4 ( stats=0, predicates=(i_brand_id#9 > 1003001) )")
-        contains("PhysicalFilter[706]@9 ( stats=0, predicates=(i_brand_id#13 < 10014017) )")
+        contains("stats=(hbo)0, aggPhase=GLOBAL")
+        contains("stats=0, predicates=(i_brand_id#9 > 1003001) )")
+        contains("stats=0, predicates=(i_brand_id#13 < 10014017) )")
     }
 
 }

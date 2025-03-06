@@ -27,7 +27,9 @@ suite("hbo_failed_query_retry_test") {
     sql "insert into hbo_failed_query_retry_test select number, number from numbers(" number " = " 100000000 ");"
     sql "analyze table hbo_failed_query_retry_test with full with sync;"
 
+    sql "set hbo_rfsafe_threshold=1.0;"
     sql "select count(1) from hbo_failed_query_retry_test t1, hbo_failed_query_retry_test t2 where t1.a = t2.a;"
+    sleep(3000)
 
     explain {
         sql "physical plan select count(1) from hbo_failed_query_retry_test t1, hbo_failed_query_retry_test t2 where t1.a = t2.a;"

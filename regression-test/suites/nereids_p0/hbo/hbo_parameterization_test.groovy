@@ -124,12 +124,12 @@ suite("hbo_parameterization_test") {
     """
 
     sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION';"
-
+    sql "set hbo_rfsafe_threshold=1.0;"
     // group by 1 order by 1 will not impact the hbo cache matching since hbo is processed during cbo stage
     // and these kinds of info have been processed during rewriting, including real column replacement and
     // constant folding
     sql "select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1;"
-
+    sleep(3000)
     /**
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                          |
@@ -173,7 +173,8 @@ suite("hbo_parameterization_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1;"
-        nocontains("(hbo)")
+        contains("stats=0, aggPhase=LOCAL")
+        contains("stats=0, type=INNER_JOIN")
     }
 
     /**
@@ -198,14 +199,14 @@ suite("hbo_parameterization_test") {
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select ss_store_sk, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1 order by 1;"
+        sql "physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1 order by 1;"
         contains("(hbo)")
     }
 
     // 20 in varchar(20) will not be parameterized since it is a function but not literal
     // substring("3190400", 1, 5) has been constant folded in rewriting stage, so will not be seen in parameterization also
-    sql "select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"
-
+    sql """select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"""
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                           |
@@ -227,13 +228,13 @@ suite("hbo_parameterization_test") {
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"
+        sql """physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"""
         contains("(hbo)")
     }
 
     // format string like 'date_format('2024-01-01', '%y')' will not be seen in parameterization since it has been folded during rewriting
-    sql "select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = date_format('2024-01-01', '%y') group by s_zip;"
-
+    sql """select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = date_format('2024-01-01', '%y') group by s_zip;"""
+    sleep(3000)
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                           |
@@ -255,7 +256,7 @@ suite("hbo_parameterization_test") {
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
-        sql "physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"
+        sql """physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 and cast(s_zip as varchar(20)) = substring("3190400", 1, 5) group by s_zip;"""
         contains("(hbo)")
     }
 

@@ -20,16 +20,16 @@ suite("hbo_join_side_opt_test") {
     sql "use hbo_test;"
 
     sql "drop table if exists hbo_join_side_opt_test1;"
-    sql "create table hbo_join_side_opt_test1(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_join_side_opt_test1 select number, number from numbers("number" = "100000");"
-    sql "insert into hbo_join_side_opt_test1 select 1,1 from numbers("number" = "100000000");"
-    sql "analyze table hbo_join_side_opt_test1 with full with sync;"
+    sql """create table hbo_join_side_opt_test1(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_join_side_opt_test1 select number, number from numbers("number" = "100000");"""
+    sql """insert into hbo_join_side_opt_test1 select 1,1 from numbers("number" = "100000000");"""
+    sql """analyze table hbo_join_side_opt_test1 with full with sync;"""
 
     sql "drop table if exists hbo_join_side_opt_test2;"
-    sql "create table hbo_join_side_opt_test2(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_join_side_opt_test2 select number, number from numbers("number" = "100000");"
-    sql "analyze table hbo_join_side_opt_test2 with full with sync;"
-
+    sql """create table hbo_join_side_opt_test2(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_join_side_opt_test2 select number, number from numbers("number" = "100000");"""
+    sql """analyze table hbo_join_side_opt_test2 with full with sync;"""
+    sql "set hbo_rfsafe_threshold=1.0;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -51,37 +51,37 @@ suite("hbo_join_side_opt_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        nocontains("(hbo)")
-        contains("PhysicalFilter[347]@1 ( stats=1,002.8, predicates=(a#0 = 1) )")
-        contains("PhysicalHashJoin[362]@5 ( stats=1,004.59")
+        contains("stats=1, aggPhase=GLOBAL")
+        contains("stats=1,002.8, predicates=(a#0 = 1)")
+        contains("stats=1,004.59")
     }
 
     sql "select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
-
+    sleep(3000)
     /**
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-     | cost = 5.0096797199508667E8                                                                                                                                                                                                                                  |
-     | PhysicalResultSink[384] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                        |
-     | +--PhysicalHashAggregate[379]@7 ( stats=1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )    |
-     |    +--PhysicalDistribute[374]@9 ( stats=1, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
-     |       +--PhysicalHashAggregate[369]@9 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
-     |          +--PhysicalProject[364]@6 ( stats=100,179,321.99, projects=[1 AS `1`#8] )                                                                                                                                                                           |
-     |             +--PhysicalHashJoin[359]@5 ( stats=100,179,321.99, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[] )                                                                                                           |
-     |                |--PhysicalProject[343]@2 ( stats=100,000,001, projects=[b#1] )                                                                                                                                                                               |
-     |                |  +--PhysicalFilter[338]@1 ( stats=100,000,001, predicates=(a#0 = 1) )                                                                                                                                                                       |
-     |                |     +--PhysicalOlapScan[hbo_join_side_opt_test1]@0 ( stats=100,100,000 )                                                                                                                                                                    |
-     |                +--PhysicalDistribute[354]@4 ( stats=100,000, distributionSpec=DistributionSpecReplicated )                                                                                                                                                   |
-     |                   +--PhysicalProject[349]@4 ( stats=100,000, projects=[b#3] )                                                                                                                                                                                |
-     |                      +--PhysicalOlapScan[hbo_join_side_opt_test2]@3 ( stats=100,000 )                                                                                                                                                                        |
-     +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+     +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+     | Explain String(Nereids Planner)                                                                                                                                                                                                                                   |
+     +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+     | cost = 5.0043000903602E8                                                                                                                                                                                                                                          |
+     | PhysicalResultSink[388] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                             |
+     | +--PhysicalHashAggregate[383]@7 ( stats=(hbo)1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )    |
+     |    +--PhysicalDistribute[378]@9 ( stats=(hbo)1, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
+     |       +--PhysicalHashAggregate[373]@9 ( stats=(hbo)1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
+     |          +--PhysicalProject[368]@6 ( stats=100,000,001, projects=[1 AS `1`#8] )                                                                                                                                                                                   |
+     |             +--PhysicalHashJoin[363]@5 ( stats=100,000,001, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[] )                                                                                                                   |
+     |                |--PhysicalProject[347]@2 ( stats=100,000,001, projects=[b#1] )                                                                                                                                                                                    |
+     |                |  +--PhysicalFilter[342]@1 ( stats=100,000,001, predicates=(a#0 = 1) )                                                                                                                                                                            |
+     |                |     +--PhysicalOlapScan[hbo_join_side_opt_test1]@0 ( stats=100,100,000 )                                                                                                                                                                         |
+     |                +--PhysicalDistribute[358]@4 ( stats=100,000, distributionSpec=DistributionSpecReplicated )                                                                                                                                                        |
+     |                   +--PhysicalProject[353]@4 ( stats=100,000, projects=[b#3] )                                                                                                                                                                                     |
+     |                      +--PhysicalOlapScan[hbo_join_side_opt_test2]@3 ( stats=100,000 )                                                                                                                                                                             |
+     +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
     explain {
         sql "physical plan select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        // nocontains("(hbo)") TODO: doesn't show hbo
-        contains("PhysicalFilter[338]@1 ( stats=100,000,001, predicates=(a#0 = 1) )")
-        contains("PhysicalHashJoin[359]@5 ( stats=100,179,321.99")
+        contains("stats=100,000,001, predicates=(a#0 = 1)")
+        contains("stats=100,000, distributionSpec=DistributionSpecReplicated")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
 }

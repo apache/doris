@@ -32,8 +32,6 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
@@ -46,7 +44,6 @@ import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -382,59 +379,6 @@ public class Profile {
         return gson.toJson(rootProfile.toBrief());
     }
 
-    public PlanStatistics generateScanPlanStatistics(int nodeId, List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStats,
-            PhysicalOlapScan scan, Map<RelationId, Set<Expression>> scanToFilterMap) {
-        for (TPlanNodeRuntimeStatsItem item : planNodeRuntimeStats) {
-            if (item.node_id == nodeId) {
-                return PlanStatistics.buildFromStatsItem(item, scan, scanToFilterMap);
-            }
-        }
-        return PlanStatistics.EMPTY;
-    }
-
-    public InputTableStatisticsInfo buildHboInputTableStatisticsInfo(PhysicalPlan root,
-            Map<PhysicalPlan, Integer> planToIdMap, Map<RelationId, Set<Expression>> scanToFilterMap,
-            List<TPlanNodeRuntimeStatsItem> statsItem) {
-        String planFingerprint = ((AbstractPhysicalPlan) root).getPlanTreeFingerprint();
-        String planHash = HboUtils.getPlanFingerprintHash(planFingerprint);
-        ImmutableList.Builder<PlanStatistics> inputTableStatisticsBuilder = ImmutableList.builder();
-        List<PhysicalOlapScan> scans = root.collectToList(PhysicalOlapScan.class::isInstance);
-        for (PhysicalOlapScan scan : scans) {
-            Integer nodeId = planToIdMap.get(scan);
-            if (nodeId != null) {
-                PlanStatistics planStatistics = generateScanPlanStatistics(
-                        nodeId, statsItem, scan, scanToFilterMap);
-                if (!planStatistics.equals(PlanStatistics.EMPTY)) {
-                    inputTableStatisticsBuilder.add(planStatistics);
-                }
-            }
-        }
-        return new InputTableStatisticsInfo(Optional.of(planHash), Optional.of(inputTableStatisticsBuilder.build()));
-    }
-
-    public Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> generatePlanStatisticsMap(
-            Map<Integer, PhysicalPlan> idToPlanMap, Map<PhysicalPlan, Integer> planToIdMap,
-            Map<RelationId, Set<Expression>> scanToFilterMap,
-            List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {
-        Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
-        for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
-            int nodeId = nodeStats.node_id;
-            PhysicalPlan planNode = idToPlanMap.get(nodeId);
-            if (planNode != null) {
-                PlanStatistics curPlanStatistics = PlanStatistics.buildFromStatsItem(
-                        nodeStats, planNode, scanToFilterMap);
-                InputTableStatisticsInfo inputTableStatisticsInfo = buildHboInputTableStatisticsInfo(
-                        planNode, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
-                Optional<String> hash = inputTableStatisticsInfo.getHash();
-                PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode, hash);
-                PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
-                        nodeId, curPlanStatistics, inputTableStatisticsInfo);
-                outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
-            }
-        }
-        return outputPlanStatisticsMap;
-    }
-
     public void publishHboPlanStatistics(String queryId, List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {
         HboPlanStatisticsManager hboManager = HboPlanStatisticsManager.getInstance();
         MemoryHboPlanStatisticsProvider hboPlanStatisticsProvider = (MemoryHboPlanStatisticsProvider)
@@ -447,7 +391,7 @@ public class Profile {
             Map<RelationId, Set<Expression>> scanToFilterMap = planInfoProvider.getScanToFilterMap(queryId);
 
             if (!idToPlanMap.isEmpty() && idToPlanMap.size() == planToIdMap.size()) {
-                Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> curPlanStatistics = generatePlanStatisticsMap(
+                Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> curPlanStatistics = HboUtils.genPlanStatisticsMap(
                         idToPlanMap, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
                 Map<PlanNodeAndHash, RecentRunsPlanStatistics> recentRunsPlanStatisticsMap =
                         hboPlanStatisticsProvider.getHboPlanStats(
@@ -488,7 +432,7 @@ public class Profile {
         List<RecentRunsPlanStatisticsEntry> newRecentRunsStatistics = new ArrayList<>(recentRunsStatistics);
 
         Optional<Integer> accurateStatsIndex = HboUtils.getAccurateStatsIndex(
-                recentRunsPlanStatistics, curInputTableStatistics, -1,
+                recentRunsPlanStatistics, curInputTableStatistics, -1, false,
                 PlanStatisticsMatchStrategy.FULL_MATCH);
         if (accurateStatsIndex.isPresent()) {
             newRecentRunsStatistics.remove(accurateStatsIndex.get().intValue());
@@ -550,9 +494,9 @@ public class Profile {
                 mergedProfile.prettyPrint(builder, "     ");
                 planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
                 planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
-                if (isHealthy() && isSlowQuery()) {
+                // TODO: failed sql supporting rely on profile's extension.
+                if (isHealthyForHbo() && isSlowQueryForHbo()) {
                     // publish to hbo manager, currently only support healthy sql.
-                    // TODO: failed sql supporting rely on profile's extension.
                     // NOTE: all statements which no need to collect profile have been excluded.
                     String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
                     publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
@@ -579,10 +523,6 @@ public class Profile {
     public long getQueryFinishTimestamp() {
         return this.queryFinishTimestamp;
     }
-
-    //public String getId() {
-    //    return this.id;
-    //}
 
     // For UT
     public void setSummaryProfile(SummaryProfile summaryProfile) {
@@ -833,7 +773,7 @@ public class Profile {
         builder.append("\n");
     }
 
-    private boolean isHealthy() {
+    private boolean isHealthyForHbo() {
         if (this.summaryProfile.getAsInfoStings() == null
                 || this.summaryProfile.getAsInfoStings().isEmpty()) {
             return false;
@@ -848,7 +788,7 @@ public class Profile {
         }
     }
 
-    private boolean isSlowQuery() {
+    private boolean isSlowQueryForHbo() {
         long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
         return durationMs > Config.hbo_slow_query_threshold_ms;
     }

@@ -32,17 +32,22 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.PlanStatisticsMatchStrategy;
+import org.apache.doris.statistics.hbo.PlanStatisticsWithInputInfo;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.statistics.hbo.ScanPlanStatistics;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,13 +63,14 @@ public class HboUtils {
      * @param recentRunsPlanStatistics recentRunsPlanStatistics
      * @param inputTableStatistics inputTableStatistics
      * @param rfSafeThreshold rfSafeThreshold
+     * @param isEnableHboNonStrictMatchingMode isEnableHboNonStrictMatchingMode
      * @param strategy match strategy
      * @return accurate stats index
      */
     public static Optional<Integer> getAccurateStatsIndex(
             RecentRunsPlanStatistics recentRunsPlanStatistics,
-            List<PlanStatistics> inputTableStatistics,
-            double rfSafeThreshold, PlanStatisticsMatchStrategy strategy) {
+            List<PlanStatistics> inputTableStatistics, double rfSafeThreshold,
+            boolean isEnableHboNonStrictMatchingMode, PlanStatisticsMatchStrategy strategy) {
         List<RecentRunsPlanStatisticsEntry> recentRunsStatistics = recentRunsPlanStatistics.getRecentRunsStatistics();
         if (recentRunsStatistics.isEmpty()) {
             return Optional.empty();
@@ -93,7 +99,7 @@ public class HboUtils {
                         && historicalInputStatistics.isPartitionedTable()) {
                     // find the first full matching entry in recentRunEntries
                     accurateMatch = canAccurateMatchForPartitionTable(curInputStatistics,
-                            historicalInputStatistics, strategy);
+                            historicalInputStatistics, isEnableHboNonStrictMatchingMode, strategy);
                 } else {
                     throw new RuntimeException("unexpected state during hbo input table stats matching");
                 }
@@ -114,7 +120,9 @@ public class HboUtils {
     public static boolean canAccurateMatchForNonPartitionTable(ScanPlanStatistics currentInputStatistics,
             ScanPlanStatistics recentRunsInputStatistics, PlanStatisticsMatchStrategy strategy) {
         boolean hasSameOtherPredicate = currentInputStatistics.hasSameOtherPredicates(recentRunsInputStatistics);
-        if (strategy.equals(PlanStatisticsMatchStrategy.OTHER_ONLY_MATCH)) {
+        if (strategy.equals(PlanStatisticsMatchStrategy.OTHER_ONLY_MATCH)
+                || strategy.equals(PlanStatisticsMatchStrategy.FULL_MATCH)
+                || strategy.equals(PlanStatisticsMatchStrategy.PARTITION_AND_OTHER_MATCH)) {
             return hasSameOtherPredicate;
         } else {
             return false;
@@ -129,7 +137,8 @@ public class HboUtils {
      * @return can accurate match for partition table
      */
     public static boolean canAccurateMatchForPartitionTable(ScanPlanStatistics currentInputStatistics,
-            ScanPlanStatistics recentRunsInputStatistics, PlanStatisticsMatchStrategy strategy) {
+            ScanPlanStatistics recentRunsInputStatistics, boolean isEnableHboNonStrictMatchingMode,
+            PlanStatisticsMatchStrategy strategy) {
         // For partition table, must ensure
         // 1. the pruned partition is the same
         // 2. partition column predicate is the exactly same(for single value partition it is not special,
@@ -147,6 +156,9 @@ public class HboUtils {
             return hasSamePartition && hasSamePartitionColumnPredicate && hasSameOtherPredicate;
         } else if (strategy.equals(PlanStatisticsMatchStrategy.PARTITION_AND_OTHER_MATCH)) {
             return hasSamePartition && hasSameOtherPredicate/* && hasSimilarStats*/;
+        } else if (isEnableHboNonStrictMatchingMode
+                && strategy.equals(PlanStatisticsMatchStrategy.PARTITION_ONLY_MATCH)) {
+            return hasSamePartition;
         //} else if (needMatchSelectedPartition && needMatchPartitionColumnPredicate && !needMatchOtherPredicate) {
         //    return hasSamePartition && hasSamePartitionColumnPredicate && hasSimilarStats;
         //} else if (needMatchSelectedPartition && !needMatchPartitionColumnPredicate && !needMatchOtherPredicate) {
@@ -277,7 +289,7 @@ public class HboUtils {
         // MATCH 1: PlanStatisticsMatchStrategy.FULL_MATCH
         Optional<Integer> accurateStatsIndex = HboUtils.getAccurateStatsIndex(
                 recentHboPlanStatistics, inputTableStatistics, hboRfSafeThreshold,
-                PlanStatisticsMatchStrategy.FULL_MATCH);
+                isEnableHboNonStrictMatchingMode, PlanStatisticsMatchStrategy.FULL_MATCH);
         if (accurateStatsIndex.isPresent()) {
             return Optional.of(recentRunsStatistics.get(accurateStatsIndex.get()));
         }
@@ -285,7 +297,7 @@ public class HboUtils {
         // MATCH 2: PlanStatisticsMatchStrategy.PARTITION_AND_OTHER_MATCH
         Optional<Integer> accurateStatsMatchPartitionIdAndOtherPredicateIndex = HboUtils.getAccurateStatsIndex(
                 recentHboPlanStatistics, inputTableStatistics, hboRfSafeThreshold,
-                PlanStatisticsMatchStrategy.PARTITION_AND_OTHER_MATCH);
+                isEnableHboNonStrictMatchingMode, PlanStatisticsMatchStrategy.PARTITION_AND_OTHER_MATCH);
         if (accurateStatsMatchPartitionIdAndOtherPredicateIndex.isPresent()) {
             return Optional.of(recentRunsStatistics.get(accurateStatsMatchPartitionIdAndOtherPredicateIndex.get()));
         }
@@ -295,7 +307,7 @@ public class HboUtils {
             Optional<Integer> accurateStatsOnlyMatchPartitionIdIndex
                     = HboUtils.getAccurateStatsIndex(
                     recentHboPlanStatistics, inputTableStatistics, hboRfSafeThreshold,
-                    PlanStatisticsMatchStrategy.PARTITION_ONLY_MATCH);
+                    true, PlanStatisticsMatchStrategy.PARTITION_ONLY_MATCH);
             if (accurateStatsOnlyMatchPartitionIdIndex.isPresent()) {
                 return Optional.of(recentRunsStatistics.get(accurateStatsOnlyMatchPartitionIdIndex.get()));
             }
@@ -458,5 +470,67 @@ public class HboUtils {
             throw new AnalysisException("unexpected filter type");
         }
         return scanNodePlan;
+    }
+
+    private static PlanStatistics generateScanPlanStatistics(int nodeId,
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStats,
+            PhysicalOlapScan scan, Map<RelationId, Set<Expression>> scanToFilterMap) {
+        for (TPlanNodeRuntimeStatsItem item : planNodeRuntimeStats) {
+            if (item.node_id == nodeId) {
+                return PlanStatistics.buildFromStatsItem(item, scan, scanToFilterMap);
+            }
+        }
+        return PlanStatistics.EMPTY;
+    }
+
+    private static InputTableStatisticsInfo buildHboInputTableStatisticsInfo(PhysicalPlan root,
+            Map<PhysicalPlan, Integer> planToIdMap, Map<RelationId, Set<Expression>> scanToFilterMap,
+            List<TPlanNodeRuntimeStatsItem> statsItem) {
+        String planFingerprint = ((AbstractPhysicalPlan) root).getPlanTreeFingerprint();
+        String planHash = HboUtils.getPlanFingerprintHash(planFingerprint);
+        ImmutableList.Builder<PlanStatistics> inputTableStatisticsBuilder = ImmutableList.builder();
+        List<PhysicalOlapScan> scans = root.collectToList(PhysicalOlapScan.class::isInstance);
+        for (PhysicalOlapScan scan : scans) {
+            Integer nodeId = planToIdMap.get(scan);
+            if (nodeId != null) {
+                PlanStatistics planStatistics = generateScanPlanStatistics(
+                        nodeId, statsItem, scan, scanToFilterMap);
+                if (!planStatistics.equals(PlanStatistics.EMPTY)) {
+                    inputTableStatisticsBuilder.add(planStatistics);
+                }
+            }
+        }
+        return new InputTableStatisticsInfo(Optional.of(planHash), Optional.of(inputTableStatisticsBuilder.build()));
+    }
+
+    /**
+     * Generate plan statistics map.
+     * @param idToPlanMap idToPlanMap
+     * @param planToIdMap planToIdMap
+     * @param scanToFilterMap scanToFilterMap
+     * @param curPlanNodeRuntimeStats curPlanNodeRuntimeStats
+     * @return plan statistics map
+     */
+    public static Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> genPlanStatisticsMap(
+            Map<Integer, PhysicalPlan> idToPlanMap, Map<PhysicalPlan, Integer> planToIdMap,
+            Map<RelationId, Set<Expression>> scanToFilterMap,
+            List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {
+        Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
+        for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
+            int nodeId = nodeStats.node_id;
+            PhysicalPlan planNode = idToPlanMap.get(nodeId);
+            if (planNode != null) {
+                PlanStatistics curPlanStatistics = PlanStatistics.buildFromStatsItem(
+                        nodeStats, planNode, scanToFilterMap);
+                InputTableStatisticsInfo inputTableStatisticsInfo = buildHboInputTableStatisticsInfo(
+                        planNode, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
+                Optional<String> hash = inputTableStatisticsInfo.getHash();
+                PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode, hash);
+                PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
+                        nodeId, curPlanStatistics, inputTableStatisticsInfo);
+                outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
+            }
+        }
+        return outputPlanStatisticsMap;
     }
 }

@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanNode.java
-// and modified by Doris
 
 package org.apache.doris.nereids.trees.plans;
 
@@ -52,10 +49,8 @@ public class PlanNodeAndHash {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PlanNodeAndHash that = (PlanNodeAndHash) o;
-        // We compare object equality for Plan nodes. It is necessary because plan nodes can be expensive to compare,
-        // and its also sufficient because we only hash stats equivalent plan nodes, which don't change while planning.
-        return planNode == that.planNode && Objects.equals(hash, that.hash);
+        PlanNodeAndHash other = (PlanNodeAndHash) o;
+        return planNode == other.planNode && Objects.equals(hash, other.hash);
     }
 
     @Override

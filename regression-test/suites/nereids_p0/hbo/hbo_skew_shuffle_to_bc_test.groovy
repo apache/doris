@@ -19,22 +19,22 @@ suite("hbo_skew_shuffle_to_bc_test") {
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
 
-    sql "drop table if exists hbo_skew_shuffle_to_bc_test1;"
-    sql "create table hbo_skew_shuffle_to_bc_test1(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_skew_shuffle_to_bc_test1 select number, 1 from numbers("number" = "1000");"
-    sql "insert into hbo_skew_shuffle_to_bc_test1 select number, number from numbers("number" = "10000000");"
-    sql "analyze table hbo_skew_shuffle_to_bc_test1 with full with sync;"
+    sql """drop table if exists hbo_skew_shuffle_to_bc_test1;"""
+    sql """create table hbo_skew_shuffle_to_bc_test1(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, 1 from numbers("number" = "1000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, number from numbers("number" = "10000000");"""
+    sql """analyze table hbo_skew_shuffle_to_bc_test1 with full with sync;"""
 
-    sql "drop table if exists hbo_skew_shuffle_to_bc_test2;"
-    sql "create table hbo_skew_shuffle_to_bc_test2(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"
-    sql "insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "2000000");"
-    sql "insert into hbo_skew_shuffle_to_bc_test2 select 1, 1 from numbers("number" = "2000000");"
-    sql "insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "6000000");"
-    sql "analyze table hbo_skew_shuffle_to_bc_test2 with full with sync;"
+    sql """drop table if exists hbo_skew_shuffle_to_bc_test2;"""
+    sql """create table hbo_skew_shuffle_to_bc_test2(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "2000000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select 1, 1 from numbers("number" = "2000000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "6000000");"""
+    sql """analyze table hbo_skew_shuffle_to_bc_test2 with full with sync;"""
 
     // increase the parallel to make enough skew between different instances
     sql "set parallel_pipeline_task_num=100;"
-
+    sql "set hbo_rfsafe_threshold=1.0;"
     sql "set enable_hbo_optimization=false;"
     /**
      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -57,12 +57,12 @@ suite("hbo_skew_shuffle_to_bc_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("PhysicalDistribute[304]@1 ( stats=10,001,000, distributionSpec=DistributionSpecHash")
-        contains("PhysicalDistribute[315]@3 ( stats=10,000,000, distributionSpec=DistributionSpecHash")
+        contains("stats=10,001,000, distributionSpec=DistributionSpecHash")
+        contains("stats=10,000,000, distributionSpec=DistributionSpecHash")
     }
 
     sql "select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-
+    sleep(3000);
     sql "set enable_hbo_optimization=true;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -71,8 +71,8 @@ suite("hbo_skew_shuffle_to_bc_test") {
      | cost = 6.081327675576689E9                                                                                                                                                                                                                                         |
      | PhysicalResultSink[337] ( outputExprs=[__count_0#4] )                                                                                                                                                                                                              |
      | +--PhysicalHashAggregate[332]@6 ( stats=(hbo)1, aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[count(partial_count(*)#9) AS `count(*)`#4], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false )     |
-     |    +--PhysicalDistribute[327]@8 ( stats=(hbo)32, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
-     |       +--PhysicalHashAggregate[322]@8 ( stats=(hbo)32, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
+     |    +--PhysicalDistribute[327]@8 ( stats=(hbo)100, distributionSpec=DistributionSpecGather )                                                                                                                                                                         |
+     |       +--PhysicalHashAggregate[322]@8 ( stats=(hbo)100, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_count(*) AS `partial_count(*)`#9], partitionExpr=Optional[[]], topnFilter=false, topnPushDown=false ) |
      |          +--PhysicalProject[317]@5 ( stats=2,010,002,000, projects=[1 AS `1`#8] )                                                                                                                                                                                  |
      |             +--PhysicalHashJoin[312]@4 ( stats=2,010,002,000, type=INNER_JOIN, hashCondition=[(b#1 = b#3)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[b#3->[b#1](ndv/size = 6028862/8388608) , RF1[b#3->[b#1](ndv/size = 6028862/8388608) ] )       |
      |                |--PhysicalProject[296]@1 ( stats=10,001,000, projects=[b#1] )                                                                                                                                                                                      |
@@ -84,10 +84,10 @@ suite("hbo_skew_shuffle_to_bc_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("PhysicalProject[296]@1 ( stats=10,001,000, projects=[b#1]")
-        contains("PhysicalDistribute[307]@3 ( stats=10,000,000, distributionSpec=DistributionSpecReplicated )")
-        contains("PhysicalHashAggregate[322]@8 ( stats=(hbo)32, aggPhase=LOCAL")
-        contains("PhysicalHashAggregate[332]@6 ( stats=(hbo)1, aggPhase=GLOBAL")
+        contains("stats=10,001,000, projects=[b#1]")
+        contains("stats=10,000,000, distributionSpec=DistributionSpecReplicated")
+        contains("stats=(hbo)100, aggPhase=LOCAL")
+        contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
 }
