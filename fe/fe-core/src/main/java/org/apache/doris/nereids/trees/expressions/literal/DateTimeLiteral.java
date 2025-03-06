@@ -132,8 +132,8 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     /** parseDateTimeLiteral */
-    public static Result<DateTimeLiteral, AnalysisException> parseDateTimeLiteral(String s, boolean isV2) {
-        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
+    public static Result<DateTimeLiteral, ? extends Exception> parseDateTimeLiteral(String s, boolean isV2) {
+        Result<TemporalAccessor, ? extends Exception> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
         }
