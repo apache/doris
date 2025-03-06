@@ -329,12 +329,12 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        Field* field = FieldFactory::create(column);
-        ASSERT_NE(field, nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
         std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field, &column_writer,
+        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
                                                         index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
@@ -391,12 +391,12 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        Field* field = FieldFactory::create(column);
-        ASSERT_NE(field, nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
         std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field, &column_writer,
+        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
                                                         index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
@@ -465,12 +465,12 @@ public:
         // Get field for column c1
         const TabletColumn& column = tablet_schema->column(0);
         ASSERT_NE(&column, nullptr);
-        Field* field = FieldFactory::create(column);
-        ASSERT_NE(field, nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
         std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field, &column_writer,
+        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
                                                         index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
@@ -526,8 +526,8 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        Field* field = FieldFactory::create(column);
-        ASSERT_NE(field, nullptr);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        ASSERT_NE(field.get(), nullptr);
 
         // Save original config value
         bool original_config_value = config::enable_inverted_index_correct_term_write;
@@ -537,7 +537,7 @@ public:
 
         // Create column writer
         std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field, &column_writer,
+        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
                                                         index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
@@ -704,8 +704,8 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    Field* field = FieldFactory::create(column);
-    ASSERT_NE(field, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
 
     // Save original config value
     bool original_config_value = config::enable_inverted_index_correct_term_write;
@@ -715,13 +715,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = InvertedIndexColumnWriter::create(field, &column_writer_enabled,
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer_enabled,
                                                     index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = InvertedIndexColumnWriter::create(field, &column_writer_disabled,
+    status = InvertedIndexColumnWriter::create(field.get(), &column_writer_disabled,
                                                index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
