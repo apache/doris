@@ -110,6 +110,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     protected TableSnapshot tableSnapshot;
+    protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
     // This is also important for local shuffle logic.
@@ -124,6 +125,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        if (desc.getTable() != null) {
+            columns = desc.getTable().getBaseSchema();
+        }
         this.analyzer = analyzer;
         // materialize conjuncts in where
         analyzer.materializeSlots(conjuncts);
@@ -233,7 +237,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         // for load scan node, table is null
         // partitionsInfo maybe null for other scan node, eg: ExternalScanNode...
         if (desc.getTable() != null) {
-            computeColumnsFilter(desc.getTable().getBaseSchema(), partitionsInfo);
+            computeColumnsFilter(columns, partitionsInfo);
         }
     }
 

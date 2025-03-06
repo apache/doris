@@ -31,34 +31,54 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.PartitionColumnsCache;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
@@ -68,16 +88,28 @@ import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.util.SnapshotUtil;
+import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.Month;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -109,6 +141,14 @@ public class IcebergUtils {
     public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
 
     public static final long UNKNOWN_SNAPSHOT_ID = -1;
+
+    public static final String YEAR = "year";
+    public static final String MONTH = "month";
+    public static final String DAY = "day";
+    public static final String HOUR = "hour";
+    public static final String IDENTITY = "identity";
+    public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
+
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -573,10 +613,6 @@ public class IcebergUtils {
                 : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
-        return getSchema(catalog, dbName, name, UNKNOWN_SNAPSHOT_ID);
-    }
-
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
@@ -708,5 +744,295 @@ public class IcebergUtils {
 
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
+    }
+
+    public static long getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
+        long snapshotId = -1;
+        if (queryTableSnapshot != null) {
+            TableSnapshot.VersionType type = queryTableSnapshot.getType();
+            if (type == TableSnapshot.VersionType.VERSION) {
+                snapshotId = queryTableSnapshot.getVersion();
+            } else {
+                long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
+                snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+            }
+        }
+        return snapshotId;
+    }
+
+    public static SchemaCacheValue getIcebergSchemaCacheValue(
+            ExternalCatalog catalog, String dbName, String name, long schemaId) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
+            new IcebergSchemaCacheKey(dbName, name, schemaId));
+        if (!schemaCacheValue.isPresent()) {
+            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
+                null, catalog.getName(), dbName, name, schemaId);
+        }
+        return schemaCacheValue.get();
+    }
+
+    public static PartitionColumnsCache getIcebergPartitionColumnsCache(
+            ExternalCatalog catalog, String dbName, String name, long schemaId) {
+        return (PartitionColumnsCache) IcebergUtils.getIcebergSchemaCacheValue(catalog, dbName, name, schemaId);
+    }
+
+    public static IcebergSnapshot getLastedIcebergSnapshot(ExternalCatalog catalog, String dbName, String tbName) {
+        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+        Snapshot snapshot = table.currentSnapshot();
+        long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
+        int newestSchemaId = table.schema().schemaId();
+        long schemaId = snapshot == null ? newestSchemaId : table.snapshot(snapshotId).schemaId();
+        return new IcebergSnapshot(snapshotId, schemaId, newestSchemaId);
+    }
+
+
+
+    public static IcebergPartitionInfo loadPartitionInfo(
+            ExternalCatalog catalog, String dbName, String tbName, long snapshotId) throws AnalysisException {
+        // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
+        if (snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
+            return IcebergPartitionInfo.empty();
+        }
+        Table table = getIcebergTable(catalog, dbName, tbName);
+        List<IcebergPartition> icebergPartitions = loadIcebergPartition(table, snapshotId);
+        Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+
+        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumnsCache(
+                catalog, dbName, tbName, table.snapshot(snapshotId).schemaId()).getPartitionColumns();
+        for (IcebergPartition partition : icebergPartitions) {
+            nameToPartition.put(partition.getPartitionName(), partition);
+            String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
+            Range<PartitionKey> partitionRange = getPartitionRange(
+                    partition.getPartitionValues().get(0), transform, partitionColumns);
+            PartitionItem item = new RangePartitionItem(partitionRange);
+            nameToPartitionItem.put(partition.getPartitionName(), item);
+        }
+        Map<String, Set<String>> partitionNameMap = mergeOverlapPartitions(nameToPartitionItem);
+        return new IcebergPartitionInfo(nameToPartitionItem, nameToPartition, partitionNameMap);
+    }
+
+    public static List<IcebergPartition> loadIcebergPartition(Table table, long snapshotId) {
+        PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils
+                .createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
+        List<IcebergPartition> partitions = Lists.newArrayList();
+        try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
+            for (FileScanTask task : tasks) {
+                CloseableIterable<StructLike> rows = task.asDataTask().rows();
+                for (StructLike row : rows) {
+                    partitions.add(generateIcebergPartition(table, row));
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to get Iceberg table {} partition info.", table.name(), e);
+        }
+        return partitions;
+    }
+
+    public static IcebergPartition generateIcebergPartition(Table table, StructLike row) {
+        // row format :
+        // 0. partitionData,
+        // 1. spec_id,
+        // 2. record_count,
+        // 3. file_count,
+        // 4. total_data_file_size_in_bytes,
+        // 5. position_delete_record_count,
+        // 6. position_delete_file_count,
+        // 7. equality_delete_record_count,
+        // 8. equality_delete_file_count,
+        // 9. last_updated_at,
+        // 10. last_updated_snapshot_id
+        Preconditions.checkState(!table.spec().fields().isEmpty(), table.name() + " is not a partition table.");
+        int specId = row.get(1, Integer.class);
+        PartitionSpec partitionSpec = table.specs().get(specId);
+        StructProjection partitionData = row.get(0, StructProjection.class);
+        StringBuilder sb = new StringBuilder();
+        List<String> partitionValues = Lists.newArrayList();
+        List<String> transforms = Lists.newArrayList();
+        for (int i = 0; i < partitionSpec.fields().size(); ++i) {
+            PartitionField partitionField = partitionSpec.fields().get(i);
+            Class<?> fieldClass = partitionSpec.javaClasses()[i];
+            int fieldId = partitionField.fieldId();
+            // Iceberg partition field id starts at PARTITION_DATA_ID_START,
+            // So we can get the field index in partitionData using fieldId - PARTITION_DATA_ID_START
+            int index = fieldId - PARTITION_DATA_ID_START;
+            Object o = partitionData.get(index, fieldClass);
+            String fieldValue = o == null ? null : o.toString();
+            String fieldName = partitionField.name();
+            sb.append(fieldName);
+            sb.append("=");
+            sb.append(fieldValue);
+            sb.append("/");
+            partitionValues.add(fieldValue);
+            transforms.add(partitionField.transform().toString());
+        }
+        if (sb.length() > 0) {
+            sb.delete(sb.length() - 1, sb.length());
+        }
+        String partitionName = sb.toString();
+        long recordCount = row.get(2, Long.class);
+        long fileCount = row.get(3, Integer.class);
+        long fileSizeInBytes = row.get(4, Long.class);
+        long lastUpdateTime = row.get(9, Long.class);
+        long lastUpdateSnapShotId = row.get(10, Long.class);
+        return new IcebergPartition(partitionName, specId, recordCount, fileSizeInBytes, fileCount,
+            lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms);
+    }
+
+    @VisibleForTesting
+    public static Range<PartitionKey> getPartitionRange(String value, String transform, List<Column> partitionColumns)
+            throws AnalysisException {
+        // For NULL value, create a minimum partition for it.
+        if (value == null) {
+            PartitionKey nullLowKey = PartitionKey.createPartitionKey(
+                    Lists.newArrayList(new PartitionValue("0000-01-01")), partitionColumns);
+            PartitionKey nullUpKey = nullLowKey.successor();
+            return Range.closedOpen(nullLowKey, nullUpKey);
+        }
+        LocalDateTime epoch = Instant.EPOCH.atZone(ZoneId.of("UTC")).toLocalDateTime();
+        LocalDateTime target;
+        LocalDateTime lower;
+        LocalDateTime upper;
+        long longValue = Long.parseLong(value);
+        switch (transform) {
+            case HOUR:
+                target = epoch.plusHours(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), target.getDayOfMonth(),
+                    target.getHour(), 0, 0);
+                upper = lower.plusHours(1);
+                break;
+            case DAY:
+                target = epoch.plusDays(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), target.getDayOfMonth(), 0, 0, 0);
+                upper = lower.plusDays(1);
+                break;
+            case MONTH:
+                target = epoch.plusMonths(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), 1, 0, 0, 0);
+                upper = lower.plusMonths(1);
+                break;
+            case YEAR:
+                target = epoch.plusYears(longValue);
+                lower = LocalDateTime.of(target.getYear(), Month.JANUARY, 1, 0, 0, 0);
+                upper = lower.plusYears(1);
+                break;
+            default:
+                throw new RuntimeException("Unsupported transform " + transform);
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        Column c = partitionColumns.get(0);
+        Preconditions.checkState(c.getDataType().isDateType(), "Only support date type partition column");
+        if (c.getType().isDate() || c.getType().isDateV2()) {
+            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        }
+        PartitionValue lowerValue = new PartitionValue(lower.format(formatter));
+        PartitionValue upperValue = new PartitionValue(upper.format(formatter));
+        PartitionKey lowKey = PartitionKey.createPartitionKey(Lists.newArrayList(lowerValue), partitionColumns);
+        PartitionKey upperKey =  PartitionKey.createPartitionKey(Lists.newArrayList(upperValue), partitionColumns);
+        return Range.closedOpen(lowKey, upperKey);
+    }
+
+    /**
+     * Merge overlapped iceberg partitions into one Doris partition.
+     */
+    public static Map<String, Set<String>> mergeOverlapPartitions(Map<String, PartitionItem> originPartitions) {
+        List<Map.Entry<String, PartitionItem>> entries = sortPartitionMap(originPartitions);
+        Map<String, Set<String>> map = Maps.newHashMap();
+        for (int i = 0; i < entries.size() - 1; i++) {
+            Range<PartitionKey> firstValue = entries.get(i).getValue().getItems();
+            String firstKey = entries.get(i).getKey();
+            Range<PartitionKey> secondValue = entries.get(i + 1).getValue().getItems();
+            String secondKey = entries.get(i + 1).getKey();
+            // If the first entry enclose the second one, remove the second entry and keep a record in the return map.
+            // So we can track the iceberg partitions those contained by one Doris partition.
+            while (i < entries.size() && firstValue.encloses(secondValue)) {
+                originPartitions.remove(secondKey);
+                map.putIfAbsent(firstKey, Sets.newHashSet(firstKey));
+                String finalSecondKey = secondKey;
+                map.computeIfPresent(firstKey, (key, value) -> {
+                    value.add(finalSecondKey);
+                    return value;
+                });
+                i++;
+                if (i >= entries.size() - 1) {
+                    break;
+                }
+                secondValue = entries.get(i + 1).getValue().getItems();
+                secondKey = entries.get(i + 1).getKey();
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Sort the given map entries by PartitionItem Range(LOW, HIGH)
+     * When comparing two ranges, the one with smaller LOW value is smaller than the other one.
+     * If two ranges have same values of LOW, the one with larger HIGH value is smaller.
+     *
+     * For now, we only support year, month, day and hour,
+     * so it is impossible to have two partially intersect partitions.
+     * One range is either enclosed by another or has no intersection at all with another.
+     *
+     *
+     * For example, we have these 4 ranges:
+     * [10, 20), [30, 40), [0, 30), [10, 15)
+     *
+     * After sort, they become:
+     * [0, 30), [10, 20), [10, 15), [30, 40)
+     */
+    public static List<Map.Entry<String, PartitionItem>> sortPartitionMap(Map<String, PartitionItem> originPartitions) {
+        List<Map.Entry<String, PartitionItem>> entries = new ArrayList<>(originPartitions.entrySet());
+        entries.sort(new RangeComparator());
+        return entries;
+    }
+
+    public static class RangeComparator implements Comparator<Map.Entry<String, PartitionItem>> {
+        @Override
+        public int compare(Map.Entry<String, PartitionItem> p1, Map.Entry<String, PartitionItem> p2) {
+            PartitionItem value1 = p1.getValue();
+            PartitionItem value2 = p2.getValue();
+            if (value1 instanceof RangePartitionItem && value2 instanceof RangePartitionItem) {
+                Range<PartitionKey> items1 = value1.getItems();
+                Range<PartitionKey> items2 = value2.getItems();
+                if (!items1.hasLowerBound()) {
+                    return -1;
+                }
+                if (!items2.hasLowerBound()) {
+                    return 1;
+                }
+                PartitionKey upper1 = items1.upperEndpoint();
+                PartitionKey lower1 = items1.lowerEndpoint();
+                PartitionKey upper2 = items2.upperEndpoint();
+                PartitionKey lower2 = items2.lowerEndpoint();
+                int compareLow = lower1.compareTo(lower2);
+                return compareLow == 0 ? upper2.compareTo(upper1) : compareLow;
+            }
+            return 0;
+        }
+    }
+
+    public static IcebergSnapshotCacheValue getIcebergSnapshotCacheValue(
+            ExternalCatalog catalog, String dbName, String tbName) {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            .getSnapshotCache(catalog, dbName, tbName);
+    }
+
+    public static Optional<SchemaCacheValue> getSchemaCacheValue(
+            ExternalCatalog catalog, String dbName, String tbName, long schemaId) {
+        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId);
+        List<Column> tmpColumns = Lists.newArrayList();
+        PartitionSpec spec = table.spec();
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField col = table.schema().findField(field.sourceId());
+            for (Column c : schema) {
+                if (c.getName().equalsIgnoreCase(col.name())) {
+                    tmpColumns.add(c);
+                    break;
+                }
+            }
+        }
+        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
     }
 }

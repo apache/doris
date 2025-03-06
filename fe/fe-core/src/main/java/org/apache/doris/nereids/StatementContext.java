@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -213,6 +214,8 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    private final Map<TableIf, TableSnapshot> queryTableSnapshot = Maps.newHashMap();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -773,5 +776,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public void setQueryTableSnapshot(TableIf table, TableSnapshot snapshot) {
+        queryTableSnapshot.put(table, snapshot);
+    }
+
+    public TableSnapshot getQueryTableSnapshot(TableIf table) {
+        return queryTableSnapshot.get(table);
     }
 }

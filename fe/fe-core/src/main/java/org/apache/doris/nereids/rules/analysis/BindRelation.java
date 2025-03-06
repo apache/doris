@@ -376,6 +376,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return logicalPlan.get();
         }
 
+        // set query snapshot
+        unboundRelation.getTableSnapshot().ifPresent(s -> {
+            if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+                ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, s);
+            }
+        });
+
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
         boolean isView = false;

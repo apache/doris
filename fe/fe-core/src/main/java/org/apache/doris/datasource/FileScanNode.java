@@ -193,7 +193,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
 
-        for (Column column : tbl.getBaseSchema()) {
+        for (Column column : columns) {
             Expr expr;
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {

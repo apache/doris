@@ -37,8 +37,13 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
@@ -48,6 +53,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -83,6 +89,9 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,7 +114,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
@@ -173,6 +182,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
+
+    private boolean isValidRelatedTableCached = false;
+    private boolean isValidRelatedTable = false;
 
     /**
      * Create hive metastore external table.
@@ -563,7 +575,41 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            schemaUpdateTime = System.currentTimeMillis();
+            return IcebergUtils.getSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
+        }
         return initSchemaAndUpdateTime();
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            Table icebergTable = IcebergUtils.getIcebergTable(catalog, dbName, name);
+            Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
+            TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
+            long snapshotId = IcebergUtils.getQuerySpecSnapshot(icebergTable, queryTableSnapshot);
+            IcebergSnapshotCacheValue cacheValue;
+            if (snapshotFromContext.isPresent()) {
+                cacheValue = ((IcebergMvccSnapshot) snapshotFromContext.get()).getSnapshotCacheValue();
+            } else {
+                cacheValue = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+                    .getSnapshotCache(catalog, dbName, name);
+            }
+            if (snapshotId > 0) {
+                if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {
+                    return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), cacheValue.getSnapshot().getSchemaId()).getSchema();
+                } else {
+                    return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), icebergTable.snapshot(snapshotId).schemaId()).getSchema();
+
+                }
+            }
+            return IcebergUtils.getIcebergSchemaCacheValue(
+                catalog, getDbName(), getName(), cacheValue.getSnapshot().getNewestSchemaId()).getSchema();
+        }
+        return super.getFullSchema();
     }
 
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
@@ -600,7 +646,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getIcebergSchema() {
-        List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
+        List<Column> columns;
+        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
+        Table icebergTable = IcebergUtils.getIcebergTable(catalog, dbName, name);
+        long specSnapshot = IcebergUtils.getQuerySpecSnapshot(icebergTable, queryTableSnapshot);
+        if (specSnapshot > 0L) {
+            columns = IcebergUtils.getSchema(catalog, dbName, name, icebergTable.schema().schemaId());
+        } else {
+            columns = IcebergUtils.getSchema(catalog, dbName, name, icebergTable.snapshot(specSnapshot).schemaId());
+        }
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
@@ -1093,5 +1147,52 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 getName(),
                 getRemoteTable().getSd().getLocation(),
                 getCatalog().getConfiguration());
+    }
+
+    public boolean isValidRelatedTable() {
+        makeSureInitialized();
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            if (isValidRelatedTableCached) {
+                return isValidRelatedTable;
+            }
+            isValidRelatedTable = false;
+            Set<String> allFields = Sets.newHashSet();
+            Table table = IcebergUtils.getIcebergTable(catalog, dbName, name);
+            for (PartitionSpec spec : table.specs().values()) {
+                if (spec == null) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                List<PartitionField> fields = spec.fields();
+                if (fields.size() != 1) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                PartitionField partitionField = spec.fields().get(0);
+                String transformName = partitionField.transform().toString();
+                if (!IcebergUtils.YEAR.equals(transformName)
+                        && !IcebergUtils.MONTH.equals(transformName)
+                        && !IcebergUtils.DAY.equals(transformName)
+                        && !IcebergUtils.HOUR.equals(transformName)) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+            }
+            isValidRelatedTableCached = true;
+            isValidRelatedTable = allFields.size() == 1;
+            return isValidRelatedTable;
+        }
+        return true;
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot() {
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            return new IcebergMvccSnapshot(
+                IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName()));
+        } else {
+            return null;
+        }
     }
 }
