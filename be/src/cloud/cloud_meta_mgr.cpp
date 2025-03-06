@@ -1228,6 +1228,15 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
     }
+    if (st.ok()) {
+        DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.sleep", {
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            int random_sleep_time_second = std::rand() % 6;
+            LOG(INFO) << "after get delete bitmap lock for initiator: " << tablet.table_id()
+                      << ", random sleep " << random_sleep_time_second << " second";
+            std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
+        })
+    }
     return st;
 }
 
