@@ -96,7 +96,6 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     }
     _block_rows_limit = state->batch_size();
     _rpc_timeout_ms = state->execution_timeout() * 1000;
-    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 

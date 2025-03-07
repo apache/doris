@@ -99,7 +99,7 @@ public:
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
-    virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
+    virtual Status init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool);
     Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
