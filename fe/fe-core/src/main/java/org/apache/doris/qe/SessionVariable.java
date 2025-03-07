@@ -561,6 +561,7 @@ public class SessionVariable implements Serializable, Writable {
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
@@ -2196,6 +2197,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableReserveMemory = true;
 
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
