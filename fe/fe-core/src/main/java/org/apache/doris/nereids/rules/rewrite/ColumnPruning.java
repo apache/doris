@@ -261,7 +261,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
             List<SlotReference> prunedChildOutput = prunedChildOutputBuilder.build();
             Plan prunedChild = doPruneChild(
-                    prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutput
+                    prunedOutputUnion, prunedOutputUnion.child(i), prunedChildOutputExprIds, prunedChildOutput
             );
             prunedChildrenOutputs.add(prunedChildOutput);
             prunedChildren.add(prunedChild);
@@ -460,8 +460,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         }
 
-        BitSet childrenRequiredSlotIds = new BitSet();
-        childrenRequiredSlotIds.or(parentRequiredSlotIds);
+        BitSet childrenRequiredSlotIds = (BitSet) parentRequiredSlotIds.clone();
         for (Expression expression : plan.getExpressions()) {
             expression.foreach(e -> {
                 if (e instanceof Slot) {
@@ -474,15 +473,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             List<Slot> childOutputs = child.getOutput();
+            BitSet childRequiredSlotIds = new BitSet();
             ImmutableList.Builder<Slot> childRequiredSlotBuilder
                     = ImmutableList.builderWithExpectedSize(childOutputs.size());
             for (Slot childOutput : childOutputs) {
                 int id = childOutput.getExprId().asInt();
                 if (childrenRequiredSlotIds.get(id)) {
+                    childRequiredSlotIds.set(id);
                     childRequiredSlotBuilder.add(childOutput);
                 }
             }
-            Plan prunedChild = doPruneChild(plan, child, childRequiredSlotBuilder.build());
+            Plan prunedChild = doPruneChild(plan, child, childRequiredSlotIds, childRequiredSlotBuilder.build());
             if (prunedChild != child) {
                 hasNewChildren = true;
             }
@@ -492,20 +493,15 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Plan doPruneChild(
-            Plan plan, Plan child, List<? extends Slot> childRequiredSlots) {
+            Plan plan, Plan child, BitSet childRequiredSlotIds, List<? extends Slot> childRequiredSlots) {
         if (child instanceof LogicalCTEProducer) {
             return child;
         }
 
-        BitSet childRequiredSlotIds = new BitSet();
-        for (Slot childRequiredSlot : childRequiredSlots) {
-            childRequiredSlotIds.set(childRequiredSlot.getExprId().asInt());
-        }
+        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlotIds, plan));
 
         boolean isProject = plan instanceof Project;
         boolean isFilter = plan instanceof Filter;
-        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlotIds, plan));
-
         // the case 2 in the class comment, prune child's output failed
         if (!isProject && !isFilter) {
             for (Slot prunedChildOutput : prunedChild.getOutput()) {
@@ -530,28 +526,19 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Set<String> computeUsedColumns(Plan plan, BitSet requiredSlotsIds) {
-        List<Slot> outputs = plan.getOutput();
-        Map<Integer, Slot> idToSlot = new LinkedHashMap<>(outputs.size());
-        for (Slot output : outputs) {
-            idToSlot.putIfAbsent(output.getExprId().asInt(), output);
-        }
-
-        Set<String> usedSlotIds = new LinkedHashSet<>();
-
-        for (int id = requiredSlotsIds.nextSetBit(0);
-                id >= 0;
-                id = requiredSlotsIds.nextSetBit(id + 1)) {
-            Slot slot = idToSlot.get(id);
-            if (slot != null) {
-                // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
-                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
-                        && !((SlotReference) slot).getColumn().get().isVisible()) {
-                    continue;
-                }
-                usedSlotIds.add(slot.getName());
+        Set<String> usedColumnNames = new LinkedHashSet<>();
+        for (Slot outputSlot : plan.getOutput()) {
+            if (!requiredSlotsIds.get(outputSlot.getExprId().asInt())) {
+                continue;
             }
+            // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
+            if (outputSlot instanceof SlotReference && ((SlotReference) outputSlot).getColumn().isPresent()
+                    && !((SlotReference) outputSlot).getColumn().get().isVisible()) {
+                continue;
+            }
+            usedColumnNames.add(outputSlot.getName());
         }
-        return usedSlotIds;
+        return usedColumnNames;
     }
 
     private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {

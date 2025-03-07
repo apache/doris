@@ -42,8 +42,6 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;

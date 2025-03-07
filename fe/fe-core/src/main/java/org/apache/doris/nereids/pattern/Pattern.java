@@ -156,13 +156,33 @@ public class Pattern<TYPE extends Plan>
     }
 
     private boolean matchChildrenAndSelfPredicates(Plan plan, int childPatternNum) {
-        if (childPatternNum > 0) {
-            List<Plan> childrenPlan = plan.children();
-            for (int i = 0; i < childrenPlan.size(); i++) {
-                Plan child = childrenPlan.get(i);
-                Pattern childPattern = child(Math.min(i, childPatternNum - 1));
-                if (!childPattern.matchPlanTree(child)) {
+        switch (plan.arity()) {
+            case 0: {
+                break;
+            }
+            case 1: {
+                if (!child(0).matchPlanTree(plan.child(0))) {
                     return false;
+                }
+                break;
+            }
+            case 2: {
+                if (!child(0).matchPlanTree(plan.child(0))) {
+                    return false;
+                }
+                if (!child(Math.min(1, childPatternNum - 1)).matchPlanTree(plan.child(1))) {
+                    return false;
+                }
+                break;
+            }
+            default: {
+                List<Plan> childrenPlan = plan.children();
+                for (int i = 0; i < childrenPlan.size(); i++) {
+                    Plan child = childrenPlan.get(i);
+                    Pattern childPattern = child(Math.min(i, childPatternNum - 1));
+                    if (!childPattern.matchPlanTree(child)) {
+                        return false;
+                    }
                 }
             }
         }

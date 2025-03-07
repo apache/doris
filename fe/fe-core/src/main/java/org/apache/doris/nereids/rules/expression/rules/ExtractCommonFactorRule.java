@@ -57,7 +57,8 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                 matchesTopType(CompoundPredicate.class).then(this::extractCommonFactor)
+                 matchesTopType(CompoundPredicate.class)
+                         .then(this::extractCommonFactor)
                          .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
         );
     }

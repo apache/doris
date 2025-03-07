@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -38,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -77,6 +80,9 @@ public class OrToIn {
      * simplify and then rewrite
      */
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
+        if (!expr.containsType(Or.class)) {
+            return expr;
+        }
         ExpressionRewriteRule<ExpressionRewriteContext> simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
         expr = simplify.rewrite(expr, context);
         return rewriteTree(expr);
@@ -90,8 +96,12 @@ public class OrToIn {
         if (children.isEmpty()) {
             return expr;
         }
-        List<Expression> newChildren = children.stream()
-                .map(this::rewriteTree).collect(Collectors.toList());
+
+        Builder<Expression> newChildrenBuilder = ImmutableList.builderWithExpectedSize(children.size());
+        for (Expression child : children) {
+            newChildrenBuilder.add(rewriteTree(child));
+        }
+        List<Expression> newChildren = newChildrenBuilder.build();
         if (expr instanceof And) {
             // filter out duplicated conjunct
             // example: OrToInTest.testDeDup()
@@ -191,9 +201,11 @@ public class OrToIn {
     }
 
     private Expression candidatesToFinalResult(Map<Expression, Set<Literal>> candidates) {
-        return ExpressionUtils.and(candidates.entrySet().stream()
-                .map(entry -> ExpressionUtils.toInPredicateOrEqualTo(entry.getKey(), entry.getValue()))
-                .collect(Collectors.toList()));
+        Builder<Expression> result = ImmutableList.builderWithExpectedSize(candidates.size());
+        for (Entry<Expression, Set<Literal>> entry : candidates.entrySet()) {
+            result.add(ExpressionUtils.toInPredicateOrEqualTo(entry.getKey(), entry.getValue()));
+        }
+        return ExpressionUtils.and(result.build());
     }
 
     /*

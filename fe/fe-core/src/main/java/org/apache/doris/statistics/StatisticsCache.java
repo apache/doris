@@ -103,7 +103,12 @@ public class StatisticsCache {
         try {
             CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
             if (f.isDone()) {
-                return f.get().orElse(ColumnStatistic.UNKNOWN);
+                Optional<ColumnStatistic> columnStatistic = f.get();
+                // why the columnStatistic maybe null?
+                if (columnStatistic == null || !columnStatistic.isPresent()) {
+                    return ColumnStatistic.UNKNOWN;
+                }
+                return columnStatistic.get();
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);

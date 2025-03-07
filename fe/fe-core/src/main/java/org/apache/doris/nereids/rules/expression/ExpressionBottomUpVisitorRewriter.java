@@ -58,22 +58,6 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
         return result.orElse(expression);
     }
 
-    // private Expression doRewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
-        // List<Rule> currentRules = (List<Rule>) expression1;
-        // BitSet forbidRules = context.getCascadesContext().getAndCacheDisableRules();
-        // for (Rule currentRule : currentRules) {
-        //     if (!currentRule.getPattern().matchExpressionTree(expression)
-        //       || forbidRules.get(currentRule.getRuleType().ordinal())) {
-        //         continue;
-        //     }
-        //     List<Expression> transform = currentRule.transform(expression, context.getCascadesContext());
-        //     if (!transform.isEmpty() && transform.get(0) != expression) {
-        //         return transform.get(0);
-        //     }
-        // }
-        // return expression;
-    // }
-
     @Override
     public String getRewriteStateKey() {
         return rewriteStateKey;

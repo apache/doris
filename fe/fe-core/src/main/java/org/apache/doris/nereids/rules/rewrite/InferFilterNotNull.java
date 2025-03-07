@@ -68,9 +68,12 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
                 if (needGenerateNotNulls.isEmpty()) {
                     return null;
                 }
-                Set<Expression> conjuncts = Streams.concat(predicates.stream(), needGenerateNotNulls.stream())
-                        .collect(ImmutableSet.toImmutableSet());
-                return PlanUtils.filter(conjuncts, filter.child()).get();
+
+                Builder<Expression> conjuncts = ImmutableSet.builderWithExpectedSize(
+                        predicates.size() + needGenerateNotNulls.size());
+                conjuncts.addAll(predicates);
+                conjuncts.addAll(needGenerateNotNulls);
+                return PlanUtils.filter(conjuncts.build(), filter.child()).get();
             }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }
 }

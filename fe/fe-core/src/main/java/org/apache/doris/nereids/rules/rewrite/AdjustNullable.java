@@ -76,7 +76,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visit(Plan plan, Map<ExprId, Slot> replaceMap) {
         LogicalPlan logicalPlan = (LogicalPlan) super.visit(plan, replaceMap);
         logicalPlan = logicalPlan.recomputeLogicalProperties();
-        logicalPlan.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
+        for (Slot slot : logicalPlan.getOutput()) {
+            replaceMap.putIfAbsent(slot.getExprId(), slot);
+        }
         return logicalPlan;
     }
 
@@ -92,9 +94,11 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         aggregate = (LogicalAggregate<? extends Plan>) super.visit(aggregate, replaceMap);
         List<NamedExpression> newOutputs
                 = updateExpressions(aggregate.getOutputExpressions(), replaceMap);
+        for (NamedExpression newOutput : newOutputs) {
+            replaceMap.putIfAbsent(newOutput.getExprId(), newOutput.toSlot());
+        }
         List<Expression> newGroupExpressions
                 = updateExpressions(aggregate.getGroupByExpressions(), replaceMap);
-        newOutputs.forEach(o -> replaceMap.put(o.getExprId(), o.toSlot()));
         return aggregate.withGroupByAndOutput(newGroupExpressions, newOutputs);
     }
 
@@ -110,7 +114,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         generate = (LogicalGenerate<? extends Plan>) super.visit(generate, replaceMap);
         List<Function> newGenerators = updateExpressions(generate.getGenerators(), replaceMap);
         Plan newGenerate = generate.withGenerators(newGenerators).recomputeLogicalProperties();
-        newGenerate.getOutputSet().forEach(o -> replaceMap.put(o.getExprId(), o));
+        for (Slot slot : newGenerate.getOutput()) {
+            replaceMap.putIfAbsent(slot.getExprId(), slot);
+        }
         return newGenerate;
     }
 
@@ -126,7 +132,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         } else {
             markConjuncts = null;
         }
-        join.getOutputSet().forEach(o -> replaceMap.put(o.getExprId(), o));
+        for (Slot slot : join.getOutput()) {
+            replaceMap.putIfAbsent(slot.getExprId(), slot);
+        }
         if (markConjuncts == null) {
             // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
             Preconditions.checkState(!hashConjuncts.isEmpty(), "hash conjuncts should not be empty");
@@ -141,7 +149,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Map<ExprId, Slot> replaceMap) {
         project = (LogicalProject<? extends Plan>) super.visit(project, replaceMap);
         List<NamedExpression> newProjects = updateExpressions(project.getProjects(), replaceMap);
-        newProjects.forEach(p -> replaceMap.put(p.getExprId(), p.toSlot()));
+        for (NamedExpression newProject : newProjects) {
+            replaceMap.putIfAbsent(newProject.getExprId(), newProject.toSlot());
+        }
         return project.withProjects(newProjects);
     }
 
@@ -152,13 +162,15 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
         List<NamedExpression> newOutputs = Lists.newArrayList();
         for (NamedExpression output : repeat.getOutputExpressions()) {
+            NamedExpression newOutput;
             if (flattenGroupingSetExpr.contains(output)) {
-                newOutputs.add(output);
+                newOutput = output;
             } else {
-                newOutputs.add(updateExpression(output, replaceMap));
+                newOutput = updateExpression(output, replaceMap);
             }
+            newOutputs.add(newOutput);
+            replaceMap.putIfAbsent(newOutput.getExprId(), newOutput.toSlot());
         }
-        newOutputs.forEach(o -> replaceMap.put(o.getExprId(), o.toSlot()));
         return repeat.withGroupSetsAndOutput(repeat.getGroupingSets(), newOutputs).recomputeLogicalProperties();
     }
 
@@ -216,9 +228,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             NamedExpression ne = outputs.get(i);
             Slot slot = ne instanceof Alias ? (Slot) ((Alias) ne).child() : (Slot) ne;
             slot = slot.withNullable(inputNullable.get(i));
-            newOutputs.add(ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot);
+            NamedExpression newOutput = ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot;
+            replaceMap.putIfAbsent(newOutput.getExprId(), newOutput.toSlot());
+            newOutputs.add(newOutput);
         }
-        newOutputs.forEach(o -> replaceMap.put(o.getExprId(), o.toSlot()));
         return setOperation.withNewOutputs(newOutputs)
                 .withChildrenAndTheirOutputs(setOperation.children(), newChildrenOutputs.build())
                 .recomputeLogicalProperties();
@@ -249,7 +262,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         window = (LogicalWindow<? extends Plan>) super.visit(window, replaceMap);
         List<NamedExpression> windowExpressions =
                 updateExpressions(window.getWindowExpressions(), replaceMap);
-        windowExpressions.forEach(w -> replaceMap.put(w.getExprId(), w.toSlot()));
+        for (NamedExpression w : windowExpressions) {
+            replaceMap.putIfAbsent(w.getExprId(), w.toSlot());
+        }
         return window.withExpressionsAndChild(windowExpressions, window.child());
     }
 
@@ -272,7 +287,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 Slot newConsumerOutputSlot = consumerOutputSlot.withNullable(newProducerOutputSlot.nullable());
                 producerToConsumerOutputMap.put(newProducerOutputSlot, newConsumerOutputSlot);
                 consumerToProducerOutputMap.put(newConsumerOutputSlot, newProducerOutputSlot);
-                replaceMap.put(newConsumerOutputSlot.getExprId(), newConsumerOutputSlot);
+                replaceMap.putIfAbsent(newConsumerOutputSlot.getExprId(), newConsumerOutputSlot);
             }
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
