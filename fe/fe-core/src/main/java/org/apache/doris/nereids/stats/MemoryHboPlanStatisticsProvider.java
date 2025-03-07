@@ -18,13 +18,22 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -36,6 +45,7 @@ import java.util.stream.Collectors;
  * HboPlanStatisticsProvider's in-memory implementation.
  */
 public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvider {
+    private static final Logger LOG = LogManager.getLogger(MemoryHboPlanStatisticsProvider.class);
     private volatile Cache<String, RecentRunsPlanStatistics> hboPlanStatsCache;
 
     public MemoryHboPlanStatisticsProvider() {
@@ -74,6 +84,44 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
                 hboPlanStatsCache.put(planNodeAndHash.getHash().get(), recentRunsPlanStatistics);
             }
         });
+    }
+
+    @Override
+    public void updatePlanStats(PlanNodeAndHash hash, RecentRunsPlanStatistics planStatistics) {
+        hboPlanStatsCache.put(hash.getHash().get(), planStatistics);
+    }
+
+    /**
+     * sync hbo plan stats to other fe client.
+     * @param planKey planKey
+     * @param planStatsData planStatsData
+     */
+    public void syncHboPlanStats(PlanNodeAndHash planKey, RecentRunsPlanStatistics planStatsData) {
+        TUpdatePlanStatsCacheRequest updateFollowerPlanStatsCacheRequest = new TUpdatePlanStatsCacheRequest();
+        updateFollowerPlanStatsCacheRequest.key = GsonUtils.GSON.toJson(planKey);
+        updateFollowerPlanStatsCacheRequest.planStatsData = GsonUtils.GSON.toJson(planStatsData);
+        SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            if (selfNode.getHost().equals(frontend.getHost())) {
+                continue;
+            }
+            sendPlanStats(frontend, updateFollowerPlanStatsCacheRequest);
+        }
+    }
+
+    private void sendPlanStats(Frontend frontend, TUpdatePlanStatsCacheRequest updateFollowerPlanStatsCacheRequest) {
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
+        FrontendService.Client client = null;
+        try {
+            client = ClientPool.frontendPool.borrowObject(address);
+            client.updatePlanStatsCache(updateFollowerPlanStatsCacheRequest);
+        } catch (Throwable t) {
+            LOG.warn("Failed to sync plan stats to fe client: {}", address, t);
+        } finally {
+            if (client != null) {
+                ClientPool.frontendPool.returnObject(address, client);
+            }
+        }
     }
 
     private static Cache<String, RecentRunsPlanStatistics> buildHboPlanStatsCaches(

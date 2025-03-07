@@ -67,6 +67,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -420,6 +421,11 @@ public class Profile {
                 // publish stats and refresh cache on current matching key hashing
                 if (!newPlanStatistics.isEmpty()) {
                     hboPlanStatisticsProvider.putHboPlanStats(ImmutableMap.copyOf(newPlanStatistics));
+                    for (Entry<PlanNodeAndHash, RecentRunsPlanStatistics> entry : newPlanStatistics.entrySet()) {
+                        PlanNodeAndHash planHash = entry.getKey();
+                        RecentRunsPlanStatistics planEntries = entry.getValue();
+                        hboPlanStatisticsProvider.syncHboPlanStats(planHash, planEntries);
+                    }
                 }
             }
         }

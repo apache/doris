@@ -1292,6 +1292,11 @@ struct TUpdateFollowerStatsCacheRequest {
     3: optional string colStatsData;
 }
 
+struct TUpdatePlanStatsCacheRequest {
+    1: optional string key;
+    2: optional string planStatsData;
+}
+
 struct TInvalidateFollowerStatsCacheRequest {
     1: optional string key;
 }
@@ -1618,6 +1623,8 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+    
+    Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 

@@ -32,4 +32,6 @@ public interface HboPlanStatisticsProvider {
     RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash);
 
     void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
+
+    void updatePlanStats(PlanNodeAndHash hash, RecentRunsPlanStatistics planStatistics);
 }
