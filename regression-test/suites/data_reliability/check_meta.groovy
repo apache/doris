@@ -28,6 +28,10 @@ suite("check_meta", "data_reliability,p3") {
         List<List<Object>> tableRes = sql """ show tables from ${db} """
         for (tableRow : tableRes) {
             def table = tableRow[0]
+            def createTableSql = sql """ show create table ${db}.`${table}` """
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                continue
+            }
             logger.info("select count database: {}, table {}", db, table)
 
             def repeatedTimes = 6;  // replica num * 2

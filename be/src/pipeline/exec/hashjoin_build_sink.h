@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/be_mock_util.h"
 #include "exprs/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
@@ -25,7 +26,7 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
-class HashJoinBuildSinkLocalState final
+class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
         : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
@@ -56,6 +57,8 @@ public:
 
     Status disable_runtime_filters(RuntimeState* state);
 
+    [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 protected:
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
@@ -79,6 +82,7 @@ protected:
     bool _should_build_hash_table = true;
 
     bool _runtime_filters_disabled = false;
+    size_t _evaluate_mem_usage = 0;
 
     size_t _build_side_rows = 0;
 
@@ -106,7 +110,7 @@ protected:
     RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
-class HashJoinBuildSinkOperatorX final
+class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -118,9 +122,15 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
+
+    MOCK_FUNCTION std::string get_memory_usage_debug_str(RuntimeState* state) const;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()

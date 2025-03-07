@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 
 public class TruncateTableInfo implements Writable {
+    @SerializedName(value = "ctl")
+    private String ctl;
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "db")
@@ -43,6 +45,9 @@ public class TruncateTableInfo implements Writable {
     private String table;
     @SerializedName(value = "partitions")
     private List<Partition> partitions = Lists.newArrayList();
+    // Only for external table
+    @SerializedName(value = "extParts")
+    private List<String> extPartNames = Lists.newArrayList();
     @SerializedName(value = "isEntireTable")
     private boolean isEntireTable = false;
     @SerializedName(value = "rawSql")
@@ -56,6 +61,7 @@ public class TruncateTableInfo implements Writable {
 
     }
 
+    // for internal table
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
             boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force) {
         this.dbId = dbId;
@@ -69,6 +75,18 @@ public class TruncateTableInfo implements Writable {
             this.oldPartitions.put(partition.getId(), partition.getName());
         }
         this.force = force;
+    }
+
+    // for external table
+    public TruncateTableInfo(String ctl, String db, String table, List<String> partNames) {
+        this.ctl = ctl;
+        this.db = db;
+        this.table = table;
+        this.extPartNames = partNames;
+    }
+
+    public String getCtl() {
+        return ctl;
     }
 
     public long getDbId() {
@@ -91,6 +109,10 @@ public class TruncateTableInfo implements Writable {
         return partitions;
     }
 
+    public List<String> getExtPartNames() {
+        return extPartNames;
+    }
+
     public Map<Long, String> getOldPartitions() {
         return oldPartitions == null ? new HashMap<>() : oldPartitions;
     }
@@ -102,7 +124,6 @@ public class TruncateTableInfo implements Writable {
     public boolean getForce() {
         return force;
     }
-
 
     public String getRawSql() {
         return rawSql;
@@ -126,13 +147,15 @@ public class TruncateTableInfo implements Writable {
     @Override
     public String toString() {
         return "TruncateTableInfo{"
+                + "ctl=" + ctl
                 + "dbId=" + dbId
                 + ", db='" + db + '\''
                 + ", tblId=" + tblId
                 + ", table='" + table + '\''
                 + ", isEntireTable=" + isEntireTable
                 + ", rawSql='" + rawSql + '\''
-                + ", partitions_size=" + partitions.size()
+                + ", partitions_size=" + (partitions == null ? "0" : partitions.size())
+                + ", extPartNames_size=" + (extPartNames == null ? "0" : extPartNames.size())
                 + '}';
     }
 }

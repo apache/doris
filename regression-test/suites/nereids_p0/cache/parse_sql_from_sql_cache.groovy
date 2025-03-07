@@ -297,7 +297,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user1"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user1"""
                 }
 
                 createTestTable "test_use_plan_cache12"
@@ -340,7 +340,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user2"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user2"""
                 }
 
                 createTestTable "test_use_plan_cache13"
@@ -397,7 +397,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user3"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user3"""
                 }
 
                 createTestTable "test_use_plan_cache14"
@@ -460,7 +460,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user4"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user4"""
                 }
 
                 sql "sync"

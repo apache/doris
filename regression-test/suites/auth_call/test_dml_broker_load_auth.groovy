@@ -42,7 +42,7 @@ suite("test_dml_broker_load_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -118,7 +118,8 @@ suite("test_dml_broker_load_auth","p0,auth_call") {
             "AWS_SECRET_KEY" = "$sk",
             "AWS_ENDPOINT" = "$endpoint",
             "AWS_REGION" = "$region",
-            "compress_type" = "GZ"
+            "compress_type" = "GZ",
+            "provider" = "${getS3Provider()}"
         )
         properties(
             "timeout" = "28800",

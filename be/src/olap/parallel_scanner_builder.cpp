@@ -164,14 +164,11 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
+    size_t idx = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
-        auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
-        if (!_state->skip_delete_predicate()) {
-            read_source.fill_delete_predicates();
-        }
-
+        _all_read_sources[tablet_id] = _read_sources[idx];
+        const auto& read_source = _all_read_sources[tablet_id];
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
@@ -186,6 +183,7 @@ Status ParallelScannerBuilder::_load() {
             }
             _total_rows += rowset->num_rows();
         }
+        idx++;
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;

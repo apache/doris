@@ -68,7 +68,7 @@ public:
                     const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override;
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override;

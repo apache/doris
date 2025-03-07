@@ -52,9 +52,9 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -274,13 +274,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         }
     }
 
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
-    }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
@@ -288,6 +281,14 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
                                                                      _delete_bitmap));
+    }
+
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -322,8 +323,6 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
-              << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
 }
 

@@ -62,15 +62,6 @@ private:
     std::unordered_map<std::string, std::string> function_alias;
 
 public:
-    void register_nullable_function_combinator(const Creator& creator) {
-        for (const auto& entity : aggregate_functions) {
-            if (nullable_aggregate_functions.find(entity.first) ==
-                nullable_aggregate_functions.end()) {
-                nullable_aggregate_functions[entity.first] = creator;
-            }
-        }
-    }
-
     static bool is_foreach(const std::string& name) {
         constexpr std::string_view suffix = "_foreach";
         if (name.length() < suffix.length()) {

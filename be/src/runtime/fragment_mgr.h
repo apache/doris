@@ -31,6 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
@@ -140,7 +141,7 @@ public:
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Can be used in both version.
-    void cancel_query(const TUniqueId query_id, const Status reason);
+    MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
 
     void cancel_worker();
 
@@ -176,7 +177,7 @@ public:
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
 
-    void get_runtime_query_info(std::vector<WorkloadQueryInfo>* _query_info_list);
+    void get_runtime_query_info(std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list);
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);

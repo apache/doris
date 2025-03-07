@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -40,6 +41,7 @@ public:
 
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
                               int64_t ms_cumulative_point);
+    void set_tablet_state(int64_t tablet_state);
 
     Status handle() const;
 
@@ -60,6 +62,7 @@ private:
     int64_t _ms_base_compaction_cnt {-1};
     int64_t _ms_cumulative_compaction_cnt {-1};
     int64_t _ms_cumulative_point {-1};
+    std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 

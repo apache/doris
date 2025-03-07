@@ -48,6 +48,7 @@ struct TypeDescriptor {
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
+    /// Only set if type == TYPE_DECIMAL or type = TYPE_DATETIMEV2
     int scale;
 
     std::vector<TypeDescriptor> children;
@@ -69,11 +70,11 @@ struct TypeDescriptor {
 
     // explicit TypeDescriptor(PrimitiveType type) :
     TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
+        // TODO, should not initialize default values, force initialization by parameters or external.
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
-            precision = 18;
             scale = 6;
         }
     }

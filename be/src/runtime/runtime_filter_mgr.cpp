@@ -40,7 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 
@@ -168,16 +168,6 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     *local_merge_filters = &iter->second;
     DCHECK(!iter->second.filters.empty());
     return Status::OK();
-}
-
-doris::LocalMergeFilters* RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id) {
-    DCHECK(_is_global);
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _local_merge_producer_map.find(filter_id);
-    if (iter == _local_merge_producer_map.end()) {
-        return nullptr;
-    }
-    return &iter->second;
 }
 
 Status RuntimeFilterMgr::register_producer_filter(

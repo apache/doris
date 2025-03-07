@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arpa/inet.h>
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stddef.h>

@@ -32,6 +32,7 @@ struct TCounter {
 struct TRuntimeProfileNode {
   1: required string name
   2: required i32 num_children 
+  // Counters is a list of flattened counters for this node and all its children
   3: required list<TCounter> counters
   // TODO: should we make metadata a serializable struct?  We only use it to
   // store the node id right now so this is sufficient.
@@ -53,7 +54,8 @@ struct TRuntimeProfileNode {
 
   9: required i64 timestamp
 
-  10: optional bool is_sink
+  // Deprecated.
+  10: optional bool deprecated_is_sink 
 }
 
 // A flattened tree of runtime profiles, obtained by an

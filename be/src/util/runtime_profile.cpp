@@ -28,10 +28,17 @@
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <type_traits>
+#include <memory>
+#include <string>
 
+#include "common/logging.h"
 #include "common/object_pool.h"
+#include "gutil/integral_types.h"
 #include "util/container_util.hpp"
+#include "util/runtime_profile_counter_tree_node.h"
+#ifdef BE_TEST
+#include "common/status.h" // For ErrorCode
+#endif
 
 namespace doris {
 
@@ -40,8 +47,17 @@ static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
-// The root counter name for all top level counters.
-static const std::string ROOT_COUNTER;
+const std::string RuntimeProfile::ROOT_COUNTER;
+
+std::unique_ptr<RuntimeProfile> RuntimeProfile::from_thrift(const TRuntimeProfileTree& node) {
+    if (node.nodes.empty()) {
+        return std::make_unique<RuntimeProfile>("");
+    }
+    TRuntimeProfileNode root_node = node.nodes.front();
+    std::unique_ptr<RuntimeProfile> res = std::make_unique<RuntimeProfile>(root_node.name);
+    res->update(node);
+    return res;
+}
 
 RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
@@ -57,6 +73,11 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
 }
 
 RuntimeProfile::~RuntimeProfile() = default;
+
+bool RuntimeProfile::Counter::operator==(const Counter& other) const {
+    return _value.load(std::memory_order_relaxed) == other._value.load(std::memory_order_relaxed) &&
+           _type == other._type && _level == other._level;
+}
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
     DCHECK(other != nullptr);
@@ -279,9 +300,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
-    if (this->is_set_sink()) {
-        child->set_is_sink(this->is_sink());
-    }
+
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -289,15 +308,6 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
         add_child_unlock(child, indent, pos);
     }
     return child;
-}
-
-void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
-    std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(child != nullptr);
-    _child_map[child->_name] = child;
-
-    auto it = _children.begin();
-    _children.insert(it, std::make_pair(child, indent));
 }
 
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
@@ -382,43 +392,22 @@ RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
     return counter;
 }
 
-std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> RuntimeProfile::AddSharedHighWaterMarkCounter(
-        const std::string& name, TUnit::type unit, const std::string& parent_counter_name) {
-    DCHECK_EQ(_is_averaged_profile, false);
-    std::lock_guard<std::mutex> l(_counter_map_lock);
-    if (_shared_counter_pool.find(name) != _shared_counter_pool.end()) {
-        return _shared_counter_pool[name];
-    }
-    DCHECK(parent_counter_name == ROOT_COUNTER ||
-           _counter_map.find(parent_counter_name) != _counter_map.end());
-    std::shared_ptr<HighWaterMarkCounter> counter =
-            std::make_shared<HighWaterMarkCounter>(unit, 2, parent_counter_name);
-    _shared_counter_pool[name] = counter;
-
-    DCHECK(_counter_map.find(name) == _counter_map.end())
-            << "already has a raw counter named " << name;
-
-    // it's OK to insert shared counter to _counter_map, cuz _counter_map is not the owner of counters
-    _counter_map[name] = counter.get();
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
-    return counter;
-}
-
 RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TUnit::type type,
                                                      const std::string& parent_counter_name,
                                                      int64_t level) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
-    // TODO(yingchun): Can we ensure that 'name' is not exist in '_counter_map'? Use CHECK instead?
     if (_counter_map.find(name) != _counter_map.end()) {
-        // TODO: should we make sure that we don't return existing derived counters?
+        // TODO: FIX DUPLICATE COUNTERS
+        // In production, we will return the existing counter.
+        // This will not make be crash, but the result may be wrong.
         return _counter_map[name];
     }
 
+    // Parent counter must already exist.
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
+
     Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
@@ -492,7 +481,8 @@ void RuntimeProfile::get_counters(const std::string& name, std::vector<Counter*>
 //  2. Info Strings
 //  3. Counters
 //  4. Children
-void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) const {
+void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
+                                  int64_t profile_level) const {
     std::ostream& stream = *s;
 
     // create copy of _counter_map and _child_counter_map so we don't need to hold lock
@@ -527,30 +517,6 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         }
     }
 
-    {
-        // Print all the event timers as the following:
-        // <EventKey> Timeline: 2s719ms
-        //     - Event 1: 6.522us (6.522us)
-        //     - Event 2: 2s288ms (2s288ms)
-        //     - Event 3: 2s410ms (121.138ms)
-        // The times in parentheses are the time elapsed since the last event.
-        std::lock_guard<std::mutex> l(_event_sequences_lock);
-        for (const EventSequenceMap::value_type& event_sequence : _event_sequence_map) {
-            stream << prefix << "  " << event_sequence.first << ": "
-                   << PrettyPrinter::print(event_sequence.second->elapsed_time(), TUnit::TIME_NS)
-                   << std::endl;
-
-            int64_t last = 0L;
-            for (const EventSequence::Event& event : event_sequence.second->events()) {
-                stream << prefix << "     - " << event.first << ": "
-                       << PrettyPrinter::print(event.second, TUnit::TIME_NS) << " ("
-                       << PrettyPrinter::print(event.second - last, TUnit::TIME_NS) << ")"
-                       << std::endl;
-                last = event.second;
-            }
-        }
-    }
-
     RuntimeProfile::print_child_counters(prefix, ROOT_COUNTER, counter_map, child_counter_map, s);
 
     // create copy of _children so we don't need to hold lock while we call
@@ -568,12 +534,12 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     }
 }
 
-void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
+void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64 profile_level) {
     tree->nodes.clear();
-    to_thrift(&tree->nodes);
+    to_thrift(&tree->nodes, profile_level);
 }
 
-void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
+void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 profile_level) {
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
@@ -581,15 +547,13 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-    if (this->is_set_sink()) {
-        node.__set_is_sink(this->is_sink());
-    }
+
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        node.child_counters_map = _child_counter_map;
-        for (auto&& [name, counter] : _counter_map) {
-            counter->to_thrift(name, node.counters, node.child_counters_map);
-        }
+        RuntimeProfileCounterTreeNode conter_tree = RuntimeProfileCounterTreeNode::from_map(
+                _counter_map, _child_counter_map, ROOT_COUNTER);
+        conter_tree = RuntimeProfileCounterTreeNode::prune_the_tree(conter_tree, profile_level);
+        conter_tree.to_thrift(node.counters, node.child_counters_map);
     }
 
     {
@@ -610,7 +574,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
 
     for (int i = 0; i < children.size(); ++i) {
         int child_idx = nodes->size();
-        children[i].first->to_thrift(nodes);
+        children[i].first->to_thrift(nodes, profile_level);
         // fix up indentation flag
         (*nodes)[child_idx].indent = children[i].second;
     }
@@ -637,57 +601,6 @@ int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {
     }
 
     return value;
-}
-
-RuntimeProfile::Counter* RuntimeProfile::add_rate_counter(const std::string& name,
-                                                          Counter* src_counter) {
-    TUnit::type dst_type;
-
-    switch (src_counter->type()) {
-    case TUnit::BYTES:
-        dst_type = TUnit::BYTES_PER_SECOND;
-        break;
-
-    case TUnit::UNIT:
-        dst_type = TUnit::UNIT_PER_SECOND;
-        break;
-
-    default:
-        DCHECK(false) << "Unsupported src counter type: " << src_counter->type();
-        return nullptr;
-    }
-
-    Counter* dst_counter = add_counter(name, dst_type);
-    return dst_counter;
-}
-
-RuntimeProfile::Counter* RuntimeProfile::add_rate_counter(const std::string& name, SampleFn fn,
-                                                          TUnit::type dst_type) {
-    return add_counter(name, dst_type);
-}
-
-RuntimeProfile::Counter* RuntimeProfile::add_sampling_counter(const std::string& name,
-                                                              Counter* src_counter) {
-    DCHECK(src_counter->type() == TUnit::UNIT);
-    return add_counter(name, TUnit::DOUBLE_VALUE);
-}
-
-RuntimeProfile::Counter* RuntimeProfile::add_sampling_counter(const std::string& name,
-                                                              SampleFn sample_fn) {
-    return add_counter(name, TUnit::DOUBLE_VALUE);
-}
-
-RuntimeProfile::EventSequence* RuntimeProfile::add_event_sequence(const std::string& name) {
-    std::lock_guard<std::mutex> l(_event_sequences_lock);
-    EventSequenceMap::iterator timer_it = _event_sequence_map.find(name);
-
-    if (timer_it != _event_sequence_map.end()) {
-        return timer_it->second;
-    }
-
-    EventSequence* timer = _pool->add(new EventSequence());
-    _event_sequence_map[name] = timer;
-    return timer;
 }
 
 void RuntimeProfile::print_child_counters(const std::string& prefix,

@@ -296,6 +296,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    // Deprecated
     7: optional i64 row_count;
 }
 
@@ -320,6 +321,7 @@ struct TPaimonFileDesc {
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
+    15: optional i64 row_count // deprecated
 }
 
 struct TTrinoConnectorFileDesc {
@@ -387,6 +389,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
+    9: optional i64 table_level_row_count
 }
 
 enum TTextSerdeType {
@@ -1102,6 +1105,8 @@ struct TAnalyticNode {
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
+
+  11: optional list<Exprs.TExpr> range_between_offset_exprs
 }
 
 struct TMergeNode {
@@ -1252,7 +1257,7 @@ struct TRuntimeFilterDesc {
   // The order of Expr in join predicate
   3: required i32 expr_order
 
-  // Map of target node id to the target expr
+  // Map of target node id to the target expr. Used by consumer
   4: required map<Types.TPlanNodeId, Exprs.TExpr> planId_to_target_expr
 
   // Indicates if the source join node of this filter is a broadcast or

@@ -62,7 +62,7 @@ CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
-CONF_Int32(recycle_job_lease_expired_ms, "60000");
+CONF_mInt32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
@@ -110,7 +110,7 @@ CONF_String(test_hdfs_fs_name, "");
 // CONF_Bool(b, "true");
 
 // txn config
-CONF_Int32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
@@ -133,7 +133,7 @@ CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
 
-CONF_Int32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
@@ -190,11 +190,16 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_get_token_limit, "0");
 
 CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_limit, "0");
 
 // The secondary package name of the MetaService.
@@ -223,11 +228,22 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
+CONF_Bool(force_azure_blob_global_endpoint, "false");
+
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
+CONF_mInt64(max_txn_commit_byte, "7340032");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
@@ -243,4 +259,7 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+// Which vaults should be recycled. If empty, recycle all vaults.
+// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_white_list, "");
 } // namespace doris::cloud::config

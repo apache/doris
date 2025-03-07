@@ -247,17 +247,16 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -318,6 +317,11 @@ public:
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_vec = assert_cast<const ColumnVector&>(src);
+        return data.capacity() - data.size() > src_vec.data.size();
+    }
 
     void insert_value(const T value) { data.push_back(value); }
 

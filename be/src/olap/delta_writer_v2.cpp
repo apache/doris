@@ -54,9 +54,9 @@
 #include "runtime/query_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
@@ -139,7 +139,7 @@ Status DeltaWriterV2::init() {
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+Status DeltaWriterV2::write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }

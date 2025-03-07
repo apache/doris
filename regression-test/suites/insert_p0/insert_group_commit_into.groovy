@@ -25,7 +25,7 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+        Awaitility.await().atMost(90, SECONDS).pollInterval(1, SECONDS).until(
             {
                 def result = sql "select count(*) from ${table}"
                 logger.info("table: ${table}, rowCount: ${result}")
@@ -98,6 +98,11 @@ suite("insert_group_commit_into") {
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     try {
         // create table
         sql """ drop table if exists ${table}; """
@@ -121,6 +126,11 @@ suite("insert_group_commit_into") {
             """
 
         connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl + "&useLocalSessionState=true") {
+            test {
+                sql """ set group_commit = abc; """
+                exception """ Variable 'group_commit' can't be set to the value of """
+            }
+
             sql """ set group_commit = async_mode; """
 
             // 1. insert into

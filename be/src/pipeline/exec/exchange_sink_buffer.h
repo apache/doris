@@ -34,10 +34,9 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
-#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -85,14 +84,23 @@ class BroadcastPBlockHolderMemLimiter
 public:
     BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
+            : _total_queue_buffer_size_limit(config::exchg_node_buffer_size_bytes),
+              _total_queue_blocks_count_limit(config::num_broadcast_buffer) {
         _broadcast_dependency = broadcast_dependency;
+    }
+
+    void set_low_memory_mode() {
+        _total_queue_buffer_size_limit = 1024 * 1024;
+        _total_queue_blocks_count_limit = 8;
     }
 
     void acquire(BroadcastPBlockHolder& holder);
     void release(const BroadcastPBlockHolder& holder);
 
 private:
+    std::atomic_int64_t _total_queue_buffer_size_limit {0};
+    std::atomic_int64_t _total_queue_blocks_count_limit {0};
     std::atomic_int64_t _total_queue_buffer_size {0};
     std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
@@ -207,7 +215,7 @@ private:
                      +-----------------+       +-----------------+    +-----------------+
 */
 
-#ifdef BE_TEST
+#if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void transmit_blockv2(PBackendService_Stub& stub,
                       std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
                                                          ExchangeSendCallback<PTransmitDataResult>>>
@@ -215,13 +223,13 @@ void transmit_blockv2(PBackendService_Stub& stub,
 #endif
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
-                       const std::vector<InstanceLoId>& sender_ins_ids);
-
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, PlanNodeId node_id,
+                       RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
             : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
 #endif
+
     ~ExchangeSinkBuffer() override = default;
 
     void construct_request(TUniqueId);
@@ -239,6 +247,9 @@ public:
         _queue_deps[sender_ins_id] = queue_dependency;
         _parents[sender_ins_id] = local_state;
     }
+
+    void set_low_memory_mode() { _queue_capacity = 8; }
+    std::string debug_each_instance_queue_size();
 #ifdef BE_TEST
 public:
 #else
@@ -251,7 +262,7 @@ private:
     // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
-    size_t _queue_capacity;
+    std::atomic<size_t> _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
@@ -284,6 +295,8 @@ private:
     std::atomic<bool> _is_failed;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
+
+    PlanNodeId _node_id;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
@@ -306,6 +319,8 @@ private:
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
+    // _total_queue_size is the sum of the sizes of all instance_to_package_queues.
+    // Any modification to instance_to_package_queue requires a corresponding modification to _total_queue_size.
     std::atomic<int> _total_queue_size = 0;
 
     // _running_sink_count is used to track how many sinks have not finished yet.
