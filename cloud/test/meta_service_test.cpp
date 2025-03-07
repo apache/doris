@@ -4750,13 +4750,17 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
+    // new compaction get lock again
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
     // case 8: lock key owned by compaction, load1 get lock
     req.set_lock_id(888);
     req.set_initiator(-1);
     req.set_expiration(60);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-    LOG(INFO) << "case 8: " << res.status().msg();
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     remove_req.set_lock_id(-1);

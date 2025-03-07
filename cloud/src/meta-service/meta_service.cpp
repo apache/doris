@@ -2323,8 +2323,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
             lock_key_not_found = true;
             std::string current_lock_msg = "lock key not found";
             lock_info.set_lock_id(request->lock_id());
+            // compaction does not use this expiration, only used when upgrade ms
+            lock_info.set_expiration(expiration);
             if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
-                lock_info.set_expiration(expiration);
                 lock_info.add_initiators(request->initiator());
             } else {
                 // in normal case, this should remove 0 kvs
@@ -2361,7 +2362,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                               << " expiration=" << lock_info.expiration() << " now=" << now
                               << " initiator_size=" << lock_info.initiators_size();
                     lock_info.clear_initiators();
-                    lock_info.clear_expiration();
                 } else if (lock_info.lock_id() != request->lock_id()) {
                     ss << "already be locked by lock_id=" << lock_info.lock_id()
                        << " expiration=" << lock_info.expiration() << " now=" << now
@@ -2374,8 +2374,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                 std::string current_lock_msg =
                         "original lock_id=" + std::to_string(lock_info.lock_id());
                 lock_info.set_lock_id(request->lock_id());
+                // compaction does not use the expiration, only used when upgrade ms
+                lock_info.set_expiration(expiration);
                 if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
-                    lock_info.set_expiration(expiration);
                     bool found = false;
                     for (auto initiator : lock_info.initiators()) {
                         if (request->initiator() == initiator) {

@@ -484,8 +484,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
     }
     if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         // when upgrade ms, prevent old ms get delete bitmap update lock
-        if (lock_info.has_expiration()) {
-            ss << "lock value has expiration=" << lock_info.expiration();
+        if (lock_info.initiators_size() > 0) {
+            ss << "compaction lock has " << lock_info.initiators_size() << " initiators";
             msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
             return false;
