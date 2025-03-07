@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -65,6 +66,11 @@ public class NereidsSortedPartitionsCacheManager {
 
     public Optional<SortedPartitionRanges<?>> get(
             SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && !connectContext.getSessionVariable().enableBinarySearchFilteringPartitions) {
+            return Optional.empty();
+        }
+
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
