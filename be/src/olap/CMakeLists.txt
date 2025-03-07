@@ -24,8 +24,4 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(Olap STATIC ${SRC_FILES})
 
-if (NOT USE_MEM_TRACKER)
-    target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
-endif()
-
 pch_reuse(Olap)
