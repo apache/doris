@@ -67,7 +67,7 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_d
                 group by partition_col having count(*) > 0
                 order by partition_col desc limit 1);
         """
-        sql """set check_runtime_filter_partition_prune_counter = 0"""
+        sql """set check_runtime_filter_partition_prune_counter = 1"""
         qt_runtime_filter_partition_pruning_string2 """
             select count(*) from string_partition_table where partition_col in
                 (select partition_col from string_partition_table
