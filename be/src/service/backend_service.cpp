@@ -88,8 +88,9 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-
 namespace {
+
+bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
 
 struct IngestBinlogArg {
     int64_t txn_id;
@@ -124,7 +125,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<std::string> download_success_files;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files]() {
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time() / 1000000);
+        g_ingest_binlog_latency << watch.elapsed_time_microseconds();
+        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = total_download_bytes / ((double)elapsed_time_ms) / 1000;
@@ -234,6 +236,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    // save source rowset id and tablet id
+    rowset_meta_pb.set_source_rowset_id(remote_rowset_id);
+    rowset_meta_pb.set_source_tablet_id(request.remote_tablet_id);
     // rewrite rowset meta
     rowset_meta_pb.set_tablet_id(local_tablet_id);
     rowset_meta_pb.set_partition_id(partition_id);
@@ -492,6 +497,10 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             std::string remote_file_md5;
             RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
 
+            LOG(INFO) << "download segment index file to " << local_segment_index_path
+                      << ", remote md5: " << remote_file_md5
+                      << ", remote size: " << segment_index_file_size;
+
             std::error_code ec;
             // Check file length
             uint64_t local_index_file_size =
@@ -544,7 +553,6 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
                                           local_tablet->tablet_path(), rowset_meta, &rowset);
-
     if (!status) {
         LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
                      << ". rowset_id: " << rowset_meta_pb.rowset_id()

@@ -961,6 +961,24 @@ public class StatisticsUtil {
         return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
     }
 
+    public static int getPartitionSampleCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_COUNT).partitionSampleCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_COUNT;
+    }
+
+    public static long getPartitionSampleRowCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_ROW_COUNT).partitionSampleRowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_row_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_ROW_COUNT;
+    }
+
     public static String encodeValue(ResultRow row, int index) {
         if (row == null || row.getValues().size() <= index) {
             return "NULL";

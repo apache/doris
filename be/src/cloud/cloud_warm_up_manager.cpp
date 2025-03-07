@@ -66,9 +66,16 @@ void CloudWarmUpManager::handle_jobs() {
         std::shared_ptr<JobMeta> cur_job = nullptr;
         {
             std::unique_lock lock(_mtx);
-            _cond.wait(lock, [this]() { return _closed || !_pending_job_metas.empty(); });
+            while (!_closed && _pending_job_metas.empty()) {
+                _cond.wait(lock);
+            }
             if (_closed) break;
             cur_job = _pending_job_metas.front();
+        }
+
+        if (!cur_job) {
+            LOG_WARNING("Warm up job is null");
+            continue;
         }
         for (int64_t tablet_id : cur_job->tablet_ids) {
             if (_cur_job_id == 0) { // The job is canceled
