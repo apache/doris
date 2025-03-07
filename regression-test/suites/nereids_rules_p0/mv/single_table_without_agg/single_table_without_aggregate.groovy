@@ -55,7 +55,7 @@ suite("single_table_without_aggregate") {
     """
 
     sql "analyze table orders with sync;"
-    sql """alter table orders modify column o_comment set stats ('row_count'='2');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->
