@@ -34,7 +34,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 
 namespace doris {
 
@@ -52,8 +52,8 @@ namespace vectorized {
 
 class Block;
 
-class NewOlapScanner : public VScanner {
-    ENABLE_FACTORY_CREATOR(NewOlapScanner);
+class OlapScanner : public Scanner {
+    ENABLE_FACTORY_CREATOR(OlapScanner);
 
 public:
     struct Params {
@@ -67,7 +67,7 @@ public:
         bool aggregation;
     };
 
-    NewOlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
+    OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
 
     Status init() override;
 

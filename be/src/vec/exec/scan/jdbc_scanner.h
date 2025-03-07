@@ -28,7 +28,7 @@
 #include "common/status.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 #include "vec/exec/vjdbc_connector.h"
 
 namespace doris {
@@ -39,15 +39,15 @@ namespace vectorized {
 class Block;
 class VExprContext;
 
-class NewJdbcScanner : public VScanner {
-    ENABLE_FACTORY_CREATOR(NewJdbcScanner);
+class JdbcScanner : public Scanner {
+    ENABLE_FACTORY_CREATOR(JdbcScanner);
 
 public:
     friend class JdbcConnector;
 
-    NewJdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
-                   const TupleId& tuple_id, const std::string& query_string,
-                   TOdbcTableType::type table_type, RuntimeProfile* profile);
+    JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
+                const TupleId& tuple_id, const std::string& query_string,
+                TOdbcTableType::type table_type, RuntimeProfile* profile);
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 

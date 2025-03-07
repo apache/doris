@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "file_scanner.h"
 #include "olap/tablet.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -42,11 +43,10 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/scan_node.h"
+#include "vec/exec/scan/scanner.h"
 #include "vec/exec/scan/scanner_context.h"
-#include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vfile_scanner.h"
 
 namespace doris::vectorized {
 
@@ -218,7 +218,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
-    VScannerSPtr& scanner = scanner_delegate->_scanner;
+    ScannerSPtr& scanner = scanner_delegate->_scanner;
     SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
@@ -228,7 +228,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
     // typically employed to ensure CPU scheduling for write operations.
-    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != FileScanner::NAME) {
         Thread::set_thread_nice_value();
     }
 #endif
@@ -313,7 +313,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
-                    LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
+                    LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                     break;
                 }
                 // Projection will truncate useless columns, makes block size change.
