@@ -140,3 +140,4 @@ externalEnvIp="127.0.0.1"
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableNonCatalogKerberosTest = true
