@@ -1838,6 +1838,11 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
 
+    if (config::enable_debug_points &&
+        DebugPoints::instance()->is_enable("FragmentMgr::send_filter_size.return_eof")) {
+        return Status::EndOfFile("inject FragmentMgr::send_filter_size.return_eof");
+    }
+
     std::shared_ptr<QueryContext> query_ctx;
     {
         TUniqueId query_id;
