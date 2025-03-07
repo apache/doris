@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "new_jdbc_scanner.h"
+#include "jdbc_scanner.h"
 
 #include <new>
 #include <ostream>
@@ -35,11 +35,10 @@
 
 namespace doris::vectorized {
 
-NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
-                               doris::pipeline::JDBCScanLocalState* local_state, int64_t limit,
-                               const TupleId& tuple_id, const std::string& query_string,
-                               TOdbcTableType::type table_type, RuntimeProfile* profile)
-        : VScanner(state, local_state, limit, profile),
+JdbcScanner::JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* local_state,
+                         int64_t limit, const TupleId& tuple_id, const std::string& query_string,
+                         TOdbcTableType::type table_type, RuntimeProfile* profile)
+        : Scanner(state, local_state, limit, profile),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
@@ -48,9 +47,9 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
     _init_profile(local_state->_scanner_profile);
 }
 
-Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << "NewJdbcScanner::Prepare";
-    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
+Status JdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << "JdbcScanner::Prepare";
+    RETURN_IF_ERROR(Scanner::prepare(state, conjuncts));
 
     if (_is_init) {
         return Status::OK();
@@ -104,8 +103,8 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     return Status::OK();
 }
 
-Status NewJdbcScanner::open(RuntimeState* state) {
-    VLOG_CRITICAL << "NewJdbcScanner::open";
+Status JdbcScanner::open(RuntimeState* state) {
+    VLOG_CRITICAL << "JdbcScanner::open";
     if (state == nullptr) {
         return Status::InternalError("input pointer is NULL of VJdbcScanNode::open.");
     }
@@ -114,14 +113,14 @@ Status NewJdbcScanner::open(RuntimeState* state) {
         return Status::InternalError("used before initialize of VJdbcScanNode::open.");
     }
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(VScanner::open(state));
+    RETURN_IF_ERROR(Scanner::open(state));
     RETURN_IF_ERROR(_jdbc_connector->open(state, true));
     RETURN_IF_ERROR(_jdbc_connector->query());
     return Status::OK();
 }
 
-Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    VLOG_CRITICAL << "NewJdbcScanner::_get_block_impl";
+Status JdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    VLOG_CRITICAL << "JdbcScanner::_get_block_impl";
     if (nullptr == state || nullptr == block || nullptr == eof) {
         return Status::InternalError("input is NULL pointer");
     }
@@ -157,7 +156,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     return Status::OK();
 }
 
-void NewJdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profile) {
+void JdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profile) {
     _is_init = false;
     _load_jar_timer = ADD_TIMER(profile, "LoadJarTime");
     _init_connector_timer = ADD_TIMER(profile, "InitConnectorTime");
@@ -174,7 +173,7 @@ void NewJdbcScanner::_init_profile(const std::shared_ptr<RuntimeProfile>& profil
     _connector_close_timer = ADD_TIMER(profile, "ConnectorCloseTime");
 }
 
-void NewJdbcScanner::_update_profile() {
+void JdbcScanner::_update_profile() {
     JdbcConnector::JdbcStatistic& jdbc_statistic = _jdbc_connector->get_jdbc_statistic();
     COUNTER_UPDATE(_load_jar_timer, jdbc_statistic._load_jar_timer);
     COUNTER_UPDATE(_init_connector_timer, jdbc_statistic._init_connector_timer);
@@ -191,8 +190,8 @@ void NewJdbcScanner::_update_profile() {
     COUNTER_UPDATE(_connector_close_timer, jdbc_statistic._connector_close_timer);
 }
 
-Status NewJdbcScanner::close(RuntimeState* state) {
-    RETURN_IF_ERROR(VScanner::close(state));
+Status JdbcScanner::close(RuntimeState* state) {
+    RETURN_IF_ERROR(Scanner::close(state));
     RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
 }

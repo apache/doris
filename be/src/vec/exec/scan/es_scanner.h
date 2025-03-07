@@ -30,7 +30,7 @@
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_parser.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -45,14 +45,14 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-class NewEsScanner : public VScanner {
-    ENABLE_FACTORY_CREATOR(NewEsScanner);
+class EsScanner : public Scanner {
+    ENABLE_FACTORY_CREATOR(EsScanner);
 
 public:
-    NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
-                 TupleId tuple_id, const std::map<std::string, std::string>& properties,
-                 const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
-                 RuntimeProfile* profile);
+    EsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+              TupleId tuple_id, const std::map<std::string, std::string>& properties,
+              const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
+              RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;

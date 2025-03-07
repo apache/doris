@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vmeta_scanner.h"
+#include "meta_scanner.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
@@ -54,31 +54,31 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-                           int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile, TUserIdentity user_identity)
-        : VScanner(state, local_state, limit, profile),
+MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                         int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                         RuntimeProfile* profile, TUserIdentity user_identity)
+        : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
-Status VMetaScanner::open(RuntimeState* state) {
-    VLOG_CRITICAL << "VMetaScanner::open";
-    RETURN_IF_ERROR(VScanner::open(state));
+Status MetaScanner::open(RuntimeState* state) {
+    VLOG_CRITICAL << "MetaScanner::open";
+    RETURN_IF_ERROR(Scanner::open(state));
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 
-Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << "VMetaScanner::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
+Status MetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << "MetaScanner::prepare";
+    RETURN_IF_ERROR(Scanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     return Status::OK();
 }
 
-Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    VLOG_CRITICAL << "VMetaScanner::_get_block_impl";
+Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    VLOG_CRITICAL << "MetaScanner::_get_block_impl";
     if (nullptr == state || nullptr == block || nullptr == eof) {
         return Status::InternalError("input is NULL pointer");
     }
@@ -126,8 +126,8 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     return Status::OK();
 }
 
-Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns) {
-    VLOG_CRITICAL << "VMetaScanner::_fill_block_with_remote_data";
+Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns) {
+    VLOG_CRITICAL << "MetaScanner::_fill_block_with_remote_data";
     for (int col_idx = 0; col_idx < columns.size(); col_idx++) {
         auto slot_desc = _tuple_desc->slots()[col_idx];
         // because the fe planner filter the non_materialize column
@@ -227,8 +227,8 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
     return Status::OK();
 }
 
-Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
-    VLOG_CRITICAL << "VMetaScanner::_fetch_metadata";
+Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
+    VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
     case TMetadataType::ICEBERG:
@@ -299,9 +299,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     return Status::OK();
 }
 
-Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                     TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_iceberg_metadata_request";
+Status MetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                    TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_iceberg_metadata_request";
     if (!meta_scan_range.__isset.iceberg_params) {
         return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
     }
@@ -319,9 +319,9 @@ Status VMetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_
     return Status::OK();
 }
 
-Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                  TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_hudi_metadata_request";
+Status MetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                 TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_hudi_metadata_request";
     if (!meta_scan_range.__isset.hudi_params) {
         return Status::InternalError("Can not find THudiMetadataParams from meta_scan_range.");
     }
@@ -339,9 +339,9 @@ Status VMetaScanner::_build_hudi_metadata_request(const TMetaScanRange& meta_sca
     return Status::OK();
 }
 
-Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                      TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_backends_metadata_request";
+Status MetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                     TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_backends_metadata_request";
     if (!meta_scan_range.__isset.backends_params) {
         return Status::InternalError("Can not find TBackendsMetadataParams from meta_scan_range.");
     }
@@ -358,9 +358,9 @@ Status VMetaScanner::_build_backends_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                       TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_frontends_metadata_request";
+Status MetaScanner::_build_frontends_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_frontends_metadata_request";
     if (!meta_scan_range.__isset.frontends_params) {
         return Status::InternalError("Can not find TFrontendsMetadataParams from meta_scan_range.");
     }
@@ -377,9 +377,9 @@ Status VMetaScanner::_build_frontends_metadata_request(const TMetaScanRange& met
     return Status::OK();
 }
 
-Status VMetaScanner::_build_frontends_disks_metadata_request(
-        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_frontends_metadata_request";
+Status MetaScanner::_build_frontends_disks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                            TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_frontends_metadata_request";
     if (!meta_scan_range.__isset.frontends_params) {
         return Status::InternalError("Can not find TFrontendsMetadataParams from meta_scan_range.");
     }
@@ -396,9 +396,9 @@ Status VMetaScanner::_build_frontends_disks_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::_build_workload_sched_policy_metadata_request(
+Status MetaScanner::_build_workload_sched_policy_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_workload_sched_policy_metadata_request";
+    VLOG_CRITICAL << "MetaScanner::_build_workload_sched_policy_metadata_request";
 
     // create request
     request->__set_cluster_name("");
@@ -413,9 +413,9 @@ Status VMetaScanner::_build_workload_sched_policy_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                      TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_catalogs_metadata_request";
+Status MetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                     TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_catalogs_metadata_request";
 
     // create request
     request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
@@ -429,9 +429,9 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     return Status::OK();
 }
 
-Status VMetaScanner::_build_materialized_views_metadata_request(
+Status MetaScanner::_build_materialized_views_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_materialized_views_metadata_request";
+    VLOG_CRITICAL << "MetaScanner::_build_materialized_views_metadata_request";
     if (!meta_scan_range.__isset.materialized_views_params) {
         return Status::InternalError(
                 "Can not find TMaterializedViewsMetadataParams from meta_scan_range.");
@@ -450,9 +450,9 @@ Status VMetaScanner::_build_materialized_views_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::_build_partitions_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                        TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_partitions_metadata_request";
+Status MetaScanner::_build_partitions_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                       TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_partitions_metadata_request";
     if (!meta_scan_range.__isset.partitions_params) {
         return Status::InternalError(
                 "Can not find TPartitionsMetadataParams from meta_scan_range.");
@@ -470,9 +470,9 @@ Status VMetaScanner::_build_partitions_metadata_request(const TMetaScanRange& me
     return Status::OK();
 }
 
-Status VMetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                  TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_jobs_metadata_request";
+Status MetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                 TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_jobs_metadata_request";
     if (!meta_scan_range.__isset.jobs_params) {
         return Status::InternalError("Can not find TJobsMetadataParams from meta_scan_range.");
     }
@@ -489,9 +489,9 @@ Status VMetaScanner::_build_jobs_metadata_request(const TMetaScanRange& meta_sca
     return Status::OK();
 }
 
-Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                   TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_tasks_metadata_request";
+Status MetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                  TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_tasks_metadata_request";
     if (!meta_scan_range.__isset.tasks_params) {
         return Status::InternalError("Can not find TTasksMetadataParams from meta_scan_range.");
     }
@@ -508,9 +508,9 @@ Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_sc
     return Status::OK();
 }
 
-Status VMetaScanner::_build_partition_values_metadata_request(
+Status MetaScanner::_build_partition_values_metadata_request(
         const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "VMetaScanner::_build_partition_values_metadata_request";
+    VLOG_CRITICAL << "MetaScanner::_build_partition_values_metadata_request";
     if (!meta_scan_range.__isset.partition_values_params) {
         return Status::InternalError(
                 "Can not find TPartitionValuesMetadataParams from meta_scan_range.");
@@ -529,9 +529,9 @@ Status VMetaScanner::_build_partition_values_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::close(RuntimeState* state) {
-    VLOG_CRITICAL << "VMetaScanner::close";
-    RETURN_IF_ERROR(VScanner::close(state));
+Status MetaScanner::close(RuntimeState* state) {
+    VLOG_CRITICAL << "MetaScanner::close";
+    RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
 

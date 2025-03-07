@@ -81,11 +81,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 
     // 1: running at not pipeline mode will init profile.
     // 2: the scan node should create scanner at pipeline mode will init profile.
-    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
-    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    // during pipeline mode with more instances, olap scan node maybe not new Scanner object,
+    // so the profile of Scanner and SegmentIterator infos are always empty, could not init those.
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
-    // if you want to add some profile in scan node, even it have not new VScanner object
+    // if you want to add some profile in scan node, even it have not new Scanner object
     // could add here, not in the _init_profile() function
     _prepare_rf_timer(_runtime_profile.get());
 
@@ -973,7 +973,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
-    std::list<vectorized::VScannerSPtr> scanners;
+    std::list<vectorized::ScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
     for (auto it = scanners.begin(); it != scanners.end(); ++it) {
@@ -1052,7 +1052,7 @@ Status ScanLocalState<Derived>::_init_profile() {
     //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
-    _scanner_profile.reset(new RuntimeProfile("VScanner"));
+    _scanner_profile.reset(new RuntimeProfile("Scanner"));
     profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =

@@ -26,13 +26,13 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/segment_loader.h"
 #include "pipeline/exec/olap_scan_operator.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 
 namespace doris {
 
 using namespace vectorized;
 
-Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_is_dup_mow_key) {
         return _build_scanners_by_rowid(scanners);
@@ -42,7 +42,7 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
     }
 }
 
-Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (auto&& [tablet, version] : _tablets) {
@@ -192,12 +192,12 @@ Status ParallelScannerBuilder::_load() {
     return Status::OK();
 }
 
-std::shared_ptr<NewOlapScanner> ParallelScannerBuilder::_build_scanner(
+std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
-                                   version, std::move(read_source), _limit,     _is_preaggregation};
-    return NewOlapScanner::create_shared(_parent, std::move(params));
+    OlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
+                                version, std::move(read_source), _limit,     _is_preaggregation};
+    return OlapScanner::create_shared(_parent, std::move(params));
 }
 
 } // namespace doris

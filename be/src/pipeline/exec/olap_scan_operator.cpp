@@ -34,7 +34,7 @@
 #include "pipeline/query_cache/query_cache.h"
 #include "service/backend_options.h"
 #include "util/to_string.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -284,7 +284,7 @@ bool OlapScanLocalState::_storage_no_merge() {
              p._olap_scan_node.enable_unique_key_merge_on_write));
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -354,7 +354,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
         return Status::OK();
@@ -394,8 +394,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::NewOlapScanner::create_shared(
-                    this, vectorized::NewOlapScanner::Params {
+            auto scanner = vectorized::OlapScanner::create_shared(
+                    this, vectorized::OlapScanner::Params {
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,
