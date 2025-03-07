@@ -80,6 +80,7 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -597,7 +598,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getIcebergSchema() {
-        List<Column> columns = IcebergUtils.getSchema(catalog, dbName, name);
+        List<Column> columns;
+        long specSnapshot = IcebergUtils.getQuerySpecSnapshot(this);
+        Table icebergTable = IcebergUtils.getIcebergTable(catalog, dbName, name);
+        if (specSnapshot > 0L) {
+            columns = IcebergUtils.getSchema(catalog, dbName, name, icebergTable.schema().schemaId());
+        } else {
+            columns = IcebergUtils.getSchema(catalog, dbName, name, icebergTable.snapshot(specSnapshot).schemaId());
+        }
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }

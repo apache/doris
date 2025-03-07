@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -28,8 +27,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
@@ -43,7 +40,6 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -69,7 +65,6 @@ import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
 
 import java.io.IOException;
@@ -290,7 +285,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public IcebergSnapshot getIcebergSnapshot() {
         table = getIcebergTable();
         Snapshot snapshot = table.currentSnapshot();
-        long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : table.currentSnapshot().snapshotId();
+        long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
         int newestSchemaId = table.schema().schemaId();
         long schemaId = snapshot == null ? newestSchemaId : table.snapshot(snapshotId).schemaId();
         return new IcebergSnapshot(snapshotId, schemaId, newestSchemaId);
@@ -299,17 +294,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public List<Column> getFullSchema() {
         Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
-        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
-        long snapshotId = -1;
-        if (queryTableSnapshot != null) {
-            TableSnapshot.VersionType type = queryTableSnapshot.getType();
-            if (type == TableSnapshot.VersionType.VERSION) {
-                snapshotId = queryTableSnapshot.getVersion();
-            } else {
-                long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
-                snapshotId = SnapshotUtil.snapshotIdAsOfTime(getIcebergTable(), timestamp);
-            }
-        }
+        long snapshotId = IcebergUtils.getQuerySpecSnapshot(this);
         IcebergSnapshotCacheValue cacheValue = getOrFetchSnapshotCacheValue(snapshotFromContext);
         if (snapshotId > 0) {
             if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {

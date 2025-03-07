@@ -193,7 +193,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
 
-        for (Column column : columns) {  // TODO mmc 使用schema变量，别再去get了
+        for (Column column : columns) {
             Expr expr;
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {

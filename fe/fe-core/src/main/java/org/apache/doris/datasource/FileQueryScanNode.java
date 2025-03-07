@@ -157,7 +157,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Init schema (Tuple/Slot) related params.
     protected void initSchemaParams() throws UserException {
         destSlotDescByName = Maps.newHashMap();
-        for (SlotDescriptor slot : desc.getSlots()) {  // TODO mmc 这里的desc.getSlots() 是从哪个地方来的
+        for (SlotDescriptor slot : desc.getSlots()) {
             destSlotDescByName.put(slot.getColumn().getName(), slot);
         }
         params = new TFileScanRangeParams();
@@ -250,7 +250,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
-            int idx = -1; // TODO mmc 改成从成员变量里的schema获取，也就不需要获取table了？除非是为了打印log
+            int idx = -1;
             for (int i = 0; i < columns.size(); i++) {
                 if (columns.get(i).getName().equals(colName)) {
                     idx = i;

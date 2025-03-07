@@ -34,6 +34,7 @@ import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -49,6 +50,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -71,6 +73,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -573,10 +576,6 @@ public class IcebergUtils {
                 : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
-        return getSchema(catalog, dbName, name, UNKNOWN_SNAPSHOT_ID);
-    }
-
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
@@ -708,5 +707,20 @@ public class IcebergUtils {
 
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
+    }
+
+    public static long getQuerySpecSnapshot(TableIf table) {
+        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(table);
+        long snapshotId = -1;
+        if (queryTableSnapshot != null) {
+            TableSnapshot.VersionType type = queryTableSnapshot.getType();
+            if (type == TableSnapshot.VersionType.VERSION) {
+                snapshotId = queryTableSnapshot.getVersion();
+            } else {
+                long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
+                snapshotId = SnapshotUtil.snapshotIdAsOfTime(getIcebergTable(), timestamp);
+            }
+        }
+        return snapshotId;
     }
 }

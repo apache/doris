@@ -117,7 +117,7 @@ public interface TableIf {
 
     List<Column> getFullSchema();
 
-    List<Column> getBaseSchema();  // TODO mmc 在scan里，就不要再调用这个获取schema了,一次scan只要获取一次，但table这里不能保存，否则会导致schema不能刷新
+    List<Column> getBaseSchema();
 
     default Set<Column> getSchemaAllIndexes(boolean full) {
         Set<Column> ret = Sets.newHashSet();
