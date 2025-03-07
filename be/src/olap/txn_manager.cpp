@@ -532,7 +532,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
-        if (tablet_txn_info->rowset_ids.empty()) {
+        if (rowset->num_segments() > 1 &&
+            !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
+                    rowset->rowset_id())) {
             // delete bitmap is empty, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
