@@ -102,17 +102,16 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
 
             t1.join()
-            Thread.sleep(2000)
 
             GetDebugPoint().clearDebugPointsForAllBEs()
-
-            // ensure that we really write multi segments
-            // checkSegmentNum(4, 3)
+            Thread.sleep(2000)
 
             qt_sql "select count() from ${table1};"
 
             qt_dup_key_count "select count() from (select k1,count() as cnt from ${table1} group by k1 having cnt > 1) A;"
 
+            // ensure that we really write multi segments
+            checkSegmentNum(4, 3)
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e
