@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -40,6 +41,7 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -294,7 +296,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public List<Column> getFullSchema() {
         Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
-        long snapshotId = IcebergUtils.getQuerySpecSnapshot(this);
+        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
+        long snapshotId = IcebergUtils.getQuerySpecSnapshot(getIcebergTable(), queryTableSnapshot);
         IcebergSnapshotCacheValue cacheValue = getOrFetchSnapshotCacheValue(snapshotFromContext);
         if (snapshotId > 0) {
             if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {

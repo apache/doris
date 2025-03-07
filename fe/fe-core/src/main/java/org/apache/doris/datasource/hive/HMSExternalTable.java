@@ -48,6 +48,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -599,8 +600,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private Optional<SchemaCacheValue> getIcebergSchema() {
         List<Column> columns;
-        long specSnapshot = IcebergUtils.getQuerySpecSnapshot(this);
+        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
         Table icebergTable = IcebergUtils.getIcebergTable(catalog, dbName, name);
+        long specSnapshot = IcebergUtils.getQuerySpecSnapshot(icebergTable, queryTableSnapshot);
         if (specSnapshot > 0L) {
             columns = IcebergUtils.getSchema(catalog, dbName, name, icebergTable.schema().schemaId());
         } else {

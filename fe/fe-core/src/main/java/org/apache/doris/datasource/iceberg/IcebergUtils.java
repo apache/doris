@@ -50,7 +50,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -709,8 +708,7 @@ public class IcebergUtils {
         return hiveCatalog;
     }
 
-    public static long getQuerySpecSnapshot(TableIf table) {
-        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(table);
+    public static long getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
         long snapshotId = -1;
         if (queryTableSnapshot != null) {
             TableSnapshot.VersionType type = queryTableSnapshot.getType();
@@ -718,7 +716,7 @@ public class IcebergUtils {
                 snapshotId = queryTableSnapshot.getVersion();
             } else {
                 long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
-                snapshotId = SnapshotUtil.snapshotIdAsOfTime(getIcebergTable(), timestamp);
+                snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
             }
         }
         return snapshotId;
