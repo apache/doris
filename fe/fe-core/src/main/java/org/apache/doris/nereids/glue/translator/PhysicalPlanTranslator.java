@@ -601,7 +601,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (fileScan.getTableSnapshot().isPresent() && scanNode instanceof FileQueryScanNode) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
-            ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, fileScan.getTableSnapshot().get());
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
@@ -671,7 +670,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 directoryLister);
         if (fileScan.getTableSnapshot().isPresent()) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
-            ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, fileScan.getTableSnapshot().get());
         }
         HudiScanNode hudiScanNode = (HudiScanNode) scanNode;
         hudiScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
