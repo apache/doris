@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.junit.Assert
+
 suite('set_profile_level') {
     boolean exception = false
     try {
@@ -22,7 +24,7 @@ suite('set_profile_level') {
     } catch (Exception e) {
         exception = true
     }
-    AssertTrue(exception)
+    Assert.assertEquals(exception, true)
     exception = false
 
     try {
@@ -30,12 +32,12 @@ suite('set_profile_level') {
     } catch (Exception e) {
         exception = true
     }
-    AssertTrue(!exception)
+    Assert.assertEquals(exception, false)
 
     try {
         sql("set profile_level = 4;")
     } catch (Exception e) {
         exception = true
     }
-    AssertTrue(exception)
+    Assert.assertEquals(exception, true)
 }
