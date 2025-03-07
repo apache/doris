@@ -35,10 +35,10 @@ TEST(InvertedIndexProfileReporterTest, UpdateTest) {
     InvertedIndexProfileReporter reporter;
     reporter.update(runtime_profile.get(), &statistics);
 
-    ASSERT_EQ(runtime_profile->get_counter("fr_test_column1")->value(), 101);
-    ASSERT_EQ(runtime_profile->get_counter("ft_test_column1")->value(), 201);
-    ASSERT_EQ(runtime_profile->get_counter("fr_test_column2")->value(), 102);
-    ASSERT_EQ(runtime_profile->get_counter("ft_test_column2")->value(), 202);
+    ASSERT_EQ(runtime_profile->get_counter("HitRows_test_column1")->value(), 101);
+    ASSERT_EQ(runtime_profile->get_counter("ExecTime_test_column1")->value(), 201);
+    ASSERT_EQ(runtime_profile->get_counter("HitRows_test_column2")->value(), 102);
+    ASSERT_EQ(runtime_profile->get_counter("ExecTime_test_column2")->value(), 202);
 }
 
 } // namespace doris
