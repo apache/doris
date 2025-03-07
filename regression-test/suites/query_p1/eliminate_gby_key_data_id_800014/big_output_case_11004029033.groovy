@@ -17,10 +17,7 @@
 
 suite("big_output_case_11004029033") {
     sql "set enable_parallel_result_sink=true;"
-    sql "set enable_spill=false;"
-    sql "set enable_force_spill=false;"
 
-    
     sql """ DROP TABLE IF EXISTS table_50_undef_partitions2_keys3_properties4_distributed_by5; """
     sql """
         create table table_50_undef_partitions2_keys3_properties4_distributed_by5 (
