@@ -330,13 +330,14 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
+    const auto& queryOptions = runtime_state->query_options();
     try {
         InvertedIndexQueryInfo query_info;
         InvertedIndexQueryCache::CacheKey cache_key;
         auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
 
+        // terms
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            cache_key = {index_file_key, column_name, query_type, search_str};
             query_info.terms.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
@@ -356,6 +357,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             get_analyse_result(query_info.terms, reader.get(), analyzer.get(), column_name,
                                query_type);
         }
+
         if (query_info.terms.empty()) {
             auto msg = fmt::format(
                     "token parser result is empty for query, "
@@ -369,22 +371,20 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             }
         }
 
-        std::unique_ptr<lucene::search::Query> query;
+        // field_name
         query_info.field_name = StringUtil::string_to_wstring(column_name);
 
-        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-            query_type == InvertedIndexQueryType::EQUAL_QUERY ||
-            query_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
-            std::string str_tokens = join(query_info.terms, " ");
-            if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                str_tokens += " " + std::to_string(query_info.slop);
-                str_tokens += " " + std::to_string(query_info.ordered);
-            }
-            cache_key = {index_file_key, column_name, query_type, str_tokens};
+        // cache_key
+        std::string str_tokens = join(query_info.terms, " ");
+        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+            str_tokens += " " + std::to_string(query_info.slop);
+            str_tokens += " " + std::to_string(query_info.ordered);
+        } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
+                   query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
+            str_tokens += " " + std::to_string(queryOptions.inverted_index_max_expansions);
         }
+        cache_key = {index_file_key, column_name, query_type, std::move(str_tokens)};
+
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
 
@@ -393,12 +393,11 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         if (cache_status.ok()) {
             return Status::OK();
         }
-        FulltextIndexSearcherPtr* searcher_ptr = nullptr;
 
         InvertedIndexCacheHandle inverted_index_cache_handle;
         RETURN_IF_ERROR(handle_searcher_cache(&inverted_index_cache_handle, stats));
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
         if (searcher_ptr != nullptr) {
             term_match_bitmap = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(match_index_search(stats, runtime_state, query_type, query_info,

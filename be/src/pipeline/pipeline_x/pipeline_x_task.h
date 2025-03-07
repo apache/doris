@@ -139,7 +139,6 @@ public:
     int task_id() const { return _index; };
 
     void clear_blocking_state() override {
-        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!_finished) {

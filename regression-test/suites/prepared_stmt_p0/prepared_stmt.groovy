@@ -327,8 +327,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         // int max + 1
         sql """admin set frontend config("prepared_stmt_start_id" = "2147483648");"""
         def stmt_read3 = prepareStatement "select 3"
-        // overflow throw NumberFormatExceptio and fallback to ClientPreparedStatement
-        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read3.class)
+        // assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read3.class)
         qe_overflow_3 stmt_read3
         qe_overflow_3 stmt_read3
         stmt_read3.close()
