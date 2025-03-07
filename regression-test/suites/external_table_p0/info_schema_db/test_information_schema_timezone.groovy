@@ -122,7 +122,12 @@ suite("test_information_schema_timezone", "p0,external,hive,kerberos,external_do
             );
         """
 
-        order_qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.test_krb_hive_tbl; """
+        sql """ DROP TABLE IF EXISTS test_information_schema_timezone_catalog.test_krb_hive_db.test_information_schema_table """
+        sql """ CREATE TABLE test_information_schema_timezone_catalog.test_krb_hive_db.test_information_schema_table (id int, str string, dd date) engine = hive; """
+        sql """ INSERT INTO test_information_schema_timezone_catalog.test_krb_hive_db.test_information_schema_table values(1, 'krb1', '2023-05-14') """
+        sql """ INSERT INTO test_information_schema_timezone_catalog.test_krb_hive_db.test_information_schema_table values(2, 'krb2', '2023-05-24') """
+
+        order_qt_select_kerberos """ select * from test_information_schema_timezone_catalog.test_krb_hive_db.test_information_schema_table; """
 
         kerberos_cache_res_1 = sql """ 
                     select START_TIME, EXPIRE_TIME, AUTH_TIME from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab"

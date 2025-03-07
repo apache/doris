@@ -74,7 +74,6 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
-    _timezone_obj = state->timezone_obj();
     SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
     if (nullptr != _param->common_param->db) {

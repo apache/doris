@@ -78,7 +78,6 @@ Status SchemaRowsetsScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     backend_id_ = state->backend_id();
-    _timezone_obj = state->timezone_obj();
     RETURN_IF_ERROR(_get_all_rowsets());
     return Status::OK();
 }

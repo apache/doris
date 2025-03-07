@@ -49,7 +49,6 @@ SchemaActiveQueriesScanner::~SchemaActiveQueriesScanner() {}
 Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
     _rpc_timeout = state->execution_timeout() * 1000;
-    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
