@@ -63,6 +63,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/like.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/string_utils.h"
 #include "vec/json/simd_json_parser.h"
 #include "vec/utils/util.hpp"
 
