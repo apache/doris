@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -133,7 +134,7 @@ public class ShowRestoreCommand extends ShowCommand {
     }
 
     /**
-     * validate the where Clause
+     * validate
      */
     private boolean validate(ConnectContext ctx) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
@@ -141,6 +142,13 @@ public class ShowRestoreCommand extends ShowCommand {
             if (Strings.isNullOrEmpty(dbName)) {
                 throw new AnalysisException("No database selected");
             }
+        }
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                    ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         // SQL may be like : show restore from your_db_name; there is no where clause.
@@ -204,10 +212,6 @@ public class ShowRestoreCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // check access first
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW RESTORE");
-        }
         return handleShowRestore(ctx, executor);
     }
 
