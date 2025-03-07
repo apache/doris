@@ -63,9 +63,9 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
     logger.info("Profile content of ${stmt} is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
-        return profileContent.contains("- MaxScanConcurrency: 1") == true
+        return profileContent.contains("- MaxScannerThreadNum: 1") == true
     } else {
-        return !profileContent.contains("- MaxScanConcurrency: 1") == true
+        return !profileContent.contains("- MaxScannerThreadNum: 1") == true
     }
 }
 
