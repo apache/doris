@@ -553,6 +553,8 @@ public:
 
     uint64_t get_delete_bitmap_count();
 
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
