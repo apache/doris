@@ -450,7 +450,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
 
             if (tbl.isTemporary()) {
-                if (Config.ignore_backup_not_support_table_type) {
+                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
                     LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             Util.getTempTableDisplayName(tblName));

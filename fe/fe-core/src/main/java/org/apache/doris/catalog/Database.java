@@ -37,7 +37,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -380,20 +379,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void checkQuota() throws DdlException {
         checkDataSizeQuota();
         checkReplicaQuota();
-    }
-
-    public boolean isTableExist(String tableName, boolean isTemporary) {
-        if (Env.isTableNamesCaseInsensitive()) {
-            tableName = tableName.toLowerCase();
-        }
-
-        if (isTemporary) {
-            Set<String> tableSet = ConnectContext.get().getDbToTempTableNamesMap().get(fullQualifiedName);
-            return tableSet != null && tableSet.contains(tableName);
-        } else {
-            //return nameToTable.containsKey(tableName);
-            return isTableExist(tableName, isTemporary);
-        }
     }
 
     public boolean isTableExist(String tableName) {

@@ -3915,7 +3915,14 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        if (table.isTemporary()) {
+
+        // create table like a temporary table or create temporary table like a table
+        if (ddlStmt instanceof CreateTableLikeStmt) {
+            if (((CreateTableLikeStmt) ddlStmt).isTemp()) {
+                sb.append("TEMPORARY ");
+            }
+        } else if (table.isTemporary()) {
+            // used for show create table
             sb.append("TEMPORARY ");
         }
         sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");

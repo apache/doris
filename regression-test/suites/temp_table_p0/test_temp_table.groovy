@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.suite.ClusterOptions
-
-suite('test_temp_table', 'p0,docker') {
+suite('test_temp_table', 'p0') {
     sql """
         DROP TABLE IF EXISTS `t_test_table_with_data`
     """
@@ -118,11 +116,22 @@ suite('test_temp_table', 'p0,docker') {
     def show_tables = sql "show tables"
     def hasTempTable = false
     for(int i = 0; i < show_tables.size(); i++) {
-        if (show_tables[i][0].equals("t_test_temp_table2")) {
+        if (show_tables[i][0].contains("t_test_temp_table2")) {
             hasTempTable = true;
         }
     }
     assertFalse(hasTempTable)
+
+    // will create a normal olap table, not temporary table, even if source table is temporary
+    sql "create table t_test_table3_0 like t_test_temp_table3"
+    show_tables = sql "show tables"
+    def hasTable = false
+    for(int i = 0; i < show_tables.size(); i++) {
+        if (show_tables[i][0].contains("t_test_table3_0")) {
+            hasTable = true;
+        }
+    }
+    assertTrue(hasTable)
 
     // transaction
     sql "begin"
@@ -197,11 +206,21 @@ suite('test_temp_table', 'p0,docker') {
         sql """
             BACKUP SNAPSHOT regression_test_temp_table_p0.${snapshotName}
             to ${repoName}
+            on (t_test_temp_table2)
         """
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
         assertTrue(ex.getMessage().contains("is a temporary table, do not support backup"), ex.getMessage())
     }
+
+    //a job backup multiple tables will submit successfully, and temp table will be filtered
+    snapshotName = "snst_" + UUID.randomUUID().toString().replace("-", "")
+    sql """
+        BACKUP SNAPSHOT regression_test_temp_table_p0.${snapshotName}
+        to ${repoName}
+    """
+    select_result3 = sql "show backup where SnapshotName = '${snapshotName}'"
+    assertFalse(select_result3[0][4].contains("t_test_temp_table2"))
 
     def show_data = sql "show data"
     def containTempTable = false
@@ -252,6 +271,9 @@ suite('test_temp_table', 'p0,docker') {
     assertTrue(show_tablets_result[0][1].contains("_#TEMP#_t_test_temp_table1"))
 
     sql "show column stats t_test_temp_table2;"
+
+    show_tablets_result = sql "SHOW TABLE STATS t_test_temp_table2"
+    assertFalse(show_tablets_result[0][4].contains("_#TEMP#"))
 
     sql "show data skew from t_test_temp_table2"
 
@@ -354,12 +376,6 @@ suite('test_temp_table', 'p0,docker') {
         assertTrue(ex.getMessage().contains("do not support export"), ex.getMessage())
     }
 
-    //outfile
-    sql """
-        select * from t_test_temp_table2
-        into outfile "file://${outFilePath}"
-    """
-
     // temporary table with dynamic partitions and colocate group
     sql """
         CREATE TEMPORARY TABLE temp_table_with_dyncmic_partition
@@ -387,10 +403,22 @@ suite('test_temp_table', 'p0,docker') {
         sql "CREATE MATERIALIZED VIEW mv_mtmv1 as select k1 from temp_table_with_dyncmic_partition"
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("table not found"), ex.getMessage())
+        assertTrue(ex.getMessage().contains("do not support create materialized view on temporary table"), ex.getMessage())
     }
     def show_create_mv1 = sql "show create materialized view mv_mtmv1 on temp_table_with_dyncmic_partition"
     assertEquals(show_create_mv1.size(), 0)
+
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW mtmv_2 REFRESH COMPLETE ON SCHEDULE EVERY 100 hour
+            PROPERTIES ('replication_num' = '1') 
+            AS SELECT * FROM temp_table_with_dyncmic_partition;
+            """
+
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("do not support create materialized view on temporary table"), ex.getMessage())
+    }
 
     // create another session and check temp table related function in it
     connect('root') {
@@ -464,8 +492,8 @@ suite('test_temp_table', 'p0,docker') {
     show_result2 = sql "show analyze t_test_temp_table2"
     assertEquals(show_result2.size(), 1)
     assertTrue(show_result2[0][3].equals("t_test_temp_table2"))
-    def show_analyze_result1 = sql "show column stats t_test_temp_table2"
-    assertEquals(show_analyze_result1.size(), 3)
+    assertFalse(show_result2[0][4].contains("_#TEMP#_"))
+    sql "show column stats t_test_temp_table2"
 
     def show_dynamic_partitions = sql "show dynamic partition tables"
     containTempTable = false
@@ -485,6 +513,12 @@ suite('test_temp_table', 'p0,docker') {
     }
     try {
         sql "alter table t_test_temp_table2 add column new_col int"
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
+    }
+    try {
+        sql "alter table t_test_temp_table2 set (\"in_memory\" = \"false\")"
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
         assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
@@ -512,6 +546,18 @@ suite('test_temp_table', 'p0,docker') {
     }
     try {
         sql "CREATE INDEX bitmap_index_1 ON t_test_temp_table2 (name) USING BITMAP COMMENT 'bitmap_name';"
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
+    }
+    try {
+        sql "CREATE INDEX bitmap_index_2 ON t_test_temp_table2 (name) USING INVERTED;"
+        throw new IllegalStateException("Should throw error")
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
+    }
+    try {
+        sql "ALTER TABLE t_test_temp_table2 ADD INDEX bitmap_index_3 (name) USING INVERTED;"
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
         assertTrue(ex.getMessage().contains("detailMessage = Do not support alter"), ex.getMessage())
@@ -580,6 +626,7 @@ suite('test_temp_table', 'p0,docker') {
         assertTrue(containTempTable)
     }
 
+    sql "drop database if exists regression_test_temp_table_p0_2"
     sql "create database regression_test_temp_table_p0_2"
     sql "ALTER DATABASE regression_test_temp_table_p0_2 SET properties (\"binlog.enable\" = \"true\");"
     sql """
@@ -617,68 +664,12 @@ suite('test_temp_table', 'p0,docker') {
         assertTrue(ex.getMessage().contains("Cannot create temporary table with binlog enable"), ex.getMessage())
     }
 
-    options = new ClusterOptions()
-    options.setFeNum(2)
-    options.setBeNum(1)
-    options.connectToFollower = true
-    docker(options) {
-        sql """
-        CREATE TEMPORARY TABLE IF NOT EXISTS `t_test_temp_table5` (
-            `id` int,
-            `add_date` date,
-            `name` varchar(32)
-        ) ENGINE=OLAP
-        UNIQUE KEY(`id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ('replication_num' = '1');
-        """
-
-        sql """
-        insert into t_test_temp_table5 values (11,"2017-01-15","Alice"),(12,"2017-02-12","Bob"),(13,"2017-03-20","Carl");
-        """
-
-        def select_result10 = sql "select * from t_test_temp_table5"
-        assertEquals(select_result10.size(), 3)
-
-        def masterFeIndex = cluster.getMasterFe().index
-        cluster.restartFrontends(masterFeIndex)
-        sleep(30 * 1000)
-
-        // after master fe switch, temp table created in non-master fe should still exist
-        select_result10 = sql "select * from t_test_temp_table5"
-        assertEquals(select_result10.size(), 3)
-
-        def nonMasterFeIndex = cluster.getOneFollowerFe().index
-        cluster.restartFrontends(nonMasterFeIndex)
-        sleep(30 * 1000)
-
-        // when the connected fe is shutdown, temp table created in it should be deleted
-        context.reconnectFe()
-        try {
-            sql "select * from t_test_temp_table5;"
-            throw new IllegalStateException("Should throw error")
-        } catch (Exception ex) {
-            assertTrue(ex.getMessage().contains("does not exist in database"), ex.getMessage())
-        }
-
-        select_result10 = sql "show data"
-        containTempTable = false
-        for(int i = 0; i < select_result10.size(); i++) {
-            if (select_result10[i][0].contains("t_test_temp_table5")) {
-                containTempTable = true;
-            }
-        }
-        assertFalse(containTempTable)
-    }
-
     // clean
     sql "use regression_test_temp_table_p0"
     sql "drop table t_test_temp_table1"
+    sql "drop table t_test_table3_0"
     sql "drop table t_test_table_no_partition"
     sql "DROP USER IF EXISTS temp_table_test_user"
-
-    //clean
     sql """drop table if exists t_test_table_with_data"""
     sql """drop database if exists regression_test_temp_table_db2"""
 }

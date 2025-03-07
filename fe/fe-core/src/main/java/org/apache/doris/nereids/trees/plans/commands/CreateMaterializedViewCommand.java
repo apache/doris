@@ -250,6 +250,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ValidateContext validateContext) {
             OlapTable olapTable = olapScan.getTable();
+            if (olapTable.isTemporary()) {
+                throw new AnalysisException("do not support create materialized view on temporary table");
+            }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();

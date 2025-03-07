@@ -1251,7 +1251,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // check if table exists in db
-        boolean isTableExist = stmt.isTemp() ? db.isTableExist(tableName, true) : db.isTableExist(tableName);
+        boolean isTableExist = db.isTableExist(tableName);
         if (isTableExist) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableShowName);

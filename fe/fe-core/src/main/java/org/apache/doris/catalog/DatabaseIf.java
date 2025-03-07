@@ -186,7 +186,7 @@ public interface DatabaseIf<T extends TableIf> {
     default T getNonTempTableOrMetaException(String tableName, TableIf.TableType tableType)
             throws MetaNotFoundException {
         T table = getNonTempTableOrMetaException(tableName);
-        TableType type = Objects.requireNonNull(table.getType());
+        TableType type = Objects.requireNonNull(table.getType(), "table type not found, type = " + table.getType());
         if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
                 "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
