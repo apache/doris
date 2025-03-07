@@ -878,13 +878,22 @@ TEST_F(ColumnStringTest, convert_column_if_overflow) {
     }
     {
         auto tmp_col = column_str32->clone();
+        auto* tmp_col_str32 = assert_cast<ColumnString*>(tmp_col.get());
         auto src_size = column_str32->size();
-        auto* tmp_col_str = assert_cast<ColumnString*>(tmp_col.get());
-        EXPECT_GT(tmp_col_str->get_chars().size(), 10);
+        auto chars_size = column_str32->get_chars().size();
+        auto max_chars_size = config::string_overflow_size;
+        while (chars_size < max_chars_size) {
+            tmp_col->insert_range_from_ignore_overflow(*column_str32, 0, column_str32->size());
+            chars_size = tmp_col_str32->get_chars().size();
+        }
+        tmp_col->insert_range_from_ignore_overflow(*column_str32, 0, column_str32->size());
+        auto tmp_col_row_count = tmp_col->size();
+        chars_size = tmp_col_str32->get_chars().size();
+        EXPECT_GT(chars_size, max_chars_size);
         auto tmp_col_converted = tmp_col->convert_column_if_overflow();
         EXPECT_TRUE(tmp_col_converted->is_column_string64());
-        for (size_t i = 0; i < src_size; ++i) {
-            EXPECT_EQ(tmp_col_converted->get_data_at(i), column_str32->get_data_at(i));
+        for (size_t i = 0; i < tmp_col_row_count; ++i) {
+            EXPECT_EQ(tmp_col_converted->get_data_at(i), column_str32->get_data_at(i % src_size));
         }
     }
 }

@@ -676,11 +676,7 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
 
 template <typename T>
 ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
-#ifdef BE_TEST
-    if (std::is_same_v<T, UInt32> && chars.size() > 10) {
-#else
     if (std::is_same_v<T, UInt32> && chars.size() > config::string_overflow_size) {
-#endif
         auto new_col = ColumnStr<uint64_t>::create();
 
         const auto length = offsets.size();

@@ -29,7 +29,6 @@
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
-#include "gutil/integral_types.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
 #include "vec/core/types.h"
@@ -44,8 +43,6 @@ static DataTypeDateTimeV2 dt_datetime_v2_0(0);
 static DataTypeDateTimeV2 dt_datetime_v2_5(5);
 static DataTypeDateTimeV2 dt_datetime_v2_6(6);
 
-// static ColumnDateTime::MutablePtr column_datetime;
-// static ColumnDate::MutablePtr column_date;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_0;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
@@ -124,53 +121,303 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         TExprNode expr_node;
         expr_node.date_literal.value = "abc";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "1";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = " ";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0000-00-00";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        // invalid year
+        expr_node.date_literal.value = "10000-12-15";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        // invalid month
+        expr_node.date_literal.value = "2023-13-15";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        // invalid day
+        expr_node.date_literal.value = "2025-02-29";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2025-03-32";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2025-04-31";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+
+        /*
+        // TODO: currently the following cases are OK,
+        //       check if its' as expected
+        // trailing invalid chars for date???
+        expr_node.date_literal.value = "2025-01-01x";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2025-01-01 x";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        // invalid hour for date???
+        expr_node.date_literal.value = "2025-01-01 25:00:00";
+        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        */
     }
     {
         TExprNode expr_node;
         expr_node.date_literal.value = "abc";
         EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "1";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = " ";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0000-00-00";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        // invalid year
+        expr_node.date_literal.value = "10000-13-15";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        // invalid month
+        expr_node.date_literal.value = "2023-13-15";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        // invalid day
+        expr_node.date_literal.value = "2025-02-29";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2025-03-32";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2025-04-31";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        // invalid microsecond
+        expr_node.date_literal.value = "0000-01-01 00:00:00.1";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "0000-01-01 00:00:00.999999";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2021-12-30 12:23:34.1";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
+        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.100000";
+        EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2021-12-30 12:23:34.100000";
+        EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
+        EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.1000000";
+        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2021-12-30 12:23:34.1000000";
+        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "2021-12-30 12:23:34.9999999";
+        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "9999-12-31 23:59:59.9999999";
+        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
     }
     {
         TExprNode expr_node;
-        expr_node.date_literal.value = "2021-01-01";
+
+        expr_node.date_literal.value = "0000-01-01";
         auto field = dt_date_v2.get_field(expr_node);
         auto int_value = field.get<UInt32>();
-        std::cout << "field: " << int_value << std::endl;
         DateV2Value<DateV2ValueType> date_value =
                 binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
 
+        // should be OK
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "9999-12-31 00:00:00.000000";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "2021-01-01";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
+
+        expr_node.date_literal.value = "9999-12-31";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+
+        // it's OK to have time part for date
+        expr_node.date_literal.value = "0000-01-01 23:59:59";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59";
+        field = dt_date_v2.get_field(expr_node);
+        int_value = field.get<UInt32>();
+        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
     }
     {
         TExprNode expr_node;
-        expr_node.date_literal.value = "2021-12-31 12:23:34";
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00";
         auto field = dt_datetime_v2_0.get_field(expr_node);
         auto int_value = field.get<UInt64>();
-        std::cout << "field: " << int_value << std::endl;
         DateV2Value<DateTimeV2ValueType> date_value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
 
+        expr_node.date_literal.value = "2021-12-31 12:23:34";
+        field = dt_datetime_v2_0.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
         EXPECT_EQ(date_value.hour(), 12);
         EXPECT_EQ(date_value.minute(), 23);
         EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59";
+        field = dt_datetime_v2_0.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 0);
     }
     {
         TExprNode expr_node;
         TTypeNode type_node;
         type_node.scalar_type.scale = 5;
         expr_node.type.types.push_back(type_node);
-        expr_node.date_literal.value = "2021-12-31 12:23:34.12345";
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.00000";
         auto field = dt_datetime_v2_5.get_field(expr_node);
         auto int_value = field.get<UInt64>();
-        std::cout << "field: " << int_value << std::endl;
         DateV2Value<DateTimeV2ValueType> date_value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
 
+        // microsecond is rounded
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000001";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000005";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 10);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000010";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 10);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.1";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 100000);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.12345";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -178,6 +425,222 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         EXPECT_EQ(date_value.minute(), 23);
         EXPECT_EQ(date_value.second(), 34);
         EXPECT_EQ(date_value.microsecond(), 123450);
+
+        // microsecond is rounded
+        expr_node.date_literal.value = "2021-12-31 12:23:34.123454";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 123450);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.123456";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 123460);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59.999994";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 999990);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59.999985";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 999990);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59.99999";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 999990);
+    }
+    {
+        TExprNode expr_node;
+        TTypeNode type_node;
+        type_node.scalar_type.scale = 6;
+        expr_node.type.types.push_back(type_node);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.1";
+        auto field = dt_datetime_v2_6.get_field(expr_node);
+        auto int_value = field.get<UInt64>();
+        DateV2Value<DateTimeV2ValueType> date_value =
+                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 100000);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.000001";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 1);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.100000";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 100000);
+
+        expr_node.date_literal.value = "0000-01-01 00:00:00.100001";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 0);
+        EXPECT_EQ(date_value.month(), 1);
+        EXPECT_EQ(date_value.day(), 1);
+        EXPECT_EQ(date_value.hour(), 0);
+        EXPECT_EQ(date_value.minute(), 0);
+        EXPECT_EQ(date_value.second(), 0);
+        EXPECT_EQ(date_value.microsecond(), 100001);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.99999";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 999990);
+
+        // TODO:
+        // type_node.scalar_type.scale = 6;
+        // DataTypeDateTimeV2 dt_datetime_v2_5(5);
+        // EXPECT_EQ(date_value.microsecond(), 999999);
+        expr_node.date_literal.value = "2021-12-31 12:23:34.999999";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 999999);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 999999);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.9999994";
+        field = dt_datetime_v2_5.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 999999);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.9999985";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 34);
+        EXPECT_EQ(date_value.microsecond(), 999999);
+
+        expr_node.date_literal.value = "2021-12-31 12:23:34.9999999";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 2021);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 12);
+        EXPECT_EQ(date_value.minute(), 23);
+        EXPECT_EQ(date_value.second(), 35);
+        EXPECT_EQ(date_value.microsecond(), 0);
+
+        expr_node.date_literal.value = "9999-12-31 23:59:58.9999999";
+        field = dt_datetime_v2_6.get_field(expr_node);
+        int_value = field.get<UInt64>();
+        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        EXPECT_EQ(date_value.year(), 9999);
+        EXPECT_EQ(date_value.month(), 12);
+        EXPECT_EQ(date_value.day(), 31);
+        EXPECT_EQ(date_value.hour(), 23);
+        EXPECT_EQ(date_value.minute(), 59);
+        EXPECT_EQ(date_value.second(), 59);
+        EXPECT_EQ(date_value.microsecond(), 0);
     }
 }
 TEST_F(DataTypeDateTimeV2Test, ser_deser) {
