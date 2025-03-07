@@ -37,6 +37,7 @@ import java.util.Set;
 public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionPatternMatchRule> {
     private static final Logger LOG = LogManager.getLogger(ExpressionPatternRules.class);
     private BitSet typePatternIds;
+    public final List<ExpressionPatternMatchRule> allRules;
 
     /** ExpressionPatternRules */
     public ExpressionPatternRules(List<ExpressionPatternMatchRule> typeMappings) {
@@ -48,6 +49,7 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
             typePatternIds.set(SuperClassId.getClassId(topType));
         }
         this.typePatternIds = typePatternIds;
+        this.allRules = typeMappings;
     }
 
     @Override

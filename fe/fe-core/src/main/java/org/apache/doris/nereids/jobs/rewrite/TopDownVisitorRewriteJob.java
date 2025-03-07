@@ -78,9 +78,8 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
     private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
-        BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
-            if (!currentRule.getPattern().matchPlanTree(plan) || forbidRules.get(currentRule.getRuleType().ordinal())) {
+            if (!currentRule.getPattern().matchPlanTree(plan)) {
                 continue;
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());

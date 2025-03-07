@@ -22,10 +22,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.BottomUpVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
-import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
-import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.TopDownVisitorRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.TopicRewriteJob;
 import org.apache.doris.nereids.rules.FilteredRules;
@@ -43,7 +40,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -121,6 +117,7 @@ public abstract class AbstractBatchJobExecutor {
                 .flatMap(List::stream)
                 .collect(ImmutableList.toImmutableList()));
         return new TopDownVisitorRewriteJob(rules);
+        // return new TopDownVisitorRewriteJob2(rules);
         // return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
     }
 

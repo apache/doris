@@ -24,9 +24,7 @@ import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 
-import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -90,9 +88,8 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
 
     private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
-        BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
-            if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(plan)) {
+            if (!currentRule.getPattern().matchPlanTree(plan)) {
                 continue;
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
