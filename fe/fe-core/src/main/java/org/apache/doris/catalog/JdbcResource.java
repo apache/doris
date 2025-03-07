@@ -472,7 +472,7 @@ public class JdbcResource extends Resource {
     public static void validateProperties(Map<String, String> properties) throws DdlException {
         for (String key : properties.keySet()) {
             if (!ALL_PROPERTIES.contains(key)) {
-                throw new DdlException("JDBC resource Property of " + key + " is unknown");
+                throw new DdlException("JDBC resource Property of [" + key + "] is unknown");
             }
         }
     }

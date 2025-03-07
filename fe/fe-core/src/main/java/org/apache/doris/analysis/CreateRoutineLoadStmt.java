@@ -521,7 +521,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+            throw new AnalysisException("[" + optional.get() + "] is invalid property");
         }
 
         desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(

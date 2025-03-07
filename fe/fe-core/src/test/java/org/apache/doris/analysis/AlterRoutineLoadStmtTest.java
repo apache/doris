@@ -127,7 +127,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("format is invalid property"));
+                Assert.assertTrue(e.getMessage().contains("[format] is invalid property"));
             } catch (UserException e) {
                 Assert.fail();
             }
