@@ -41,7 +41,7 @@ public:
 private:
     // for ut only
     static void clear_timezone_caches();
-    static int cache_size();
+    static size_t cache_size();
 
     static void load_offsets_to_cache();
 

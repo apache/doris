@@ -52,6 +52,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -299,7 +300,7 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
 
     if (_unreported_error_idx < _error_log.size()) {
         new_errors->assign(_error_log.begin() + _unreported_error_idx, _error_log.end());
-        _unreported_error_idx = _error_log.size();
+        _unreported_error_idx = (int)_error_log.size();
     }
 }
 
@@ -553,4 +554,5 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris
