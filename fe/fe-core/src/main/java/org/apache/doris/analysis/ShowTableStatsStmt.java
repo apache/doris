@@ -251,7 +251,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         row.add(dateTime.format(formatter));
 
         Set<Pair<String, String>> columnsSet = tableStatistic.analyzeColumns();
-        Set<Pair<String, String>> newColumnsSet = tableStatistic.analyzeColumns();
+        Set<Pair<String, String>> newColumnsSet = new HashSet<>();
         for (Pair<String, String> pair : columnsSet) {
             newColumnsSet.add(Pair.of(Util.getTempTableDisplayName(pair.first), pair.second));
         }
