@@ -319,7 +319,8 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
     } else {
-        if (rowset_ids.empty()) {
+        if (rowset->num_segments() > 1 &&
+            !delete_bitmap->has_calculated_for_multi_segments(rowset->rowset_id())) {
             // delete bitmap cache missed, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
