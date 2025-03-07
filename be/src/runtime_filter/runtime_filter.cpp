@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "util/brpc_client_cache.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 

@@ -23,7 +23,7 @@
 #include "runtime_filter/runtime_filter_merger.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "util/brpc_client_cache.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 
