@@ -29,7 +29,7 @@ namespace doris {
 class ExecEnv;
 
 namespace vectorized {
-class VScanner;
+class Scanner;
 } // namespace vectorized
 
 template <typename T>

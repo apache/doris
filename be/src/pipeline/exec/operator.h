@@ -907,7 +907,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    friend class VScanner;
+    friend class Scanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     int _nereids_id = -1;

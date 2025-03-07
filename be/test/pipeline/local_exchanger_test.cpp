@@ -321,7 +321,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
 TEST_F(LocalExchangerTest, PassthroughExchanger) {
     int num_sink = 4;
     int num_sources = 4;
-    int free_block_limit = 0;
+    int free_block_limit = 1;
 
     const auto expect_block_bytes = 128;
     const auto num_blocks = num_sources + 1;

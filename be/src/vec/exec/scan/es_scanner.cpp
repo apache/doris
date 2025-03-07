@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/scan/new_es_scanner.h"
+#include "vec/exec/scan/es_scanner.h"
 
 #include <algorithm>
 #include <ostream>
@@ -34,16 +34,15 @@ namespace doris::vectorized {
 class VExprContext;
 } // namespace doris::vectorized
 
-static const std::string NEW_SCANNER_TYPE = "NewEsScanner";
+static const std::string NEW_SCANNER_TYPE = "EsScanner";
 
 namespace doris::vectorized {
 
-NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-                           int64_t limit, TupleId tuple_id,
-                           const std::map<std::string, std::string>& properties,
-                           const std::map<std::string, std::string>& docvalue_context,
-                           bool doc_value_mode, RuntimeProfile* profile)
-        : VScanner(state, local_state, limit, profile),
+EsScanner::EsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+                     TupleId tuple_id, const std::map<std::string, std::string>& properties,
+                     const std::map<std::string, std::string>& docvalue_context,
+                     bool doc_value_mode, RuntimeProfile* profile)
+        : Scanner(state, local_state, limit, profile),
           _es_eof(false),
           _properties(properties),
           _line_eof(false),
@@ -57,9 +56,9 @@ NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
     _is_init = false;
 }
 
-Status NewEsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+Status EsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
+    RETURN_IF_ERROR(Scanner::prepare(_state, conjuncts));
 
     if (_is_init) {
         return Status::OK();
@@ -84,7 +83,7 @@ Status NewEsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     return Status::OK();
 }
 
-Status NewEsScanner::open(RuntimeState* state) {
+Status EsScanner::open(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::open";
 
     if (nullptr == state) {
@@ -96,14 +95,14 @@ Status NewEsScanner::open(RuntimeState* state) {
     }
 
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(VScanner::open(state));
+    RETURN_IF_ERROR(Scanner::open(state));
 
     RETURN_IF_ERROR(_es_reader->open());
 
     return Status::OK();
 }
 
-Status NewEsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+Status EsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::_get_block_impl";
     if (nullptr == state || nullptr == block || nullptr == eof) {
         return Status::InternalError("input is NULL pointer");
@@ -163,12 +162,12 @@ Status NewEsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         } else {
             columns.clear();
         }
-        VLOG_ROW << "NewEsScanner output rows: " << block->rows();
+        VLOG_ROW << "EsScanner output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));
     return Status::OK();
 }
 
-Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) {
+Status EsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) {
     SCOPED_TIMER(_local_state->cast<pipeline::EsScanLocalState>()._read_timer);
     if (_line_eof && _batch_eof) {
         _es_eof = true;
@@ -196,7 +195,7 @@ Status NewEsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& column
     return Status::OK();
 }
 
-Status NewEsScanner::close(RuntimeState* state) {
+Status EsScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
@@ -205,7 +204,7 @@ Status NewEsScanner::close(RuntimeState* state) {
         RETURN_IF_ERROR(_es_reader->close());
     }
 
-    RETURN_IF_ERROR(VScanner::close(state));
+    RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
 } // namespace doris::vectorized
