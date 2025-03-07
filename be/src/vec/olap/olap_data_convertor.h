@@ -72,6 +72,11 @@ public:
     virtual ~IOlapColumnDataAccessor() = default;
 };
 
+struct VariantColumnData {
+    const void* column_data;
+    size_t row_pos;
+};
+
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor() = default;
@@ -533,6 +538,7 @@ private:
     private:
         const void* _value_ptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+        std::unique_ptr<VariantColumnData> _variant_column_data;
     };
 
 private:

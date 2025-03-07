@@ -530,7 +530,8 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnObject::create(var.max_subcolumns_count());
+            // now, subcolumns have not been set, so we set it to 0
+            variant_column = ColumnObject::create(0);
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
@@ -603,8 +604,6 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.add_sub_column(child_tcolumn);
     return res;
 }
-
-using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
 
 Status collect_path_stats(const RowsetSharedPtr& rs,
                           std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
@@ -779,8 +778,10 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
                              size_t num_rows) {
-    int limit = stats->sparse_column_non_null_size().size() -
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE;
+    DCHECK(stats->sparse_column_non_null_size_size() <=
+           VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+    int limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
+                stats->sparse_column_non_null_size_size();
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
 

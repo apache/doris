@@ -1186,6 +1186,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap()
     }
     // Do nothing, the column writer will finally do finalize and write subcolumns one by one
     // since we are not sure the final column(type and columns) until the end of the last block
+    // need to return the position of the column data
+    _variant_column_data = std::make_unique<VariantColumnData>(_value_ptr, _row_pos);
     return Status::OK();
 }
 
@@ -1193,9 +1195,9 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariant::get_data() c
     if (!_value_ptr) {
         return _root_data_convertor->get_data();
     }
-    // return the ptr of original column, see VariantColumnWriterImpl::append_data
-    // which will cast to ColumnObject
-    return _value_ptr;
+    // return the ptr of VariantColumnData, see VariantColumnWriterImpl::append_data
+    // which will cast to VariantColumnData
+    return _variant_column_data.get();
 }
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariant::get_data_at(
         size_t offset) const {

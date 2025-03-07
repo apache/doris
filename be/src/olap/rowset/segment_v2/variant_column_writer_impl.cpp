@@ -403,7 +403,8 @@ Status VariantColumnWriterImpl::_process_sparse_column(
         return status;
     }
     VLOG_DEBUG << "dump sparse "
-               << vectorized::Block::dump_column(ptr->get_sparse_column(),
+               << vectorized::Block::dump_column(
+                          ptr->get_sparse_column(),
                           vectorized::ColumnObject::get_sparse_column_type());
     RETURN_IF_ERROR(
             _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
@@ -497,10 +498,11 @@ bool VariantColumnWriterImpl::is_finalized() const {
 
 Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows) {
     DCHECK(!is_finalized());
-    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(*ptr);
+    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(column->column_data);
     auto* dst_ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
     // TODO: if direct write we could avoid copy
-    dst_ptr->insert_range_from(src, 0, num_rows);
+    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 
