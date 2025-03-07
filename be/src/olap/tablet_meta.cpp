@@ -1279,6 +1279,10 @@ uint64_t DeleteBitmap::get_delete_bitmap_count() {
     return count;
 }
 
+bool DeleteBitmap::has_calculated_for_multi_segments(const RowsetId& rowset_id) const {
+    return contains({rowset_id, INVALID_SEGMENT_ID, TEMP_VERSION_COMMON}, ROWSET_SENTINEL_MARK);
+}
+
 // We cannot just copy the underlying memory to construct a string
 // due to equivalent objects may have different padding bytes.
 // Reading padding bytes is undefined behavior, neither copy nor
