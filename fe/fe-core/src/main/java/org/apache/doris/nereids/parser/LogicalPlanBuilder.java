@@ -6601,7 +6601,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowQueryStats(ShowQueryStatsContext ctx) {
         String database = null;
-        String table = null;
+        TableNameInfo table = null;
         boolean isAll = false;
         boolean isVerbose = false;
 
@@ -6611,14 +6611,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableName != null) {
             List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
             if (nameParts.size() == 1) {
-                table = nameParts.get(0);
-                database = ConnectContext.get().getDatabase();
+                table = new TableNameInfo(ConnectContext.get().getDatabase(), nameParts.get(0));
             } else if (nameParts.size() == 2) {
-                database = nameParts.get(0);
-                table = nameParts.get(1);
+                table = new TableNameInfo(nameParts.get(0), nameParts.get(1));
             } else if (nameParts.size() == 3) {
-                database = nameParts.get(1);
-                table = nameParts.get(2);
+                table = new TableNameInfo(nameParts.get(0), nameParts.get(1), nameParts.get(2));
             }
         }
         if (ctx.ALL() != null) {

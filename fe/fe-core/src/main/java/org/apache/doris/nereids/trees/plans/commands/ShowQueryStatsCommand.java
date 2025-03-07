@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
+<<<<<<< HEAD
 import org.apache.doris.catalog.DatabaseIf;
+=======
+import org.apache.doris.catalog.Database;
+>>>>>>> 3feb3757c6 (save)
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
@@ -66,6 +70,7 @@ public class ShowQueryStatsCommand extends ShowCommand {
             .addColumn(new Column("QueryCount", ScalarType.createVarchar(30)))
             .addColumn(new Column("FilterCount", ScalarType.createVarchar(30))).build();
 
+<<<<<<< HEAD
     TableNameInfo tableNameInfo;
     String dbName;
     boolean all;
@@ -80,10 +85,17 @@ public class ShowQueryStatsCommand extends ShowCommand {
         this.all = all;
         this.verbose = verbose;
     }
+=======
+    private final String database;
+    private final TableNameInfo table;
+    private final boolean isAll;
+    private final boolean isVerbose;
+>>>>>>> 3feb3757c6 (save)
 
     /**
      * validate
      */
+<<<<<<< HEAD
     public void validate(ConnectContext ctx) throws UserException {
         if (StringUtils.isEmpty(dbName)) {
             dbName = ctx.getDatabase();
@@ -192,14 +204,77 @@ public class ShowQueryStatsCommand extends ShowCommand {
      */
     public enum ShowQueryStatsType {
         CATALOG, DATABASE, TABLE, TABLE_ALL, TABLE_ALL_VERBOSE
+=======
+    public ShowQueryStatsCommand(String database, TableNameInfo table, boolean isAll, boolean isVerbose) {
+        super(PlanType.SHOW_QUERY_STATS_COMMAND);
+        this.database = database;
+        this.table = table;
+        this.isAll = isAll;
+        this.isVerbose = isVerbose;
+>>>>>>> 3feb3757c6 (save)
+    }
+
+    /**
+    * Validate the command parameters
+    */
+    public void validate(ConnectContext ctx) throws Exception {
+        String catalog = ctx.getCurrentCatalog().getName();
+        String dbName = database;
+
+        // First check if we need to use default database
+        if (dbName == null) {
+            dbName = ctx.getDatabase();
+        }
+
+        if (dbName == null && table == null) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "SHOW QUERY STATS");
+            }
+            return;
+        }
+
+        if (dbName == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
+        if (table != null) {
+            table.analyze(ctx);
+            dbName = table.getDb();
+        }
+        Database db = (Database) Env.getCurrentEnv().getCurrentCatalog().getDbOrDdlException(dbName);
+        if (table != null) {
+            db.getTableOrDdlException(table.getTbl());
+        }
+
+        if (table == null) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ctx,
+                    catalog, dbName, PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR,
+                        ctx.getQualifiedUser(), dbName);
+            }
+        } else {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ctx, catalog, dbName, table.getTbl(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                        "SHOW QUERY STATS", ctx.getQualifiedUser(),
+                                ctx.getRemoteIP(), dbName + "." + table.getTbl());
+            }
+        }
+
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
 <<<<<<< HEAD
+<<<<<<< HEAD
         validate(ctx);
         return new ShowResultSet(getMetaData(), totalRows);
 =======
+=======
+        validate(ctx);
+
+>>>>>>> 3feb3757c6 (save)
         String catalog = ctx.getCurrentCatalog().getName();
         String effectiveDatabase = database;
 
@@ -210,9 +285,6 @@ public class ShowQueryStatsCommand extends ShowCommand {
 
         // For catalog level query (both database and table are null)
         if (effectiveDatabase == null && table == null) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW QUERY STATS");
-            }
             Map<String, Long> stats = QueryStatsUtil.getMergedCatalogStats(catalog);
             List<List<String>> rows = Lists.newArrayList();
             for (Map.Entry<String, Long> entry : stats.entrySet()) {
@@ -230,13 +302,6 @@ public class ShowQueryStatsCommand extends ShowCommand {
         }
 
         if (table == null) {
-            // Database level query
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ctx, catalog, effectiveDatabase, PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR,
-                        ctx.getQualifiedUser(), effectiveDatabase);
-            }
-
             Map<String, Long> stats = QueryStatsUtil.getMergedDatabaseStats(catalog, effectiveDatabase);
             List<List<String>> rows = Lists.newArrayList();
             for (Map.Entry<String, Long> entry : stats.entrySet()) {
@@ -251,18 +316,11 @@ public class ShowQueryStatsCommand extends ShowCommand {
             return new ShowResultSet(SHOW_QUERY_STATS_DATABASE_META_DATA, rows);
         }
 
-        // Table level query
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ctx, catalog, effectiveDatabase, table, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW QUERY STATS",
-                    ctx.getQualifiedUser(), ctx.getRemoteIP(), effectiveDatabase + "." + table);
-        }
-
         List<List<String>> rows = Lists.newArrayList();
         if (isAll) {
             if (isVerbose) {
                 Map<String, Map<String, Pair<Long, Long>>> stats =
-                        QueryStatsUtil.getMergedTableAllVerboseStats(catalog, effectiveDatabase, table);
+                        QueryStatsUtil.getMergedTableAllVerboseStats(catalog, effectiveDatabase, table.getTbl());
                 for (Map.Entry<String, Map<String, Pair<Long, Long>>> indexEntry : stats.entrySet()) {
                     boolean firstRow = true;
                     for (Map.Entry<String, Pair<Long, Long>> columnEntry : indexEntry.getValue().entrySet()) {
@@ -277,7 +335,8 @@ public class ShowQueryStatsCommand extends ShowCommand {
                 }
                 return new ShowResultSet(SHOW_QUERY_STATS_TABLE_ALL_VERBOSE_META_DATA, rows);
             } else {
-                Map<String, Long> stats = QueryStatsUtil.getMergedTableAllStats(catalog, effectiveDatabase, table);
+                Map<String, Long> stats = QueryStatsUtil.getMergedTableAllStats(catalog, effectiveDatabase,
+                        table.getTbl());
                 for (Map.Entry<String, Long> entry : stats.entrySet()) {
                     List<String> row = Lists.newArrayList();
                     row.add(entry.getKey());
@@ -291,7 +350,8 @@ public class ShowQueryStatsCommand extends ShowCommand {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
                         "verbose is not supported if all is not set");
             }
-            Map<String, Pair<Long, Long>> stats = QueryStatsUtil.getMergedTableStats(catalog, effectiveDatabase, table);
+            Map<String, Pair<Long, Long>> stats = QueryStatsUtil.getMergedTableStats(catalog, effectiveDatabase,
+                    table.getTbl());
             for (Map.Entry<String, Pair<Long, Long>> entry : stats.entrySet()) {
                 List<String> row = Lists.newArrayList();
                 row.add(entry.getKey());
