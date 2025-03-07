@@ -36,7 +36,7 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

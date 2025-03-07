@@ -55,7 +55,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
