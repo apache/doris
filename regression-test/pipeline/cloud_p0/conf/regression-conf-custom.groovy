@@ -29,6 +29,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_dump_image," +
+    "test_nereids_show_restore," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
     "test_profile," +
