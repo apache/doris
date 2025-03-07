@@ -67,6 +67,8 @@ import java.util.Stack;
 
 /**
  * SetPreAggStatus
+ * top-down tranverse the plan tree and collect required info into PreAggValidateContext
+ * when get to the bottom LogicalOlapScan node, we set the preagg status using info in PreAggValidateContext
  */
 public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.PreAggValidateContext>>
         implements CustomRewriter {
@@ -79,11 +81,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
         public List<Expression> joinConjuncts = new ArrayList<>();
         public List<Expression> groupByExpresssions = new ArrayList<>();
         public Set<AggregateFunction> aggregateFunctions = new HashSet<>();
-        public boolean isJoinExpandData = false;
 
         void addJoinInfo(LogicalJoin logicalJoin) {
             joinConjuncts.addAll(logicalJoin.getExpressions());
-            isJoinExpandData = !logicalJoin.getJoinType().isSemiOrAntiJoin();
         }
 
         void addFilterConjuncts(List<Expression> conjuncts) {
@@ -223,34 +223,26 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 "output slots contains no key or value slots");
 
         Set<Slot> groupingExprsInputSlots = ExpressionUtils.getInputSlotSet(groupingExprs);
-        Set<Slot> tmpInputSlots = Sets.newHashSet();
-        tmpInputSlots.addAll(groupingExprsInputSlots);
-        tmpInputSlots.retainAll(valueSlots);
-        if (!tmpInputSlots.isEmpty()) {
+        if (!Sets.intersection(groupingExprsInputSlots, valueSlots).isEmpty()) {
             return PreAggStatus
                     .off(String.format("Grouping expression %s contains non-key column %s",
-                            groupingExprs, tmpInputSlots));
+                            groupingExprs, groupingExprsInputSlots));
         }
 
         Set<Slot> filterInputSlots = ExpressionUtils.getInputSlotSet(filterConjuncts);
-        filterInputSlots.retainAll(valueSlots);
-        if (!filterInputSlots.isEmpty()) {
+        if (!Sets.intersection(filterInputSlots, valueSlots).isEmpty()) {
             return PreAggStatus.off(String.format("Filter conjuncts %s contains non-key column %s",
                     filterConjuncts, filterInputSlots));
         }
 
         Set<Slot> joinInputSlots = ExpressionUtils.getInputSlotSet(joinConjuncts);
-        joinInputSlots.retainAll(valueSlots);
-        if (!joinInputSlots.isEmpty()) {
+        if (!Sets.intersection(joinInputSlots, valueSlots).isEmpty()) {
             return PreAggStatus.off(String.format("Join conjuncts %s contains non-key column %s",
                     joinConjuncts, joinInputSlots));
         }
         Set<AggregateFunction> candidateAggFuncs = Sets.newHashSet();
-        Set<Slot> aggInputSlots = Sets.newHashSet();
         for (AggregateFunction aggregateFunction : aggregateFuncs) {
-            aggInputSlots.addAll(aggregateFunction.getInputSlots());
-            aggInputSlots.retainAll(outputSlots);
-            if (!aggInputSlots.isEmpty()) {
+            if (!Sets.intersection(aggregateFunction.getInputSlots(), outputSlots).isEmpty()) {
                 candidateAggFuncs.add(aggregateFunction);
             } else {
                 if (!(aggregateFunction instanceof Max || aggregateFunction instanceof Min
@@ -260,7 +252,6 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                                     aggregateFunction));
                 }
             }
-            aggInputSlots.clear();
         }
 
         Set<Slot> candidateGroupByInputSlots = Sets.newHashSet();
@@ -270,12 +261,12 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return !aggregateFuncs.isEmpty() || !groupingExprs.isEmpty() ? PreAggStatus.on()
                     : PreAggStatus.off("No aggregate on scan.");
         } else {
-            return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots, context.isJoinExpandData);
+            return checkAggregateFunctions(candidateAggFuncs, candidateGroupByInputSlots);
         }
     }
 
     private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
-            Set<Slot> groupingExprsInputSlots, boolean isJoinExpandData) {
+            Set<Slot> groupingExprsInputSlots) {
         PreAggStatus preAggStatus = aggregateFuncs.isEmpty() && groupingExprsInputSlots.isEmpty()
                 ? PreAggStatus.off("No aggregate on scan.")
                 : PreAggStatus.on();
@@ -299,15 +290,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                                     aggFunc, aggSlot));
                 }
             } else {
-                if (isJoinExpandData
-                        && !(aggFunc instanceof Max || aggFunc instanceof Min || aggFunc instanceof Count)) {
-                    preAggStatus = PreAggStatus.off(
-                            String.format("can't turn preAgg on for aggregate function %s", aggFunc));
-                } else {
-                    Set<Slot> aggSlots = aggFunc.getInputSlots();
-                    Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitSlots(aggSlots);
-                    preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
-                }
+                Set<Slot> aggSlots = aggFunc.getInputSlots();
+                Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitSlots(aggSlots);
+                preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
             }
             if (preAggStatus.isOff()) {
                 return preAggStatus;
