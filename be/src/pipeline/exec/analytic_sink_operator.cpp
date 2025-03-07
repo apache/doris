@@ -72,6 +72,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (!p._has_window_start &&
                 p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
+                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
             }
@@ -218,7 +219,9 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         // going on calculate, add up data, no need to reset state
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _current_row_position, _current_row_position + 1);
-        _insert_result_info(1);
+        int64_t pos = _current_row_position + _have_removed_rows -
+                      _input_block_first_row_positions[_output_block_index];
+        _insert_result_info(1, pos);
         _current_row_position++;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
             return true;
@@ -309,7 +312,8 @@ Status AnalyticSinkLocalState::_execute_impl() {
     while (_output_block_index < _input_blocks.size()) {
         {
             _get_partition_by_end();
-            if (!_partition_by_pose.is_ended) {
+            // streaming_mode means no need get all parition data, could calculate data when it's arrived
+            if (!_partition_by_pose.is_ended && !_streaming_mode) {
                 break;
             }
             _init_result_columns();
@@ -329,7 +333,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
                 _output_current_block(&block);
                 _refresh_buffer_and_dependency_state(&block);
             }
-            if (_current_row_position == _partition_by_pose.end) {
+            if (_current_row_position == _partition_by_pose.end && !_streaming_mode) {
                 _reset_state_for_next_partition();
             }
         }
@@ -359,7 +363,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     }
 }
 
-void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width) {
+void AnalyticSinkLocalState::_insert_result_info(int64_t real_deal_with_width, int64_t pos) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         for (size_t j = 0; j < real_deal_with_width; ++j) {
@@ -410,6 +414,8 @@ void AnalyticSinkLocalState::_init_result_columns() {
         // return type create result column
         for (size_t i = 0; i < _agg_functions_size; ++i) {
             _result_window_columns[i] = _agg_functions[i]->data_type()->create_column();
+            _result_window_columns[i]->reserve(_input_blocks[_output_block_index].rows());
+            // _result_window_columns[i]->resize(_input_blocks[_output_block_index].rows());
         }
     }
 }
