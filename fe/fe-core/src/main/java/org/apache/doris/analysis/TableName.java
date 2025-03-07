@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -93,25 +92,6 @@ public class TableName implements Writable {
 
         if (Strings.isNullOrEmpty(tbl)) {
             throw new AnalysisException("Table name is null");
-        }
-    }
-
-    public void analyze(ConnectContext ctx) {
-        if (Strings.isNullOrEmpty(ctl)) {
-            ctl = ctx.getDefaultCatalog();
-            if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
-            }
-        }
-        if (Strings.isNullOrEmpty(db)) {
-            db = ctx.getDatabase();
-            if (Strings.isNullOrEmpty(db)) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException("No database selected");
-            }
-        }
-
-        if (Strings.isNullOrEmpty(tbl)) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException("Table name is null");
         }
     }
 
