@@ -188,7 +188,7 @@ public class Utils {
         return stringBuilder.append(" )").toString();
     }
 
-    private static String toStringOrNull(Object obj) {
+    public static String toStringOrNull(Object obj) {
         return obj == null ? "null" : obj.toString();
     }
 

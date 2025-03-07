@@ -112,8 +112,27 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return preAggStatus;
     }
 
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
+    }
+
     public List<Slot> getBaseOutputs() {
         return baseOutputs;
+    }
+
+    @Override
+    public String getFingerprint() {
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        // NOTE: embed version info avoid mismatching under data maintaining
+        // TODO: more efficient way to ignore the ignorable data maintaining
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
+                + "@" + getTable().getVisibleVersion());
     }
 
     @Override

@@ -124,6 +124,13 @@ public class InPredicate extends Expression {
     }
 
     @Override
+    public String getFingerprint() {
+        return compareExpr + " IN " + options.stream()
+                .map(Expression::getFingerprint)
+                .collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    @Override
     public String computeToSql() {
         return compareExpr.toSql() + " IN " + options.stream()
             .map(Expression::toSql).sorted()

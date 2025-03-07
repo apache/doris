@@ -22,7 +22,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
@@ -95,6 +97,28 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
     @Override
     public String toString() {
         return "GroupPlan( " + group.getGroupId() + " )";
+    }
+
+    @Override
+    public String getFingerprint() {
+        if (!getGroup().getLogicalExpressions().isEmpty()
+                && getGroup().getLogicalExpressions().get(0).getPlan() instanceof AbstractLogicalPlan) {
+            AbstractLogicalPlan logicalPlan = (AbstractLogicalPlan) getGroup()
+                    .getLogicalExpressions().get(0).getPlan();
+            return logicalPlan.getPlanTreeFingerprint();
+        } else if (getGroup().getLogicalExpressions().isEmpty()
+                && !getGroup().getPhysicalExpressions().isEmpty()
+                && getGroup().getPhysicalExpressions().get(0).getPlan() instanceof AbstractPhysicalPlan) {
+            AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) getGroup()
+                    .getPhysicalExpressions().get(0).getPlan();
+            if (!isLocalAggPhysicalNode(physicalPlan)) {
+                return physicalPlan.getPlanTreeFingerprint();
+            } else {
+                return ((AbstractPlan) physicalPlan.child(0)).getPlanTreeFingerprint();
+            }
+        } else {
+            throw new RuntimeException("illegal group plan type during getFingerprint");
+        }
     }
 
 }

@@ -108,7 +108,11 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
         runtime_filter->update_state();
         if (runtime_filter->is_ready() && !_runtime_filter_ctxs[i].apply_mark) {
             // Runtime filter has been applied in open phase.
-            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
+            ExprRuntimeFilterInfo expr_rf_info;
+            expr_rf_info.type = runtime_filter->get_real_type();
+            RETURN_IF_ERROR(
+                    runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, expr_rf_info, false));
+            _expr_rf_info[runtime_filter->filter_id()] = expr_rf_info;
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
             // Runtime filter is timeout.
@@ -157,10 +161,13 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
+            ExprRuntimeFilterInfo expr_rf_info;
+            expr_rf_info.type = _runtime_filter_ctxs[i].runtime_filter->get_real_type();
             RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_push_expr_ctxs(
-                    _probe_ctxs, exprs, true));
+                    _probe_ctxs, exprs, expr_rf_info, true));
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
+            _expr_rf_info[_runtime_filter_ctxs[i].runtime_filter->filter_id()] = expr_rf_info;
         }
     }
     // 2. Append unapplied runtime filters to _conjuncts
