@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter.h"
@@ -45,16 +46,21 @@ public:
         _runtime_filter_compute_timer = ADD_TIMER_WITH_LEVEL(_profile, "BuildTime", 1);
     }
 
+#ifdef BE_TEST
+    RuntimeFilterProducerHelper() : _should_build_hash_table(true), _is_broadcast_join(false) {}
+#endif
+
     // create and register runtime filters producers
     Status init(RuntimeState* state, const vectorized::VExprContextSPtrs& build_expr_ctxs,
                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
 
     // send local size to remote to sync global rf size if needed
-    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                            std::shared_ptr<pipeline::CountedFinishDependency> dependency);
+    MOCK_FUNCTION Status
+    send_filter_size(RuntimeState* state, uint64_t hash_table_size,
+                     std::shared_ptr<pipeline::CountedFinishDependency> dependency);
 
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
-    Status skip_process(RuntimeState* state);
+    MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
     // build rf's predicate and publish rf
     Status process(RuntimeState* state, const vectorized::Block* block,
