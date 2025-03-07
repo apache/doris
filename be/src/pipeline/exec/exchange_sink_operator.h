@@ -276,7 +276,6 @@ private:
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
     size_t _data_processed = 0;
     int _writer_count = 1;
-    const bool _enable_local_merge_sort;
     // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
     // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
     const bool _dest_is_merge;

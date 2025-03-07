@@ -280,7 +280,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
-          _enable_local_merge_sort(state->enable_local_merge_sort()),
           _dest_is_merge(sink.__isset.is_merge && sink.is_merge),
           _fragment_instance_ids(fragment_instance_ids) {
 #ifndef BE_TEST

@@ -4076,7 +4076,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
-        tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
