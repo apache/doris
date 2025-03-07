@@ -487,9 +487,9 @@ public interface TableIf {
     }
 
     default String getNameWithFullQualifiers() {
-        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
-                getName());
+        return getDatabase().getCatalog().getName()
+                + "." + ClusterNamespace.getNameFromFullName(getDatabase().getFullName())
+                + "." + getName();
     }
 
     default boolean isManagedTable() {

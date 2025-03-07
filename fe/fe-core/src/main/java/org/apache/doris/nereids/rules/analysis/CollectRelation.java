@@ -36,6 +36,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -111,16 +112,17 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private Plan collectFromAny(MatchingContext<Plan> ctx) {
-        Set<SubqueryExpr> subqueryExprs = ctx.root.getExpressions().stream()
-                .<Set<SubqueryExpr>>map(p -> p.collect(SubqueryExpr.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        for (SubqueryExpr subqueryExpr : subqueryExprs) {
-            CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                    ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
-            subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
-                    () -> subqueryContext.newTableCollector().collect());
-            ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
+        for (Expression expression : ctx.root.getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof SubqueryExpr) {
+                    SubqueryExpr subqueryExpr = (SubqueryExpr) e;
+                    CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
+                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
+                    subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
+                            () -> subqueryContext.newTableCollector().collect());
+                    ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
+                }
+            });
         }
         return null;
     }

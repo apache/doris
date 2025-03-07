@@ -105,7 +105,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -121,7 +121,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             }
         } else {
             // RandomDistributionInfo

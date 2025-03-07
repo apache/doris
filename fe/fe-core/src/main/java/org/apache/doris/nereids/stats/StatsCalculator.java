@@ -164,6 +164,7 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -1464,11 +1465,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
         Statistics childStats = groupExpression.childStatistics(0);
-        Map<Expression, ColumnStatistic> columnsStats = projections.stream().map(projection -> {
+        Map<Expression, ColumnStatistic> projectionStats = new LinkedHashMap<>(projections.size());
+        for (NamedExpression projection : projections) {
             ColumnStatistic columnStatistic = ExpressionEstimation.estimate(projection, childStats);
-            return new SimpleEntry<>(projection.toSlot(), columnStatistic);
-        }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
-        return new Statistics(childStats.getRowCount(), childStats.getWidthInJoinCluster(), columnsStats);
+            projectionStats.putIfAbsent(projection.toSlot(), columnStatistic);
+        }
+        return new Statistics(childStats.getRowCount(), childStats.getWidthInJoinCluster(), projectionStats);
     }
 
     private Statistics computeOneRowRelation(List<NamedExpression> projects) {

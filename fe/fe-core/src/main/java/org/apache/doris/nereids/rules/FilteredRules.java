@@ -109,7 +109,10 @@ public class FilteredRules extends Rules {
     @Override
     public List<Rule> filterValidRules(CascadesContext cascadesContext) {
         BitSet disableRules = cascadesContext.getAndCacheDisableRules();
-        List<Rule> validRules = new ArrayList<>();
+        if (disableRules.isEmpty()) {
+            return allRules;
+        }
+        List<Rule> validRules = new ArrayList<>(allRules);
         for (Rule rule : allRules) {
             if (!disableRules.get(rule.getRuleType().type())) {
                 validRules.add(rule);

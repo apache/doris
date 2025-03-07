@@ -42,7 +42,7 @@ public class AddInitMaterializationHook implements AnalysisRuleFactory {
                             return ctx.root;
                         })),
                 RuleType.INIT_MATERIALIZATION_HOOK_FOR_TABLE_SINK.build(
-                        any().when(LogicalTableSink.class::isInstance)
+                        logicalTableSink()
                         .thenApply(ctx -> {
                             if (ctx.connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite()) {
                                 ctx.statementContext.addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);

@@ -88,7 +88,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.projects = projects.isEmpty()
                 ? ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                 : projects;
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
         this.isDistinct = isDistinct;
     }
 
