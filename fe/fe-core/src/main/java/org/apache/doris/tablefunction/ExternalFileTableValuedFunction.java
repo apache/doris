@@ -325,6 +325,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        LOG.info("getTableColumns");
         if (!csvSchema.isEmpty()) {
             return csvSchema;
         }
@@ -350,9 +351,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
             List<Column> tableColumns = table.getBaseSchema(true);
             for (int i = 0; i < tableColumns.size(); i++) {
+                LOG.info("columnxxx:" + tableColumns.get(i).toString());
                 Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
                 column.setUniqueId(tableColumns.get(i).getUniqueId());
+                column.setIsAllowNull(true);
                 fileColumns.add(column);
+                LOG.info("column:" + column.toString());
             }
             return fileColumns;
         }
