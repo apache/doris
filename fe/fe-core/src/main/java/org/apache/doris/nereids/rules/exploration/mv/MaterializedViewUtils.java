@@ -229,7 +229,8 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
                 olapScan.getTable());
     }
