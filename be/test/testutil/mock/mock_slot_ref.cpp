@@ -45,6 +45,17 @@ VExprContextSPtr MockSlotRef::create_mock_context(int column_id, DataTypePtr dat
     return ctx;
 }
 
+VExprContextSPtrs MockSlotRef::create_mock_contexts(DataTypes data_types) {
+    VExprContextSPtrs ctxs;
+    for (int i = 0; i < data_types.size(); i++) {
+        auto ctx = VExprContext::create_shared(std::make_shared<MockSlotRef>(i, data_types[i]));
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        ctxs.push_back(ctx);
+    }
+    return ctxs;
+}
+
 TEST(MockSlotRefTest, test) {
     auto old_ctx = MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
