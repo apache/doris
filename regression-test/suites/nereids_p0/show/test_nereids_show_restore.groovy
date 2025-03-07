@@ -78,11 +78,17 @@ suite("test_nereids_show_restore") {
     checkNereidsExecute("show restore")
     checkNereidsExecute("show brief restore")
     checkNereidsExecute("show restore from ${dbName}")
+    checkNereidsExecute("show restore in ${dbName}")
     checkNereidsExecute("show brief restore from ${dbName}")
+    checkNereidsExecute("show brief restore in ${dbName}")
     checkNereidsExecute("""show restore from ${dbName} where label = "${snapshotName}" """)
+    checkNereidsExecute("""show restore in ${dbName} where label = "${snapshotName}" """)
     checkNereidsExecute("""show brief restore from ${dbName} where label = "${snapshotName}" """)
+    checkNereidsExecute("""show brief restore in ${dbName} where label = "${snapshotName}" """)
     checkNereidsExecute("show restore from ${dbName} where label like 'test%'")
+    checkNereidsExecute("show restore in ${dbName} where label like 'test%'")
     checkNereidsExecute("show brief restore from ${dbName} where label like 'test%'")
+    checkNereidsExecute("show brief restore in ${dbName} where label like 'test%'")
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
