@@ -83,9 +83,10 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     opt->need_bloom_filter = column.is_bf_column();
     opt->need_bitmap_index = column.has_bitmap_index();
     const auto& index = tablet_schema->inverted_index(column.parent_unique_id());
-    VLOG_DEBUG << "column: " << column.name() << " need_inverted_index: " << opt->need_inverted_index
-                << " need_bloom_filter: " << opt->need_bloom_filter
-                << " need_bitmap_index: " << opt->need_bitmap_index;
+    VLOG_DEBUG << "column: " << column.name()
+               << " need_inverted_index: " << opt->need_inverted_index
+               << " need_bloom_filter: " << opt->need_bloom_filter
+               << " need_bitmap_index: " << opt->need_bitmap_index;
 
     // init inverted index
     if (index != nullptr &&
@@ -660,8 +661,9 @@ Status VariantSubcolumnWriter::finalize() {
             _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
     // refresh opts and get writer with flush column
     vectorized::schema_util::inherit_column_attributes(parent_column, flush_column);
-    VLOG_DEBUG << "parent_column: " << parent_column.name() << " flush_column: "
-               << flush_column.name() << " is_bf_column: " << parent_column.is_bf_column() << " "
+    VLOG_DEBUG << "parent_column: " << parent_column.name()
+               << " flush_column: " << flush_column.name()
+               << " is_bf_column: " << parent_column.is_bf_column() << " "
                << flush_column.is_bf_column();
     RETURN_IF_ERROR(_create_column_writer(
             0, flush_column, _opts.rowset_ctx->tablet_schema, _opts.inverted_index_file_writer,

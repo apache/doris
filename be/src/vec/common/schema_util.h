@@ -136,8 +136,14 @@ TabletColumn create_sparse_column(const TabletColumn& variant);
 // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
 
+// Check if the path stats are consistent between inputs rowsets and output rowset.
+// Used to check the correctness of compaction.
+Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
+                        int64_t tablet_id);
+
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                             segment_v2::VariantStatisticsPB* stats);
+                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             size_t num_rows);
 
 } // namespace  doris::vectorized::schema_util

@@ -724,6 +724,36 @@ void get_subpaths(const TabletColumn& variant,
     }
 }
 
+Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
+                        int64_t tablet_id) {
+    std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
+    for (const auto& rs : intputs) {
+        RETURN_IF_ERROR(collect_path_stats(rs, original_uid_to_path_stats));
+    }
+    std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
+    RETURN_IF_ERROR(collect_path_stats(output, output_uid_to_path_stats));
+    for (const auto& [uid, stats] : original_uid_to_path_stats) {
+        if (output_uid_to_path_stats.find(uid) == output_uid_to_path_stats.end()) {
+            return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
+                                         tablet_id);
+        }
+        if (stats.size() != output_uid_to_path_stats.at(uid).size()) {
+            return Status::InternalError("Path stats size not match for uid {}, tablet_id {}", uid,
+                                         tablet_id);
+        }
+        for (const auto& [path, size] : stats) {
+            if (output_uid_to_path_stats.at(uid).at(path) != size) {
+                return Status::InternalError(
+                        "Path stats not match for uid {} with path `{}`, input size {}, output "
+                        "size {}, "
+                        "tablet_id {}",
+                        uid, path, size, output_uid_to_path_stats.at(uid).at(path), tablet_id);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 // Build the temporary schema for compaction
 // 1. collect path stats from all rowsets
 // 2. get the subpaths and sparse paths for each unique id
@@ -763,7 +793,8 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
             subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
             subcolumn.set_parent_unique_id(column->unique_id());
-            subcolumn.set_path_info(PathInData(column->name_lower_case() + "." + subpath.to_string()));
+            subcolumn.set_path_info(
+                    PathInData(column->name_lower_case() + "." + subpath.to_string()));
             subcolumn.set_aggregation_method(column->aggregation());
             subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
             subcolumn.set_is_nullable(true);
@@ -783,7 +814,8 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                             segment_v2::VariantStatisticsPB* stats) {
+                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             size_t num_rows) {
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
 
@@ -793,21 +825,25 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
     // Get the keys column which contains the paths as strings
     const auto& sparse_data_paths =
             assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
-
+    const auto& serialized_sparse_column_offsets =
+            assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
     // Iterate through all paths in the sparse column
-    for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
-        auto path = sparse_data_paths->get_data_at(i);
-
-        // If path already exists in statistics, increment its count
-        if (auto it = sparse_data_paths_statistics.find(path);
-            it != sparse_data_paths_statistics.end()) {
-            ++it->second;
-        }
-        // If path doesn't exist and we haven't hit the max statistics size limit,
-        // add it with count 1
-        else if (sparse_data_paths_statistics.size() <
-                 VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
-            sparse_data_paths_statistics.emplace(path, 1);
+    for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
+        size_t offset = serialized_sparse_column_offsets[i - 1];
+        size_t end = serialized_sparse_column_offsets[i];
+        for (size_t j = offset; j != end; ++j) {
+            auto path = sparse_data_paths->get_data_at(j);
+            // If path already exists in statistics, increment its count
+            if (auto it = sparse_data_paths_statistics.find(path);
+                it != sparse_data_paths_statistics.end()) {
+                ++it->second;
+            }
+            // If path doesn't exist and we haven't hit the max statistics size limit,
+            // add it with count 1
+            else if (sparse_data_paths_statistics.size() <
+                     VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+                sparse_data_paths_statistics.emplace(path, 1);
+            }
         }
     }
 
@@ -815,13 +851,11 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
     // This maps each path string to its frequency count
     for (const auto& [path, size] : sparse_data_paths_statistics) {
         const auto& sparse_path = path.to_string();
-        auto it = stats->sparse_column_non_null_size().find(sparse_path);
-        if (it == stats->sparse_column_non_null_size().end()) {
-            stats->mutable_sparse_column_non_null_size()->emplace(sparse_path, size);
+        auto& count_map = *stats->mutable_sparse_column_non_null_size();
+        if (auto it = count_map.find(sparse_path); it != count_map.end()) {
+            it->second += size;
         } else {
-            size_t original_size = it->second;
-            stats->mutable_sparse_column_non_null_size()->emplace(sparse_path,
-                                                                  original_size + size);
+            count_map.emplace(sparse_path, size);
         }
     }
 }

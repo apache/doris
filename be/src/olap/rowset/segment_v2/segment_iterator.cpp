@@ -2024,7 +2024,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
     // Clear the sparse column cache before processing a new batch
-    _opts.sparse_column_cache = nullptr;
+    _opts.sparse_column_cache.clear();
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());

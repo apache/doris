@@ -172,7 +172,7 @@ protected:
     vectorized::MutableColumnPtr _sparse_column;
     StorageReadOptions* _read_opts; // Shared cache pointer
     std::unique_ptr<ColumnIterator> _sparse_column_reader;
-
+    const TabletColumn& _col;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
@@ -182,8 +182,9 @@ protected:
                                                      size_t num_rows) = 0;
 
 public:
-    BaseSparseColumnProcessor(std::unique_ptr<ColumnIterator>&& reader, StorageReadOptions* opts)
-            : _read_opts(opts), _sparse_column_reader(std::move(reader)) {
+    BaseSparseColumnProcessor(std::unique_ptr<ColumnIterator>&& reader, StorageReadOptions* opts,
+                              const TabletColumn& col)
+            : _read_opts(opts), _sparse_column_reader(std::move(reader)), _col(col) {
         _sparse_column = vectorized::ColumnObject::create_sparse_column_fn();
     }
 
@@ -208,15 +209,17 @@ public:
     Status _process_batch(ReadMethod&& read_method, size_t nrows,
                           vectorized::MutableColumnPtr& dst) {
         // Cache check and population logic
-        if (_read_opts && _read_opts->sparse_column_cache &&
+        if (_read_opts && _read_opts->sparse_column_cache[_col.parent_unique_id()] &&
             ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type)) {
-            _sparse_column = _read_opts->sparse_column_cache->assume_mutable();
+            _sparse_column =
+                    _read_opts->sparse_column_cache[_col.parent_unique_id()]->assume_mutable();
         } else {
             _sparse_column->clear();
             RETURN_IF_ERROR(read_method());
 
             if (_read_opts) {
-                _read_opts->sparse_column_cache = _sparse_column->assume_mutable();
+                _read_opts->sparse_column_cache[_col.parent_unique_id()] =
+                        _sparse_column->get_ptr();
             }
         }
 
@@ -231,6 +234,14 @@ public:
         }
         return Status::OK();
     }
+};
+
+// Implementation for path extraction processor
+class SparseColumnExtractReader : public BaseSparseColumnProcessor {
+public:
+    SparseColumnExtractReader(std::string_view path, std::unique_ptr<ColumnIterator> reader,
+                              StorageReadOptions* opts, const TabletColumn& col)
+            : BaseSparseColumnProcessor(std::move(reader), opts, col), _path(path) {}
 
     // Batch processing using template method
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
@@ -248,14 +259,6 @@ public:
                 },
                 count, dst);
     }
-};
-
-// Implementation for path extraction processor
-class SparseColumnExtractReader : public BaseSparseColumnProcessor {
-public:
-    SparseColumnExtractReader(std::string_view path, std::unique_ptr<ColumnIterator> reader,
-                              StorageReadOptions* opts)
-            : BaseSparseColumnProcessor(std::move(reader), opts), _path(path) {}
 
 private:
     std::string _path;
@@ -280,8 +283,8 @@ public:
     SparseColumnMergeReader(const TabletSchema::PathSet& path_map,
                             std::unique_ptr<ColumnIterator>&& sparse_column_reader,
                             SubstreamReaderTree&& src_subcolumns_for_sparse,
-                            StorageReadOptions* opts)
-            : BaseSparseColumnProcessor(std::move(sparse_column_reader), opts),
+                            StorageReadOptions* opts, const TabletColumn& col)
+            : BaseSparseColumnProcessor(std::move(sparse_column_reader), opts, col),
               _src_subcolumn_map(path_map),
               _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
     Status init(const ColumnIteratorOptions& opts) override;
