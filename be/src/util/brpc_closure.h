@@ -25,7 +25,7 @@
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 
