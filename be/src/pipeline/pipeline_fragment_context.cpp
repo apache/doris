@@ -1786,8 +1786,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {

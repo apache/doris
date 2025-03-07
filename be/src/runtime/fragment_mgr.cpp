@@ -672,16 +672,14 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     return Status::OK();
 }
 
-void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    auto query_id = f_context->get_query_id();
+void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     int64 now = duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
-    _pipeline_map.erase({query_id, f_context->get_fragment_id()});
+    _pipeline_map.erase(key);
 }
 
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
