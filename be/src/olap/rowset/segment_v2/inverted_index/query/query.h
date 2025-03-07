@@ -38,6 +38,7 @@ namespace doris::segment_v2 {
 struct InvertedIndexQueryInfo {
     std::wstring field_name;
     std::vector<std::string> terms;
+    std::vector<std::vector<std::string>> additional_terms;
     int32_t slop = 0;
     bool ordered = false;
 

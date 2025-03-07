@@ -17,6 +17,8 @@
 
 #include "phrase_query.h"
 
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <charconv>
 
 #include "CLucene/index/Terms.h"
@@ -27,7 +29,7 @@ namespace doris::segment_v2 {
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher) {}
+        : _searcher(searcher), _disjunction_query(searcher, query_options, io_ctx) {}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.terms.empty()) {
@@ -35,10 +37,7 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     }
 
     if (query_info.terms.size() == 1) {
-        auto* term_pos = TermPositionIterator::ensure_term_position(
-                _searcher->getReader(), query_info.field_name, query_info.terms[0]);
-        _iterators.emplace_back(std::make_shared<TermPositionIterator>(term_pos));
-        _lead1 = &_iterators.at(0);
+        _disjunction_query.add(query_info);
         return;
     }
 
@@ -171,26 +170,11 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
     if (_lead1 == nullptr) {
+        _disjunction_query.search(roaring);
         return;
     }
-    if (_lead2 == nullptr) {
-        search_by_bitmap(roaring);
-        return;
-    }
-    search_by_skiplist(roaring);
-}
 
-void PhraseQuery::search_by_bitmap(roaring::Roaring& roaring) {
-    if (auto* term_iter = std::get_if<TermPosIterPtr>(_lead1)) {
-        DocRange doc_range;
-        while ((*term_iter)->read_range(&doc_range)) {
-            if (doc_range.type_ == DocRangeType::kMany) {
-                roaring.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
-            } else {
-                roaring.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
-            }
-        }
-    }
+    search_by_skiplist(roaring);
 }
 
 void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
@@ -240,17 +224,9 @@ int32_t PhraseQuery::do_next(int32_t doc) {
 }
 
 bool PhraseQuery::matches(int32_t doc) {
-    return std::visit(
-            [&doc](auto&& m) -> bool {
-                using T = std::decay_t<decltype(m)>;
-                if constexpr (std::is_same_v<T, PhraseQueryPtr>) {
-                    _CLTHROWA(CL_ERR_IllegalArgument,
-                              "PhraseQueryPtr does not support matches function");
-                } else {
-                    return m.matches(doc);
-                }
-            },
-            _matcher);
+    return std::ranges::all_of(_matchers, [&doc](auto&& matcher) {
+        return std::visit([&doc](auto&& m) -> bool { return m.matches(doc); }, matcher);
+    });
 }
 
 void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_info) {
@@ -291,26 +267,6 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
                     query = query.substr(0, last_space_pos);
                 }
             } while (false);
-        }
-    }
-}
-
-void PhraseQuery::parser_info(std::string& query, const std::string& field_name,
-                              InvertedIndexQueryType query_type,
-                              const std::map<std::string, std::string>& properties,
-                              InvertedIndexQueryInfo& query_info, bool sequential_opt) {
-    parser_slop(query, query_info);
-    query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            query, field_name, query_type, properties);
-    if (sequential_opt && query_info.ordered) {
-        std::vector<std::string> t_querys;
-        boost::split(t_querys, query, boost::algorithm::is_any_of(" "));
-        for (auto& t_query : t_querys) {
-            auto terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    t_query, field_name, query_type, properties);
-            if (terms.size() >= 2) {
-                query_info.additional_terms.emplace_back(std::move(terms));
-            }
         }
     }
 }

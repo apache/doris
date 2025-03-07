@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/exact_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/ordered_sloppy_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
@@ -46,8 +47,6 @@ public:
     void search(roaring::Roaring& roaring) override;
 
 private:
-    // Use bitmap for merging inverted lists
-    void search_by_bitmap(roaring::Roaring& roaring);
     // Use skiplist for merging inverted lists
     void search_by_skiplist(roaring::Roaring& roaring);
 
@@ -65,6 +64,8 @@ public:
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+
+    DisjunctionQuery _disjunction_query;
 
     DISI* _lead1 = nullptr;
     DISI* _lead2 = nullptr;
