@@ -43,6 +43,8 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
+// The rpc function has now been deprecated to avoid compilation checks.
 
 #define error_default_str "#$@"
 
@@ -393,4 +395,5 @@ private:
     DataTypePtr _return_type;
 };
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
