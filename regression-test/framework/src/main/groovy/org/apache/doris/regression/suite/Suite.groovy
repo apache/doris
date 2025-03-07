@@ -17,6 +17,12 @@
 
 package org.apache.doris.regression.suite
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+
 import static java.util.concurrent.TimeUnit.SECONDS
 
 import com.google.common.base.Strings
@@ -95,6 +101,8 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
     static Boolean isTrinoConnectorDownloaded = false
+
+    private AmazonS3 s3Client = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -443,8 +451,10 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> insert_into_sql(String sqlStr, int num) {
         if (context.useArrowFlightSql()) {
+            logger.info("Use arrow flight sql")
             return arrow_flight_insert_into_sql(sqlStr, num)
         } else {
+            logger.info("Use jdbc insert into")
             return jdbc_insert_into_sql(sqlStr, num)
         }
     }
@@ -792,6 +802,25 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void waitForBrokerLoadDone(String label, int timeoutInSecond = 60) {
+        if (timeoutInSecond < 0 || label == null) {
+            return
+        }
+        var start = System.currentTimeMillis()
+        var timeout = timeoutInSecond * 1000
+        while (System.currentTimeMillis() - start < timeout) {
+            def lists = sql "show load where label = '${label}'"
+            if (lists.isEmpty()) {
+                return
+            }
+            def state = lists[0][2]
+            if ("FINISHED".equals(state) || "CANCELLED".equals(state)) {
+                return
+            }
+            sleep(300)
+        }
+        logger.warn("broker load with label `${label}` didn't finish in ${timeoutInSecond} second, please check it!")
+    }
 
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
@@ -961,6 +990,16 @@ class Suite implements GroovyInterceptable {
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
+    }
+
+    synchronized AmazonS3 getS3Client() {
+        if (s3Client == null) {
+            def credentials = new BasicAWSCredentials(getS3AK(), getS3SK())
+            def endpointConfiguration = new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region())
+            s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+        }
+        return s3Client
     }
 
     String getJdbcPassword() {

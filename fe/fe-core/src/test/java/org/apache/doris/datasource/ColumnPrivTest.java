@@ -320,7 +320,13 @@ public class ColumnPrivTest extends TestWithFeService {
             }
 
             @Override
-            public boolean checkCloudPriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted, ResourceTypeEnum type) {
+            public boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted, ResourceTypeEnum type) {
+                return false;
+            }
+
+            @Override
+            public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName,
+                    PrivPredicate wanted) {
                 return false;
             }
 
