@@ -391,11 +391,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
  * @param pool The thread pool that would execute the compaction task
  * @return true if the submission should be delayed, false otherwise
  */
-bool CloudCumulativeCompaction::should_delay_submission(const std::unique_ptr<ThreadPool>& pool) {
-    if (pool->max_threads() < config::min_threads_for_cumu_delay_strategy) {
-        return false;
-    }
-    int64 remaining_threads = pool->max_threads() - pool->num_active_threads();
+bool CloudCumulativeCompaction::should_delay_submission(int remaining_threads) {
     if (remaining_threads > 1) {
         return false;
     }

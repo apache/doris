@@ -643,12 +643,6 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     }
     auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
     auto st = compaction->prepare_compact();
-    {
-        std::lock_guard lock(_compaction_mtx);
-        if (compaction->should_delay_submission(_cumu_compaction_thread_pool)) {
-            st = Status::TooManyTasks("cumu thread pool is intensive, delay big task.");
-        }
-    }
     if (!st.ok()) {
         long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
@@ -683,6 +677,25 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_remaining_threads--;
+        });
+        {
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_remaining_threads++;
+            if (_cumu_compaction_thread_pool->max_threads() >=
+                config::min_threads_for_cumu_delay_strategy) {
+                if (compaction->should_delay_submission(
+                            _cumu_compaction_thread_pool_remaining_threads)) {
+                    long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+                                       .count();
+                    tablet->set_last_cumu_compaction_failure_time(now);
+                    erase_submitted_cumu_compaction();
+                    return;
+                }
+            }
+        }
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`

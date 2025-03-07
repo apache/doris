@@ -527,6 +527,9 @@ private:
     std::mutex _cold_compaction_tablet_submitted_mtx;
     std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
+    std::mutex _cumu_compaction_delay_mtx;
+    int _cumu_compaction_thread_pool_remaining_threads;
+
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
