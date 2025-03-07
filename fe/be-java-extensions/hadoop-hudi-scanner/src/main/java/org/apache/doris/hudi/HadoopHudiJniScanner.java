@@ -54,6 +54,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -140,6 +144,27 @@ public class HadoopHudiJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
+            // so use another process to kill this stuck process.
+            // TODO(gaoxin): better way to solve the stuck process?
+            AtomicBoolean isKilled = new AtomicBoolean(false);
+            ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+            executorService.scheduleAtFixedRate(() -> {
+                if (!isKilled.get()) {
+                    synchronized (HadoopHudiJniScanner.class) {
+                        List<Long> pids = Utils.getChildProcessIds(
+                                Utils.getCurrentProcId());
+                        for (long pid : pids) {
+                            String cmd = Utils.getCommandLine(pid);
+                            if (cmd != null && cmd.contains("org.openjdk.jol.vm.sa.AttachMain")) {
+                                Utils.killProcess(pid);
+                                isKilled.set(true);
+                                LOG.info("Kill hotspot debugger process " + pid);
+                            }
+                        }
+                    }
+                }
+            }, 100, 1000, TimeUnit.MILLISECONDS);
             preExecutionAuthenticator.execute(() -> {
                 initRequiredColumnsAndTypes();
                 initTableInfo(requiredTypes, requiredFields, fetchSize);
@@ -147,7 +172,8 @@ public class HadoopHudiJniScanner extends JniScanner {
                 initReader(properties);
                 return null;
             });
-
+            isKilled.set(true);
+            executorService.shutdownNow();
         } catch (Exception e) {
             close();
             LOG.warn("failed to open hadoop hudi jni scanner", e);
