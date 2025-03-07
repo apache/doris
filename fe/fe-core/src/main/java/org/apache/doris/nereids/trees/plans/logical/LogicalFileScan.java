@@ -59,7 +59,6 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
-        tableSnapshot.ifPresent(s -> ConnectContext.get().getStatementContext().setQueryTableSnapshot(table, s));
     }
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
