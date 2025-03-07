@@ -1294,7 +1294,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& ipv6_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& [ipv6_column, ipv6_const] =
                 unpack_if_const(ipv6_column_with_type_and_name.column);
