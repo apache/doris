@@ -206,7 +206,8 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         // don't use `getScope()` because we only need `getScope().getOuterScope()` and `getScope().getSlots()`
         // otherwise unexpected errors may occur
-        Scope subqueryScope = new Scope(getScope().getOuterScope(), getScope().getSlots());
+        Scope subqueryScope = new Scope(getScope().getOuterScope(),
+                getScope().getSlots(), getScope().getAsteriskSlots());
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();
         return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),

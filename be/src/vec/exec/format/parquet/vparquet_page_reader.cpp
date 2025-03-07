@@ -37,7 +37,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 static constexpr size_t INIT_PAGE_HEADER_SIZE = 128;
 
 std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
@@ -78,7 +78,7 @@ Status PageReader::_parse_page_header() {
         }
         header_size = std::min(header_size, max_size);
         RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
-        real_header_size = header_size;
+        real_header_size = cast_set<uint32_t>(header_size);
         SCOPED_RAW_TIMER(&_statistics.decode_header_time);
         auto st =
                 deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
@@ -123,4 +123,6 @@ Status PageReader::get_page_data(Slice& slice) {
     _state = INITIALIZED;
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

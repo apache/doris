@@ -198,7 +198,7 @@ public class StatisticsRepository {
         return size == 0 ? null : rows.get(0);
     }
 
-    private static Histogram queryColumnHistogramByName(
+    public static Histogram queryColumnHistogramByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
         ResultRow resultRow = queryColumnHistogramById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {

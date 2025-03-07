@@ -335,6 +335,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         }
     }
 
+    public Thread getCommitLockOwner() {
+        return this.commitLock.getOwner();
+    }
+
     public void commitUnlock() {
         this.commitLock.unlock();
     }

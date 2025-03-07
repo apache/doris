@@ -720,7 +720,7 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
@@ -883,7 +883,7 @@ struct ConvertImplFromJsonb {
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     null_map[i] = 1;
                     res[i] = 0;

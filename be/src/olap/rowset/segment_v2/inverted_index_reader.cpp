@@ -1171,7 +1171,8 @@ Status InvertedIndexIterator::read_from_inverted_index(
                     try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
             if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+                        "hit count: {}, bkd inverted reached limit {}% , segment num "
+                        "rows:{}", // add blackspace after % to avoid log4j format bug
                         hit_count, query_bkd_limit_percent, segment_num_rows);
             }
         }

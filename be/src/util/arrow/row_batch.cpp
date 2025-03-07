@@ -104,8 +104,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         }
         break;
     case TYPE_DECIMALV2:
-        *result = std::make_shared<arrow::Decimal128Type>(27, 9);
-        break;
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:

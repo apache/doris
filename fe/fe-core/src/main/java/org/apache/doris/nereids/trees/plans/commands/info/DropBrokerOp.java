@@ -27,7 +27,7 @@ import java.util.List;
  */
 public class DropBrokerOp extends BrokerOp {
     public DropBrokerOp(String brokerName, List<String> hostPorts) {
-        super(ModifyOp.OP_ADD, brokerName, hostPorts);
+        super(ModifyOp.OP_DROP, brokerName, hostPorts);
     }
 
     @Override
