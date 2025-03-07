@@ -1124,7 +1124,9 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         DCHECK_GT(num_senders, 0);
         op.reset(new ExchangeSourceOperatorX(pool, tnode, next_operator_id(), descs, num_senders));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        if (request.__isset.parallel_instances) {
+        // FIXME:
+        if (request.__isset.parallel_instances && tnode.exchange_node.__isset.partition_type &&
+            tnode.exchange_node.partition_type != TPartitionType::UNPARTITIONED) {
             op->set_ignore_data_distribution();
             cur_pipe->set_num_tasks(request.parallel_instances);
         }
