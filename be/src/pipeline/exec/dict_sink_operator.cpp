@@ -119,8 +119,8 @@ DictSinkOperatorX::DictSinkOperatorX(int operator_id, const RowDescriptor& row_d
           _skip_null_key(dict_sink.skip_null_key),
           _memory_limit(dict_sink.memory_limit) {}
 
-Status DictSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
+Status DictSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
     if (_value_output_expr_slots.size() != _value_names.size()) {
         return Status::InternalError("value_output_expr_slots.size() != value_names.size()");
     }

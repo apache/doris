@@ -48,7 +48,7 @@ public:
     using Base = DataSinkOperatorX<DictSinkLocalState>;
     DictSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                       const std::vector<TExpr>& dict_input_expr, const TDictionarySink& dict_sink);
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 

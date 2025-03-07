@@ -436,11 +436,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         lockRead();
         boolean unlocked = false;
         try {
-            if (!dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
+            if (!dictionaryIds.containsKey(dictionary.getDbName())
+                    || !dictionaryIds.get(dictionary.getDbName()).containsKey(dictionary.getName())) {
                 unlockRead();
                 unlocked = true;
 
-                // WITHOUT LOCK HERE
+                // WITHOUT LOCK HERE. MUST NOT THROW BEFORE HERE!!!
                 dictionary.trySetStatus(oldStatus); // revert status.
                 // already dropped. abort temporary version without lock.
                 // haven't increase version so use getVersion() + 1
