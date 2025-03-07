@@ -34,6 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
+#include "util/url_coding.h"
 #include "vec/columns/column_decimal.h"
 
 namespace doris {
@@ -312,6 +313,63 @@ TEST_F(BloomFilterFuncTest, Merge) {
 
     st = bloom_filter_func3.merge(&bloom_filter_func);
     ASSERT_FALSE(st);
+}
+
+/// The purpose of this case is to detect changes after modifying the Bloom filter algorithm to prevent compatibility issues.
+TEST_F(BloomFilterFuncTest, HashAlgorithm) {
+    std::string BloomFilterBinary =
+            "AAAAQAAAAIAACAAAAABAACAAAAAAQAAAAQAAAACAAAAAACAEAACAAgAACAQEAAAgAASAAAABAgAAEAAIDAAAAA"
+            "CQAQAAYgAAAAIBAiBAgAABAgBABAAICAAABCGAAIABBAAAAAAAIABAAAAACAAAAAAAABAAQAAAAAAAIBAAAAAA"
+            "AQAiABEAAQBAIgAAgBAQEEAAACACAQAABEgAAggAAQAAAUAQAAEQECCAAABAAIgHAAAACAEAAgAJQABAIAEAAA"
+            "gAAEAAAAAAEAAAAAAQAAABAAAQAAAAAEAAAAAEAACAEAAAAAUAAAAAIBAgCAAAQAAIAAAACBAIABAAAAAABg";
+    BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
+    const size_t runtime_length = 1024;
+    RuntimeFilterParams params {1,
+                                RuntimeFilterType::BLOOM_FILTER,
+                                PrimitiveType::TYPE_INT,
+                                false,
+                                0,
+                                0,
+                                0,
+                                256,
+                                0,
+                                0,
+                                false,
+                                false};
+    bloom_filter_func.init_params(&params);
+
+    ASSERT_TRUE(bloom_filter_func.init_with_fixed_length(runtime_length));
+
+    auto column = vectorized::ColumnHelper::create_column<vectorized::DataTypeInt32>(
+            {1, 3, 5, 7, 9, 12, 14, 16, 2001, 2002, 2003, 4096, 4097, 4098, 4099, 4100});
+
+    bloom_filter_func.insert_fixed_len(column, 0);
+
+    char* data = nullptr;
+    int size;
+    bloom_filter_func.get_data(&data, &size);
+
+    std::string encode_string;
+    base64_encode(std::string(data, size), &encode_string);
+    ASSERT_EQ(strlen(BloomFilterBinary.c_str()), strlen(encode_string.c_str()));
+    ASSERT_EQ(memcmp(BloomFilterBinary.data(), encode_string.data(),
+                     strlen(BloomFilterBinary.c_str())),
+              0);
+
+    params.enable_fixed_len_to_uint32_v2 = true;
+
+    BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func2(false);
+    bloom_filter_func2.init_params(&params);
+    ASSERT_TRUE(bloom_filter_func2.init_with_fixed_length(runtime_length));
+
+    bloom_filter_func2.insert_fixed_len(column, 0);
+    bloom_filter_func.get_data(&data, &size);
+    base64_encode(std::string(data, size), &encode_string);
+
+    ASSERT_EQ(strlen(BloomFilterBinary.c_str()), strlen(encode_string.c_str()));
+    ASSERT_EQ(memcmp(BloomFilterBinary.data(), encode_string.data(),
+                     strlen(BloomFilterBinary.c_str())),
+              0);
 }
 
 TEST_F(BloomFilterFuncTest, MergeLargeData) {
