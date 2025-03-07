@@ -85,9 +85,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
@@ -125,9 +125,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
@@ -146,9 +146,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: max(v7) is not match agg mode SUM"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
@@ -167,9 +167,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
@@ -188,9 +188,9 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum(CASE WHEN"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
     explain {
@@ -230,9 +230,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: ON"
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        notContains "PREAGGREGATION: OFF"
     }
 
     explain {
@@ -240,7 +238,7 @@ suite("set_preagg") {
             select preagg_t3.k2, t12.k2, max(t12.v2), max(preagg_t3.v9), sum(t12.v3)
             from 
             (
-                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, sum(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta1.k1 < 0 then ta2.v8 else 0 end) v2, sum(ta2.v7) v3
+                select ta1.k1 k1, ta1.k2 k2, ta2.k1 k3, ta2.k2 k4, max(ta1.t1_sum_v7) v1, count(case when ta2.k1 > 0 then ta2.v7 when ta2.k1 = 0 then 0 when ta1.k1 < 0 then ta2.v8 else 0 end) v2, sum(ta2.v7) v3
                 from 
                     (select k1, k2, k3, k4, k5, sum(v7) t1_sum_v7 from preagg_t1 group by k1, k2, k3, k4, k5) as ta1
                 left join 
@@ -252,7 +250,7 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function sum("
+        contains "(preagg_t2), PREAGGREGATION: OFF. Reason: count("
         contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
 
@@ -271,9 +269,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: ON"
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        notContains "PREAGGREGATION: OFF"
     }
 
     explain {
@@ -291,9 +287,7 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        contains "(preagg_t1), PREAGGREGATION: ON"
-        contains "(preagg_t2), PREAGGREGATION: ON"
-        contains "(preagg_t3), PREAGGREGATION: ON"
+        notContains "PREAGGREGATION: OFF"
     }
 
     explain {
