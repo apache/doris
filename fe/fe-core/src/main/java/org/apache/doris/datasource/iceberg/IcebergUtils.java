@@ -55,6 +55,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -759,7 +760,7 @@ public class IcebergUtils {
         return snapshotId;
     }
 
-    public static IcebergSchemaCacheValue getIcebergSchemaCacheValue(
+    public static SchemaCacheValue getIcebergSchemaCacheValue(
             ExternalCatalog catalog, String dbName, String name, long schemaId) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
@@ -768,7 +769,12 @@ public class IcebergUtils {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                 null, catalog.getName(), dbName, name, schemaId);
         }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        return schemaCacheValue.get();
+    }
+
+    public static PartitionColumnsCache getIcebergPartitionColumnsCache(
+            ExternalCatalog catalog, String dbName, String name, long schemaId) {
+        return (PartitionColumnsCache) IcebergUtils.getIcebergSchemaCacheValue(catalog, dbName, name, schemaId);
     }
 
     public static IcebergSnapshot getLastedIcebergSnapshot(ExternalCatalog catalog, String dbName, String tbName) {
@@ -793,7 +799,7 @@ public class IcebergUtils {
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
-        List<Column> partitionColumns = IcebergUtils.getIcebergSchemaCacheValue(
+        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumnsCache(
                 catalog, dbName, tbName, table.snapshot(snapshotId).schemaId()).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
