@@ -47,7 +47,10 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
@@ -80,6 +83,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -720,5 +724,17 @@ public class IcebergUtils {
             }
         }
         return snapshotId;
+    }
+
+    public static IcebergSchemaCacheValue getIcebergSchemaCacheValue(
+            ExternalCatalog catalog, String dbName, String name, long schemaId) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
+            new IcebergSchemaCacheKey(dbName, name, schemaId));
+        if (!schemaCacheValue.isPresent()) {
+            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
+                null, catalog.getName(), dbName, name, schemaId);
+        }
+        return (IcebergSchemaCacheValue) schemaCacheValue.get();
     }
 }

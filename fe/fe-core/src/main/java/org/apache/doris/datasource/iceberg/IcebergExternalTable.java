@@ -28,8 +28,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.CacheException;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -211,7 +209,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
-        IcebergSchemaCacheValue schemaValue = getIcebergSchemaCacheValue(snapshotValue.getSnapshot().getSchemaId());
+        IcebergSchemaCacheValue schemaValue = IcebergUtils.getIcebergSchemaCacheValue(
+                catalog, getDbName(), getName(), snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
     }
 
@@ -301,12 +300,15 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         IcebergSnapshotCacheValue cacheValue = getOrFetchSnapshotCacheValue(snapshotFromContext);
         if (snapshotId > 0) {
             if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {
-                return getIcebergSchemaCacheValue(cacheValue.getSnapshot().getSchemaId()).getSchema();
+                return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), cacheValue.getSnapshot().getSchemaId()).getSchema();
             } else {
-                return getIcebergSchemaCacheValue(getIcebergTable().snapshot(snapshotId).schemaId()).getSchema();
+                return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), getIcebergTable().snapshot(snapshotId).schemaId()).getSchema();
             }
         }
-        return getIcebergSchemaCacheValue(cacheValue.getSnapshot().getNewestSchemaId()).getSchema();
+        return IcebergUtils.getIcebergSchemaCacheValue(
+                catalog, getDbName(), getName(), cacheValue.getSnapshot().getNewestSchemaId()).getSchema();
     }
 
     @Override
@@ -314,16 +316,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return true;
     }
 
-    public IcebergSchemaCacheValue getIcebergSchemaCacheValue(long schemaId) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-            new IcebergSchemaCacheKey(dbName, name, schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                null, catalog.getName(), dbName, name, schemaId);
-        }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
-    }
 
     public IcebergPartitionInfo loadPartitionInfo(long snapshotId) throws AnalysisException {
         // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
@@ -334,7 +326,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         table = getIcebergTable();
-        partitionColumns = getIcebergSchemaCacheValue(table.snapshot(snapshotId).schemaId()).getPartitionColumns();
+        partitionColumns = IcebergUtils.getIcebergSchemaCacheValue(
+            catalog, getDbName(), getName(), table.snapshot(snapshotId).schemaId()).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();

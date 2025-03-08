@@ -37,8 +37,11 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
@@ -563,6 +566,33 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         return initSchemaAndUpdateTime();
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        Table icebergTable = IcebergUtils.getIcebergTable(catalog, dbName, name);
+        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
+        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
+        long snapshotId = IcebergUtils.getQuerySpecSnapshot(icebergTable, queryTableSnapshot);
+        IcebergSnapshotCacheValue cacheValue;
+        if (snapshotFromContext.isPresent()) {
+            cacheValue = ((IcebergMvccSnapshot) snapshotFromContext.get()).getSnapshotCacheValue();
+        } else {
+            cacheValue = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+                .getSnapshotCache(catalog, dbName, name);
+        }
+        if (snapshotId > 0) {
+            if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {
+                return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), cacheValue.getSnapshot().getSchemaId()).getSchema();
+            } else {
+                return IcebergUtils.getIcebergSchemaCacheValue(
+                        catalog, getDbName(), getName(), icebergTable.snapshot(snapshotId).schemaId()).getSchema();
+
+            }
+        }
+        return IcebergUtils.getIcebergSchemaCacheValue(
+                catalog, getDbName(), getName(), cacheValue.getSnapshot().getNewestSchemaId()).getSchema();
     }
 
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
