@@ -1132,35 +1132,38 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public boolean isValidRelatedTable() {
         makeSureInitialized();
-        if (isValidRelatedTableCached) {
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            if (isValidRelatedTableCached) {
+                return isValidRelatedTable;
+            }
+            isValidRelatedTable = false;
+            Set<String> allFields = Sets.newHashSet();
+            Table table = IcebergUtils.getIcebergTable(catalog, dbName, name);
+            for (PartitionSpec spec : table.specs().values()) {
+                if (spec == null) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                List<PartitionField> fields = spec.fields();
+                if (fields.size() != 1) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                PartitionField partitionField = spec.fields().get(0);
+                String transformName = partitionField.transform().toString();
+                if (!IcebergUtils.YEAR.equals(transformName)
+                        && !IcebergUtils.MONTH.equals(transformName)
+                        && !IcebergUtils.DAY.equals(transformName)
+                        && !IcebergUtils.HOUR.equals(transformName)) {
+                    isValidRelatedTableCached = true;
+                    return false;
+                }
+                allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+            }
+            isValidRelatedTableCached = true;
+            isValidRelatedTable = allFields.size() == 1;
             return isValidRelatedTable;
         }
-        isValidRelatedTable = false;
-        Set<String> allFields = Sets.newHashSet();
-        table = getIcebergTable();
-        for (PartitionSpec spec : table.specs().values()) {
-            if (spec == null) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            List<PartitionField> fields = spec.fields();
-            if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            PartitionField partitionField = spec.fields().get(0);
-            String transformName = partitionField.transform().toString();
-            if (!IcebergUtils.YEAR.equals(transformName)
-                    && !IcebergUtils.MONTH.equals(transformName)
-                    && !IcebergUtils.DAY.equals(transformName)
-                    && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
-        }
-        isValidRelatedTableCached = true;
-        isValidRelatedTable = allFields.size() == 1;
-        return isValidRelatedTable;
+        return true;
     }
 }
