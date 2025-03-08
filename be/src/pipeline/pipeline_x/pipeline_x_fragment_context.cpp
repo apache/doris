@@ -937,12 +937,22 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                         : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
-        shared_state->exchanger = BroadcastExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
-                        : 0);
-        break;
+        if (_runtime_state->enable_share_hash_table_for_broadcast_join()) {
+            // If shared hash table is enabled for BJ, hash table will be built by only one task
+            shared_state->exchanger = PassToOneExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? cast_set<int>(_runtime_state->query_options()
+                                                    .local_exchange_free_blocks_limit)
+                            : 0);
+        } else {
+            shared_state->exchanger = BroadcastExchanger::create_unique(
+                    cur_pipe->num_tasks(), _num_instances,
+                    _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
+                            ? cast_set<int>(_runtime_state->query_options()
+                                                    .local_exchange_free_blocks_limit)
+                            : 0);
+        }
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
@@ -1124,9 +1134,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         DCHECK_GT(num_senders, 0);
         op.reset(new ExchangeSourceOperatorX(pool, tnode, next_operator_id(), descs, num_senders));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        // FIXME:
-        if (request.__isset.parallel_instances && tnode.exchange_node.__isset.partition_type &&
-            tnode.exchange_node.partition_type != TPartitionType::UNPARTITIONED) {
+        if (request.__isset.parallel_instances) {
             op->set_ignore_data_distribution();
             cur_pipe->set_num_tasks(request.parallel_instances);
         }
