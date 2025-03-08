@@ -116,7 +116,7 @@ suite("mv_scan_table") {
     insert into partsupp values
     (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
-    
+
     """
 
     sql """analyze table orders with sync;"""
@@ -124,8 +124,8 @@ suite("mv_scan_table") {
     sql """analyze table partsupp with sync;"""
 
     sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
-   sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
-sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // with filter
     def mv1_0 =
@@ -186,4 +186,18 @@ sql """alter table partsupp modify column ps_comment set stats ('row_count'='2')
     async_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
+
+    def mv1_4 =
+            """
+        select *
+        from lineitem
+        """
+    def query1_4 = """
+        select *
+        from lineitem
+        """
+    order_qt_query1_4_before "${query1_4}"
+    async_mv_rewrite_success_without_check_chosen(db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 }
