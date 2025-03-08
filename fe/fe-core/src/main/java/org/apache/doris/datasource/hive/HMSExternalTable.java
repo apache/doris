@@ -84,6 +84,8 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -175,6 +177,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
+
+    private boolean isValidRelatedTableCached = false;
+    private boolean isValidRelatedTable = false;
 
     /**
      * Create hive metastore external table.
@@ -1123,5 +1128,39 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 getName(),
                 getRemoteTable().getSd().getLocation(),
                 getCatalog().getConfiguration());
+    }
+
+    public boolean isValidRelatedTable() {
+        makeSureInitialized();
+        if (isValidRelatedTableCached) {
+            return isValidRelatedTable;
+        }
+        isValidRelatedTable = false;
+        Set<String> allFields = Sets.newHashSet();
+        table = getIcebergTable();
+        for (PartitionSpec spec : table.specs().values()) {
+            if (spec == null) {
+                isValidRelatedTableCached = true;
+                return false;
+            }
+            List<PartitionField> fields = spec.fields();
+            if (fields.size() != 1) {
+                isValidRelatedTableCached = true;
+                return false;
+            }
+            PartitionField partitionField = spec.fields().get(0);
+            String transformName = partitionField.transform().toString();
+            if (!IcebergUtils.YEAR.equals(transformName)
+                    && !IcebergUtils.MONTH.equals(transformName)
+                    && !IcebergUtils.DAY.equals(transformName)
+                    && !IcebergUtils.HOUR.equals(transformName)) {
+                isValidRelatedTableCached = true;
+                return false;
+            }
+            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+        }
+        isValidRelatedTableCached = true;
+        isValidRelatedTable = allFields.size() == 1;
+        return isValidRelatedTable;
     }
 }
