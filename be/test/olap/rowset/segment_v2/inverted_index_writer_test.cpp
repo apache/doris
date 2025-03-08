@@ -157,7 +157,7 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.enable_inverted_index_query = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
         auto reader = std::make_shared<InvertedIndexFileReader>(
@@ -350,7 +350,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->write_v2();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -418,7 +418,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->write_v2();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -484,7 +484,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->write_v2();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -560,7 +560,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->write_v2();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -577,7 +577,7 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
+        query_options.enable_inverted_index_query = false;
         runtime_state.set_query_options(query_options);
 
         // Create a reader to verify the index
@@ -745,12 +745,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->write();
+    status = index_file_writer_enabled->write_v2();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->write();
+    status = index_file_writer_disabled->write_v2();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value
@@ -760,7 +760,7 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     OlapReaderStatistics stats;
     RuntimeState runtime_state;
     TQueryOptions query_options;
-    query_options.enable_inverted_index_searcher_cache = false;
+    query_options.enable_inverted_index_query = false;
     runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
