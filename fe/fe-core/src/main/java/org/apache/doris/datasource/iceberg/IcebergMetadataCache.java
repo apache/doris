@@ -26,6 +26,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -136,11 +137,18 @@ public class IcebergMetadataCache {
 
     @NotNull
     private IcebergSnapshotCacheValue loadSnapshot(IcebergMetadataCacheKey key) throws AnalysisException {
-        IcebergExternalTable table = (IcebergExternalTable) key.catalog.getDbOrAnalysisException(key.dbName)
+        MTMVRelatedTableIf table = (MTMVRelatedTableIf) key.catalog.getDbOrAnalysisException(key.dbName)
                 .getTableOrAnalysisException(key.tableName);
-        IcebergSnapshot icebergSnapshot = table.getIcebergSnapshot();
-        IcebergPartitionInfo icebergPartitionInfo = table.loadPartitionInfo(icebergSnapshot.getSnapshotId());
-        return new IcebergSnapshotCacheValue(icebergPartitionInfo, icebergSnapshot);
+        IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(
+                (ExternalCatalog) key.catalog, key.dbName, key.tableName);
+        IcebergPartitionInfo icebergPartitionInfo;
+        if (!table.isValidRelatedTable()) {
+            icebergPartitionInfo = IcebergPartitionInfo.empty();
+        } else {
+            icebergPartitionInfo = IcebergUtils.loadPartitionInfo(
+                (ExternalCatalog) key.catalog, key.dbName, key.tableName, lastedIcebergSnapshot.getSnapshotId());
+        }
+        return new IcebergSnapshotCacheValue(icebergPartitionInfo, lastedIcebergSnapshot);
     }
 
     public void invalidateCatalogCache(long catalogId) {
