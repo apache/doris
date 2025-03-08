@@ -138,6 +138,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
+
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -2097,6 +2099,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableReserveMemory = true;
 
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)
