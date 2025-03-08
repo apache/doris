@@ -144,11 +144,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
     }
 
-    private IcebergSnapshotCacheValue getIcebergSnapshotCacheValue() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
-            .getSnapshotCache(catalog, dbName, name);
-    }
-
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
     }
@@ -247,7 +242,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MvccSnapshot loadSnapshot() {
-        return new IcebergMvccSnapshot(getIcebergSnapshotCacheValue());
+        return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName()));
     }
 
     @Override
@@ -294,7 +289,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return getIcebergSnapshotCacheValue();
+            return IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName());
         }
     }
 }

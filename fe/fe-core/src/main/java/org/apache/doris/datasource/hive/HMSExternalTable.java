@@ -41,6 +41,7 @@ import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -109,7 +110,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
@@ -1165,5 +1166,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return isValidRelatedTable;
         }
         return true;
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot() {
+        if (DLAType.ICEBERG.equals(dlaType)) {
+            return new IcebergMvccSnapshot(
+                IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName()));
+        } else {
+            return null;
+        }
     }
 }

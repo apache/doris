@@ -1011,4 +1011,10 @@ public class IcebergUtils {
             return 0;
         }
     }
+
+    public static IcebergSnapshotCacheValue getIcebergSnapshotCacheValue(
+            ExternalCatalog catalog, String dbName, String tbName) {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
+            .getSnapshotCache(catalog, dbName, tbName);
+    }
 }
