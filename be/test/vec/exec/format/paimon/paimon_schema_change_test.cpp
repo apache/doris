@@ -67,8 +67,7 @@ protected:
         _state = new RuntimeState(TQueryGlobals());
         _io_ctx = new io::IOContext();
         _kv_cache = new ShardedKVCache(10);
-        _schema_file_path =
-                "/mnt/disk1/changyuwei/doris/be/test/exec/test_data/paimon_scanner/schema-0";
+        _schema_file_path = ".be/test/exec/test_data/paimon_scanner/schema-0";
     }
 
     void TearDown() override {
