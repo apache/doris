@@ -82,7 +82,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
-    out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
@@ -239,6 +239,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
@@ -295,6 +296,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
@@ -340,9 +342,11 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
@@ -369,9 +373,11 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB& in) {
@@ -411,9 +417,11 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
@@ -441,9 +449,11 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB& in) {
@@ -477,7 +487,13 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
             doris_rowset_meta_to_cloud(out->add_rs_metas(), rs_meta);
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        out->mutable_inc_rs_metas()->Reserve(in.inc_rs_metas_size());
+        for (const auto& rs_meta : in.inc_rs_metas()) {
+            doris_rowset_meta_to_cloud(out->add_inc_rs_metas(), rs_meta);
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->CopyFrom(in.alter_task());
     }
@@ -541,7 +557,15 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
             doris_rowset_meta_to_cloud(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        size_t rs_metas_size = in.inc_rs_metas_size();
+        out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
+        for (size_t i = 0; i < rs_metas_size; ++i) {
+            doris_rowset_meta_to_cloud(out->add_inc_rs_metas(),
+                                       std::move(*in.mutable_inc_rs_metas(i)));
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->Swap(in.mutable_alter_task());
     }
@@ -618,7 +642,13 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
             cloud_rowset_meta_to_doris(out->add_rs_metas(), rs_meta);
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        out->mutable_inc_rs_metas()->Reserve(in.inc_rs_metas_size());
+        for (const auto& rs_meta : in.inc_rs_metas()) {
+            cloud_rowset_meta_to_doris(out->add_inc_rs_metas(), rs_meta);
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->CopyFrom(in.alter_task());
     }
@@ -682,7 +712,15 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
             cloud_rowset_meta_to_doris(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        size_t rs_metas_size = in.inc_rs_metas_size();
+        out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
+        for (size_t i = 0; i < rs_metas_size; i++) {
+            cloud_rowset_meta_to_doris(out->add_inc_rs_metas(),
+                                       std::move(*in.mutable_inc_rs_metas(i)));
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->Swap(in.mutable_alter_task());
     }

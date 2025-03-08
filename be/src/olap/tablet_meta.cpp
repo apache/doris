@@ -325,7 +325,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
 
     if (tablet_schema.__isset.variant_enable_flatten_nested) {
-        schema->set_variant_enable_flatten_nested(tablet_schema.variant_enable_flatten_nested);
+        schema->set_enable_variant_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }
 
     if (tablet_schema.__isset.enable_single_replica_compaction) {
