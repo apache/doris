@@ -154,11 +154,12 @@ void VExplodeTableFunction::get_same_many_values(MutableColumnPtr &column, int l
         size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
         auto &struct_field = struct_column->get_column(i);
         if ((detail.array_nullmap_data && detail.array_nullmap_data[_row_idx])) {
-            column->insert_many_defaults(length);
+            struct_field.insert_many_defaults(length);
         } else {
             auto *nullable_column = assert_cast<ColumnNullable *>(struct_field.get_ptr().get());
             auto *nullmap_column =
                     assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
+            // only need to check if the value at position pos is null
             if (element_size < _cur_offset || (detail.nested_nullmap_data && detail.nested_nullmap_data[pos])) {
                 nullable_column->insert_many_defaults(length);
             } else {
