@@ -407,24 +407,24 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto v = any_cast<CellSet>(cell);
         auto struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
         auto nullable_column = assert_cast<ColumnNullable*>(column.get());
-        auto *struct_column =
-                assert_cast<ColumnStruct *>(nullable_column->get_nested_column_ptr().get());
-        auto *nullmap_column =
-                assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
+        auto* struct_column =
+                assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
+        auto* nullmap_column =
+                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
         nullmap_column->insert_default();
         for (size_t i = 0; i < v.size(); ++i) {
             auto& field = v[i];
             auto col = struct_column->get_column(i).get_ptr();
-            RETURN_IF_FALSE(insert_cell(col,struct_type->get_element(i) , field));
+            RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field));
         }
     } else if (type.is_nullable()) {
         auto nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto col_type = remove_nullable(type_ptr);
         auto col = nullable_column->get_nested_column_ptr();
-        auto *nullmap_column =
-                assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
+        auto* nullmap_column =
+                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
         nullmap_column->insert_default();
-        RETURN_IF_FALSE(insert_cell(col, col_type , cell));
+        RETURN_IF_FALSE(insert_cell(col, col_type, cell));
     } else {
         LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;
         return false;
