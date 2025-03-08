@@ -178,7 +178,7 @@ Status PaimonReader::gen_file_col_name(
 
     Status create_status = Status::OK();
     using MapType = std::map<uint64_t, std::string>;
-    const auto table_id_to_file_name = *_kv_cache->get<MapType>(
+    const auto* table_id_to_file_name_ptr = _kv_cache->get<MapType>(
             _range.table_format_params.paimon_params.schema_file_path, [&]() -> MapType* {
                 auto* file_id_to_name_ptr = new MapType();
                 create_status = read_schema_file(*file_id_to_name_ptr);
@@ -190,6 +190,7 @@ Status PaimonReader::gen_file_col_name(
             });
     RETURN_IF_ERROR(create_status);
 
+    const auto table_id_to_file_name = *table_id_to_file_name_ptr;
     for (auto [table_col_id, file_col_name] : table_id_to_file_name) {
         if (table_col_id_table_name_map.find(table_col_id) == table_col_id_table_name_map.end()) {
             continue;
