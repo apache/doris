@@ -951,6 +951,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                             ? _runtime_state->query_options().local_exchange_free_blocks_limit
                             : 0);
         }
+        break;
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
