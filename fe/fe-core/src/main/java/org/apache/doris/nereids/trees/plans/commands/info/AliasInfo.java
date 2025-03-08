@@ -20,25 +20,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
-import java.util.stream.Stream;
 
 /**
  * alias info
@@ -70,6 +52,4 @@ public class AliasInfo {
                 ? String.format("`%s`", name)
                 : String.format("`%s` AS `%s`", name, alias);
     }
-
-
 }
