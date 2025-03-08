@@ -236,10 +236,11 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         while (index < input_types.size()) {
             ut_type::UTDataTypeDesc sub_desc;
             DataTypePtr sub_type = nullptr;
-            ret = type_index_to_data_type(input_types, index, sub_desc, sub_type);
-            if (ret <= 0) {
-                return ret;
+            size_t inner_ret = type_index_to_data_type(input_types, index, sub_desc, sub_type);
+            if (inner_ret <= 0) {
+                return inner_ret;
             }
+            ret += inner_ret;
             desc.children.push_back(sub_desc.type_desc);
             if (sub_desc.is_nullable) {
                 sub_type = make_nullable(sub_type);
@@ -402,6 +403,28 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.is_array()) {
         auto v = any_cast<Array>(cell);
         column->insert(v);
+    } else if (type.is_struct()) {
+        auto v = any_cast<CellSet>(cell);
+        auto struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
+        auto nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto *struct_column =
+                assert_cast<ColumnStruct *>(nullable_column->get_nested_column_ptr().get());
+        auto *nullmap_column =
+                assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
+        nullmap_column->insert_default();
+        for (size_t i = 0; i < v.size(); ++i) {
+            auto& field = v[i];
+            auto col = struct_column->get_column(i).get_ptr();
+            RETURN_IF_FALSE(insert_cell(col,struct_type->get_element(i) , field));
+        }
+    } else if (type.is_nullable()) {
+        auto nullable_column = assert_cast<ColumnNullable*>(column.get());
+        auto col_type = remove_nullable(type_ptr);
+        auto col = nullable_column->get_nested_column_ptr();
+        auto *nullmap_column =
+                assert_cast<ColumnUInt8 *>(nullable_column->get_null_map_column_ptr().get());
+        nullmap_column->insert_default();
+        RETURN_IF_FALSE(insert_cell(col, col_type , cell));
     } else {
         LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;
         return false;
@@ -420,26 +443,33 @@ Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDa
     // 1.1 insert data and create block
     auto row_size = input_set.size();
     std::unique_ptr<Block> block = Block::create_unique();
+
+    auto input_set_size = input_set[0].size();
+    // 1.2 calculate the input column size
+    auto input_col_size = input_set_size / descs.size();
+
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
-        auto column = desc.data_type->create_column();
-        column->reserve(row_size);
+        for (size_t j = 0; j < input_col_size; ++j) {
+            auto column = desc.data_type->create_column();
+            column->reserve(row_size);
 
-        auto type_ptr = desc.data_type->is_nullable()
-                                ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
-                                : desc.data_type;
-        WhichDataType type(type_ptr);
+            auto type_ptr = desc.data_type->is_nullable()
+                                    ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
+                                    : desc.data_type;
+            WhichDataType type(type_ptr);
 
-        for (int j = 0; j < row_size; j++) {
-            if (!insert_cell(column, type_ptr, input_set[j][i])) {
-                return nullptr;
+            for (int r = 0; r < row_size; r++) {
+                if (!insert_cell(column, type_ptr, input_set[r][i * input_col_size + j])) {
+                    return nullptr;
+                }
             }
-        }
 
-        if (desc.is_const) {
-            column = ColumnConst::create(std::move(column), row_size);
+            if (desc.is_const) {
+                column = ColumnConst::create(std::move(column), row_size);
+            }
+            block->insert({std::move(column), desc.data_type, desc.col_name});
         }
-        block->insert({std::move(column), desc.data_type, desc.col_name});
     }
     return block.release();
 }
