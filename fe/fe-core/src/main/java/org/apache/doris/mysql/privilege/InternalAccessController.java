@@ -70,9 +70,14 @@ public class InternalAccessController implements CatalogAccessController {
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
             PrivPredicate wanted, ResourceTypeEnum type) {
-        return auth.checkResourcePriv(currentUser, resourceName, wanted);
+        return auth.checkCloudPriv(currentUser, cloudName, wanted, type);
+    }
+
+    @Override
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        return auth.checkStorageVaultPriv(currentUser, storageVaultName, wanted);
     }
 
     @Override

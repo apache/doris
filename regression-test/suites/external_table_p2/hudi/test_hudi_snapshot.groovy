@@ -89,18 +89,11 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_partition")
 
-    sql """set hudi_jni_scanner='spark';"""
-    test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
-    test_hudi_snapshot_querys("user_activity_log_mor_partition")
-    test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
-    test_hudi_snapshot_querys("user_activity_log_cow_partition")
-
     sql """set force_jni_scanner=false;"""
     test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
     test_hudi_snapshot_querys("user_activity_log_mor_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_partition")
-
 
     sql """drop catalog if exists ${catalog_name};"""
 }

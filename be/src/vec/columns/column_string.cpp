@@ -38,20 +38,30 @@ namespace doris::vectorized {
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
-    auto count = offsets.size();
-    if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::FatalError("row count: {}, chars.size(): {}, offset[{}]: ", count,
-                                           chars.size(), count - 1, offsets[count - 1]));
-    }
-    if (offsets[-1] != 0) {
-        throw Exception(Status::FatalError("wrong offsets[-1]: {}", offsets[-1]));
-    }
-    for (size_t i = 0; i < count; ++i) {
+#ifndef NDEBUG
+    sanity_check_simple();
+    auto count = cast_set<int>(offsets.size());
+    for (int i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
-            throw Exception(Status::FatalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
-                                               count, i, offsets[i], i - 1, offsets[i - 1]));
+            throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
+                                                  count, i, offsets[i], i - 1, offsets[i - 1]));
         }
     }
+#endif
+}
+
+template <typename T>
+void ColumnStr<T>::sanity_check_simple() const {
+#ifndef NDEBUG
+    auto count = cast_set<int>(offsets.size());
+    if (chars.size() != offsets[count - 1]) {
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
+    }
+    if (offsets[-1] != 0) {
+        throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
+    }
+#endif
 }
 
 template <typename T>
@@ -121,9 +131,9 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
 
     const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
     if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(
-                doris::ErrorCode::INTERNAL_ERROR,
-                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in "
+                               "IColumnStr<T>::insert_range_from_ignore_overflow method.");
     }
 
     auto nested_offset = src_concrete.offset_at(start);
@@ -147,6 +157,7 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -201,6 +212,7 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
     } else {
         do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -223,6 +235,7 @@ void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t 
         offsets[start_pos] = static_cast<T>(prev_pos + data_length);
         prev_pos = prev_pos + data_length;
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -268,6 +281,7 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
     } else {
         do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -297,17 +311,18 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
 
 template <typename T>
 ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
-    if (offsets.size() == 0) {
-        return ColumnStr<T>::create();
-    }
-
     if constexpr (std::is_same_v<UInt32, T>) {
+        if (offsets.size() == 0) {
+            return ColumnStr<T>::create();
+        }
+
         auto res = ColumnStr<T>::create();
         Chars& res_chars = res->chars;
         IColumn::Offsets& res_offsets = res->offsets;
 
         filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filt,
                                                    result_size_hint);
+        sanity_check_simple();
         return res;
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
@@ -317,14 +332,16 @@ ColumnPtr ColumnStr<T>::filter(const IColumn::Filter& filt, ssize_t result_size_
 
 template <typename T>
 size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
-    CHECK_EQ(filter.size(), offsets.size());
-    if (offsets.size() == 0) {
-        resize(0);
-        return 0;
-    }
-
     if constexpr (std::is_same_v<UInt32, T>) {
-        return filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+        CHECK_EQ(filter.size(), offsets.size());
+        if (offsets.size() == 0) {
+            resize(0);
+            return 0;
+        }
+
+        auto res = filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, filter);
+        sanity_check();
+        return res;
     } else {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "should not call filter in ColumnStr<UInt64>");
@@ -344,6 +361,7 @@ Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
         }
         filter_arrays_impl<UInt8, IColumn::Offset>(chars, offsets, res_chars, res_offsets, filter,
                                                    sel_size);
+        sanity_check();
         return Status::OK();
     } else {
         return Status::InternalError("should not call filter_by_selector in ColumnStr<UInt64>");
@@ -400,7 +418,7 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
         current_new_offset += string_size;
         res_offsets[i] = current_new_offset;
     }
-
+    sanity_check();
     return res;
 }
 
@@ -432,6 +450,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
     memcpy(chars.data() + old_size, pos, string_size);
 
     offsets.push_back(new_size);
+    sanity_check_simple();
     return pos + string_size;
 }
 
@@ -447,8 +466,7 @@ size_t ColumnStr<T>::get_max_row_byte_size() const {
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                                 size_t max_row_byte_size) const {
+void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
         auto offset(offset_at(i));
         auto string_size(size_at(i));
@@ -461,7 +479,7 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 }
 
 template <typename T>
-void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnStr<T>::serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                                const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
 
@@ -502,7 +520,7 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         const auto* original_ptr = keys[i].data;
         keys[i].data = deserialize_and_insert_from_arena(original_ptr);
@@ -511,8 +529,8 @@ void ColumnStr<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t nu
 }
 
 template <typename T>
-void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
-                                                 const size_t num_rows, const uint8_t* null_map) {
+void ColumnStr<T>::deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
+                                                 const uint8_t* null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         if (null_map[i] == 0) {
             const auto* original_ptr = keys[i].data;
@@ -570,28 +588,25 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     res_chars.reserve(chars.size() / col_size * replicate_offsets.back());
     res_offsets.reserve(replicate_offsets.back());
 
-    T prev_replicate_offset = 0;
-    T prev_string_offset = 0;
     T current_new_offset = 0;
-
     for (size_t i = 0; i < col_size; ++i) {
-        T size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
-        T string_size = offsets[i] - prev_string_offset;
+        size_t size_to_replicate = replicate_offsets[i] - replicate_offsets[i - 1];
+        T string_size = offsets[i] - offsets[i - 1];
 
+        check_chars_length(res_chars.size() + size_to_replicate * string_size,
+                           res_offsets.size() + size_to_replicate, col_size);
+
+        res_chars.resize(res_chars.size() + size_to_replicate * string_size);
         for (size_t j = 0; j < size_to_replicate; ++j) {
+            memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
+                                                     &chars[offsets[i - 1]], string_size);
             current_new_offset += string_size;
             res_offsets.push_back(current_new_offset);
-
-            res_chars.resize(res_chars.size() + string_size);
-            memcpy_small_allow_read_write_overflow15(&res_chars[res_chars.size() - string_size],
-                                                     &chars[prev_string_offset], string_size);
         }
-
-        prev_replicate_offset = replicate_offsets[i];
-        prev_string_offset = offsets[i];
     }
 
     check_chars_length(res_chars.size(), res_offsets.size(), col_size);
+    sanity_check_simple();
     return res;
 }
 
@@ -606,9 +621,11 @@ void ColumnStr<T>::resize(size_t n) {
     auto origin_size = size();
     if (origin_size > n) {
         offsets.resize(n);
+        chars.resize(offsets[n - 1]);
     } else if (origin_size < n) {
         insert_many_defaults(n - origin_size);
     }
+    sanity_check_simple();
 }
 
 template <typename T>
@@ -622,6 +639,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
+    sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base =
@@ -632,8 +650,11 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data_at(row_id);
-            int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
-                                                    cmp_base.size);
+            // need to covert to unsigned char, orelse the compare semantic is not consistent
+            // with other member functions, e.g. get_permutation and compare_at,
+            // and will result wrong result.
+            int res = memcmp_small_allow_overflow15((Char*)value_a.data, value_a.size,
+                                                    (Char*)cmp_base.data, cmp_base.size);
             cmp_res[row_id] = res != 0;
             filter[row_id] = res * direction < 0;
         }

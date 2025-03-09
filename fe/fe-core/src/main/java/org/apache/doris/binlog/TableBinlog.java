@@ -211,6 +211,7 @@ public class TableBinlog {
 
         final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
         dummyBinlog.setCommitSeq(expiredCommitSeq);
+        dummyBinlog.setTimestamp(lastExpiredBinlog.getTimestamp());
 
         Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
         while (timeIterator.hasNext() && timeIterator.next().first <= expiredCommitSeq) {

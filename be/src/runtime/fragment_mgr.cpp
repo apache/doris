@@ -492,35 +492,26 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-    if (!req.runtime_state->tablet_commit_infos().empty()) {
+    if (auto tci = req.runtime_state->tablet_commit_infos(); !tci.empty()) {
         params.__isset.commitInfos = true;
-        params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
-        for (auto& info : req.runtime_state->tablet_commit_infos()) {
-            params.commitInfos.push_back(info);
-        }
+        params.commitInfos.insert(params.commitInfos.end(), tci.begin(), tci.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->tablet_commit_infos().empty()) {
+            if (auto rs_tci = rs->tablet_commit_infos(); !rs_tci.empty()) {
                 params.__isset.commitInfos = true;
-                params.commitInfos.insert(params.commitInfos.end(),
-                                          rs->tablet_commit_infos().begin(),
-                                          rs->tablet_commit_infos().end());
+                params.commitInfos.insert(params.commitInfos.end(), rs_tci.begin(), rs_tci.end());
             }
         }
     }
-    if (!req.runtime_state->error_tablet_infos().empty()) {
+    if (auto eti = req.runtime_state->error_tablet_infos(); !eti.empty()) {
         params.__isset.errorTabletInfos = true;
-        params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
-        for (auto& info : req.runtime_state->error_tablet_infos()) {
-            params.errorTabletInfos.push_back(info);
-        }
+        params.errorTabletInfos.insert(params.errorTabletInfos.end(), eti.begin(), eti.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->error_tablet_infos().empty()) {
+            if (auto rs_eti = rs->error_tablet_infos(); !rs_eti.empty()) {
                 params.__isset.errorTabletInfos = true;
-                params.errorTabletInfos.insert(params.errorTabletInfos.end(),
-                                               rs->error_tablet_infos().begin(),
-                                               rs->error_tablet_infos().end());
+                params.errorTabletInfos.insert(params.errorTabletInfos.end(), rs_eti.begin(),
+                                               rs_eti.end());
             }
         }
     }
@@ -580,10 +571,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     try {
         try {
             coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
+        } catch ([[maybe_unused]] TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
+#endif
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -827,11 +820,11 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb) {
-    VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
+    VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
+    VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -851,7 +844,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                          prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
-            query_ctx->set_execution_dependency_ready();
             return prepare_st;
         }
     }

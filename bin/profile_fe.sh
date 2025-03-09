@@ -44,7 +44,7 @@ if [[ ! -x "${JAVA}" ]]; then
     exit 1
 fi
 
-FE_PID=$(jps | grep DorisFE | awk '{print $1}')
+FE_PID=$(${JAVA_HOME}/bin/jps | grep DorisFE | awk '{print $1}')
 if [[ -z "${FE_PID}" ]]; then
     echo "DorisFe not started"
     exit 1

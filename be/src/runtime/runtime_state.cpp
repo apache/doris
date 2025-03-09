@@ -52,6 +52,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -279,6 +280,10 @@ std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
     return _query_mem_tracker;
 }
 
+WorkloadGroupPtr RuntimeState::workload_group() {
+    return _query_ctx->workload_group();
+}
+
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
@@ -295,7 +300,7 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
 
     if (_unreported_error_idx < _error_log.size()) {
         new_errors->assign(_error_log.begin() + _unreported_error_idx, _error_log.end());
-        _unreported_error_idx = _error_log.size();
+        _unreported_error_idx = (int)_error_log.size();
     }
 }
 
@@ -540,4 +545,14 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
     return _pipeline_id_to_profile;
 }
 
+bool RuntimeState::low_memory_mode() const {
+#ifdef BE_TEST
+    if (!_query_ctx) {
+        return false;
+    }
+#endif
+    return _query_ctx->low_memory_mode();
+}
+
+#include "common/compile_check_end.h"
 } // end namespace doris

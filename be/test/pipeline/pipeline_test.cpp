@@ -309,7 +309,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     EXPECT_GT(block_mem_usage - 1, 0);
 
     auto downstream_recvr = ExecEnv::GetInstance()->_vstream_mgr->create_recvr(
-            downstream_runtime_state.get(), memory_used_counter, op->row_desc(), dest0, 1, 1,
+            downstream_runtime_state.get(), memory_used_counter, dest0, 1, 1,
             downstream_pipeline_profile.get(), false, block_mem_usage - 1);
     std::vector<TScanRangeParams> scan_ranges;
     EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->prepare(scan_ranges, 0, tsink,
@@ -991,8 +991,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         auto* memory_used_counter = downstream_pipeline_profile->AddHighWaterMarkCounter(
                 "MemoryUsage", TUnit::BYTES, "", 1);
         downstream_recvr = ExecEnv::GetInstance()->_vstream_mgr->create_recvr(
-                downstream_runtime_state.get(), memory_used_counter,
-                _pipelines.front()->operators().back()->row_desc(), dest_ins_id, dest_node_id,
+                downstream_runtime_state.get(), memory_used_counter, dest_ins_id, dest_node_id,
                 parallelism, downstream_pipeline_profile.get(), false, 2048000);
     }
     for (size_t i = 0; i < _pipelines.size(); i++) {

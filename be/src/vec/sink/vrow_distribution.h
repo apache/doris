@@ -48,9 +48,9 @@ class VNodeChannel;
 // <row_idx, partition_id, tablet_id>
 class RowPartTabletIds {
 public:
-    std::vector<uint32_t> row_ids;
-    std::vector<int64_t> partition_ids;
-    std::vector<int64_t> tablet_ids;
+    DorisVector<uint32_t> row_ids;
+    DorisVector<int64_t> partition_ids;
+    DorisVector<int64_t> tablet_ids;
 
     std::string debug_string() const {
         std::string value;
@@ -80,6 +80,7 @@ public:
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
         void* caller = nullptr;
+        bool write_single_replica = false;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -101,6 +102,7 @@ public:
         _vec_output_expr_ctxs = ctx.vec_output_expr_ctxs;
         _schema = ctx.schema;
         _caller = ctx.caller;
+        _write_single_replica = ctx.write_single_replica;
         _create_partition_callback = ctx.create_partition_callback;
     }
 
@@ -220,6 +222,7 @@ private:
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
+    bool _write_single_replica = false;
 
     // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;
