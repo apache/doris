@@ -830,9 +830,6 @@ class Cluster(object):
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
-            if cluster.is_host_network():
-                with open(get_master_fe_addr_path(name), "w") as f:
-                    f.write(remote_master_fe)
             return cluster
 
     @staticmethod

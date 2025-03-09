@@ -239,7 +239,8 @@ class NeedStartCommand(SimpleCommand):
         cluster, related_nodes = super().run(args)
         fe_ids = [node.id for node in related_nodes if node.is_fe()]
         be_ids = [node.id for node in related_nodes if node.is_be()]
-        wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
+        if not cluster.is_host_network():
+            wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
 
 
 class UpCommand(Command):
@@ -329,21 +330,6 @@ class UpCommand(Command):
                                     "Example: --recycle-config \"log_level = warn\".")
 
         group1.add_argument(
-            "--remote-master-fe",
-            type=str,
-            help=
-            "Specify remote master fe address with ip:query_port, and all the container use host network. " \
-                "Only use when creating new cluster."
-        )
-
-        group1.add_argument(
-            "--local-network-ip",
-            type=str,
-            help= "Specify local network ip, no need specify, will auto chose a proper ip. "\
-                "Only use when creating new cluster and specify --remote-master-fe."
-        )
-
-        group1.add_argument(
             "--fe-follower",
             default=False,
             action=self._get_parser_bool_action(True),
@@ -399,6 +385,21 @@ class UpCommand(Command):
                             default=False,
                             action=self._get_parser_bool_action(True),
                             help="Manager fe be via sql instead of http")
+
+        parser.add_argument(
+            "--remote-master-fe",
+            type=str,
+            help=
+            "Specify remote master fe address with ip:query_port, and all the container use host network. " \
+                "Only use when creating new cluster."
+        )
+
+        parser.add_argument(
+            "--local-network-ip",
+            type=str,
+            help= "Specify local network ip, no need specify, will auto chose a proper ip. "\
+                "Only use when creating new cluster and specify --remote-master-fe."
+        )
 
         if self._support_boolean_action():
             parser.add_argument(
@@ -474,6 +475,7 @@ class UpCommand(Command):
             raise Exception("Need specific not empty cluster name")
         for_all = True
         add_fdb_num = 0
+        is_new_cluster = False
         try:
             cluster = CLUSTER.Cluster.load(args.NAME)
 
@@ -491,6 +493,7 @@ class UpCommand(Command):
                 for_all = False
         except:
             # a new cluster
+            is_new_cluster = True
             if not args.IMAGE:
                 raise Exception("New cluster must specific image") from None
             if args.fe_id != None:
@@ -631,37 +634,43 @@ class UpCommand(Command):
                 cluster.sql_mode_node_mgr))
 
             if cluster.remote_master_fe:
-                if cluster.is_cloud:
-                    cloud_config = "\n".join([
-                        f"meta_service_endpoint = {cluster.get_meta_server_addr()}",
-                        "deploy_mode = cloud",
-                        f"cluster_id = {CLUSTER.CLUSTER_ID}",
-                    ])
-                    ans = input(
-                        f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
-                        f"{cloud_config}\n\nConfirm ?  y/n: ")
-                    if ans != 'y':
-                        LOG.info(
-                            "Up cluster failed due to not confirm write the above config."
-                        )
-                        return
+                if is_new_cluster:
+                    if not cluster.is_cloud:
+                        with open(
+                                CLUSTER.get_master_fe_addr_path(cluster.name),
+                                "w") as f:
+                            f.write(cluster.remote_master_fe)
+                    else:
+                        cloud_config = "\n".join([
+                            f"meta_service_endpoint = {cluster.get_meta_server_addr()}",
+                            "deploy_mode = cloud",
+                            f"cluster_id = {CLUSTER.CLUSTER_ID}",
+                        ])
+                        ans = input(
+                            f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
+                            f"{cloud_config}\n\nConfirm ?  y/n: ")
+                        if ans != 'y':
+                            LOG.info(
+                                "Up cluster failed due to not confirm write the above config."
+                            )
+                            return
 
-                    LOG.info("Waiting connect to remote FE...")
-                    expire_ts = time.time() + 3600 * 5
-                    parts = cluster.remote_master_fe.split(":")
-                    fe_ip = parts[0]
-                    fe_port = int(parts[1])
-                    ready = False
-                    while expire_ts > time.time():
-                        if utils.is_socket_avail(fe_ip, fe_port):
-                            ready = True
-                            break
-                    if not ready:
-                        raise Exception(
-                            "Cannot connect to remote master fe: " +
-                            cluster.remote_master_fe)
+                        LOG.info("Waiting connect to remote FE...")
+                        expire_ts = time.time() + 3600 * 5
+                        parts = cluster.remote_master_fe.split(":")
+                        fe_ip = parts[0]
+                        fe_port = int(parts[1])
+                        ready = False
+                        while expire_ts > time.time():
+                            if utils.is_socket_avail(fe_ip, fe_port):
+                                ready = True
+                                break
+                        if not ready:
+                            raise Exception(
+                                "Cannot connect to remote master fe: " +
+                                cluster.remote_master_fe)
 
-                    LOG.info("After connect to remote FE...")
+                        LOG.info("After connect to remote FE...")
             else:
                 # Wait for FE master to be elected
                 LOG.info("Waiting for FE master to be elected...")
@@ -708,12 +717,11 @@ class UpCommand(Command):
                         LOG.info(f"Added BE {be_endpoint} successfully.")
                     except Exception as e:
                         LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
+                if is_new_cluster:
+                    cloud_store_config = self._get_cloud_store_config()
+                    db_mgr.create_default_storage_vault(cloud_store_config)
 
-                cloud_store_config = self._get_cloud_store_config()
-
-                db_mgr.create_default_storage_vault(cloud_store_config)
-
-            if not args.remote_master_fe:
+            if not cluster.is_host_network():
                 wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
                                    add_be_ids)
             LOG.info(
@@ -1312,9 +1320,9 @@ class ListCommand(Command):
                         node.ip = list(
                             container.attrs["NetworkSettings"]["Networks"].
                             values())[0]["IPAMConfig"]["IPv4Address"]
-                    node.image = ",".join(container.image.tags)
+                    node.image = container.attrs["Config"]["Image"]
                     if not node.image:
-                        node.image = container.attrs["Config"]["Image"]
+                        node.image = ",".join(container.image.tags)
                     node.container_id = container.short_id
                     node.status = container.status
                     if node.container_id and \
