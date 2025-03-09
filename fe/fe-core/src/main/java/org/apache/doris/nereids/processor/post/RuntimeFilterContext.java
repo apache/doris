@@ -279,6 +279,10 @@ public class RuntimeFilterContext {
         return aliasTransferMap.put(slot, pair);
     }
 
+    public void aliasTransferMapRemove(NamedExpression slot) {
+        aliasTransferMap.remove(slot);
+    }
+
     public boolean aliasTransferMapContains(NamedExpression slot) {
         return aliasTransferMap.containsKey(slot);
     }
