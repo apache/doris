@@ -613,7 +613,7 @@ public class Utils {
         for (AliasInfo aliasInfo : selectList) {
             columnJoiner.add(aliasInfo.toString());
         }
-        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName;
+        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toSql();
         return new NereidsParser().parseSingle(sql);
     }
 
