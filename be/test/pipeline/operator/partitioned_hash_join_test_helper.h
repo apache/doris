@@ -132,6 +132,8 @@ public:
     MockHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : HashJoinProbeLocalState(state, parent) {
         _operator_profile = std::make_unique<RuntimeProfile>("test");
+        _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
+        _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
     }
 
     Status open(RuntimeState* state) override { return Status::OK(); }
@@ -177,6 +179,8 @@ public:
     MockPartitionedHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : PartitionedHashJoinProbeLocalState(state, parent) {
         _operator_profile = std::make_unique<RuntimeProfile>("test");
+        _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
+        _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
     }
 
     void init_counters() {
