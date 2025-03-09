@@ -86,7 +86,12 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
 
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
-        vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
+        RuntimeState* state, vectorized::Block* origin_block, vectorized::Block* output_block,
+        bool keep_origin) {
+    if (!state->is_nereids()) {
+        return Status::InternalError("only support nereids planner: " +
+                                     print_id(state->query_id()));
+    }
     auto& p = Base::_parent->template cast<typename Derived::Parent>();
     if (!Base::_projections.empty()) {
         // In previous versions, the join node had a separate set of project structures,
