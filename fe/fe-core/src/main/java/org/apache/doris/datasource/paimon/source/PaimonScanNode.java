@@ -174,10 +174,10 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
+            LocationPath schemaPath = new LocationPath(paimonSplit.getSchemaFilePath(),
+                    source.getCatalog().getProperties());
+            fileDesc.setSchemaFilePath(schemaPath.toStorageLocation().toString());
         }
-        LocationPath schemaPath = new LocationPath(paimonSplit.getSchemaFilePath(),
-                source.getCatalog().getProperties());
-        fileDesc.setSchemaFilePath(schemaPath.toStorageLocation().toString());
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
