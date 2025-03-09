@@ -233,4 +233,19 @@ public class TableNameInfo implements Writable {
         stringBuilder.append("`").append(tbl).append("`");
         return stringBuilder.toString();
     }
+
+    /**
+     * toFullyQualified
+     */
+    public String toFullyQualified() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
+    }
 }
