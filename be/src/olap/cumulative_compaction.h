@@ -37,6 +37,8 @@ public:
 
     Status execute_compact() override;
 
+    bool should_delay_submission(int remaining_threads);
+
 private:
     std::string_view compaction_name() const override { return "cumulative compaction"; }
 
