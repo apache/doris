@@ -26,9 +26,9 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeV2Literal;
 
 public class TimeV2Literal extends LiteralExpr {
-
-    public static final TimeV2Literal MIN_TIME = new TimeV2Literal(-838, 0, 0, 0, 0);
-    public static final TimeV2Literal MAX_TIME = new TimeV2Literal(838, 59, 59, 999999, 6);
+    // part min max store every part of time's min max value
+    public static final TimeV2Literal PART_MIN = new TimeV2Literal(-838, 0, 0, 0, 0);
+    public static final TimeV2Literal PART_MAX = new TimeV2Literal(838, 59, 59, 999999, 6);
 
     protected int hour;
     protected int minute;
@@ -51,8 +51,9 @@ public class TimeV2Literal extends LiteralExpr {
 
     public TimeV2Literal(double value) throws AnalysisException {
         super();
-        if (value > (double) MAX_TIME.getValue() || value < -(double) MAX_TIME.getValue()) {
-            throw new AnalysisException("The value is out of range");
+        if (value > (double) PART_MAX.getValue() || value < -(double) PART_MAX.getValue()) {
+            throw new AnalysisException("The value "+ value + " is out of range, expect value range is [" +
+                    (-PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
         }
         this.type = ScalarType.createTimeV2Type(6);
         this.negative = 1.0 / value < 0;
@@ -67,33 +68,19 @@ public class TimeV2Literal extends LiteralExpr {
         analysisDone();
     }
 
-    public TimeV2Literal(int hour, int minute, int second) throws AnalysisException {
-        super();
-        this.type = Type.TIMEV2;
-        this.hour = Math.abs(hour);
-        this.minute = minute;
-        this.second = second;
-        this.microsecond = 0;
-        this.negative = hour < 0;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
-            throw new AnalysisException("time literal is out of range");
-        }
-        analysisDone();
-    }
-
     public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
         this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
-        this.microsecond = microsecond;
+        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
         while (microsecond != 0 && this.microsecond < 100000) {
             this.microsecond *= 10;
         }
         this.negative = hour < 0;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
-            throw new AnalysisException("time literal is out of range");
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
+            throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
         analysisDone();
     }
@@ -226,7 +213,7 @@ public class TimeV2Literal extends LiteralExpr {
     @Override
     public boolean isMinValue() {
         // MAX_TIME and MIN_TIME just store every part min max value, so real time min is -MAX_TIME.getValue()
-        return getValue() == -MAX_TIME.getValue();
+        return getValue() == -PART_MAX.getValue();
     }
 
     @Override
@@ -256,9 +243,10 @@ public class TimeV2Literal extends LiteralExpr {
         return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
-    protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
-                || microsecond < 0 || microsecond > 999999;
+    protected static boolean checkRange(int hour, int minute, int second, int microsecond) {
+        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second 
+                || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
+                || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
     }
 
     public int getHour() {
@@ -274,8 +262,7 @@ public class TimeV2Literal extends LiteralExpr {
     }
 
     public int getMicroSecond() {
-        int scale = ((ScalarType) type).getScalarScale();
-        return (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
+        return microsecond;
     }
 
     public double getValue() {

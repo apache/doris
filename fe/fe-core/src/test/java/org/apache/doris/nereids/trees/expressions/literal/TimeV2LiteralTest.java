@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -25,7 +26,7 @@ import org.junit.jupiter.api.Test;
 public class TimeV2LiteralTest {
 
     @Test
-    public void testTimeLiteralCreate() {
+    public void testTimeV2LiteralCreate() {
         // without micro second
         TimeV2Literal literal = new TimeV2Literal("12:12:12");
         String s = literal.getStringValue();
@@ -36,18 +37,6 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(s, "838:59:59");
         // min val
         literal = new TimeV2Literal("-838:59:59");
-        s = literal.getStringValue();
-        Assertions.assertEquals(s, "-838:59:59");
-        // not string
-        literal = new TimeV2Literal(21, 12, 21);
-        s = literal.getStringValue();
-        Assertions.assertEquals(s, "21:12:21");
-        // max val
-        literal = new TimeV2Literal(838, 59, 59);
-        s = literal.getStringValue();
-        Assertions.assertEquals(s, "838:59:59");
-        // min val
-        literal = new TimeV2Literal(-838, 59, 59);
         s = literal.getStringValue();
         Assertions.assertEquals(s, "-838:59:59");
         // hour is negative
@@ -101,6 +90,53 @@ public class TimeV2LiteralTest {
         literal = new TimeV2Literal("12:00");
         s = literal.getStringValue();
         Assertions.assertEquals(s, "12:00:00");
+    }
+
+    @Test
+    public void testTimeV2LiteralOutOfRange() {
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, 59, 59, 1000000, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, 59, 60, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, 60, 59, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(839, 59, 59, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, 59, 59, -1, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, 59, -1, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(838, -1, 59, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(-839, 59, 59, 999999, 6);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(3020400000000.0);
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal(-3020400000000.0);
+        });
+        // string type as argument will automatically truncates microsecond out of scale.
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal("838:59:60");
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal("838:60:59");
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal("839:59:59");
+        });
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new TimeV2Literal("-839:59:59");
+        });
     }
 
 }

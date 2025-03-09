@@ -31,8 +31,9 @@ import java.time.LocalDateTime;
 public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeV2Literal MIN_TIME = new TimeV2Literal(-838, 0, 0, 0, 0);
-    private static final TimeV2Literal MAX_TIME = new TimeV2Literal(838, 59, 59, 999999, 6);
+    // part min max store every part of time's min max value
+    private static final TimeV2Literal PART_MIN = new TimeV2Literal(-838, 0, 0, 0, 0);
+    private static final TimeV2Literal PART_MAX = new TimeV2Literal(838, 59, 59, 999999, 6);
 
     protected int hour;
     protected int minute;
@@ -54,8 +55,9 @@ public class TimeV2Literal extends Literal {
      */
     public TimeV2Literal(double value) throws AnalysisException {
         super(TimeV2Type.of(6));
-        if (value > (double) MAX_TIME.getValue() || value < -(double) MAX_TIME.getValue()) {
-            throw new AnalysisException("The value is out of range");
+        if (value > (double) PART_MAX.getValue() || value < -(double) PART_MAX.getValue()) {
+            throw new AnalysisException("The value "+ value + " is out of range, expect value range is [" +
+                    (-(double) PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
         }
         this.negative = 1.0 / value < 0;
         long v = (long) Math.abs(value);
@@ -69,28 +71,6 @@ public class TimeV2Literal extends Literal {
     }
 
     /**
-     * C'tor time literal.
-     */
-    public TimeV2Literal(int hour, int minute, int second) {
-        this(TimeV2Type.of(0), hour, minute, second);
-    }
-
-    /**
-     * C'tor for time type.
-     */
-    public TimeV2Literal(TimeV2Type dataType, int hour, int minute, int second) throws AnalysisException {
-        super(dataType);
-        this.hour = Math.abs(hour);
-        this.minute = minute;
-        this.second = second;
-        this.microsecond = 0;
-        this.negative = hour < 0;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
-            throw new AnalysisException("time literal is out of range");
-        }
-    }
-
-    /**
      * C'tor for time type.
      */
     public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
@@ -98,13 +78,13 @@ public class TimeV2Literal extends Literal {
         this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
-        this.microsecond = microsecond;
+        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
         while (microsecond != 0 && this.microsecond < 100000) {
             this.microsecond *= 10;
         }
         this.negative = hour < 0;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond)) {
-            throw new AnalysisException("time literal is out of range");
+        if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
+            throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
     }
 
@@ -201,8 +181,9 @@ public class TimeV2Literal extends Literal {
     }
 
     protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
-                || microsecond < 0 || microsecond > 999999;
+        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second 
+                || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
+                || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
     }
 
     public int getHour() {
@@ -257,7 +238,7 @@ public class TimeV2Literal extends Literal {
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
-        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0);
     }
 
     @Override
