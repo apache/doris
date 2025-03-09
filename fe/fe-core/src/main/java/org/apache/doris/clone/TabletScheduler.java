@@ -1090,21 +1090,15 @@ public class TabletScheduler extends MasterDaemon {
         return deleteFromHighLoadBackend(tabletCtx, tabletCtx.getReplicas(), force, statistic);
     }
 
-    private boolean deleteFromScaleInDropReplicas(TabletSchedCtx tabletCtx, boolean force) {
+    private boolean deleteFromScaleInDropReplicas(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         // Check if there are any scale drop replicas
-        return tabletCtx.getReplicas().stream()
-            .filter(Replica::isScaleInDrop)
-            .findFirst()
-            .map(chosenReplica -> {
-                try {
-                    deleteReplicaInternal(tabletCtx, chosenReplica, "scale drop replica", force);
-                } catch (SchedException e) {
-                    LOG.warn("delete from scale", e);
-                    return false;
-                }
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.isScaleInDrop()) {
+                deleteReplicaInternal(tabletCtx, replica, "scale drop replica", force);
                 return true;
-            })
-            .orElse(false);
+            }
+        }
+        return false;
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
