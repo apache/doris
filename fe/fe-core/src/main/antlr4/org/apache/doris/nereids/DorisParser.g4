@@ -737,6 +737,7 @@ supportedStatsStatement
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
+    | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
     ;
 
 unsupportedStatsStatement
@@ -754,7 +755,6 @@ unsupportedStatsStatement
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
