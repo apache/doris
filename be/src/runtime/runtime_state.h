@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -46,6 +47,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/columns_number.h"
@@ -62,6 +64,7 @@ class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -115,6 +118,11 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    int32_t max_column_reader_num() const {
+        return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
+                                                            : 20000;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -137,10 +145,18 @@ public:
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
-    double scanner_scale_up_ratio() const {
-        return _query_options.__isset.scanner_scale_up_ratio ? _query_options.scanner_scale_up_ratio
-                                                             : 0;
+    int min_scan_concurrency_of_scan_scheduler() const {
+        return _query_options.__isset.min_scan_scheduler_concurrency
+                       ? _query_options.min_scan_scheduler_concurrency
+                       : 0;
     }
+
+    int min_scan_concurrency_of_scanner() const {
+        return _query_options.__isset.min_scanner_concurrency
+                       ? _query_options.min_scanner_concurrency
+                       : 1;
+    }
+
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
@@ -207,8 +223,8 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    [[nodiscard]] bool is_cancelled() const;
-    Status cancel_reason() const;
+    [[nodiscard]] MOCK_FUNCTION bool is_cancelled() const;
+    MOCK_FUNCTION Status cancel_reason() const;
     void cancel(const Status& reason) {
         if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
@@ -359,6 +375,10 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -404,19 +424,33 @@ public:
 
     bool enable_page_cache() const;
 
-    const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
+    std::vector<TTabletCommitInfo> tablet_commit_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
     }
 
-    std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
+    void add_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                    std::make_move_iterator(commit_infos.begin()),
+                                    std::make_move_iterator(commit_infos.end()));
+    }
+
+    std::vector<TErrorTabletInfo> error_tablet_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        return _error_tablet_infos;
+    }
+
+    void add_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _error_tablet_infos.insert(_error_tablet_infos.end(),
+                                   std::make_move_iterator(tablet_infos.begin()),
+                                   std::make_move_iterator(tablet_infos.end()));
+    }
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
     std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
-
-    const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
-
-    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -431,7 +465,10 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    [[nodiscard]] bool low_memory_mode() const;
+
     std::weak_ptr<QueryContext> get_query_ctx_weak();
+    WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -441,11 +478,6 @@ public:
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
-    }
-
-    bool enable_verbose_profile() const {
-        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
-               _query_options.enable_verbose_profile;
     }
 
     int rpc_verbose_profile_max_instance_count() const {
@@ -497,13 +529,6 @@ public:
                        : 0;
     }
 
-    int64_t external_sort_bytes_threshold() const {
-        if (_query_options.__isset.external_sort_bytes_threshold) {
-            return _query_options.external_sort_bytes_threshold;
-        }
-        return 0;
-    }
-
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
     inline bool enable_delete_sub_pred_v2() const {
@@ -550,23 +575,62 @@ public:
                                             std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
-    bool enable_join_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
-    }
-
-    bool enable_sort_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
-    }
-
-    bool enable_agg_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
+    }
+
+    int64_t spill_min_revocable_mem() const {
+        if (_query_options.__isset.min_revocable_mem) {
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+        }
+        return 1;
+    }
+
+    int64_t spill_sort_mem_limit() const {
+        if (_query_options.__isset.spill_sort_mem_limit) {
+            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
+        }
+        return 134217728;
+    }
+
+    int64_t spill_sort_batch_bytes() const {
+        if (_query_options.__isset.spill_sort_batch_bytes) {
+            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
+        }
+        return 8388608;
+    }
+
+    int spill_aggregation_partition_count() const {
+        if (_query_options.__isset.spill_aggregation_partition_count) {
+            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int spill_hash_join_partition_count() const {
+        if (_query_options.__isset.spill_hash_join_partition_count) {
+            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int64_t low_memory_mode_buffer_limit() const {
+        if (_query_options.__isset.low_memory_mode_buffer_limit) {
+            return std::max(_query_options.low_memory_mode_buffer_limit, (int64_t)1);
+        }
+        return 32L * 1024 * 1024;
+    }
+
+    int spill_revocable_memory_high_watermark_percent() const {
+        if (_query_options.__isset.revocable_memory_high_watermark_percent) {
+            return _query_options.revocable_memory_high_watermark_percent;
+        }
+        return -1;
     }
 
     bool enable_local_merge_sort() const {
@@ -574,7 +638,7 @@ public:
                _query_options.enable_local_merge_sort;
     }
 
-    bool enable_shared_exchange_sink_buffer() const {
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
     }
@@ -584,11 +648,13 @@ public:
                _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
-    int64_t min_revocable_mem() const {
-        if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+    size_t minimum_operator_memory_required_bytes() const {
+        if (_query_options.__isset.minimum_operator_memory_required_kb) {
+            return _query_options.minimum_operator_memory_required_kb * 1024;
+        } else {
+            // refer other database
+            return 100 * 1024;
         }
-        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -700,6 +766,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

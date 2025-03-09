@@ -300,9 +300,7 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
     }
-    if (this->is_set_sink()) {
-        child->set_is_sink(this->is_sink());
-    }
+
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
@@ -310,15 +308,6 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
         add_child_unlock(child, indent, pos);
     }
     return child;
-}
-
-void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
-    std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(child != nullptr);
-    _child_map[child->_name] = child;
-
-    auto it = _children.begin();
-    _children.insert(it, std::make_pair(child, indent));
 }
 
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
@@ -558,9 +547,6 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64 pr
     node.metadata = _metadata;
     node.timestamp = _timestamp;
     node.indent = true;
-    if (this->is_set_sink()) {
-        node.__set_is_sink(this->is_sink());
-    }
 
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);

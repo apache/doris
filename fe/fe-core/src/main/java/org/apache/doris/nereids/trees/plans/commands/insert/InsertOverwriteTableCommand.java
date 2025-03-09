@@ -46,8 +46,10 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -81,7 +83,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertOverwriteTableCommand extends Command implements ForwardWithSync, Explainable {
+public class InsertOverwriteTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
 
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
@@ -227,7 +229,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
-                InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
+                InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
+                        isForceDropPartition());
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
                             ctx.getQueryIdentifier());
@@ -400,6 +403,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         return Optional.empty();
     }
 
+    public boolean isForceDropPartition() {
+        return false;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertOverwriteTableCommand(this, context);
@@ -408,5 +415,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     @Override
     public StmtType stmtType() {
         return StmtType.INSERT;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
     }
 }

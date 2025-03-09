@@ -573,6 +573,11 @@ public class StmtExecutor {
         UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        // If the query is an `outfile` statement,
+        // we execute it only once to avoid exporting redundant data.
+        if (parsedStmt instanceof Queriable) {
+            retryTime = ((Queriable) parsedStmt).hasOutFileClause() ? 1 : retryTime;
+        }
         for (int i = 1; i <= retryTime; i++) {
             try {
                 execute(queryId);
@@ -598,6 +603,7 @@ public class StmtExecutor {
                         i, DebugUtil.printId(firstQueryId), DebugUtil.printId(lastQueryId),
                         DebugUtil.printId(queryId), randomMillis);
                 Thread.sleep(randomMillis);
+                context.getState().reset();
             } catch (Exception e) {
                 throw e;
             }
@@ -714,9 +720,10 @@ public class StmtExecutor {
             if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
                 throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
             }
-            logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
+            long stmtId = Config.prepared_stmt_start_id > 0
+                    ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
+            logicalPlan = new PrepareCommand(String.valueOf(stmtId),
                     logicalPlan, statementContext.getPlaceholders(), originStmt);
-
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
@@ -898,7 +905,8 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         int retryTime = Config.max_query_retry_time;
-        for (int i = 0; i <= retryTime; i++) {
+        retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        for (int i = 0; i < retryTime; i++) {
             try {
                 // reset query id for each retry
                 if (i > 0) {
@@ -945,7 +953,8 @@ public class StmtExecutor {
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
                     isNeedRetry = false;
-                    // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
+                    // errCode = 2, detailMessage = No backend available as scan node,
+                    // please check the status of your backends. [10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
                                 .map(id -> Long.toString(id)).collect(Collectors.toList());
                     String msg = e.getMessage();
@@ -1336,7 +1345,7 @@ public class StmtExecutor {
         if (ConnectContext.get() == null || Strings.isNullOrEmpty(clusterName)) {
             return false;
         }
-        return Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        return Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
             clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
     }
 
@@ -1411,7 +1420,7 @@ public class StmtExecutor {
             int analyzeTimes = 2;
             if (Config.isCloudMode()) {
                 // be core and be restarted, need retry more times
-                analyzeTimes = Config.max_query_retry_time / 2;
+                analyzeTimes = Math.max(Config.max_query_retry_time / 2, 2);
             }
             for (int i = 1; i <= analyzeTimes; i++) {
                 MetaLockUtils.readLockTables(tables);
@@ -1912,8 +1921,7 @@ public class StmtExecutor {
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         // TODO FE not support doris field type conversion to arrow field type.
-        if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)
-                    && context.getCommand() != MysqlCommand.COM_STMT_EXECUTE) {
+        if (context.supportHandleByFe()) {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
@@ -2068,7 +2076,7 @@ public class StmtExecutor {
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
+                    context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
                     break;

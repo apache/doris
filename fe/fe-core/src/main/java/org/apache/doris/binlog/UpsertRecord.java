@@ -56,9 +56,13 @@ public class UpsertRecord {
         @SerializedName(value = "indexIds")
         private Set<Long> indexIds;
 
-        public TableRecord(Set<Long> indexIds) {
+        @SerializedName(value = "deltaRows")
+        private Map<Long, Long> deltaRows; // tablet id -> delta rows, null if not exist
+
+        public TableRecord(Set<Long> indexIds, Map<Long, Long> deltaRows) {
             partitionRecords = Lists.newArrayList();
             this.indexIds = indexIds;
+            this.deltaRows = deltaRows;
         }
 
         private void addPartitionRecord(PartitionCommitInfo partitionCommitInfo) {
@@ -108,11 +112,17 @@ public class UpsertRecord {
         tableRecords = Maps.newHashMap();
 
         Map<Long, Set<Long>> loadedTableIndexIds = state.getLoadedTblIndexes();
+        Map<Long, Map<Long, Long>> tabletDeltaRows = state.getTableIdToTabletDeltaRows();
+        if (tabletDeltaRows == null) {
+            tabletDeltaRows = Maps.newHashMap();
+        }
+        final Map<Long, Map<Long, Long>> finalTabletDeltaRows = tabletDeltaRows;
         if (state.getSubTxnIds() != null) {
             state.getSubTxnIdToTableCommitInfo().forEach((subTxnId, tableCommitInfo) -> {
                 Set<Long> indexIds = loadedTableIndexIds.get(tableCommitInfo.getTableId());
+                Map<Long, Long> deltaRows = finalTabletDeltaRows.get(tableCommitInfo.getTableId());
                 TableRecord tableRecord = tableRecords.compute(tableCommitInfo.getTableId(),
-                        (k, v) -> v == null ? new TableRecord(indexIds) : v);
+                        (k, v) -> v == null ? new TableRecord(indexIds, deltaRows) : v);
                 for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                     tableRecord.addPartitionRecord(subTxnId, partitionCommitInfo);
                 }
@@ -121,7 +131,8 @@ public class UpsertRecord {
         } else {
             for (TableCommitInfo info : state.getIdToTableCommitInfos().values()) {
                 Set<Long> indexIds = loadedTableIndexIds.get(info.getTableId());
-                TableRecord tableRecord = new TableRecord(indexIds);
+                Map<Long, Long> deltaRows = tabletDeltaRows.get(info.getTableId());
+                TableRecord tableRecord = new TableRecord(indexIds, deltaRows);
                 tableRecords.put(info.getTableId(), tableRecord);
 
                 for (PartitionCommitInfo partitionCommitInfo : info.getIdToPartitionCommitInfo().values()) {

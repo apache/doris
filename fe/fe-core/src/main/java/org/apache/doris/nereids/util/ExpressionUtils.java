@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -585,9 +586,9 @@ public class ExpressionUtils {
     /**
      * return true if all children are literal but not null literal.
      */
-    public static boolean isAllNonNullLiteral(List<Expression> children) {
+    public static boolean isAllNonNullComparableLiteral(List<Expression> children) {
         for (Expression child : children) {
-            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+            if ((!(child instanceof ComparableLiteral)) || (child instanceof NullLiteral)) {
                 return false;
             }
         }
@@ -906,8 +907,7 @@ public class ExpressionUtils {
             if (!predicate.getCompareExpr().isSlot()) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(predicate.getOptions().stream()
-                    .allMatch(Expression::isLiteral) ? expression : null);
+            return Optional.ofNullable(predicate.optionsAreLiterals() ? expression : null);
         } else if (expression instanceof ComparisonPredicate) {
             ComparisonPredicate predicate = ((ComparisonPredicate) expression);
             if (predicate.left() instanceof Literal) {

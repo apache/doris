@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStatusCode;
@@ -68,12 +69,14 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
-    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG = "No backend load available.";
+    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG =
+            "No backend available for load, please check the status of your backends.";
 
-    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
+    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG =
+            "No backend available as scan node, please check the status of your backends.";
 
-    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
-            + "please use a cluster before issuing any queries";
+    public static final String NOT_USING_VALID_CLUSTER_MSG =
+            "Not using valid cloud clusters, please use a cluster before issuing any queries";
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
@@ -903,6 +906,20 @@ public class SystemInfoService {
         }
     }
 
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(srcHost, srcPort);
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(srcHost, srcPort) + "]");
+        }
+        if (be.getHost().equals(destHost)) {
+            // no need to modify
+            return;
+        }
+        be.setHost(destHost);
+        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+    }
+
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
@@ -960,6 +977,60 @@ public class SystemInfoService {
             if (alterClause.isLoadDisabled() != null) {
                 if (!alterClause.isLoadDisabled().equals(be.isLoadDisabled())) {
                     be.setLoadDisabled(alterClause.isLoadDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (shouldModify) {
+                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+                LOG.info("finished to modify backend {} ", be);
+            }
+        }
+    }
+
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        List<HostInfo> hostInfos = op.getHostInfos();
+        List<Backend> backends = Lists.newArrayList();
+        if (hostInfos.isEmpty()) {
+            List<String> ids = op.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
+            }
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                          "backend does not exists[" + NetUtils
+                                  .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
+                backends.add(be);
+            }
+        }
+
+        for (Backend be : backends) {
+            boolean shouldModify = false;
+            Map<String, String> tagMap = op.getTagMap();
+            if (!tagMap.isEmpty()) {
+                be.setTagMap(tagMap);
+                shouldModify = true;
+            }
+
+            if (op.isQueryDisabled() != null) {
+                if (!op.isQueryDisabled().equals(be.isQueryDisabled())) {
+                    be.setQueryDisabled(op.isQueryDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (op.isLoadDisabled() != null) {
+                if (!op.isLoadDisabled().equals(be.isLoadDisabled())) {
+                    be.setLoadDisabled(op.isLoadDisabled());
                     shouldModify = true;
                 }
             }

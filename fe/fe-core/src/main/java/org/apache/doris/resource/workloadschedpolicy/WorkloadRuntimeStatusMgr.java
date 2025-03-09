@@ -86,6 +86,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
                 }
                 boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
                 if (!ret) {
@@ -109,10 +111,11 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
-            if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
+            if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
                                 + "you can check whether qps is too high or reset audit_event_log_queue_size",
                         queryAuditEventList.size());
+                Env.getCurrentAuditEventProcessor().handleAuditEvent(event, true);
                 return;
             }
             event.pushToAuditLogQueueTime = System.currentTimeMillis();
@@ -226,6 +229,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {

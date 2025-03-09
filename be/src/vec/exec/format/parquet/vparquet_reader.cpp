@@ -51,6 +51,7 @@
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
@@ -74,6 +75,7 @@ class Block;
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
                              io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
@@ -844,7 +846,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff.data(), &column_index));
-        const int num_of_pages = column_index.null_pages.size();
+        const int64_t num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             continue;
         }
@@ -877,7 +879,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                   return std::tie(lhs.first_row, lhs.last_row) <
                          std::tie(rhs.first_row, rhs.last_row);
               });
-    int skip_end = 0;
+    int64_t skip_end = 0;
     int64_t read_rows = 0;
     for (auto& skip_range : skipped_row_ranges) {
         if (skip_end >= skip_range.first_row) {
@@ -1112,5 +1114,5 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
         }
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

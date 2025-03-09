@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
@@ -29,7 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewOlapScanner;
+class OlapScanner;
 }
 } // namespace doris
 
@@ -50,9 +51,10 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
+    Status hold_tablets();
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::OlapScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -83,7 +85,7 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
 
@@ -97,6 +99,7 @@ private:
     std::set<int32_t> _maybe_read_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
+    std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -139,7 +142,8 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
-    RuntimeProfile::Counter* _segment_generate_row_range_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_keys_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_column_conditions_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
@@ -214,6 +218,8 @@ private:
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
     std::mutex _profile_mtx;
+    std::vector<TabletWithVersion> _tablets;
+    std::vector<TabletReader::ReadSource> _read_sources;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -221,6 +227,7 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
+    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

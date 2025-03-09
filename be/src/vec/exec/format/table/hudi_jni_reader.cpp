@@ -27,14 +27,13 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::string HudiJniReader::HOODIE_CONF_PREFIX = "hoodie.";
 const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
 
@@ -46,7 +45,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
           _scan_params(scan_params),
           _hudi_params(hudi_params) {
     std::vector<std::string> required_fields;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
     }
 
@@ -72,14 +71,14 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         }
     }
 
-    if (_hudi_params.hudi_jni_scanner == "hadoop") {
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
-    } else if (_hudi_params.hudi_jni_scanner == "spark") {
+    if (_hudi_params.hudi_jni_scanner == "spark") {
         _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner",
                                                         params, required_fields);
     } else {
-        DCHECK(false) << "Unsupported hudi jni scanner: " << _hudi_params.hudi_jni_scanner;
+        // _hudi_params.hudi_jni_scanner == "hadoop"
+        // and default use hadoop hudi jni scanner
+        _jni_connector = std::make_unique<JniConnector>(
+                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
     }
 }
 
@@ -89,7 +88,7 @@ Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 Status HudiJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();
@@ -101,4 +100,5 @@ Status HudiJniReader::init_reader(
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

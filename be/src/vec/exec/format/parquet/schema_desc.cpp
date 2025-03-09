@@ -23,12 +23,14 @@
 #include <ostream>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "runtime/define_primitive_type.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
     return schema.num_children > 0;
@@ -150,12 +152,12 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     return Status::OK();
 }
 
-const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+const doris::Slice FieldDescriptor::get_column_name_from_field_id(uint64_t id) const {
     auto const it = _field_id_name_mapping.find(id);
     if (it == _field_id_name_mapping.end()) {
         return {};
     }
-    return {it->second.data()};
+    return doris::Slice {it->second.data()};
 }
 
 Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas,
@@ -202,7 +204,7 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
     _physical_fields.push_back(physical_field);
-    physical_field->physical_column_index = _physical_fields.size() - 1;
+    physical_field->physical_column_index = cast_set<int>(_physical_fields.size() - 1);
     auto type = get_doris_type(physical_schema);
     physical_field->type = type.first;
     physical_field->is_type_compatibility = type.second;
@@ -254,13 +256,13 @@ std::pair<TypeDescriptor, bool> FieldDescriptor::get_doris_type(
 
 // Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
 static bool is_valid_avro_name(const std::string& name) {
-    int length = name.length();
+    size_t length = name.length();
     char first = name[0];
     if (!isalpha(first) && first != '_') {
         return false;
     }
 
-    for (int i = 1; i < length; i++) {
+    for (size_t i = 1; i < length; i++) {
         char character = name[i];
         if (!isalpha(character) && !isdigit(character) && character != '_') {
             return false;
@@ -284,7 +286,7 @@ static void sanitize_avro_name(std::ostringstream& buf, char character) {
 // Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
 static std::string sanitize_avro_name(const std::string& name) {
     std::ostringstream buf;
-    int length = name.length();
+    size_t length = name.length();
     char first = name[0];
     if (!isalpha(first) && first != '_') {
         sanitize_avro_name(buf, first);
@@ -292,7 +294,7 @@ static std::string sanitize_avro_name(const std::string& name) {
         buf << first;
     }
 
-    for (int i = 1; i < length; i++) {
+    for (size_t i = 1; i < length; i++) {
         char character = name[i];
         if (!isalpha(character) && !isdigit(character) && character != '_') {
             sanitize_avro_name(buf, character);
@@ -644,7 +646,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
 }
 
 int FieldDescriptor::get_column_index(const std::string& column) const {
-    for (size_t i = 0; i < _fields.size(); i++) {
+    for (int32_t i = 0; i < _fields.size(); i++) {
         if (_fields[i].name == column) {
             return i;
         }
@@ -679,5 +681,6 @@ std::string FieldDescriptor::debug_string() const {
     ss << "]";
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

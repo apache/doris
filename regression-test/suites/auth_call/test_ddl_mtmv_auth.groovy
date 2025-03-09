@@ -25,6 +25,9 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
     String mtmvName = 'test_ddl_mtmv_auth_mtmv'
     String mtmvNameNew = 'test_ddl_mtmv_auth_mtmv_new'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
@@ -32,10 +35,9 @@ suite("test_ddl_mtmv_auth","p0,auth_call") {
         def validCluster = clusters[0][0]
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    if (enableStoragevault()) {
+        sql """GRANT usage_priv ON STORAGE VAULT '%' TO ${user}""";
+    }
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
     sql """create table ${dbName}.${tableName} (

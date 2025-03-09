@@ -307,8 +307,6 @@ public:
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location = nullptr);
 
-    void insert_child_head(RuntimeProfile* child, bool indent);
-
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
     /// Creates a new child profile with the given 'name'. A child profile with that name
@@ -385,6 +383,11 @@ public:
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "",
                       int64_t profile_level = 2) const;
+    std::string pretty_print() const {
+        std::stringstream ss;
+        pretty_print(&ss);
+        return ss.str();
+    };
 
     // Serializes profile to thrift.
     // Does not hold locks when it makes any function calls.
@@ -416,15 +419,6 @@ public:
     }
 
     bool is_set_metadata() const { return _is_set_metadata; }
-
-    void set_is_sink(bool is_sink) {
-        _is_set_sink = true;
-        _is_sink = is_sink;
-    }
-
-    bool is_sink() const { return _is_sink; }
-
-    bool is_set_sink() const { return _is_set_sink; }
 
     time_t timestamp() const { return _timestamp; }
     void set_timestamp(time_t ss) { _timestamp = ss; }

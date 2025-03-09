@@ -25,6 +25,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "runtime/runtime_state.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
@@ -588,7 +589,7 @@ int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* refere
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                              const TPlanNode& tnode, const DescriptorTbl& descs,
                                              bool require_bucket_distribution)
-        : DataSinkOperatorX(operator_id, tnode.node_id, dest_id),
+        : DataSinkOperatorX(operator_id, tnode, dest_id),
           _pool(pool),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
@@ -604,9 +605,7 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, 
           _has_window(tnode.analytic_node.__isset.window),
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
-          _has_window_end(tnode.analytic_node.window.__isset.window_end) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+          _has_window_end(tnode.analytic_node.window.__isset.window_end) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -645,8 +644,8 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::open(state));
+Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::prepare(state));
     for (const auto& ctx : _agg_expr_ctxs) {
         RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child->row_desc()));
     }
@@ -719,6 +718,8 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._input_eos = eos;
     local_state._remove_unused_rows();
+    local_state._reserve_mem_size = 0;
+    SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
     RETURN_IF_ERROR(_add_input_block(state, input_block));
     RETURN_IF_ERROR(local_state._execute_impl());
     if (local_state._input_eos) {
@@ -784,6 +785,8 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 }
 
 void AnalyticSinkLocalState::_remove_unused_rows() {
+    // test column overflow 4G
+    DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
     const size_t block_num = 256;
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
@@ -838,6 +841,11 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     DCHECK_GE(_partition_by_pose.end, 0);
 }
 
+size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._reserve_mem_size;
+}
+
 Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
                                                    const vectorized::VExprContextSPtr& expr,
                                                    vectorized::IColumn* dst_column, size_t length) {
@@ -845,7 +853,9 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
     RETURN_IF_ERROR(expr->execute(block, &result_col_id));
     DCHECK_GE(result_col_id, 0);
     auto column = block->get_by_position(result_col_id).column->convert_to_full_column_if_const();
-    dst_column->insert_range_from(*column, 0, length);
+    // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
+    // the column is used by compare_at self to find the range, it's need convert it when overflow?
+    dst_column->insert_range_from_ignore_overflow(*column, 0, length);
     return Status::OK();
 }
 

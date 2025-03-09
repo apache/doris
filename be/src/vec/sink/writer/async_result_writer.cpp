@@ -136,7 +136,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             cpu_time_stop_watch.start();
             Defer defer {[&]() {
                 if (state && state->get_query_ctx()) {
-                    state->get_query_ctx()->update_cpu_time(cpu_time_stop_watch.elapsed_time());
+                    state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                            cpu_time_stop_watch.elapsed_time());
                 }
             }};
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
@@ -231,8 +232,14 @@ void AsyncResultWriter::force_close(Status s) {
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
-    _memory_used_counter->update(b->allocated_bytes());
-    _free_blocks.enqueue(std::move(b));
+    if (_low_memory_mode) {
+        return;
+    }
+
+    const auto allocated_bytes = b->allocated_bytes();
+    if (_free_blocks.enqueue(std::move(b))) {
+        _memory_used_counter->update(allocated_bytes);
+    }
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
@@ -247,5 +254,12 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+void AsyncResultWriter::set_low_memory_mode() {
+    _low_memory_mode = true;
+    clear_blocks(_free_blocks, _memory_used_counter);
+}
 } // namespace vectorized
 } // namespace doris

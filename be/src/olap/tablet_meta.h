@@ -129,6 +129,7 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
@@ -502,6 +503,14 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Gets count of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     */
+    size_t get_count_with_range(const BitmapKey& start, const BitmapKey& end) const;
+
+    /**
      * Merges the given segment delete bitmap into *this
      *
      * @param bmk
@@ -545,6 +554,8 @@ public:
     void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
 
     uint64_t get_delete_bitmap_count();
+
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
 
     class AggCachePolicy : public LRUCachePolicy {
     public:

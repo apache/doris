@@ -37,6 +37,7 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -149,7 +150,12 @@ public:
 
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
-    virtual StringRef get_data_at(size_t n) const = 0;
+    /// this function is used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
+    /// and should be pair with insert_data
+    virtual StringRef get_data_at(size_t n) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
+    }
 
     virtual Int64 get_int(size_t /*n*/) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -228,10 +234,14 @@ public:
                                      const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
+    /// used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
     /// Is used to optimize some computations (in aggregation, for example).
     /// Parameter length could be ignored if column values have fixed size.
     /// All data will be inserted as single element
-    virtual void insert_data(const char* pos, size_t length) = 0;
+    virtual void insert_data(const char* pos, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_data is not supported for " + get_name());
+    }
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
         throw doris::Exception(
@@ -321,14 +331,23 @@ public:
         return 0;
     }
 
-    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                               size_t max_row_byte_size) const {
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const {
+        serialize_vec(keys.data(), num_rows, max_row_byte_size);
+    }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map) const {
+        serialize_vec_with_null_map(keys.data(), num_rows, null_map);
+    }
+
+    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
-    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -336,15 +355,24 @@ public:
         __builtin_unreachable();
     }
 
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+        deserialize_vec(keys.data(), num_rows);
+    }
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) {
+        deserialize_vec_with_null_map(keys.data(), num_rows, null_map);
+    }
+
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -512,6 +540,17 @@ public:
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
     virtual size_t byte_size() const = 0;
 
+    /**
+    * @brief Checks whether the current column has enough capacity to accommodate the given source column.
+    * 
+    * This pure virtual function should be implemented by derived classes to determine whether the 
+    * current column has enough reserved memory to hold the data of the specified `src` column.
+    * 
+    * @param src The source column whose data needs to be checked for fitting into the current column.
+    * @return true if the current column has enough capacity to hold the `src` data, false otherwise.
+    */
+    virtual bool has_enough_capacity(const IColumn& src) const = 0;
+
     /// Size of memory, allocated for column.
     /// This is greater or equals to byte_size due to memory reservation in containers.
     /// Zero, if could not be determined.
@@ -607,12 +646,6 @@ public:
     virtual bool is_column_string64() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
-
-    virtual bool is_column_array() const { return false; }
-
-    virtual bool is_column_map() const { return false; }
-
-    virtual bool is_column_struct() const { return false; }
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
@@ -714,13 +747,24 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
-bool check_column(const IColumn& column) {
+bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }
 
 template <typename Type>
-bool check_column(const IColumn* column) {
+bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
+}
+
+// check_and_get_column_ptr is used to return a ColumnPtr of a specific column type,
+// which will hold ownership. This prevents the occurrence of dangling pointers due to certain situations.
+template <typename ColumnType>
+ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = check_and_get_column<ColumnType>(column.get());
+    if (raw_type_ptr == nullptr) {
+        return nullptr;
+    }
+    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

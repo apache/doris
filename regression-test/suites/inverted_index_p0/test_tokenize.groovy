@@ -31,17 +31,17 @@ suite("test_tokenize"){
     sql "DROP TABLE IF EXISTS ${indexTblName}"
     // create 1 replica table
     sql """
-	CREATE TABLE IF NOT EXISTS ${indexTblName}(
-		`id`int(11)NULL,
-		`c` text NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese") COMMENT ''
-	) ENGINE=OLAP
-	DUPLICATE KEY(`id`)
-	COMMENT 'OLAP'
-	DISTRIBUTED BY HASH(`id`) BUCKETS 1
-	PROPERTIES(
- 		"replication_allocation" = "tag.location.default: 1"
-	);
+    CREATE TABLE IF NOT EXISTS ${indexTblName}(
+      `id`int(11)NULL,
+      `c` text NULL,
+      INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="chinese") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES(
+      "replication_allocation" = "tag.location.default: 1"
+    );
     """
     
     def var_result = sql "show variables"
@@ -56,17 +56,17 @@ suite("test_tokenize"){
     sql "DROP TABLE IF EXISTS ${indexTblName2}"
     // create 1 replica table
     sql """
-	CREATE TABLE IF NOT EXISTS ${indexTblName2}(
-		`id`int(11)NULL,
-		`c` text NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
-	) ENGINE=OLAP
-	DUPLICATE KEY(`id`)
-	COMMENT 'OLAP'
-	DISTRIBUTED BY HASH(`id`) BUCKETS 1
-	PROPERTIES(
-                "replication_allocation" = "tag.location.default: 1"
-        );
+    CREATE TABLE IF NOT EXISTS ${indexTblName2}(
+      `id`int(11)NULL,
+      `c` text NULL,
+      INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES(
+      "replication_allocation" = "tag.location.default: 1"
+    );
     """
 
     sql "INSERT INTO $indexTblName2 VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠'), (4, '陕西省西安市高新区创业大厦A座，我的手机号码是12345678901,邮箱是12345678@qq.com，,ip是1.1.1.1，this information is created automatically.');"
@@ -77,17 +77,17 @@ suite("test_tokenize"){
     sql "DROP TABLE IF EXISTS ${indexTblName3}"
     // create 1 replica table
     sql """
-	CREATE TABLE IF NOT EXISTS ${indexTblName3}(
-		`id`int(11)NULL,
-		`c` text NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
-	) ENGINE=OLAP
-	DUPLICATE KEY(`id`)
-	COMMENT 'OLAP'
-	DISTRIBUTED BY HASH(`id`) BUCKETS 1
-	PROPERTIES(
-                "replication_allocation" = "tag.location.default: 1"
-        );
+    CREATE TABLE IF NOT EXISTS ${indexTblName3}(
+      `id`int(11)NULL,
+      `c` text NULL,
+      INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES(
+        "replication_allocation" = "tag.location.default: 1"
+    );
     """
 
     sql "INSERT INTO $indexTblName3 VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠'), (4, '陕西省西安市高新区创业大厦A座，我的手机号码是12345678901,邮箱是12345678@qq.com，,ip是1.1.1.1，this information is created automatically.');"
@@ -109,4 +109,9 @@ suite("test_tokenize"){
         throw e
       }
     }
+
+    qt_tokenize_sql """SELECT TOKENIZE('华夏智胜新税股票A', '"parser"="icu"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('มนไมเปนไปตามความตองการมนมหมายเลขอยในเนอหา', '"parser"="icu"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111', '"parser"="icu"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111', '"parser"="unicode"');"""
 }

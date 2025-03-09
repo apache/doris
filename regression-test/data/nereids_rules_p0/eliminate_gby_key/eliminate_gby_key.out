@@ -9,3 +9,12 @@
 1
 1
 
+-- !grouping_equalset --
+1
+1
+1
+1
+
+-- !grouping_equalset_can_eliminate --
+2
+

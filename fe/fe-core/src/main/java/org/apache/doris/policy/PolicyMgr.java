@@ -121,7 +121,10 @@ public class PolicyMgr implements Writable {
      * Create policy through stmt.
      **/
     public void createPolicy(CreatePolicyStmt stmt) throws UserException {
-        Policy policy = Policy.fromCreateStmt(stmt);
+        createPolicy(Policy.fromCreateStmt(stmt), stmt.isIfNotExists());
+    }
+
+    public void createPolicy(Policy policy, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
             boolean storagePolicyExists = false;
@@ -134,7 +137,7 @@ public class PolicyMgr implements Writable {
                         .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
             }
             if (storagePolicyExists || existPolicy(policy)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");
@@ -448,11 +451,45 @@ public class PolicyMgr implements Writable {
         return andPolicy;
     }
 
+    private ShowResultSet getShowPolicy(Policy finalCheckedPolicy, PolicyTypeEnum type) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        readLock();
+        try {
+            List<Policy> policies = getPoliciesByType(type).stream()
+                    .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
+            for (Policy policy : policies) {
+                if (policy.isInvalid()) {
+                    continue;
+                }
+
+                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
+                    // default storage policy not init.
+                    continue;
+                }
+
+                rows.add(policy.getShowInfo());
+            }
+            if (type == PolicyTypeEnum.STORAGE) {
+                return new ShowResultSet(StoragePolicy.STORAGE_META_DATA, rows);
+            }
+            return new ShowResultSet(RowPolicy.ROW_META_DATA, rows);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Show Storage Policy.
+     **/
+    public ShowResultSet showStoragePolicy() throws AnalysisException {
+        Policy finalCheckedPolicy = new StoragePolicy();
+        return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.STORAGE);
+    }
+
     /**
      * Show policy through stmt.
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
-        List<List<String>> rows = Lists.newArrayList();
         Policy checkedPolicy = null;
         switch (showStmt.getType()) {
             case STORAGE:
@@ -470,34 +507,14 @@ public class PolicyMgr implements Writable {
                 checkedPolicy = rowPolicy;
         }
         final Policy finalCheckedPolicy = checkedPolicy;
-        readLock();
-        try {
-            List<Policy> policies = getPoliciesByType(showStmt.getType()).stream()
-                    .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
-            for (Policy policy : policies) {
-                if (policy.isInvalid()) {
-                    continue;
-                }
-
-                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
-                    // default storage policy not init.
-                    continue;
-                }
-
-                rows.add(policy.getShowInfo());
-            }
-            return new ShowResultSet(showStmt.getMetaData(), rows);
-        } finally {
-            readUnlock();
-        }
+        return getShowPolicy(finalCheckedPolicy, showStmt.getType());
     }
 
     /**
-     * Show objects which is using the storage policy
+     * Return objects which is using the storage policy
      **/
-    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+    public List<List<String>> showStoragePolicyUsing(String targetPolicyName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        String targetPolicyName = showStmt.getPolicyName();
 
         readLock();
         try {
@@ -589,10 +606,20 @@ public class PolicyMgr implements Writable {
                     }
                 }
             }
-            return new ShowResultSet(showStmt.getMetaData(), rows);
+            return rows;
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Show objects which is using the storage policy
+     **/
+    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+        String targetPolicyName = showStmt.getPolicyName();
+        List<List<String>> rows = showStoragePolicyUsing(targetPolicyName);
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void addTablePolicies(RowPolicy policy) {
