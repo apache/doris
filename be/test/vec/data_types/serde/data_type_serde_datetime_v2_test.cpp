@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_datetimev2_serde.h"
 #include "vec/data_types/serde/data_type_datev2_serde.h"
+#include "vec/data_types/serde/data_type_time_serde.h"
 namespace doris::vectorized {
 static std::string test_data_dir;
 
@@ -45,10 +46,19 @@ static auto serde_datetime_v2_0 = std::make_shared<DataTypeDateTimeV2SerDe>(0);
 static auto serde_datetime_v2_5 = std::make_shared<DataTypeDateTimeV2SerDe>(5);
 static auto serde_datetime_v2_6 = std::make_shared<DataTypeDateTimeV2SerDe>(6);
 
+static auto serde_time_v2_6 = std::make_shared<DataTypeTimeV2SerDe>(6);
+static auto serde_time_v2_5 = std::make_shared<DataTypeTimeV2SerDe>(5);
+static auto serde_time_v2_0 = std::make_shared<DataTypeTimeV2SerDe>(0);
+
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_0;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
 static ColumnDateV2::MutablePtr column_date_v2;
+
+static ColumnFloat64::MutablePtr column_time_v2_6;
+static ColumnFloat64::MutablePtr column_time_v2_5;
+static ColumnFloat64::MutablePtr column_time_v2_0;
+
 class DataTypeDateTimeV2SerDeTest : public ::testing::Test {
 public:
     static void SetUpTestSuite() {
@@ -59,6 +69,9 @@ public:
         column_datetime_v2_5 = ColumnDateTimeV2::create();
         column_datetime_v2_6 = ColumnDateTimeV2::create();
         column_date_v2 = ColumnDateV2::create();
+        column_time_v2_6 = ColumnFloat64::create();
+        column_time_v2_5 = ColumnFloat64::create();
+        column_time_v2_0 = ColumnFloat64::create();
 
         load_columns_data();
     }
@@ -77,6 +90,10 @@ public:
         test_func(column_datetime_v2_5->get_ptr(), serde_datetime_v2_5, "DATETIMEV2(5).csv");
         test_func(column_datetime_v2_6->get_ptr(), serde_datetime_v2_6, "DATETIMEV2(6).csv");
         test_func(column_date_v2->get_ptr(), serde_date_v2, "DATEV2.csv");
+
+        test_func(column_time_v2_6->get_ptr(), serde_time_v2_6, "TIMEV2(6).csv");
+        test_func(column_time_v2_5->get_ptr(), serde_time_v2_5, "TIMEV2(6).csv");
+        test_func(column_time_v2_0->get_ptr(), serde_time_v2_0, "TIMEV2(6).csv");
 
         std::cout << "loading test dataset done" << std::endl;
     }
@@ -197,6 +214,9 @@ TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
     test_func(*serde_datetime_v2_5, column_datetime_v2_5);
     test_func(*serde_datetime_v2_6, column_datetime_v2_6);
     test_func(*serde_date_v2, column_date_v2);
+    test_func(*serde_time_v2_6, column_time_v2_6);
+    test_func(*serde_time_v2_5, column_time_v2_5);
+    test_func(*serde_time_v2_0, column_time_v2_0);
 }
 
 } // namespace doris::vectorized

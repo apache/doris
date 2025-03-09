@@ -102,9 +102,9 @@ protected:
         column_uint64 = ColumnUInt64::create();
 
         column_date = ColumnDate::create();
-        column_date->set_date_type();
+        // column_date->set_date_type();
         column_datetime = ColumnDateTime::create();
-        column_datetime->set_datetime_type();
+        // column_datetime->set_datetime_type();
         column_datetime_v2_0 = ColumnDateTimeV2::create();
         column_datetime_v2_5 = ColumnDateTimeV2::create();
         column_datetime_v2_6 = ColumnDateTimeV2::create();
@@ -192,7 +192,8 @@ protected:
         callback((UInt32)0, column_uint32->get_ptr());
         callback((UInt64)0, column_uint64->get_ptr());
 
-        // callback((Int64)0, column_datetime->get_ptr());
+        callback((Int64)0, column_date->get_ptr());
+        callback((Int64)0, column_datetime->get_ptr());
         callback((UInt64)0, column_datetime_v2_0->get_ptr());
         callback((UInt64)0, column_datetime_v2_5->get_ptr());
         callback((UInt64)0, column_datetime_v2_6->get_ptr());

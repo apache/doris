@@ -115,6 +115,9 @@ public:
             load_columns_data_from_file(columns, serdes, ';', {0}, data_file);
             EXPECT_TRUE(!column->empty());
         };
+        load_data_func(serde_decimal128v2, column_decimal128_v2,
+                       test_data_dir + "/DECIMALV2(27,9).csv");
+
         load_data_func(serde_decimal32_1, column_decimal32_1,
                        test_data_dir + "/DECIMALV3(1,0).csv");
         load_data_func(serde_decimal32_2, column_decimal32_2,
@@ -281,5 +284,7 @@ TEST_F(DataTypeDecimalSerDeTest, serdes) {
     test_func(*serde_decimal256_1, column_decimal256_1);
     test_func(*serde_decimal256_2, column_decimal256_2);
     test_func(*serde_decimal256_3, column_decimal256_3);
+
+    test_func(*serde_decimal128v2, column_decimal128_v2);
 }
 } // namespace doris::vectorized

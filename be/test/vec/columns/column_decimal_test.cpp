@@ -33,6 +33,9 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+static DataTypePtr dt_decimal128v2 =
+        DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL, 27, 9);
+
 static DataTypePtr dt_decimal32_1 =
         DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL32, 1, 0);
 static DataTypePtr dt_decimal32_2 =
@@ -65,6 +68,8 @@ static DataTypePtr dt_decimal256_2 =
 static DataTypePtr dt_decimal256_3 =
         DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL256, 76, 76);
 
+static ColumnDecimal128V2::MutablePtr column_decimal128v2_1; // decimal128v2(27,9)
+
 static ColumnDecimal32::MutablePtr column_decimal32_1; // decimal32(1,0)
 static ColumnDecimal32::MutablePtr column_decimal32_2; // decimal32(1,1)
 static ColumnDecimal32::MutablePtr column_decimal32_3; // decimal32(8,3)
@@ -91,6 +96,8 @@ protected:
         auto root_dir = std::string(getenv("ROOT"));
         test_data_dir = root_dir + "/be/test/data/vec/columns";
         test_result_dir = root_dir + "/be/test/expected_result/vec/columns";
+
+        column_decimal128v2_1 = ColumnDecimal128V2::create(0, 9);
 
         column_decimal32_1 = ColumnDecimal32::create(0, 0);
         column_decimal32_2 = ColumnDecimal32::create(0, 1);
@@ -122,6 +129,9 @@ protected:
             load_columns_data_from_file(columns, serde, ';', {0}, data_file);
             EXPECT_TRUE(!column->empty());
         };
+        load_data_func(dt_decimal128v2, column_decimal128v2_1,
+                       test_data_dir + "/DECIMALV2(27,9).csv");
+
         load_data_func(dt_decimal32_1, column_decimal32_1, test_data_dir + "/DECIMALV3(1,0).csv");
         load_data_func(dt_decimal32_2, column_decimal32_2, test_data_dir + "/DECIMALV3(1,1).csv");
         load_data_func(dt_decimal32_3, column_decimal32_3, test_data_dir + "/DECIMALV3(8,3).csv");
@@ -153,41 +163,25 @@ protected:
             std::function<void(const MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
                                const std::string& res_file_name)>
                     assert_callback) {
-        {
+        auto test_func = [&](const MutableColumnPtr& column, const DataTypePtr& dt,
+                             const std::string& res_file_name) {
             MutableColumns columns;
-            auto col_cloned = column_decimal32_1->clone();
-            columns.push_back(col_cloned->get_ptr());
-            DataTypeSerDeSPtrs serdes = {dt_decimal32_1->get_serde()};
+            auto col_clone = column->clone();
+            columns.push_back(col_clone->get_ptr());
+            DataTypeSerDeSPtrs serdes = {dt->get_serde()};
             assert_callback(columns, serdes,
-                            test_result_dir + "/column_decimal32_1_" + function_name + ".out");
-        }
-        {
-            MutableColumns columns;
-            auto col_cloned = column_decimal64_1->clone();
-            columns.push_back(col_cloned->get_ptr());
-            DataTypeSerDeSPtrs serdes = {dt_decimal64_1->get_serde()};
-            assert_callback(columns, serdes,
-                            test_result_dir + "/column_decimal64_1_" + function_name + ".out");
-        }
-        {
-            MutableColumns columns;
-            auto col_cloned = column_decimal128_1->clone();
-            columns.push_back(col_cloned->get_ptr());
-            DataTypeSerDeSPtrs serdes = {dt_decimal128_1->get_serde()};
-            assert_callback(columns, serdes,
-                            test_result_dir + "/column_decimal128_1_" + function_name + ".out");
-        }
-        {
-            MutableColumns columns;
-            auto col_cloned = column_decimal256_1->clone();
-            columns.push_back(col_cloned->get_ptr());
-            DataTypeSerDeSPtrs serdes = {dt_decimal256_1->get_serde()};
-            assert_callback(columns, serdes,
-                            test_result_dir + "/column_decimal256_1_" + function_name + ".out");
-        }
+                            test_result_dir + "/" + res_file_name + "_" + function_name + ".out");
+        };
+
+        test_func(column_decimal32_1->get_ptr(), dt_decimal32_1, "column_decimal32_1");
+        test_func(column_decimal64_1->get_ptr(), dt_decimal64_1, "column_decimal64_1");
+        test_func(column_decimal128_1->get_ptr(), dt_decimal128_1, "column_decimal128_1");
+        test_func(column_decimal256_1->get_ptr(), dt_decimal256_1, "column_decimal256_1");
+
+        test_func(column_decimal128v2_1->get_ptr(), dt_decimal128v2, "column_decimal128v2_1");
     }
     template <typename T>
-    void _column_decimal_common_test_with_type(T callback) {
+    void _column_decimal_common_test_with_type(T callback, bool exclude_decimal128v2 = false) {
         callback(Decimal32(), column_decimal32_1->get_ptr());
         callback(Decimal32(), column_decimal32_2->get_ptr());
         callback(Decimal32(), column_decimal32_3->get_ptr());
@@ -205,6 +199,10 @@ protected:
         callback(Decimal256(), column_decimal256_1->get_ptr());
         callback(Decimal256(), column_decimal256_2->get_ptr());
         callback(Decimal256(), column_decimal256_3->get_ptr());
+
+        if (!exclude_decimal128v2) {
+            callback(Decimal128V2(), column_decimal128v2_1->get_ptr());
+        }
     }
 };
 
@@ -213,6 +211,9 @@ TEST_F(ColumnDecimalTest, byte_size) {
     EXPECT_EQ(column_decimal64_1->byte_size(), column_decimal64_1->size() * sizeof(Decimal64));
     EXPECT_EQ(column_decimal128_1->byte_size(), column_decimal128_1->size() * sizeof(Decimal128V3));
     EXPECT_EQ(column_decimal256_1->byte_size(), column_decimal256_1->size() * sizeof(Decimal256));
+
+    EXPECT_EQ(column_decimal128v2_1->byte_size(),
+              column_decimal128v2_1->size() * sizeof(Decimal128V2));
 }
 TEST_F(ColumnDecimalTest, allocated_bytes) {
     EXPECT_GE(column_decimal32_1->allocated_bytes(),
@@ -223,6 +224,9 @@ TEST_F(ColumnDecimalTest, allocated_bytes) {
               column_decimal128_1->size() * sizeof(Decimal128V3));
     EXPECT_GE(column_decimal256_1->allocated_bytes(),
               column_decimal256_1->size() * sizeof(Decimal256));
+
+    EXPECT_GE(column_decimal128v2_1->allocated_bytes(),
+              column_decimal128v2_1->size() * sizeof(Decimal128V2));
 }
 TEST_F(ColumnDecimalTest, has_enough_capacity) {
     _column_decimal_common_test_with_type(assert_column_vector_has_enough_capacity_callback);
@@ -242,7 +246,8 @@ TEST_F(ColumnDecimalTest, insert_indices_from) {
 
 // decimal, vector, nullable, PredicateColumnType
 TEST_F(ColumnDecimalTest, insert_many_fix_len_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_fix_len_data_callback);
+    _column_decimal_common_test_with_type(assert_column_vector_insert_many_fix_len_data_callback,
+                                          true);
 }
 
 TEST_F(ColumnDecimalTest, insert_many_raw_data) {
@@ -297,6 +302,12 @@ TEST_F(ColumnDecimalTest, ser_deser) {
         auto col_cloned = column_decimal256_1->clone();
         columns.push_back(col_cloned->get_ptr());
         ser_deserialize_with_arena_impl(columns, {dt_decimal256_1});
+    }
+    {
+        MutableColumns columns;
+        auto col_cloned = column_decimal128v2_1->clone();
+        columns.push_back(col_cloned->get_ptr());
+        ser_deserialize_with_arena_impl(columns, {dt_decimal128v2});
     }
 }
 TEST_F(ColumnDecimalTest, ser_deser_vec) {

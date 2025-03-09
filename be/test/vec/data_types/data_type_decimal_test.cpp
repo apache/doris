@@ -122,6 +122,8 @@ public:
             load_columns_data_from_file(columns, serde, ';', {0}, data_file);
             EXPECT_TRUE(!column->empty());
         };
+        load_data_func(dt_decimal128v2, column_decimal128_v2,
+                       test_data_dir + "/DECIMALV2(27,9).csv");
         load_data_func(dt_decimal32_1, column_decimal32_1, test_data_dir + "/DECIMALV3(1,0).csv");
         load_data_func(dt_decimal32_2, column_decimal32_2, test_data_dir + "/DECIMALV3(1,1).csv");
         load_data_func(dt_decimal32_3, column_decimal32_3, test_data_dir + "/DECIMALV3(8,3).csv");
@@ -530,7 +532,7 @@ TEST_F(DataTypeDecimalTest, get_field) {
     test_func(dt_decimal64_2, "DECIMALV3(18,9).csv");
     test_func(dt_decimal64_3, "DECIMALV3(18,18).csv");
 
-    // test_func(dt_decimal128v2, "DECIMALV2(27,9).csv");
+    test_func(dt_decimal128v2, "DECIMALV2(27,9).csv");
 
     test_func(dt_decimal128v3_1, "DECIMALV3(38,0).csv");
     test_func(dt_decimal128v3_2, "DECIMALV3(38,30).csv");
@@ -611,7 +613,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
     test_func(dt_decimal64_2, *column_decimal64_2);
     test_func(dt_decimal64_3, *column_decimal64_3);
 
-    // test_func(dt_decimal128v2, *column_decimal128_v2);
+    test_func(dt_decimal128v2, *column_decimal128_v2);
     test_func(dt_decimal128v3_1, *column_decimal128v3_1);
     test_func(dt_decimal128v3_2, *column_decimal128v3_2);
     test_func(dt_decimal128v3_3, *column_decimal128v3_3);
