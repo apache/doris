@@ -453,11 +453,19 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
         if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
             // if not partition, if rewrite success, it means mv is available
+            LOG.info(String.format("calcInvalidPartitions PartitionType wrong name is %s,\n "
+                            + "sql hash is %s,\n mvPartitionInfo is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), mvPartitionInfo));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
         BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
         if (relatedPartitionTable == null) {
+            LOG.info(String.format("calcInvalidPartitions relatedPartitionTable null name is %s,\n "
+                            + "sql hash is %s,\n mvCustomPartitionInfo is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), mvCustomPartitionInfo));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
@@ -466,6 +474,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         // Bail out, not check invalid partition if not olap scan, support later
         if (queryUsedBaseTablePartitions.isEmpty()) {
+            LOG.info(String.format("calcInvalidPartitions queryUsedBaseTablePartitions empty name is %s,\n "
+                            + "sql hash is %s,\n queryUsedBaseTablePartitions is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    cascadesContext.getConnectContext().getSqlHash(), queryUsedBaseTablePartitions));
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
@@ -495,6 +507,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // if mv can not offer any partition for query, query rewrite bail out
             return null;
         }
+        // TODO: 2025/3/3 this log level is info tmp, should be debug
+        LOG.info(String.format("calcInvalidPartitions mv name is %s,\n mvValidBaseTablePartitionNameSet is %s,\n "
+                        + "mvValidHasDataRelatedBaseTableNameSet is %s,\n queryUsedBaseTablePartitionNameSet is %s,\n "
+                        + "partitionMapping is %s \n, sql hash is %s",
+                materializationContext.generateMaterializationIdentifier(),
+                mvValidBaseTablePartitionNameSet,
+                mvValidHasDataRelatedBaseTableNameSet,
+                queryUsedBaseTablePartitionNameSet,
+                partitionMapping,
+                cascadesContext.getConnectContext().getSqlHash()));
         // Check when mv partition relates base table partition data change or delete partition
         Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
         List<Object> mvOlapScanList = rewrittenPlan.collectToList(node ->
