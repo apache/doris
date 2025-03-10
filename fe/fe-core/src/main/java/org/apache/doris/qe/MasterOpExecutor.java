@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -182,6 +183,12 @@ public class MasterOpExecutor {
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
+        }
+
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            if (null != ctx.getPrepareExecuteBuffer()) {
+                params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
+            }
         }
         return params;
     }
