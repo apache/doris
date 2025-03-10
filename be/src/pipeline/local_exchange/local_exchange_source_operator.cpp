@@ -30,10 +30,10 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
-            ADD_COUNTER_WITH_LEVEL(profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
     if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
         _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
-        _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");
+        _copy_data_timer = ADD_TIMER(custom_profile(), "CopyDataTime");
     }
 
     if (_exchanger->get_type() == ExchangeType::LOCAL_MERGE_SORT && _channel_id == 0) {
@@ -41,9 +41,9 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
         DCHECK_GT(_local_merge_deps.size(), 1);
         _deps_counter.resize(_local_merge_deps.size());
         static const std::string timer_name = "WaitForDependencyTime";
-        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(common_profile(), timer_name, 1);
         for (size_t i = 0; i < _deps_counter.size(); i++) {
-            _deps_counter[i] = _runtime_profile->add_nonzero_counter(
+            _deps_counter[i] = common_profile()->add_nonzero_counter(
                     fmt::format("WaitForData{}", i), TUnit ::TIME_NS, timer_name, 1);
         }
     }

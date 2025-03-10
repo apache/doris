@@ -190,7 +190,9 @@ export default function QueryProfile(params: any) {
             {profile ? (
                 <div
                     ref={container}
-                    style={{ background: '#f9f9f9', padding: '20px' }}
+                    style={{ background: '#f9f9f9', padding: '20px', whiteSpace: 'pre-wrap',
+                             fontFamily: 'Menlo, Monaco, \'Courier New\', monospace'
+                             }}
                 >
                     {/* {profile} */}
                 </div>
