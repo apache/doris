@@ -306,23 +306,30 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     index_path_prefix, index_meta.first, index_meta.second);
                     int64_t size = safe_get_file_size(inverted_index_file);
-                    if (size != -1) {
-                        PTabletWriteSlaveRequest::IndexSize index_size;
-                        index_size.set_indexid(index_meta.first);
-                        index_size.set_size(size);
-                        index_size.set_suffix_path(index_meta.second);
-                        // Fetch the map value for the current segment_id.
-                        // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                        auto& index_size_map_value =
-                                (*(request->mutable_inverted_indices_size()))[segment_id];
-                        // Add the new index size to the map value.
-                        *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+                    if (size == -1) {
+                        LOG(WARNING) << "Failed to get inverted index  v1 file size: "
+                                     << inverted_index_file;
+                        return;
                     }
+                    PTabletWriteSlaveRequest::IndexSize index_size;
+                    index_size.set_indexid(index_meta.first);
+                    index_size.set_size(size);
+                    index_size.set_suffix_path(index_meta.second);
+                    // Fetch the map value for the current segment_id.
+                    // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                    auto& index_size_map_value =
+                            (*(request->mutable_inverted_indices_size()))[segment_id];
+                    // Add the new index size to the map value.
+                    *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
                 }
             } else {
                 std::string inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                int64_t size = std::filesystem::file_size(inverted_index_file);
+                int64_t size = safe_get_file_size(inverted_index_file);
+                if (size == -1) {
+                    LOG(WARNING) << "Failed to get inverted index  v1 file size: "
+                                 << inverted_index_file;
+                }
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
                 index_size.set_indexid(0);
