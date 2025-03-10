@@ -1049,8 +1049,10 @@ public class Alter {
             }
             // 2. replica allocation
             if (!replicaAlloc.isNotSet()) {
-                setReplicasToDrop(partition, partitionInfo.getReplicaAllocation(partition.getId()),
-                        replicaAlloc, tableBeToReplicaNumMap);
+                if (Config.isNotCloudMode() && !olapTable.isColocateTable()) {
+                    setReplicasToDrop(partition, partitionInfo.getReplicaAllocation(partition.getId()),
+                            replicaAlloc, tableBeToReplicaNumMap);
+                }
                 partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
             }
             // 3. in memory
@@ -1077,39 +1079,43 @@ public class Alter {
                                  ReplicaAllocation oldReplicaAlloc,
                                  ReplicaAllocation newReplicaAlloc,
                                  Map<Long, Long> tableBeToReplicaNumMap) {
-        Set<Tag> scaleInTags = getScaleInTags(oldReplicaAlloc, newReplicaAlloc);
+        if (newReplicaAlloc.getAllocMap().entrySet().stream().noneMatch(
+                entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))) {
+            return;
+        }
+
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         List<Long> aliveBes = systemInfoService.getAllBackendIds(true);
 
-        for (Tag tag : scaleInTags) {
-            int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag) - newReplicaAlloc.getReplicaNumByTag(tag);
-            if (replicasToDrop <= 0) {
-                return;
-            }
-
-            processReplicasInPartition(partition, tag, replicasToDrop,
-                    tableBeToReplicaNumMap, systemInfoService, oldReplicaAlloc, aliveBes);
-        }
+        processReplicasInPartition(partition,
+                tableBeToReplicaNumMap, systemInfoService, oldReplicaAlloc, newReplicaAlloc, aliveBes);
     }
 
-    private void processReplicasInPartition(Partition partition, Tag tag, int replicasToDrop,
+    private void processReplicasInPartition(Partition partition,
                                             Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
-                                            ReplicaAllocation oldReplicaAlloc,
+                                            ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc,
                                             List<Long> aliveBes) {
+        List<Tag> changeTags = newReplicaAlloc.getAllocMap().entrySet().stream()
+                .filter(entry -> entry.getValue() < oldReplicaAlloc.getReplicaNumByTag(entry.getKey()))
+                .map(Map.Entry::getKey).collect(Collectors.toList());
+        Map<Long, Long> partitionBeToReplicaNumMap = getReplicaCountByBackend(partition);
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
             for (Tablet tablet : index.getTablets()) {
                 if (!isTabletHealthy(tablet, systemInfoService, partition, oldReplicaAlloc, aliveBes)) {
                     continue;
                 }
-
-                List<Replica> toDealReplicas = getReplicasByTag(tablet, tag);
-                if (toDealReplicas == null) {
-                    continue;
+                Map<Tag, List<Replica>> tagToReplicaMap = getReplicasWithTag(tablet);
+                for (Tag tag : changeTags) {
+                    List<Replica> toDealReplicas = tagToReplicaMap.get(tag);
+                    if (toDealReplicas == null || toDealReplicas.isEmpty()) {
+                        continue;
+                    }
+                    sortReplicasByBackendCount(toDealReplicas, tableBeToReplicaNumMap, partitionBeToReplicaNumMap);
+                    int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag)
+                            - newReplicaAlloc.getReplicaNumByTag(tag);
+                    markReplicasForDropping(toDealReplicas, replicasToDrop,
+                            tableBeToReplicaNumMap, partitionBeToReplicaNumMap);
                 }
-
-                sortReplicasByBackendCount(toDealReplicas, tableBeToReplicaNumMap);
-
-                markReplicasForDropping(toDealReplicas, replicasToDrop, tableBeToReplicaNumMap);
             }
         }
     }
@@ -1121,31 +1127,31 @@ public class Alter {
                      .status == Tablet.TabletStatus.HEALTHY;
     }
 
-    private Set<Tag> getScaleInTags(ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc) {
-        return oldReplicaAlloc.getAllocMap().entrySet().stream()
-            .filter(entry -> entry.getValue() > newReplicaAlloc.getAllocMap()
-                .getOrDefault(entry.getKey(), (short) 0))
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toSet());
-    }
 
-    private List<Replica> getReplicasByTag(Tablet tablet, Tag tag) {
-        Map<Tag, List<Replica>> replicasByTag = tablet.getReplicas().stream()
+    private Map<Tag, List<Replica>> getReplicasWithTag(Tablet tablet) {
+        return tablet.getReplicas().stream()
                 .collect(Collectors.groupingBy(replica -> Env.getCurrentSystemInfo()
                 .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
-        return replicasByTag.get(tag);
     }
 
-    private void sortReplicasByBackendCount(List<Replica> replicas, Map<Long, Long> tableBeToReplicaNumMap) {
+    private void sortReplicasByBackendCount(List<Replica> replicas,
+                                            Map<Long, Long> tableBeToReplicaNumMap,
+                                            Map<Long, Long> partitionBeToReplicaNumMap) {
         replicas.sort((Replica r1, Replica r2) -> {
-            long count1 = tableBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
-            long count2 = tableBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
-            return Long.compare(count2, count1); // desc sort
+            long countPartition1 = partitionBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
+            long countPartition2 = partitionBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
+            if (countPartition1 != countPartition2) {
+                return Long.compare(countPartition2, countPartition1);
+            }
+            long countTable1 = tableBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
+            long countTable2 = tableBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
+            return Long.compare(countTable2, countTable1); // desc sort
         });
     }
 
     private void markReplicasForDropping(List<Replica> replicas, int replicasToDrop,
-                                      Map<Long, Long> tableBeToReplicaNumMap) {
+                                  Map<Long, Long> tableBeToReplicaNumMap,
+                                  Map<Long, Long> partitionBeToReplicaNumMap) {
         for (int i = 0; i < replicas.size(); i++) {
             Replica r = replicas.get(i);
             long beId = r.getBackendIdWithoutException();
@@ -1154,6 +1160,7 @@ public class Alter {
             } else {
                 r.setScaleInDropTimeStamp(System.currentTimeMillis()); // Mark for dropping
                 tableBeToReplicaNumMap.put(beId, tableBeToReplicaNumMap.get(beId) - 1);
+                partitionBeToReplicaNumMap.put(beId, partitionBeToReplicaNumMap.get(beId) - 1);
             }
         }
     }

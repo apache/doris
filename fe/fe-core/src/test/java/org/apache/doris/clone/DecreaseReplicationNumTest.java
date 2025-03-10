@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import com.alibaba.google.common.collect.Lists;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,6 +33,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -84,6 +87,8 @@ public class DecreaseReplicationNumTest extends TestWithFeService {
         OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getPartitions().iterator().next();
         Map<Long, Long> beIdToTabletNum = Alter.getReplicaCountByBackend(partition);
+        Assertions.assertEquals(5, beIdToTabletNum.size());
+        Assertions.assertEquals(Lists.newArrayList(10L, 10L, 10L, 10L, 10L), new ArrayList<>(beIdToTabletNum.values()));
         beIdToTabletNum.forEach((key, value) -> Assertions.assertEquals(value, 10L));
 
         List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG);
@@ -99,11 +104,61 @@ public class DecreaseReplicationNumTest extends TestWithFeService {
             // wait for scheduler
             if (afterAlter.size() == 1 && !beIdToTabletNum.containsValue(10L)) {
                 Assertions.assertTrue(afterAlter.contains(6L));
+                Assertions.assertEquals(Lists.newArrayList(6L, 6L, 6L, 6L, 6L), new ArrayList<>(beIdToTabletNum.values()));
                 succ = true;
                 break;
             }
             Thread.sleep(1000);
         }
         Assertions.assertTrue(succ);
+    }
+
+    @Test
+    public void testDecreaseMultiPartitionReplicaNum() throws Exception {
+        createTable("create table test_multi(id int, part int) "
+            + "partition by range(part) ("
+            + "  partition p1 values[('1'), ('2')),"
+            + "  partition p2 values[('2'), ('3')),"
+            + "  partition p3 values[('3'), ('4'))"
+            + ") "
+            + "distributed by hash(id) BUCKETS 9 "
+            + "properties ('replication_num'='4')");
+
+        OlapTable table = (OlapTable) db.getTableOrMetaException("test_multi");
+        List<Partition> partitions = table.getAllPartitions();
+        partitions.forEach(p -> {
+            Map<Long, Long> beIdToTabletNum = Alter.getReplicaCountByBackend(p);
+            Assertions.assertEquals(5, beIdToTabletNum.size());
+            List<Long> sortedValues = new ArrayList<>(beIdToTabletNum.values());
+            sortedValues.sort(Collections.reverseOrder());
+            Assertions.assertEquals(Lists.newArrayList(8L, 7L, 7L, 7L, 7L), sortedValues);
+        });
+
+        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG);
+        Assertions.assertEquals(backendNum(), backends.size());
+        Backend highLoadBe = backends.get(0);
+        DebugPointUtil.addDebugPointWithValue("FE.HIGH_LOAD_BE_ID", highLoadBe.getId());
+
+        alterTableSync("ALTER TABLE test_multi MODIFY PARTITION(*) SET ('replication_num' = '2')");
+        partitions.forEach(p -> {
+            boolean succ = false;
+            for (int i = 0; i < 100; i++) {
+                Map<Long, Long> beIdToTabletNum = Alter.getReplicaCountByBackend(p);
+                Set<Long> afterAlter = new HashSet<>(beIdToTabletNum.values());
+                List<Long> sortedValues = new ArrayList<>(beIdToTabletNum.values());
+                sortedValues.sort(Collections.reverseOrder());
+                // wait for scheduler
+                if (afterAlter.size() == 2 && beIdToTabletNum.containsValue(4L) && beIdToTabletNum.containsValue(3L)) {
+                    Assertions.assertEquals(Lists.newArrayList(4L, 4L, 4L, 3L, 3L), sortedValues);
+                    succ = true;
+                    break;
+                }
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {}
+            }
+            Assertions.assertTrue(succ);
+        });
+
     }
 }
