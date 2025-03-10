@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -170,7 +171,7 @@ public class ShowColumnStatsStmt extends ShowStmt implements NotFallbackInParser
             List<String> row = Lists.newArrayList();
             // p data structure is Pair<Pair<IndexName, ColumnName>, ColumnStatistic>
             row.add(p.first.second);
-            row.add(p.first.first);
+            row.add(Util.getTempTableDisplayName(p.first.first));
             row.add(String.valueOf(p.second.count));
             row.add(String.valueOf(p.second.ndv));
             row.add(String.valueOf(p.second.numNulls));
