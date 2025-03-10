@@ -66,7 +66,7 @@ public class ShowTabletIdCommand extends ShowCommand {
     /**
      * get meta for show tabletId
      */
-    public ShowResultSetMetaData getMetaData() {
+    private ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(new Column("DbName", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("TableName", ScalarType.createVarchar(30)));
@@ -86,7 +86,7 @@ public class ShowTabletIdCommand extends ShowCommand {
     /**
      * validate
      */
-    public void validate(ConnectContext ctx) throws AnalysisException {
+    private void validate(ConnectContext ctx) throws AnalysisException {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
