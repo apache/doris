@@ -18,16 +18,23 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ModifyColumnClause;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 class InternalSchemaInitializerTest {
@@ -69,7 +76,209 @@ class InternalSchemaInitializerTest {
         Assertions.assertEquals("key2", clause2.getColumn().getName());
         Assertions.assertEquals(StatisticConstants.MAX_NAME_LEN, clause2.getColumn().getType().getLength());
         Assertions.assertTrue(clause2.getColumn().isAllowNull());
-
     }
 
+    @Test
+    public void testAuditLogSchemaContainsStorageFields() {
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (ColumnDef columnDef : InternalSchema.AUDIT_SCHEMA) {
+            if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+
+            if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField, "scan_bytes_from_local_storage field is missing from AUDIT_SCHEMA");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from AUDIT_SCHEMA");
+    }
+
+    @Test
+    public void testAuditLogTableCreationWithStorageFields() throws Exception {
+        Method buildAuditTblStmtMethod = InternalSchemaInitializer.class.getDeclaredMethod("buildAuditTblStmt");
+        buildAuditTblStmtMethod.setAccessible(true);
+
+        CreateTableStmt createTableStmt = (CreateTableStmt) buildAuditTblStmtMethod.invoke(null);
+
+        List<Column> columns = createTableStmt.getColumns();
+
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (Column column : columns) {
+            if (column.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
+                Assertions.assertTrue(column.isAllowNull());
+            }
+
+            if (column.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, column.getType().getPrimitiveType());
+                Assertions.assertTrue(column.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField,
+                "scan_bytes_from_local_storage field is missing from the created audit log table");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from the created audit log table");
+    }
+
+    @Test
+    public void testGetCopiedSchemaForAuditLog() throws UserException {
+        List<ColumnDef> copiedSchema = InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE);
+
+        boolean hasLocalStorageField = false;
+        boolean hasRemoteStorageField = false;
+
+        for (ColumnDef columnDef : copiedSchema) {
+            if (columnDef.getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+
+            if (columnDef.getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageField = true;
+                Assertions.assertEquals(PrimitiveType.BIGINT, columnDef.getTypeDef().getType().getPrimitiveType());
+                Assertions.assertTrue(columnDef.isAllowNull());
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageField,
+                "scan_bytes_from_local_storage field is missing from the copied schema");
+        Assertions.assertTrue(hasRemoteStorageField,
+                "scan_bytes_from_remote_storage field is missing from the copied schema");
+    }
+
+    @Test
+    public void testStorageColumnsPositionInAuditTable() throws Exception {
+        ColumnDef localStorageDef = null;
+        ColumnDef remoteStorageDef = null;
+
+        for (int i = 0; i < InternalSchema.AUDIT_SCHEMA.size(); i++) {
+            ColumnDef def = InternalSchema.AUDIT_SCHEMA.get(i);
+            if (def.getName().equals("scan_bytes_from_local_storage")) {
+                localStorageDef = def;
+            } else if (def.getName().equals("scan_bytes_from_remote_storage")) {
+                remoteStorageDef = def;
+            }
+        }
+
+        Assertions.assertNotNull(localStorageDef, "scan_bytes_from_local_storage column does not exist in AUDIT_SCHEMA");
+        Assertions.assertNotNull(remoteStorageDef, "scan_bytes_from_remote_storage column does not exist in AUDIT_SCHEMA");
+
+        List<AlterClause> alterClauses = Lists.newArrayList();
+
+        ColumnPosition localStoragePosition = ColumnPosition.FIRST;
+        ModifyColumnClause localStorageClause = new ModifyColumnClause(
+                localStorageDef, localStoragePosition, null, Maps.newHashMap());
+        localStorageClause.setColumn(localStorageDef.toColumn());
+        alterClauses.add(localStorageClause);
+
+        ColumnPosition remoteStoragePosition = ColumnPosition.FIRST;
+        ModifyColumnClause remoteStorageClause = new ModifyColumnClause(
+                remoteStorageDef, remoteStoragePosition, null, Maps.newHashMap());
+        remoteStorageClause.setColumn(remoteStorageDef.toColumn());
+        alterClauses.add(remoteStorageClause);
+
+        Assertions.assertEquals(2, alterClauses.size(), "2 AlterClause should be generated");
+
+        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(0)).getColPos().isFirst(),
+                "The position of the scan_bytes_from_local_storage column should be FIRST");
+        Assertions.assertTrue(((ModifyColumnClause) alterClauses.get(1)).getColPos().isFirst(),
+                "The position of the scan_bytes_from_remote_storage column should be FIRST");
+    }
+
+    @Test
+    public void testIgnoreStorageColumnsTypeInconsistency() throws Exception {
+        List<Column> initialSchema = Lists.newArrayList(
+                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
+                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
+                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
+                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
+                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                // Intentionally using inconsistent types (VARCHAR instead of BIGINT)
+                new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null, "")
+        );
+
+        OlapTable auditTable = new OlapTable(1000, "audit_log", initialSchema, KeysType.AGG_KEYS,
+                new SinglePartitionInfo(), new HashDistributionInfo());
+
+        Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
+        Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
+
+        Assertions.assertNotNull(localStorageCol, "The scan_bytes_from_local_storage column should exist in auditTable");
+        Assertions.assertNotNull(remoteStorageCol, "The scan_bytes_from_remote_storage column should exist in auditTable");
+        Assertions.assertTrue(localStorageCol.getType().isVarchar(),
+                "The type of the scan_bytes_from_local_storage column should be VARCHAR");
+        Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
+                "The type of scan_bytes_from_remote_storage column should be VARCHAR");
+
+        List<ColumnDef> expectedSchema = Lists.newArrayList();
+        for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
+            expectedSchema.add(def);
+        }
+
+        List<AlterClause> alterClauses = Lists.newArrayList();
+
+        for (int i = 0; i < expectedSchema.size(); i++) {
+            ColumnDef def = expectedSchema.get(i);
+            if (auditTable.getColumn(def.getName()) == null) {
+                String afterColumn = null;
+                if (i > 0) {
+                    for (int j = i - 1; j >= 0; j--) {
+                        String prevColName = expectedSchema.get(j).getName();
+                        if (auditTable.getColumn(prevColName) != null) {
+                            afterColumn = prevColName;
+                            break;
+                        }
+                    }
+                }
+                ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
+                        new ColumnPosition(afterColumn);
+                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
+                clause.setColumn(def.toColumn());
+                alterClauses.add(clause);
+            }
+        }
+
+        boolean hasLocalStorageClause = false;
+        boolean hasRemoteStorageClause = false;
+
+        for (AlterClause clause : alterClauses) {
+            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
+            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageClause = true;
+            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageClause = true;
+            }
+        }
+
+        Assertions.assertTrue(hasLocalStorageClause,
+                "The system should generate an AlterClause for the scan_bytes_from_local_storage column with inconsistent types");
+        Assertions.assertTrue(hasRemoteStorageClause,
+                "The system should generate an AlterClause for the scan_bytes_from_remote_storage column with inconsistent types");
+    }
 }
