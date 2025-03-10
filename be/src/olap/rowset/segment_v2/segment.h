@@ -79,6 +79,28 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment>, public MetadataAdder<Segment> {
 public:
+    static Status new_default_iterator(const TabletColumn& tablet_column,
+                                       std::unique_ptr<ColumnIterator>* iter) {
+        if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+            return Status::InternalError(
+                    "invalid nonexistent column without default value. column_uid={}, "
+                    "column_name={}, "
+                    "column_type={}",
+                    tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
+        }
+        auto type_info = get_type_info(&tablet_column);
+        std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
+                new DefaultValueColumnIterator(tablet_column.has_default_value(),
+                                               tablet_column.default_value(),
+                                               tablet_column.is_nullable(), std::move(type_info),
+                                               tablet_column.precision(), tablet_column.frac()));
+        ColumnIteratorOptions iter_opts;
+
+        RETURN_IF_ERROR(default_value_iter->init(iter_opts));
+        *iter = std::move(default_value_iter);
+        return Status::OK();
+    }
+
     static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
