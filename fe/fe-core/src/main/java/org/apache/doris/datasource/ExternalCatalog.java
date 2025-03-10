@@ -65,6 +65,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -1111,5 +1112,22 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalCatalog)) {
+            return false;
+        }
+        ExternalCatalog that = (ExternalCatalog) o;
+        return Objects.equal(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
     }
 }
