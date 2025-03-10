@@ -86,12 +86,6 @@ public class ShowRestoreCommand extends ShowCommand {
         this.needBriefResult = needBriefResult;
     }
 
-
-    private String getDbName() {
-        return dbName;
-    }
-
-
     /**
      * get meta for show restore
      */
