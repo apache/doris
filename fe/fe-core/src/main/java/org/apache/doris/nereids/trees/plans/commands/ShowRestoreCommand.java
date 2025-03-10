@@ -86,28 +86,16 @@ public class ShowRestoreCommand extends ShowCommand {
         this.needBriefResult = needBriefResult;
     }
 
-    /**
-     * constructor
-     */
-    public ShowRestoreCommand(String dbName, Expression where) {
-        super(PlanType.SHOW_RESTORE_COMMAND);
-        this.dbName = dbName;
-        this.where = where;
-        this.needBriefResult = false;
-    }
 
-    public String getDbName() {
+    private String getDbName() {
         return dbName;
     }
 
-    public boolean isNeedBriefResult() {
-        return needBriefResult;
-    }
 
     /**
      * get meta for show restore
      */
-    public ShowResultSetMetaData getMetaData() {
+    private ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         List<String> titleNames = needBriefResult ? BRIEF_TITLE_NAMES : TITLE_NAMES;
         for (String title : titleNames) {
@@ -119,7 +107,7 @@ public class ShowRestoreCommand extends ShowCommand {
     /**
      * get label predicate for show restore
      */
-    public Predicate<String> getLabelPredicate() throws AnalysisException {
+    private Predicate<String> getLabelPredicate() throws AnalysisException {
         if (null == where) {
             return label -> true;
         }
