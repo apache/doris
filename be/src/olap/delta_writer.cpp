@@ -328,7 +328,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
             } else {
                 std::string inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                auto index_size_or_status  = safe_get_file_size(inverted_index_file);
+                auto index_size_or_status = safe_get_file_size(inverted_index_file);
                 if (!index_size_or_status.ok()) {
                     LOG(ERROR) << "Failed to get index file size: " << inverted_index_file;
                     continue;
