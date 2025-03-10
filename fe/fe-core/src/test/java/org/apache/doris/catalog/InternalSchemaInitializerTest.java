@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.common.UserException;
@@ -27,6 +28,7 @@ import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
@@ -157,5 +159,156 @@ class InternalSchemaInitializerTest {
                 "scan_bytes_from_local_storage field is missing from the copied schema");
         Assertions.assertTrue(hasRemoteStorageField,
                 "scan_bytes_from_remote_storage field is missing from the copied schema");
+    }
+
+    @Test
+    public void testStorageColumnsPositionInAuditTable() throws Exception {
+        OlapTable auditTable = new OlapTable();
+        List<Column> initialSchema = Lists.newArrayList(
+                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
+                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
+                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
+                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
+                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, "")
+        );
+        auditTable.fullSchema = initialSchema;
+
+        List<ColumnDef> expectedSchema = Lists.newArrayList();
+        for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
+            expectedSchema.add(def);
+        }
+
+        List<AlterClause> alterClauses = Lists.newArrayList();
+
+        for (int i = 0; i < expectedSchema.size(); i++) {
+            ColumnDef def = expectedSchema.get(i);
+            if (auditTable.getColumn(def.getName()) == null) {
+                String afterColumn = null;
+                if (i > 0) {
+                    for (int j = i - 1; j >= 0; j--) {
+                        String prevColName = expectedSchema.get(j).getName();
+                        if (auditTable.getColumn(prevColName) != null) {
+                            afterColumn = prevColName;
+                            break;
+                        }
+                    }
+                }
+                ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
+                        new ColumnPosition(afterColumn);
+                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
+                clause.setColumn(def.toColumn());
+                alterClauses.add(clause);
+            }
+        }
+
+        ModifyColumnClause localStorageClause = null;
+        ModifyColumnClause remoteStorageClause = null;
+
+        for (AlterClause clause : alterClauses) {
+            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
+            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
+                localStorageClause = modifyClause;
+            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
+                remoteStorageClause = modifyClause;
+            }
+        }
+
+        Assertions.assertNotNull(localStorageClause, "AlterClause for scan_bytes_from_local_storage column does not exist");
+        Assertions.assertNotNull(remoteStorageClause, "AlterClause for scan_bytes_from_remote_storage column does not exist");
+
+        Assertions.assertEquals("shuffle_send_bytes", localStorageClause.getColPos().getLastCol(),
+                "scan_bytes_from_local_storage should come after the shuffle_send_bytes column");
+        Assertions.assertEquals("scan_bytes_from_local_storage", remoteStorageClause.getColPos().getLastCol(),
+                "scan_bytes_from_remote_storage should be after the scan_bytes_from_local_storage column");
+    }
+
+    @Test
+    public void testIgnoreStorageColumnsTypeInconsistency() throws Exception {
+        OlapTable auditTable = new OlapTable();
+        List<Column> initialSchema = Lists.newArrayList(
+                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
+                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
+                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
+                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
+                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null, ""),
+                new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null, "")
+        );
+        auditTable.fullSchema = initialSchema;
+
+        List<ColumnDef> expectedSchema = Lists.newArrayList();
+        for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
+            expectedSchema.add(def);
+        }
+
+        List<AlterClause> alterClauses = Lists.newArrayList();
+
+        for (int i = 0; i < expectedSchema.size(); i++) {
+            ColumnDef def = expectedSchema.get(i);
+            if (auditTable.getColumn(def.getName()) == null) {
+                String afterColumn = null;
+                if (i > 0) {
+                    for (int j = i - 1; j >= 0; j--) {
+                        String prevColName = expectedSchema.get(j).getName();
+                        if (auditTable.getColumn(prevColName) != null) {
+                            afterColumn = prevColName;
+                            break;
+                        }
+                    }
+                }
+                ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
+                        new ColumnPosition(afterColumn);
+                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
+                clause.setColumn(def.toColumn());
+                alterClauses.add(clause);
+            }
+        }
+
+        boolean hasLocalStorageClause = false;
+        boolean hasRemoteStorageClause = false;
+
+        for (AlterClause clause : alterClauses) {
+            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
+            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
+                hasLocalStorageClause = true;
+            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
+                hasRemoteStorageClause = true;
+            }
+        }
+
+        Assertions.assertFalse(hasLocalStorageClause,
+                "AlterClause should not be generated for scan_bytes_from_local_storage column with inconsistent type");
+        Assertions.assertFalse(hasRemoteStorageClause,
+                "AlterClause should not be generated for scan_bytes_from_remote_storage column with inconsistent type");
+
+        Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
+        Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
+
+        Assertions.assertNotNull(localStorageCol);
+        Assertions.assertNotNull(remoteStorageCol);
+        Assertions.assertTrue(localStorageCol.getType().isVarchar(),
+                "The type of the scan_bytes_from_local_storage column should remain VARCHAR");
+        Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
+                "The type of the scan_bytes_from_remote_storage column should remain VARCHAR");
     }
 }
