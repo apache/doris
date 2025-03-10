@@ -43,6 +43,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -179,10 +180,10 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
+
+    void deserialize_vec(StringRef* keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -245,6 +246,7 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
+    // Default value in `ColumnNullable` is null
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
@@ -262,13 +264,6 @@ public:
     void insert_not_null_elements(size_t num) {
         get_nested_column().insert_many_defaults(num);
         _push_false_to_nullmap(num);
-    }
-
-    void insert_null_elements(int num) {
-        get_nested_column().insert_many_defaults(num);
-        get_null_map_column().insert_many_vals(1, num);
-        _has_null = true;
-        _need_update_has_null = false;
     }
 
     void pop_back(size_t n) override;
@@ -290,6 +285,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
@@ -327,13 +323,7 @@ public:
 
     bool is_nullable() const override { return true; }
     bool is_concrete_nullable() const override { return true; }
-    bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
-    bool is_hll() const override { return get_nested_column().is_hll(); }
-    bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
-    bool is_column_array() const override { return get_nested_column().is_column_array(); }
-    bool is_column_map() const override { return get_nested_column().is_column_map(); }
-    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&
@@ -404,7 +394,8 @@ public:
         }
         static constexpr auto MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH = 1000;
         size_t num_rows = size();
-        size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
+        size_t num_sampled_rows = std::min(
+                static_cast<size_t>(static_cast<double>(num_rows) * sample_ratio), num_rows);
         size_t num_checked_rows = 0;
         size_t res = 0;
         if (num_sampled_rows == num_rows || num_rows <= MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH) {
@@ -423,7 +414,7 @@ public:
         if (num_checked_rows == 0) {
             return 0.0;
         }
-        return static_cast<double>(res) / num_checked_rows;
+        return static_cast<double>(res) / static_cast<double>(num_checked_rows);
     }
 
     void convert_dict_codes_if_necessary() override {
@@ -460,3 +451,4 @@ private:
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

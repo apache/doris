@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveUtil;
@@ -30,12 +31,21 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
+import org.apache.paimon.partition.Partition;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
@@ -48,17 +58,25 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class PaimonUtil {
+    private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
+
     public static List<InternalRow> read(
-            Table table, @Nullable int[][] projection, Pair<ConfigOption<?>, String>... dynamicOptions)
+            Table table, @Nullable int[] projection, @Nullable Predicate predicate,
+            Pair<ConfigOption<?>, String>... dynamicOptions)
             throws IOException {
         Map<String, String> options = new HashMap<>();
         for (Pair<ConfigOption<?>, String> pair : dynamicOptions) {
             options.put(pair.getKey().key(), pair.getValue());
         }
-        table = table.copy(options);
+        if (!options.isEmpty()) {
+            table = table.copy(options);
+        }
         ReadBuilder readBuilder = table.newReadBuilder();
         if (projection != null) {
             readBuilder.withProjection(projection);
+        }
+        if (predicate != null) {
+            readBuilder.withFilter(predicate);
         }
         RecordReader<InternalRow> reader =
                 readBuilder.newRead().createReader(readBuilder.newScan().plan());
@@ -72,62 +90,38 @@ public class PaimonUtil {
         return rows;
     }
 
-
-    /*
-    https://paimon.apache.org/docs/0.9/maintenance/system-tables/#partitions-table
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    |  partition    |   record_count |  file_size_in_bytes|          file_count|        last_update_time|
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    |  [1]          |           1    |             645    |                1   | 2024-06-24 10:25:57.400|
-    +---------------+----------------+--------------------+--------------------+------------------------+
-    org.apache.paimon.table.system.PartitionsTable.TABLE_TYPE
-    public static final RowType TABLE_TYPE =
-            new RowType(
-                    Arrays.asList(
-                            new DataField(0, "partition", SerializationUtils.newStringType(true)),
-                            new DataField(1, "record_count", new BigIntType(false)),
-                            new DataField(2, "file_size_in_bytes", new BigIntType(false)),
-                            new DataField(3, "file_count", new BigIntType(false)),
-                            new DataField(4, "last_update_time", DataTypes.TIMESTAMP_MILLIS())));
-    */
-    public static PaimonPartition rowToPartition(InternalRow row) {
-        String partition = row.getString(0).toString();
-        long recordCount = row.getLong(1);
-        long fileSizeInBytes = row.getLong(2);
-        long fileCount = row.getLong(3);
-        long lastUpdateTime = row.getTimestamp(4, 3).getMillisecond();
-        return new PaimonPartition(partition, recordCount, fileSizeInBytes, fileCount, lastUpdateTime);
-    }
-
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<PaimonPartition> paimonPartitions) throws AnalysisException {
-        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
-        Map<String, PaimonPartition> nameToPartition = Maps.newHashMap();
-        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
-        if (CollectionUtils.isEmpty(partitionColumns)) {
-            return partitionInfo;
+                                                            List<Partition> paimonPartitions) {
+
+        if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
+            return PaimonPartitionInfo.EMPTY;
         }
-        for (PaimonPartition paimonPartition : paimonPartitions) {
-            String partitionName = getPartitionName(partitionColumns, paimonPartition.getPartitionValues());
-            nameToPartition.put(partitionName, paimonPartition);
-            nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        Map<String, Partition> nameToPartition = Maps.newHashMap();
+        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+
+        for (Partition partition : paimonPartitions) {
+            Map<String, String> spec = partition.spec();
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, String> entry : spec.entrySet()) {
+                sb.append(entry.getKey()).append("=").append(entry.getValue()).append("/");
+            }
+            if (sb.length() > 0) {
+                sb.deleteCharAt(sb.length() - 1);
+            }
+            String partitionName = sb.toString();
+            nameToPartition.put(partitionName, partition);
+            try {
+                // partition values return by paimon api, may have problem,
+                // to avoid affecting the query, we catch exceptions here
+                nameToPartitionItem.put(partitionName, toListPartitionItem(partitionName, partitionColumns));
+            } catch (Exception e) {
+                LOG.warn("toListPartitionItem failed, partitionColumns: {}, partitionValues: {}",
+                        partitionColumns, partition.spec(), e);
+            }
         }
         return partitionInfo;
-    }
-
-    private static String getPartitionName(List<Column> partitionColumns, String partitionValueStr) {
-        Preconditions.checkNotNull(partitionValueStr);
-        String[] partitionValues = partitionValueStr.replace("[", "").replace("]", "")
-                .split(",");
-        Preconditions.checkState(partitionColumns.size() == partitionValues.length);
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < partitionColumns.size(); ++i) {
-            if (i != 0) {
-                sb.append("/");
-            }
-            sb.append(partitionColumns.get(i).getName()).append("=").append(partitionValues[i]);
-        }
-        return sb.toString();
     }
 
     public static ListPartitionItem toListPartitionItem(String partitionName, List<Column> partitionColumns)
@@ -151,5 +145,80 @@ public class PaimonUtil {
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
         return listPartitionItem;
+    }
+
+    private static Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
+        int tsScale = 3; // default
+        switch (dataType.getTypeRoot()) {
+            case BOOLEAN:
+                return Type.BOOLEAN;
+            case INTEGER:
+                return Type.INT;
+            case BIGINT:
+                return Type.BIGINT;
+            case FLOAT:
+                return Type.FLOAT;
+            case DOUBLE:
+                return Type.DOUBLE;
+            case SMALLINT:
+                return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
+            case VARCHAR:
+            case BINARY:
+            case CHAR:
+            case VARBINARY:
+                return Type.STRING;
+            case DECIMAL:
+                DecimalType decimal = (DecimalType) dataType;
+                return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
+            case DATE:
+                return ScalarType.createDateV2Type();
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.TimestampType) {
+                    tsScale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                return new org.apache.doris.catalog.MapType(
+                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                List<DataField> fields = rowType.getFields();
+                return new org.apache.doris.catalog.StructType(fields.stream()
+                        .map(field -> new org.apache.doris.catalog.StructField(field.name(),
+                                paimonTypeToDorisType(field.type())))
+                        .collect(Collectors.toCollection(ArrayList::new)));
+            case TIME_WITHOUT_TIME_ZONE:
+                return Type.UNSUPPORTED;
+            default:
+                LOG.warn("Cannot transform unknown type: " + dataType.getTypeRoot());
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
+        return paimonPrimitiveTypeToDorisType(type);
     }
 }

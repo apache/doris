@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -63,8 +64,8 @@ public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
-    UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                       const DescriptorTbl& descs);
+    UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                       const TPlanNode& tnode, const DescriptorTbl& descs);
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -73,7 +74,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -92,6 +93,11 @@ public:
 
     bool require_shuffled_data_distribution() const override {
         return _followed_by_shuffled_operator;
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state._shared_state->data_queue.set_low_memory_mode();
     }
 
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
@@ -152,4 +158,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -37,6 +37,7 @@
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/pretty_printer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -115,8 +116,7 @@ Status SegmentFlusher::close() {
 bool SegmentFlusher::need_buffering() {
     // buffering variants for schema change
     return _context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE &&
-           (_context.tablet_schema->num_variant_columns() > 0 ||
-            !_context.tablet_schema->cluster_key_idxes().empty());
+           _context.tablet_schema->num_variant_columns() > 0;
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -255,7 +255,8 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
     LOG(INFO) << "tablet_id:" << _context.tablet_id
               << ", flushing rowset_dir: " << _context.tablet_path
-              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", rowset_id:" << _context.rowset_id
+              << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
               << ", index size:" << segstat.index_size;
 
     writer.reset();

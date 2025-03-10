@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -642,11 +642,12 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimalV3(DecimalV3Literal first, DecimalV3Literal second) {
-        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(first.getDataType());
-        }
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
+            return new NullLiteral(DecimalV3Type.createDecimalV3TypeLooseCheck(
+                    t1.getPrecision(), t1.getScale() - t2.getScale()));
+        }
         BigDecimal result = first.getValue().divide(second.getValue());
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
@@ -671,7 +672,7 @@ public class NumericArithmetic {
     /**
      * Method to check boundary with options for inclusive or exclusive boundaries
       */
-    public static void checkInputBoundary(Literal input, double lowerBound, double upperBound,
+    public static Boolean inputOutOfBound(Literal input, double lowerBound, double upperBound,
                                         boolean isLowerInclusive, boolean isUpperInclusive) {
         if (input instanceof DoubleLiteral) {
             double inputValue = ((DoubleLiteral) input).getValue();
@@ -680,15 +681,16 @@ public class NumericArithmetic {
             boolean upperCheck = isUpperInclusive ? (inputValue <= upperBound) : (inputValue < upperBound);
             // Return true if both checks are satisfied
             if (!lowerCheck || !upperCheck) {
-                throw new NotSupportedException("input " + input.toSql() + " is out of boundary");
+                return true;
             }
         }
+        return false;
     }
 
     private static Expression checkOutputBoundary(Literal input) {
         if (input instanceof DoubleLiteral) {
             if (((DoubleLiteral) input).getValue().isNaN() || ((DoubleLiteral) input).getValue().isInfinite()) {
-                throw new NotSupportedException(input.toSql() + " result is invalid");
+                return new NullLiteral(DoubleType.INSTANCE);
             }
         }
         return input;
@@ -817,7 +819,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ln")
     public static Expression ln(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue())));
     }
 
@@ -826,8 +830,11 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
-        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(second.getValue())));
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)
+                || first.getValue().equals(1.0d)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(Math.log(second.getValue()) / Math.log(first.getValue())));
     }
 
     /**
@@ -835,7 +842,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log2")
     public static Expression log2(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue()) / Math.log(2.0)));
     }
 
@@ -844,7 +853,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log10")
     public static Expression log10(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log10(first.getValue())));
     }
 
@@ -853,7 +864,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sqrt")
     public static Expression sqrt(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, true, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, true, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.sqrt(first.getValue())));
     }
 
@@ -862,7 +875,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "power")
     public static Expression power(DoubleLiteral first, DoubleLiteral second) {
-        checkInputBoundary(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (inputOutOfBound(second, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)
+                || (first.getValue() < 0 && second.getValue() % 1 != 0)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.pow(first.getValue(), second.getValue())));
     }
 
@@ -871,7 +887,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sin")
     public static Expression sin(DoubleLiteral first) {
-        checkInputBoundary(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.sin(first.getValue())));
     }
 
@@ -880,7 +898,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "cos")
     public static Expression cos(DoubleLiteral first) {
-        checkInputBoundary(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.cos(first.getValue())));
     }
 
@@ -889,7 +909,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "tan")
     public static Expression tan(DoubleLiteral first) {
-        checkInputBoundary(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.tan(first.getValue())));
     }
 
@@ -898,7 +920,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
-        checkInputBoundary(first, -1.0, 1.0, true, true);
+        if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.asin(first.getValue())));
     }
 
@@ -907,7 +931,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
-        checkInputBoundary(first, -1.0, 1.0, true, true);
+        if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.acos(first.getValue())));
     }
 
@@ -1043,7 +1069,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dlog1")
     public static Expression dlog1(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log1p(first.getValue())));
     }
 
@@ -1052,7 +1080,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dlog10")
     public static Expression dlog10(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.log10(first.getValue())));
     }
 
@@ -1061,7 +1091,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dsqrt")
     public static Expression dsqrt(DoubleLiteral first) {
-        checkInputBoundary(first, 0.0d, Double.MAX_VALUE, false, true);
+        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.sqrt(first.getValue())));
     }
 
@@ -1078,7 +1110,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
-        return checkOutputBoundary(new DoubleLiteral(first.getValue() / second.getValue()));
+        return checkOutputBoundary(new DoubleLiteral(first.getValue() % second.getValue()));
     }
 
     /**
@@ -1086,7 +1118,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(FloatLiteral first, FloatLiteral second) {
-        return new FloatLiteral(first.getValue() / second.getValue());
+        return new FloatLiteral(first.getValue() % second.getValue());
     }
 
     /**

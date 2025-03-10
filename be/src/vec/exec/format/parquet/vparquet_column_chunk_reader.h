@@ -49,7 +49,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -191,7 +191,6 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    bool _has_dict_page() const;
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
@@ -229,5 +228,8 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     Statistics _statistics;
 };
+#include "common/compile_check_end.h"
+
+bool has_dict_page(const tparquet::ColumnMetaData& column);
 
 } // namespace doris::vectorized

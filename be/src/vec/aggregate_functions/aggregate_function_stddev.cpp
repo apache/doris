@@ -28,6 +28,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <template <typename> class Function, typename Name,
           template <typename, typename, bool> class Data, bool is_stddev>

@@ -41,6 +41,7 @@ suite ("test_dup_mv_bitmap_hash") {
     createMV( "create materialized view k1g2bm as select k1,bitmap_union(to_bitmap(k2)) from d_table group by k1;")
 
     sql """analyze table d_table with sync;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;", "k1g2bm")
@@ -58,11 +59,14 @@ suite ("test_dup_mv_bitmap_hash") {
     qt_select_star "select * from d_table order by k1,k2,k3;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     sql """analyze table d_table with sync;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1;", "k1g3bm")
     qt_select_mv_sub "select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1 order by k1;"
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1;", "k1g3bm")
 }

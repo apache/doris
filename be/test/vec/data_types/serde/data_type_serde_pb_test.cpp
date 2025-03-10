@@ -404,7 +404,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
@@ -414,7 +414,7 @@ inline void serialize_and_deserialize_pb_test() {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
@@ -668,12 +668,9 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
             uint8_t minute = i;
             uint8_t second = 0;
             uint32_t microsecond = 123000;
-            auto value = ((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
-                                     ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
-                                     ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
-                                     (uint64_t)microsecond));
+
             DateV2Value<DateTimeV2ValueType> datetime_v2;
-            datetime_v2.from_datetime(value);
+            datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
             auto datetime_val = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(datetime_v2);
             data.push_back(datetime_val);
         }

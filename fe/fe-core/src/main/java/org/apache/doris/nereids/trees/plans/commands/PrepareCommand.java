@@ -110,8 +110,8 @@ public class PrepareCommand extends Command {
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
-        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            executor.sendStmtPrepareOK((int) ctx.getStmtId(), labels);
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && !ctx.isProxy()) {
+            executor.sendStmtPrepareOK(Integer.parseInt(name), labels);
         }
     }
 

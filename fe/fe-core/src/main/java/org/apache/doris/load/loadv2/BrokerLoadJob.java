@@ -245,8 +245,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (enableProfile) {
             this.jobProfile = new Profile(
                     true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "500")));
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "1")),
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "-1")));
+            this.jobProfile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
             // TODO: 怎么给这些 load job 设置 profile 记录时间
             // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
@@ -260,6 +261,10 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                if (table.isTemporary())  {
+                    throw new UserException("Do not support load into temporary table "
+                        + table.getDisplayName());
+                }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task

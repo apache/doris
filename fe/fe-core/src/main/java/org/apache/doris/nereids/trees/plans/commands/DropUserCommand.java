@@ -55,8 +55,8 @@ public class DropUserCommand extends DropCommand {
 
         userIdent.analyze();
 
-        if (userIdent.isRootUser()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not drop root user");
+        if (userIdent.isSystemUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not drop system user");
         }
 
         // only user with GLOBAL level's GRANT_PRIV can drop user.

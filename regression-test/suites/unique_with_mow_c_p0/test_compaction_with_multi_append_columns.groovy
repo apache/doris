@@ -128,11 +128,17 @@ suite("test_compaction_with_multi_append_columns", "p0") {
             assertEquals("success", compactJson.status.toLowerCase())
         }
 
-        (code, out, err) = be_show_tablet_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def json = parseJson(out.trim())
-        logger.info("tablet rowset: " + json)
+        for (int i = 0; i < 10; i++) {
+            (code, out, err) = be_show_tablet_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            logger.info("loop " + i + ", Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def json = parseJson(out.trim())
+            logger.info("tablet rowsets: " + json)
+            if (json.rowsets.size() <= 5) {
+                break
+            }
+            sleep(2000)
+        }
     }
     checkNoDuplicatedKeys(tableName)
 

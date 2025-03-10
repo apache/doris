@@ -71,7 +71,7 @@ public class UnboundOneRowRelation extends LogicalRelation implements Unbound, O
 
     @Override
     public List<? extends Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
+        return projects;
     }
 
     @Override

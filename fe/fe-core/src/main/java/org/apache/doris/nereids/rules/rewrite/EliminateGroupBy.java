@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -84,12 +84,8 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                                         .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
                                 newOutput.add((NamedExpression) ne.withChildren(
-                                        new If(
-                                            new IsNull(f.child(0)),
-                                            Literal.of(0),
-                                            Literal.of(1)
-                                        )
-                                ));
+                                        new If(new IsNull(f.child(0)), new BigIntLiteral(0),
+                                                new BigIntLiteral(1))));
                             } else {
                                 throw new IllegalStateException("Unexpected aggregate function: " + f);
                             }

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -259,6 +260,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitOrthogonalBitmapUnionCount(OrthogonalBitmapUnionCount function, C context) {
         return visitAggregateFunction(function, context);
+    }
+
+    default R visitMedian(Median median, C context) {
+        return visitNullableAggregateFunction(median, context);
     }
 
     default R visitPercentile(Percentile percentile, C context) {

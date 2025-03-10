@@ -92,7 +92,7 @@ public:
     void clear_cache() override;
 
     // Return number of deleted stale rowsets
-    int delete_expired_stale_rowsets();
+    uint64_t delete_expired_stale_rowsets();
 
     bool has_stale_rowsets() const { return !_stale_rs_version_map.empty(); }
 
@@ -170,7 +170,11 @@ public:
 
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids,
+                              int64_t lock_id = -1) override;
+
+    Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
+                                    DeleteBitmapPtr delete_bitmap, int64_t lock_id);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -206,11 +210,14 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+
+    // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
+    Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

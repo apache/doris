@@ -25,7 +25,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
     for (int i = 0; i < num_values; ++i) {
         if (UNLIKELY(_offset + 4 > _data->size)) {
@@ -105,4 +105,6 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

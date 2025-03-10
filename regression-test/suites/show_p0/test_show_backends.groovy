@@ -23,11 +23,11 @@ suite("test_show_backends", "show") {
 
     sql """grant ADMIN_PRIV on *.*.* to test_show_backends_user1"""
 
-    def result1 = connect(user = 'test_show_backends_user1', password = '12345', url = context.config.jdbcUrl) {
+    def result1 = connect('test_show_backends_user1', '12345', context.config.jdbcUrl) {
         sql """ show backends """
     }
     log.info(result1.toString())
-    def result2 = connect(user = 'test_show_backends_user1', password = '12345', url = context.config.jdbcUrl) {
+    def result2 = connect('test_show_backends_user1', '12345', context.config.jdbcUrl) {
             sql """ show proc '/backends' """
         }
     log.info(result2.toString())

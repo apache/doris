@@ -102,7 +102,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
 
     @Override
     public String toString() {
-        return "SqlPipelineTask(\n"
+        return "PipelineExecutionTask(\n"
                 + childrenTasks.allTasks()
                     .stream()
                     .map(multiFragmentsPipelineTask -> "  " + multiFragmentsPipelineTask)

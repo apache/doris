@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -78,11 +77,6 @@ public class InferPredicateByReplace {
 
         @Override
         public Void visit(Expression expr, Map<Expression, Set<Expression>> context) {
-            return null;
-        }
-
-        @Override
-        public Void visitOr(Or expr, Map<Expression, Set<Expression>> context) {
             return null;
         }
 

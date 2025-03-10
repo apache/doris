@@ -22,6 +22,7 @@
 
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 
 namespace doris {
@@ -33,7 +34,7 @@ struct Slice;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /**
  * Use to deserialize parquet page header, and get the page data in iterator interface.
  */
@@ -135,10 +136,12 @@ public:
         }
 
         if (_page_index < _offset_index->page_locations.size() - 1) {
-            num_values = _offset_index->page_locations[_page_index + 1].first_row_index -
-                         _offset_index->page_locations[_page_index].first_row_index;
+            num_values = cast_set<uint32_t>(
+                    _offset_index->page_locations[_page_index + 1].first_row_index -
+                    _offset_index->page_locations[_page_index].first_row_index);
         } else {
-            num_values = _num_values - _offset_index->page_locations[_page_index].first_row_index;
+            num_values = cast_set<uint32_t>(
+                    _num_values - _offset_index->page_locations[_page_index].first_row_index);
         }
         return Status::OK();
     }
@@ -184,5 +187,6 @@ std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
                                                io::IOContext* io_ctx, uint64_t offset,
                                                uint64_t length, int64_t num_values = 0,
                                                const tparquet::OffsetIndex* offset_index = nullptr);
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

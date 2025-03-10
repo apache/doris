@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
 #include <stdint.h>
 
 #include <iomanip>
@@ -299,14 +300,22 @@ TEST(VTimestampFunctionsTest, years_add_test) {
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
-    DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2025-05-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2015-05-23 00:00:00")},
-            {{std::string(""), 5}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 8000}, Null()},
-            {{Null(), 5}, Null()}};
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2025-05-23 00:00:00")},
+                {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2015-05-23 00:00:00")},
+                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()}};
 
-    static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 8000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateTime, true>(func_name, input_types, data_set)));
+    }
 }
 
 TEST(VTimestampFunctionsTest, years_sub_test) {
@@ -314,14 +323,22 @@ TEST(VTimestampFunctionsTest, years_sub_test) {
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
 
-    DataSet data_set = {
-            {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2015-05-23 00:00:00")},
-            {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2025-05-23 00:00:00")},
-            {{std::string(""), 5}, Null()},
-            {{std::string("2020-05-23 00:00:00"), 3000}, Null()},
-            {{Null(), 5}, Null()}};
+    {
+        DataSet data_set = {
+                {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2015-05-23 00:00:00")},
+                {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2025-05-23 00:00:00")},
+                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()}};
 
-    static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+
+    {
+        DataSet data_set = {{{std::string("2020-05-23 00:00:00"), 3000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateTime, true>(func_name, input_types, data_set)));
+    }
 }
 
 TEST(VTimestampFunctionsTest, months_add_test) {
@@ -1043,10 +1060,17 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
                 {{std::string("2020-05-23"), 5}, str_to_date_v2("2025-05-23", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2015-05-23", "%Y-%m-%d")},
                 {{std::string(""), 5}, Null()},
-                {{std::string("2020-05-23"), 8000}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-05-23"), 8000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateV2, true>(func_name, input_types, data_set)));
     }
 
     {
@@ -1057,11 +1081,18 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2015-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string(""), 5}, Null()},
-                            {{std::string("2020-05-23 00:00:11.123"), 8000}, Null()},
                             {{Null(), 5}, Null()}};
 
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 8000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set)));
     }
 }
 
@@ -1075,11 +1106,19 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
                 {{std::string("2020-05-23"), 5}, str_to_date_v2("2015-05-23", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2025-05-23", "%Y-%m-%d")},
                 {{std::string(""), 5}, Null()},
-                {{std::string("2020-05-23"), 3000}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
+    {
+        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-05-23"), 3000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateV2, true>(func_name, input_types, data_set)));
+    }
+
     {
         InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Int32};
 
@@ -1088,11 +1127,18 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2025-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string(""), 5}, Null()},
-                            {{std::string("2020-05-23 00:00:11.123"), 3000}, Null()},
                             {{Null(), 5}, Null()}};
 
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-05-23 00:00:11.123"), 3000}, Null()}};
+
+        EXPECT_ANY_THROW(static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set)));
     }
 }
 

@@ -30,6 +30,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct Match {
     std::string::size_type offset;
@@ -194,7 +195,7 @@ struct ExecuteImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto& [three_column, three_is_const] =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        auto limit_value = assert_cast<const ColumnInt32&>(*three_column).get_int(0);
+        auto limit_value = assert_cast<const ColumnInt32&>(*three_column).get_element(0);
         const auto& src_column = assert_cast<const ColumnString&>(*first_column);
         const auto& pattern_column = assert_cast<const ColumnString&>(*second_column);
 
@@ -238,7 +239,7 @@ private:
                                             const StringRef& pattern_ref,
                                             ColumnString& dest_column_string,
                                             ColumnArray::Offsets64& dest_offsets,
-                                            NullMapType* dest_nested_null_map, Int64 limit_value,
+                                            NullMapType* dest_nested_null_map, Int32 limit_value,
                                             size_t input_rows_count, RE2::Options* opts) {
         const char* token_begin = nullptr;
         const char* token_end = nullptr;
@@ -270,7 +271,7 @@ private:
                                              const ColumnString& pattern_column,
                                              ColumnString& dest_column_string,
                                              ColumnArray::Offsets64& dest_offsets,
-                                             NullMapType* dest_nested_null_map, Int64 limit_value,
+                                             NullMapType* dest_nested_null_map, Int32 limit_value,
                                              size_t input_rows_count, RE2::Options* opts) {
         const char* token_begin = nullptr;
         const char* token_end = nullptr;
@@ -307,7 +308,7 @@ private:
                                        const ColumnString& pattern_column,
                                        ColumnString& dest_column_string,
                                        ColumnArray::Offsets64& dest_offsets,
-                                       NullMapType* dest_nested_null_map, Int64 limit_value,
+                                       NullMapType* dest_nested_null_map, Int32 limit_value,
                                        size_t input_rows_count, RE2::Options* opts) {
         const char* token_begin = nullptr;
         const char* token_end = nullptr;

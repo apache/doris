@@ -35,12 +35,14 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 
 using boost::algorithm::to_lower_copy;
 
 namespace fs = std::filesystem;
+#include "common/compile_check_begin.h"
 
 namespace doris {
 
@@ -59,7 +61,7 @@ static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change b
 void TimezoneUtils::clear_timezone_caches() {
     lower_zone_cache_->clear();
 }
-int TimezoneUtils::cache_size() {
+size_t TimezoneUtils::cache_size() {
     return lower_zone_cache_->size();
 }
 
@@ -83,8 +85,7 @@ void TimezoneUtils::load_timezones_to_cache() {
 
     const auto root_path = fs::path {base_str};
     if (!exists(root_path)) {
-        LOG(FATAL) << "Cannot find system tzfile. Doris exiting!";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Cannot find system tzfile. Doris exiting!"));
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications. ignore them.
@@ -178,4 +179,5 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

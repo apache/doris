@@ -87,12 +87,13 @@ private:
                                      OlapReaderStatistics* stat,
                                      vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
                                      std::vector<uint32_t>& return_columns,
+                                     std::vector<uint32_t>& key_group_cluster_key_idxes,
                                      std::unique_ptr<vectorized::VerticalBlockReader>* reader);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint32_t begin,
                                                                             uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
-                              uint32_t begin, uint32_t end);
+                              uint32_t begin, uint32_t end, bool is_mow_with_cluster_keys);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:

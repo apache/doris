@@ -432,7 +432,7 @@ public class FunctionCallExpr extends Expr {
 
     protected FunctionCallExpr(FunctionCallExpr other) {
         super(other);
-        fnName = other.fnName;
+        fnName = other.fnName != null ? other.fnName.clone() : null;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
         // aggOp = other.aggOp;
@@ -490,7 +490,10 @@ public class FunctionCallExpr extends Expr {
             return 3;
         } else if (type.isTime()) {
             return 4;
+        } else if (type.isComplexType() || type.isJsonbType()) {
+            return 7;
         } else {
+            // default is string for BE execution
             return 6;
         }
     }

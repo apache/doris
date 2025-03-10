@@ -29,6 +29,7 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -228,7 +229,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -270,7 +271,7 @@ Status StreamingAggLocalState::_merge_with_serialized_key_helper(vectorized::Blo
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             if (_aggregate_evaluators[i]->is_merge() || for_spill) {
-                int col_id = 0;
+                size_t col_id = 0;
                 if constexpr (for_spill) {
                     col_id = _probe_expr_ctxs.size() + i;
                 } else {
@@ -353,7 +354,6 @@ Status StreamingAggLocalState::_merge_without_key(vectorized::Block* block) {
 void StreamingAggLocalState::_update_memusage_without_key() {
     int64_t arena_memory_usage = _agg_arena_pool->size();
     COUNTER_SET(_memory_used_counter, arena_memory_usage);
-    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
     COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
@@ -377,8 +377,6 @@ void StreamingAggLocalState::_update_memusage_with_serialized_key() {
                            int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
 
                            COUNTER_SET(_memory_used_counter,
-                                       arena_memory_usage + hash_table_memory_usage);
-                           COUNTER_SET(_peak_memory_usage_counter,
                                        arena_memory_usage + hash_table_memory_usage);
 
                            COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
@@ -406,7 +404,7 @@ Status StreamingAggLocalState::_execute_with_serialized_key_helper(vectorized::B
         }
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -499,8 +497,12 @@ Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextS
     return Status::OK();
 }
 
-Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
+Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, vectorized::Block* input_block,
                                           vectorized::Block* output_block) {
+    if (low_memory_mode()) {
+        auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+        p.set_low_memory_mode(state);
+    }
     RETURN_IF_ERROR(_pre_agg_with_serialized_key(input_block, output_block));
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
@@ -545,8 +547,8 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
                         // TODO chenhao
                         //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction =
-                                static_cast<double>(aggregated_input_rows) / ht_rows;
+                        double current_reduction = static_cast<double>(aggregated_input_rows) /
+                                                   static_cast<double>(ht_rows);
 
                         // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
                         // inaccurate, which could lead to a divide by zero below.
@@ -618,7 +620,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         }
     }
 
-    int rows = in_block->rows();
+    size_t rows = in_block->rows();
     _places.resize(rows);
 
     // Stop expanding hash tables if we're not reducing the input sufficiently. As our
@@ -628,8 +630,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
     // to avoid wasting memory.
     // But for fixed hash map, it never need to expand
     bool ret_flag = false;
-    const auto spill_streaming_agg_mem_limit =
-            _parent->cast<StreamingAggOperatorX>()._spill_streaming_agg_mem_limit;
+    const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
     RETURN_IF_ERROR(std::visit(
@@ -742,7 +743,7 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
 
     auto columns_with_schema =
             vectorized::VectorizedUtils::create_columns_with_type_and_name(p._row_descriptor);
-    int key_size = _probe_expr_ctxs.size();
+    size_t key_size = _probe_expr_ctxs.size();
 
     vectorized::MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
@@ -753,7 +754,7 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
         }
     }
     vectorized::MutableColumns value_columns;
-    for (int i = key_size; i < columns_with_schema.size(); ++i) {
+    for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
         if (!mem_reuse) {
             value_columns.emplace_back(columns_with_schema[i].type->create_column());
         } else {
@@ -855,7 +856,7 @@ Status StreamingAggLocalState::_get_results_without_key(RuntimeState* state,
     block->clear();
 
     DCHECK(_agg_data->without_key != nullptr);
-    int agg_size = _aggregate_evaluators.size();
+    const auto agg_size = _aggregate_evaluators.size();
 
     vectorized::MutableColumns value_columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -891,8 +892,8 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                                                 bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& p = _parent->cast<StreamingAggOperatorX>();
-    int key_size = _probe_expr_ctxs.size();
-    int agg_size = _aggregate_evaluators.size();
+    const auto key_size = _probe_expr_ctxs.size();
+    const auto agg_size = _aggregate_evaluators.size();
     vectorized::MutableColumns value_columns(agg_size);
     vectorized::DataTypes value_data_types(agg_size);
 
@@ -1016,7 +1017,7 @@ Status StreamingAggLocalState::_get_without_key_result(RuntimeState* state,
 
     auto& p = _parent->cast<StreamingAggOperatorX>();
     *block = vectorized::VectorizedUtils::create_empty_columnswithtypename(p._row_descriptor);
-    int agg_size = _aggregate_evaluators.size();
+    const auto agg_size = _aggregate_evaluators.size();
 
     vectorized::MutableColumns columns(agg_size);
     std::vector<vectorized::DataTypePtr> data_types(agg_size);
@@ -1149,7 +1150,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _aggregate_evaluators.push_back(evaluator);
     }
 
-    if (state->enable_agg_spill()) {
+    if (state->enable_spill()) {
         // If spill enabled, the streaming agg should not occupy too much memory.
         _spill_streaming_agg_mem_limit =
                 state->query_options().__isset.spill_streaming_agg_mem_limit
@@ -1166,15 +1167,15 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status StreamingAggOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::open(state));
+Status StreamingAggOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::prepare(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -1182,7 +1183,7 @@ Status StreamingAggOperatorX::open(RuntimeState* state) {
             _make_nullable_keys.emplace_back(i);
         }
     }
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
@@ -1263,14 +1264,14 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
 Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
         RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.reached_limit(block, eos);
 
@@ -1280,9 +1281,12 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
 Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
                                    bool eos) const {
     auto& local_state = get_local_state(state);
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));
+        RETURN_IF_ERROR(
+                local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
     }
     in_block->clear_column_data(_child->row_desc().num_materialized_slots());
     return Status::OK();
@@ -1293,4 +1297,5 @@ bool StreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
     return local_state._pre_aggregated_block->empty() && !local_state._child_eos;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -22,7 +22,6 @@ suite("test_array_contains_with_inverted_index"){
     // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
     sql """ set enable_common_expr_pushdown = true; """
     sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
-    sql """ set enable_pipeline_x_engine = true;"""
     sql """ set enable_profile = true;"""
 
     sql "DROP TABLE IF EXISTS ${indexTblName}"
@@ -67,7 +66,7 @@ suite("test_array_contains_with_inverted_index"){
 
     qt_sql """ select count() from ${indexTblName}"""
     def param_contains = ["\'s\'", "\'\'", null]
-    for (i = 0 ; i < param_contains.size(); ++i) {
+    for (int i = 0 ; i < param_contains.size(); ++i) {
         def p = param_contains[i]
         log.info("param: ${p}")
         order_qt_sql """ select * from tai where array_contains(inventors, ${p}) order by id; """
@@ -84,7 +83,7 @@ suite("test_array_contains_with_inverted_index"){
     // test arrays_overlap with inverted index
     // now if we use inverted index we will not eval exprs
     def param = [["\'s\'", "\'t\'"], [], null, ["\'s\'", "\'\'", "\'t\'"], ["\'s\'", null, "\'t\'"], [null, "\'\'"], ["\'s\'", null, "\'t\'", "\'\'"]] // null for arrays_overlap will return null which in predicate will lead to return empty set
-    for (i = 0 ; i < param.size(); ++i) {
+    for (int i = 0 ; i < param.size(); ++i) {
         def p = param[i]
         log.info("param: ${p}")
         order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where arrays_overlap(inventors, ${p}) order by id; """

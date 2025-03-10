@@ -26,6 +26,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T, typename HasLimit, typename ShowNull>
 AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
@@ -48,6 +49,11 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
                     AggregateFunctionCollectListData<T, HasLimit>, HasLimit, std::false_type>>(
                     argument_types, result_is_nullable);
         }
+    } else if (!distinct) {
+        // void type means support array/map/struct type for collect_list
+        return creator_without_type::create<AggregateFunctionCollect<
+                AggregateFunctionCollectListData<void, HasLimit>, HasLimit, std::false_type>>(
+                argument_types, result_is_nullable);
     }
     return nullptr;
 }
@@ -72,18 +78,27 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
     if (which.is_date_or_datetime()) {
         return do_create_agg_function_collect<Int64, HasLimit, ShowNull>(distinct, argument_types,
                                                                          result_is_nullable);
-    } else if (which.is_date_v2() || which.is_ipv4()) {
+    } else if (which.is_date_v2()) {
         return do_create_agg_function_collect<UInt32, HasLimit, ShowNull>(distinct, argument_types,
                                                                           result_is_nullable);
-    } else if (which.is_date_time_v2() || which.is_ipv6()) {
+    } else if (which.is_date_time_v2()) {
         return do_create_agg_function_collect<UInt64, HasLimit, ShowNull>(distinct, argument_types,
                                                                           result_is_nullable);
+    } else if (which.is_ipv6()) {
+        return do_create_agg_function_collect<IPv6, HasLimit, ShowNull>(distinct, argument_types,
+                                                                        result_is_nullable);
+    } else if (which.is_ipv4()) {
+        return do_create_agg_function_collect<IPv4, HasLimit, ShowNull>(distinct, argument_types,
+                                                                        result_is_nullable);
     } else if (which.is_string()) {
         return do_create_agg_function_collect<StringRef, HasLimit, ShowNull>(
                 distinct, argument_types, result_is_nullable);
     } else {
         // generic serialize which will not use specializations, ShowNull::value always means array_agg
         if constexpr (ShowNull::value) {
+            return do_create_agg_function_collect<void, HasLimit, ShowNull>(
+                    distinct, argument_types, result_is_nullable);
+        } else {
             return do_create_agg_function_collect<void, HasLimit, ShowNull>(
                     distinct, argument_types, result_is_nullable);
         }

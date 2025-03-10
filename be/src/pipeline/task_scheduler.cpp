@@ -24,19 +24,24 @@
 #include <sched.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
 #include <chrono> // IWYU pragma: keep
+#include <cstddef>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/pipeline_task.h"
-#include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
+#include "runtime/thread_context.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -59,8 +64,7 @@ Status TaskScheduler::start() {
                             .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                             .build(&_fix_thread_pool));
     LOG_INFO("TaskScheduler set cores").tag("size", cores);
-    _markers.resize(cores, true);
-    for (int i = 0; i < cores; ++i) {
+    for (int32_t i = 0; i < cores; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -70,71 +74,77 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
     return _task_queue.push_back(task);
 }
 
-// after _close_task, task maybe destructed.
-void _close_task(PipelineTask* task, Status exec_status) {
+// after close_task, task maybe destructed.
+bool close_task(PipelineTask* task, Status exec_status) {
+    if (exec_status.ok() && task->is_pending_finish()) {
+        // Close phase is blocked by dependency.
+        return false;
+    }
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
-    if (task->is_finalized()) {
-        task->set_running(false);
-        return;
+    if (!exec_status.ok()) {
+        task->fragment_context()->cancel(exec_status);
+        LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
+                                    print_id(task->query_context()->query_id()),
+                                    exec_status.to_string());
     }
-    // close_a_pipeline may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context it self.
-    auto lock_for_context = task->fragment_context()->shared_from_this();
-    // is_pending_finish does not check status, so has to check status in close API.
-    // For example, in async writer, the writer may failed during dealing with eos_block
-    // but it does not return error status. Has to check the error status in close API.
-    // We have already refactor all source and sink api, the close API does not need waiting
-    // for pending finish now. So that could call close directly.
     Status status = task->close(exec_status);
     if (!status.ok()) {
         task->fragment_context()->cancel(status);
     }
     task->finalize();
-    task->set_running(false);
-    task->fragment_context()->close_a_pipeline(task->pipeline_id());
+    return true;
 }
 
 void TaskScheduler::_do_work(int index) {
-    while (_markers[index]) {
+    while (!_need_to_stop) {
         auto* task = _task_queue.take(index);
         if (!task) {
             continue;
         }
+
+        // The task is already running, maybe block in now dependency wake up by other thread
+        // but the block thread still hold the task, so put it back to the queue, until the hold
+        // thread set task->set_running(false)
         if (task->is_running()) {
             static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
-        task->log_detail_if_need();
         task->set_running(true);
+        bool eos = false;
+        auto status = Status::OK();
+        Defer task_running_defer {[&]() {
+            // If fragment is finished, fragment context will be de-constructed with all tasks in it.
+            if (eos || !status.ok()) {
+                // decrement_running_task may delete fragment context and will core in some defer
+                // code, because the defer code will access fragment context itself.
+                auto lock_for_context = task->fragment_context()->shared_from_this();
+                bool close = close_task(task, status);
+                task->set_running(false);
+                if (close) {
+                    task->fragment_context()->decrement_running_task(task->pipeline_id());
+                }
+            } else {
+                task->set_running(false);
+            }
+        }};
         task->set_task_queue(&_task_queue);
+        task->log_detail_if_need();
+
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
 
-        // If the state is PENDING_FINISH, then the task is come from blocked queue, its is_pending_finish
-        // has to return false. The task is finished and need to close now.
+        // Close task if canceled
         if (canceled) {
-            // may change from pending FINISH，should called cancel
-            // also may change form BLOCK, other task called cancel
-
-            // If pipeline is canceled, it will report after pipeline closed, and will propagate
-            // errors to downstream through exchange. So, here we needn't send_report.
-            // fragment_ctx->send_report(true);
-            _close_task(task, fragment_ctx->get_query_ctx()->exec_status());
+            status = fragment_ctx->get_query_ctx()->exec_status();
+            DCHECK(!status.ok());
             continue;
         }
+        task->set_core_id(index);
 
-        // task exec
-        bool eos = false;
-        auto status = Status::OK();
-
-#ifdef __APPLE__
-        uint32_t core_id = 0;
-#else
-        uint32_t core_id = sched_getcpu();
-#endif
+        // Main logics of execution
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
                 //TODO: use a better enclose to abstracting these
                 if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
@@ -149,41 +159,11 @@ void TaskScheduler::_do_work(int index) {
 
                     uint64_t end_time = MonotonicMicros();
                     ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                            {query_id, task_name, core_id, thread_id, start_time, end_time});
+                            {query_id, task_name, static_cast<uint32_t>(index), thread_id,
+                             start_time, end_time});
                 } else { status = task->execute(&eos); },
                 status);
-
-        task->set_previous_core_id(index);
-
-        if (!status.ok()) {
-            // Print detail informations below when you debugging here.
-            //
-            // LOG(WARNING)<< "task:\n"<<task->debug_string();
-
-            // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(status);
-            LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                        print_id(task->query_context()->query_id()),
-                                        status.to_string());
-            _close_task(task, status);
-            continue;
-        }
         fragment_ctx->trigger_report_if_necessary();
-
-        if (eos) {
-            // is pending finish will add the task to dependency's blocking queue, and then the task will be
-            // added to running queue when dependency is ready.
-            if (task->is_pending_finish()) {
-                // Only meet eos, should set task to PENDING_FINISH state
-                task->set_running(false);
-            } else {
-                Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                _close_task(task, exec_status);
-            }
-            continue;
-        }
-
-        task->set_running(false);
     }
 }
 
@@ -191,9 +171,7 @@ void TaskScheduler::stop() {
     if (!_shutdown) {
         _task_queue.close();
         if (_fix_thread_pool) {
-            for (size_t i = 0; i < _markers.size(); ++i) {
-                _markers[i] = false;
-            }
+            _need_to_stop = true;
             _fix_thread_pool->shutdown();
             _fix_thread_pool->wait();
         }

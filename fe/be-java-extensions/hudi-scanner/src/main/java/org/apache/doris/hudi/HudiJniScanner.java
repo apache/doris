@@ -17,11 +17,10 @@
 
 package org.apache.doris.hudi;
 
-
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.avro.generic.GenericDatumReader;
@@ -160,14 +159,15 @@ public class HudiJniScanner extends JniScanner {
             cleanResolverLock.readLock().lock();
             try {
                 lastUpdateTime.set(System.currentTimeMillis());
+                AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(split.hadoopConf());
+                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator
+                        .getHadoopAuthenticator(authenticationConfig);
                 if (split.incrementalRead()) {
-                    recordIterator = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(
-                                    split.hadoopConf()),
-                            () -> new MORIncrementalSplitReader(split).buildScanIterator(new Filter[0]));
+                    recordIterator = hadoopAuthenticator.doAs(() -> new MORIncrementalSplitReader(split)
+                            .buildScanIterator(new Filter[0]));
                 } else {
-                    recordIterator = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(
-                                    split.hadoopConf()),
-                            () -> new MORSnapshotSplitReader(split).buildScanIterator(new Filter[0]));
+                    recordIterator = hadoopAuthenticator.doAs(() -> new MORSnapshotSplitReader(split)
+                            .buildScanIterator(new Filter[0]));
                 }
                 if (AVRO_RESOLVER_CACHE != null && AVRO_RESOLVER_CACHE.get() != null) {
                     cachedResolvers.computeIfAbsent(Thread.currentThread().getId(),

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,7 +46,9 @@ import java.util.List;
  * show partition command
  */
 public class ShowPartitionIdCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowPartitionIdCommand.class);
+
+    private static final Logger LOG = LogManager.getLogger(ShowPartitionIdCommand.class);
+
     private final long partitionId;
 
     /**
@@ -87,13 +90,22 @@ public class ShowPartitionIdCommand extends ShowCommand {
                         if (partition != null) {
                             List<String> row = new ArrayList<>();
                             row.add(database.getFullName());
-                            row.add(tbl.getName());
+                            if (tbl.isTemporary()) {
+                                if (!Util.isTempTableInCurrentSession(tbl.getName())) {
+                                    continue;
+                                }
+                                row.add(Util.getTempTableDisplayName(tbl.getName()));
+                            } else {
+                                row.add(tbl.getName());
+                            }
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
                             rows.add(row);
                             break;
                         }
+                    } catch (Exception e) {
+                        LOG.error("failed to get partition info for {}", partitionId, e);
                     } finally {
                         tbl.readUnlock();
                     }

@@ -82,6 +82,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
+#include "common/compile_check_begin.h"
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -141,7 +142,7 @@ size_t get_size_of_interger(TypeIndex type) {
     case TypeIndex::UInt128:
         return sizeof(uint128_t);
     default:
-        LOG(FATAL) << "Unknown integer type: " << getTypeName(type);
+        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
         return 0;
     }
 }
@@ -157,25 +158,18 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
     ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
-    auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
-    if (!function) {
-        return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
-                                     type->get_name());
-    }
-    Block tmp_block {arguments};
-    size_t result_column = tmp_block.columns();
-    auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
     // To prevent from null info lost, we should not call function since the function framework will wrap
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (auto to_type = remove_nullable(type); WhichDataType(to_type).is_variant_type()) {
-        if (auto from_type = remove_nullable(arg.type);
-            WhichDataType(from_type).is_variant_type()) {
-            return Status::InternalError("Not support cast: from {} to {}", arg.type->get_name(),
-                                         type->get_name());
+    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+        // If source column is variant, so the nullable info is different from dst column
+        if (WhichDataType(remove_nullable(arg.type)).is_variant_type()) {
+            *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
+            return Status::OK();
         }
+        // set variant root column/type to from column/type
         CHECK(arg.column->is_nullable());
         const auto& data_type_object = assert_cast<const DataTypeObject&>(*to_type);
         auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
@@ -187,6 +181,15 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         *result = type->is_nullable() ? nullable : variant->get_ptr();
         return Status::OK();
     }
+
+    auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
+    if (!function) {
+        return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
+                                     type->get_name());
+    }
+    Block tmp_block {arguments};
+    uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
+    auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
     if (WhichDataType(arg.type).is_nothing()) {
         // cast from nothing to any type should result in nulls
@@ -245,9 +248,13 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
+<<<<<<< HEAD
     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                            "unexcepted data column type: {}, column name is: {}",
                            data_type->get_name(), name);
+=======
+    throw Exception(Status::FatalError("__builtin_unreachable"));
+>>>>>>> upstream-apache/master
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -437,9 +444,8 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
         output_schema = std::make_shared<TabletSchema>();
-        output_schema->copy_from(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {
@@ -602,7 +608,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
     vectorized::ColumnNumbers argnum;
     argnum.emplace_back(0);
     argnum.emplace_back(1);
-    size_t result_column = tmp_block.columns();
+    uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
     tmp_block.insert({nullptr, json_type, ""});
     RETURN_IF_ERROR(function->execute(nullptr, tmp_block, argnum, result_column, source->size()));
     dst = tmp_block.get_by_position(result_column)
@@ -627,6 +633,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
+<<<<<<< HEAD
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
     res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
@@ -861,4 +868,7 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
     }
 }
 
+=======
+#include "common/compile_check_end.h"
+>>>>>>> upstream-apache/master
 } // namespace doris::vectorized::schema_util

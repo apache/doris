@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -30,7 +29,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -39,11 +37,6 @@ import java.util.function.Function;
 public class PushDownDistinctThroughJoin extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext context) {
-        Set<Integer> enableNereidsRules = context.getCascadesContext().getConnectContext()
-                .getSessionVariable().getEnableNereidsRules();
-        if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type())) {
-            return null;
-        }
         return plan.accept(this, context);
     }
 

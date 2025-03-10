@@ -59,8 +59,8 @@ public class IndexesProcNodeTest {
         indexes.add(indexBf);
         indexes.add(indexNgramBf);
 
-        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", Lists.newArrayList(new Column()), KeysType.DUP_KEYS, new PartitionInfo(),
-                new HashDistributionInfo(), new TableIndexes(indexes));
+        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", false, Lists.newArrayList(new Column()),
+                KeysType.DUP_KEYS, new PartitionInfo(), new HashDistributionInfo(), new TableIndexes(indexes));
 
         IndexesProcNode indexesProcNode = new IndexesProcNode(table);
         ProcResult procResult = indexesProcNode.fetchResult();
@@ -96,7 +96,7 @@ public class IndexesProcNodeTest {
         Assert.assertEquals(procResult.getRows().get(3).get(5), "col_4");
         Assert.assertEquals(procResult.getRows().get(3).get(11), "NGRAM_BF");
         Assert.assertEquals(procResult.getRows().get(3).get(12), "ngram_bf index on col_4");
-        Assert.assertEquals(procResult.getRows().get(3).get(13), "(\"gram_size\" = \"3\", \"bf_size\" = \"256\")");
+        Assert.assertEquals(procResult.getRows().get(3).get(13), "(\"bf_size\" = \"256\", \"gram_size\" = \"3\")");
 
     }
 }

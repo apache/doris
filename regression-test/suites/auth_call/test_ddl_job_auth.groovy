@@ -25,18 +25,20 @@ suite("test_ddl_job_auth","p0,auth_call") {
     String tableNameDst = 'test_ddl_job_auth_tb_dst'
     String jobName = 'test_ddl_job_auth_job'
 
+    try_sql("DROP USER ${user}")
+    try_sql """drop database if exists ${dbName}"""
+    try_sql("""DROP JOB where jobName='${jobName}';""")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
-    try_sql("DROP USER ${user}")
-    try_sql """drop database if exists ${dbName}"""
-    try_sql("""DROP JOB where jobName='${jobName}';""")
-    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    if (enableStoragevault()) {
+        sql """GRANT usage_priv ON STORAGE VAULT '%' TO ${user}""";
+    }
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
     sql """create table ${dbName}.${tableName} (
@@ -50,7 +52,7 @@ suite("test_ddl_job_auth","p0,auth_call") {
     sql """create table ${dbName}.${tableNameDst} like ${dbName}.${tableName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE JOB ${jobName} ON SCHEDULE AT '2020-01-01 00:00:00' DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""
             exception "denied"
@@ -75,7 +77,7 @@ suite("test_ddl_job_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE JOB ${jobName} ON SCHEDULE AT '2100-01-01 00:00:00' DO INSERT INTO ${dbName}.${tableNameDst} SELECT * FROM ${dbName}.${tableName};"""
         def res = sql """select * from jobs("type"="insert") where Name="${jobName}";"""
         assertTrue(res.size() == 1)

@@ -18,12 +18,20 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
@@ -40,6 +48,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -58,8 +67,16 @@ public class Utils {
      */
     public static String quoteIfNeeded(String part) {
         // We quote strings except the ones which consist of digits only.
-        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
-                ? part : part.replace("`", "``");
+        StringBuilder quote = new StringBuilder(part.length());
+        for (int i = 0; i < part.length(); i++) {
+            char c = part.charAt(i);
+            if (c == '`') {
+                quote.append("``");
+            } else {
+                quote.append(c);
+            }
+        }
+        return quote.toString();
     }
 
     /**
@@ -580,5 +597,38 @@ public class Utils {
             }
         }
         return newStr.toString();
+    }
+
+    /**
+     * Builds a logical plan for a SQL query.
+     *
+     * @param selectList the list of columns and their aliases to be selected
+     * @param tableName the name of the table from which to select
+     * @param whereClause the where clause to filter the results
+     * @return the logical plan representing the SQL query
+     */
+    public static LogicalPlan buildLogicalPlan(List<AliasInfo> selectList, TableNameInfo tableName,
+            String whereClause) {
+        StringJoiner columnJoiner = new StringJoiner(", ");
+        for (AliasInfo aliasInfo : selectList) {
+            columnJoiner.add(aliasInfo.toString());
+        }
+        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        return new NereidsParser().parseSingle(sql);
+    }
+
+    /**
+     * Execute a logical plan and return the results.
+     *
+     * @param ctx the context in which to execute the plan
+     * @param executor the executor to use to execute the plan
+     * @param plan the plan to execute
+     * @return the results of executing the plan
+     */
+    public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
+        executor.setParsedStmt(adapter);
+        List<ResultRow> resultRows = executor.executeInternalQuery();
+        return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
     }
 }

@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /**
  * used to keep predicate column in storage layer
@@ -101,8 +102,6 @@ public:
     using Self = PredicateColumnType;
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
-
-    bool is_numeric() const override { return false; }
 
     size_t size() const override { return data.size(); }
 
@@ -287,7 +286,7 @@ public:
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
-            uint32_t fragment_start_offset = 0;
+            uint64_t fragment_start_offset = 0;
             size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
                 data[org_elem_num + i].data = destination + fragment_len;
@@ -322,6 +321,11 @@ public:
     size_t byte_size() const override { return data.size() * sizeof(T); }
 
     size_t allocated_bytes() const override { return byte_size(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "has_enough_capacity not supported in PredicateColumnType");
+    }
 
     void reserve(size_t n) override { data.reserve(n); }
 
@@ -442,4 +446,5 @@ private:
     std::vector<StringRef> _refs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

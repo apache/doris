@@ -99,6 +99,9 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
+    // deprecated, keeping this property to make LoadStmt#checkProperties() happy
+    public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
+
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
     public static final String BOS_ACCESSKEY = "bos_accesskey";
@@ -216,6 +219,12 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 }
             })
             .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);

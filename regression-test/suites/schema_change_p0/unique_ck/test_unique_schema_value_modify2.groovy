@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_unique_schema_value_modify2", "p0") {
-    def tbName = "test_unique_model_value_change2"
-    def tbName2 = "test_unique_model_value_change_2"
+    def tbName = "test_unique_model_value_change2_ck"
+    def tbName2 = "test_unique_model_value_change_2_ck"
     def initTable1 = ""
     def initTableData1 = ""
     def on_write = true

@@ -98,8 +98,7 @@ private:
 
 class PrimaryKeyIndexReader {
 public:
-    PrimaryKeyIndexReader(OlapReaderStatistics* pk_index_load_stats = nullptr)
-            : _index_parsed(false), _bf_parsed(false), _pk_index_load_stats(pk_index_load_stats) {}
+    PrimaryKeyIndexReader() : _index_parsed(false), _bf_parsed(false) {}
 
     ~PrimaryKeyIndexReader() {
         segment_v2::g_pk_total_bloom_filter_num << -static_cast<int64_t>(_bf_num);
@@ -109,12 +108,14 @@ public:
     }
 
     Status parse_index(io::FileReaderSPtr file_reader,
-                       const segment_v2::PrimaryKeyIndexMetaPB& meta);
+                       const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                       OlapReaderStatistics* pk_index_load_stats);
 
-    Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
+    Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                    OlapReaderStatistics* pk_index_load_stats);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
-                        OlapReaderStatistics* stats = nullptr) const {
+                        OlapReaderStatistics* stats) const {
         DCHECK(_index_parsed);
         index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
         return Status::OK();
@@ -155,7 +156,6 @@ private:
     std::unique_ptr<segment_v2::BloomFilter> _bf;
     size_t _bf_num = 0;
     uint64 _bf_bytes = 0;
-    OlapReaderStatistics* _pk_index_load_stats = nullptr;
 };
 
 } // namespace doris

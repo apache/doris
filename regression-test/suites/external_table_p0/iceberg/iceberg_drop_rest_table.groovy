@@ -65,7 +65,7 @@ suite("iceberg_drop_rest_table", "p0,external,doris,external_docker,external_doc
     sql """ grant all on internal.*.* to user1 """
     sql """ grant SELECT_PRIV on ${catalog_name}.${db}.${tb} to user1 """
 
-    def result1 = connect(user = 'user1', password = '12345', url = context.config.jdbcUrl) {
+    def result1 = connect('user1', '12345', context.config.jdbcUrl) {
         sql """ use ${catalog_name}.${db} """
         qt_q1 """ select * from ${tb} """
         test {

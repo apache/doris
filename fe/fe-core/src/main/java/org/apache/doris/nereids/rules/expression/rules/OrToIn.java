@@ -19,8 +19,6 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -32,59 +30,100 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.MutableState;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * dependends on SimplifyRange rule
+ * Do NOT use this rule in ExpressionOptimization
+ * apply this rule on filter expressions in extract mode,
+ * on other expressions in replace mode
  *
  */
-public class OrToIn implements ExpressionPatternRuleFactory {
-
-    public static final OrToIn INSTANCE = new OrToIn();
-
-    public static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
-
-    @Override
-    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesTopType(Or.class).then(OrToIn.INSTANCE::rewrite)
-        );
+public class OrToIn {
+    /**
+     * case 1: from (a=1 and b=1) or (a=2), "a in (1, 2)" is inferred,
+     * inferred expr is not equivalent to the original expr
+     * - replaceMode: output origin expr
+     * - extractMode: output a in (1, 2) and  (a=1 and b=1) or (a=2)
+     *
+     * case 2: from (a=1) or (a=2), "a in (1,2)" is inferred, the inferred expr is equivalent to the original expr
+     * - replaceMode/extractMode: output a in (1, 2)
+     *
+     * extractMode only used for filter, the inferred In-predicate could be pushed down.
+     */
+    public enum Mode {
+        replaceMode,
+        extractMode
     }
 
+    public static final OrToIn EXTRACT_MODE_INSTANCE = new OrToIn(Mode.extractMode);
+    public static final OrToIn REPLACE_MODE_INSTANCE = new OrToIn(Mode.replaceMode);
+
+    private final Mode mode;
+
+    public OrToIn(Mode mode) {
+        this.mode = mode;
+    }
+
+    /**
+     * simplify and then rewrite
+     */
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
-        if (expr instanceof CompoundPredicate) {
-            expr = SimplifyRange.rewrite((CompoundPredicate) expr, context);
+        ExpressionBottomUpRewriter simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
+        expr = simplify.rewrite(expr, context);
+        return rewriteTree(expr);
+    }
+
+    /**
+     * rewrite tree
+     */
+    public Expression rewriteTree(Expression expr) {
+        List<Expression> children = expr.children();
+        if (children.isEmpty()) {
+            return expr;
         }
-        ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
-        return bottomUpRewriter.rewrite(expr, context);
+        List<Expression> newChildren = children.stream()
+                .map(this::rewriteTree).collect(Collectors.toList());
+        if (expr instanceof And) {
+            // filter out duplicated conjunct
+            // example: OrToInTest.testDeDup()
+            Set<Expression> dedupSet = new LinkedHashSet<>();
+            for (Expression newChild : newChildren) {
+                dedupSet.addAll(ExpressionUtils.extractConjunction(newChild));
+            }
+            newChildren = Lists.newArrayList(dedupSet);
+        }
+        if (expr instanceof CompoundPredicate && newChildren.size() == 1) {
+            // (a=1) and (a=1)
+            // after rewrite, newChildren=[(a=1)]
+            expr = newChildren.get(0);
+        } else {
+            expr = expr.withChildren(newChildren);
+        }
+        if (expr instanceof Or) {
+            expr = rewrite((Or) expr);
+        }
+        return expr;
     }
 
     private Expression rewrite(Or or) {
-        if (or.getMutableState(MutableState.KEY_OR_TO_IN).isPresent()) {
-            return or;
-        }
         Pair<Expression, Expression> pair = extractCommonConjunct(or);
         Expression result = tryToRewriteIn(pair.second);
         if (pair.first != null) {
             result = new And(pair.first, result);
         }
-        result.setMutableState(MutableState.KEY_OR_TO_IN, 1);
         return result;
     }
 
     private Expression tryToRewriteIn(Expression or) {
-        or.setMutableState(MutableState.KEY_OR_TO_IN, 1);
         List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
         for (Expression disjunct : disjuncts) {
             if (!hasInOrEqualChildren(disjunct)) {
@@ -112,7 +151,11 @@ public class OrToIn implements ExpressionPatternRuleFactory {
             Expression conjunct = candidatesToFinalResult(candidates);
             boolean keep = keepOriginalOrExpression(disjuncts);
             if (keep) {
-                return new And(conjunct, or);
+                if (mode == Mode.extractMode) {
+                    return new And(conjunct, or);
+                } else {
+                    return or;
+                }
             } else {
                 return conjunct;
             }
@@ -124,15 +167,6 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         for (Expression disjunct : disjuncts) {
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
             if (conjuncts.size() > 1) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean containsAny(Set a, Set b) {
-        for (Object x : a) {
-            if (b.contains(x)) {
                 return true;
             }
         }
@@ -157,18 +191,9 @@ public class OrToIn implements ExpressionPatternRuleFactory {
     }
 
     private Expression candidatesToFinalResult(Map<Expression, Set<Literal>> candidates) {
-        List<Expression> conjuncts = new ArrayList<>();
-        for (Expression key : candidates.keySet()) {
-            Set<Literal> literals = candidates.get(key);
-            if (literals.size() < REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
-                for (Literal literal : literals) {
-                    conjuncts.add(new EqualTo(key, literal));
-                }
-            } else {
-                conjuncts.add(new InPredicate(key, ImmutableList.copyOf(literals)));
-            }
-        }
-        return ExpressionUtils.and(conjuncts);
+        return ExpressionUtils.and(candidates.entrySet().stream()
+                .map(entry -> ExpressionUtils.toInPredicateOrEqualTo(entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList()));
     }
 
     /*

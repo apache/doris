@@ -80,6 +80,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("updateTime")
     public long updatedTime;
 
+    @SerializedName("lat")
+    public long lastAnalyzeTime;
+
     @SerializedName("colNameToColStatsMeta")
     private ConcurrentMap<String, ColStatsMeta> deprecatedColNameToColStatsMeta = new ConcurrentHashMap<>();
 
@@ -160,6 +163,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
+        lastAnalyzeTime = analyzedJob.createTime;
         if (analyzedJob.userInject) {
             userInjected = true;
         }
@@ -168,14 +172,16 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             if (colStatsMeta == null) {
                 colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
                         analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
-                        analyzedJob.updateRows, analyzedJob.enablePartition ? analyzedJob.partitionUpdateRows : null));
+                        analyzedJob.updateRows, analyzedJob.tableVersion,
+                        analyzedJob.enablePartition ? analyzedJob.partitionUpdateRows : null));
             } else {
-                colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
+                colStatsMeta.updatedTime = analyzedJob.createTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
                 colStatsMeta.updatedRows = analyzedJob.updateRows;
                 colStatsMeta.rowCount = analyzedJob.rowCount;
+                colStatsMeta.tableVersion = analyzedJob.tableVersion;
                 if (analyzedJob.enablePartition) {
                     if (colStatsMeta.partitionUpdateRows == null) {
                         colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();

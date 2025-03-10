@@ -23,12 +23,17 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -39,11 +44,9 @@ VExplodeTableFunction::VExplodeTableFunction() {
 
 Status VExplodeTableFunction::_process_init_variant(Block* block, int value_column_idx) {
     // explode variant array
-    auto& variant_column = *assert_cast<ColumnObject*>(
-            remove_nullable(block->get_by_position(value_column_idx)
-                                    .column->convert_to_full_column_if_const())
-                    ->assume_mutable()
-                    .get());
+    auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
+    auto column = column_without_nullable->convert_to_full_column_if_const();
+    auto& variant_column = assert_cast<ColumnObject&>(*(column->assume_mutable()));
     variant_column.finalize();
     _detail.output_as_variant = true;
     if (!variant_column.is_null_root()) {
@@ -77,12 +80,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
                                                                   &value_column_idx));
     if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
                 .is_variant_type()) {
-        // explode variant array
-        const auto& variant_column = check_and_get_column<ColumnObject>(
-                remove_nullable(block->get_by_position(value_column_idx)
-                                        .column->convert_to_full_column_if_const())
-                        .get());
-        _array_column = variant_column->get_root();
+        RETURN_IF_ERROR(_process_init_variant(block, value_column_idx));
     } else {
         _array_column =
                 block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();

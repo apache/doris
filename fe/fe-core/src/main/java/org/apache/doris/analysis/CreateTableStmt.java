@@ -81,6 +81,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     protected boolean ifNotExists;
     private boolean isExternal;
+    private boolean isTemp;
     protected TableName tableName;
     protected List<ColumnDef> columnDefs;
     private List<IndexDef> indexDefs;
@@ -188,12 +189,14 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     // for Nereids
-    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName, List<Column> columns,
-            List<Index> indexes, String engineName, KeysDesc keysDesc, PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc, Map<String, String> properties, Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList, Void unused) {
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, boolean isTemp, TableName tableName,
+            List<Column> columns, List<Index> indexes, String engineName, KeysDesc keysDesc,
+            PartitionDesc partitionDesc, DistributionDesc distributionDesc, Map<String, String> properties,
+            Map<String, String> extProperties, String comment,
+            List<AlterClause> rollupAlterClauseList, Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.tableName = tableName;
         this.columns = columns;
         this.indexes = indexes;
@@ -223,6 +226,14 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     public boolean isExternal() {
         return isExternal;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
+    }
+
+    public void setTemp(boolean temp) {
+        isTemp = temp;
     }
 
     public TableName getDbTbl() {
@@ -297,6 +308,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
+        if (isTemp && !engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
+            throw new AnalysisException("Temporary table should be OLAP table");
+        }
 
         super.analyze(analyzer);
         tableName.analyze(analyzer);
@@ -324,6 +338,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
+            if (Objects.equals(columnDef.getType(), Type.VARIANT) && columnNameUpperCase.indexOf('.') != -1) {
+                throw new AnalysisException(
+                        "Disable to create table of `VARIANT` type column named with a `.` character: "
+                                + columnNameUpperCase);
             }
             if (Objects.equals(columnDef.getType(), Type.DATE) && Config.disable_datev1) {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -370,16 +389,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                                 }
                                 break;
                             }
-                            if (columnDef.getType().isFloatingPointType()) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                                break;
-                            }
-                            if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
-                                break;
-                            }
-                            if (columnDef.getType().isComplexType()) {
+                            if (!columnDef.getType().couldBeShortKey()) {
                                 break;
                             }
                             if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -424,7 +434,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite)) {
-                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                    throw new AnalysisException("table property enable_unique_key_skip_bitmap_column can"
                             + "only be set in merge-on-write unique table.");
                 }
                 // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
@@ -599,8 +609,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
+                    .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
+            boolean disableInvertedIndexV1ForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
                             && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
@@ -611,8 +623,11 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(),
-                                                    enableUniqueKeyMergeOnWrite, disableInvertedIndexV1ForVariant);
+                            indexDef.checkColumn(column,
+                                    getKeysDesc().getKeysType(),
+                                    enableUniqueKeyMergeOnWrite,
+                                    invertedIndexFileStorageFormat,
+                                    disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
@@ -683,6 +698,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         StringBuilder sb = new StringBuilder();
 
         sb.append("CREATE ");
+        if (isTemp) {
+            sb.append("TEMPORARY ");
+        }
         if (isExternal) {
             sb.append("EXTERNAL ");
         }

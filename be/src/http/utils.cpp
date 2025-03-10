@@ -23,6 +23,8 @@
 #include <unistd.h>
 
 #include <ostream>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
@@ -30,6 +32,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "http/http_channel.h"
+#include "http/http_client.h"
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_method.h"
@@ -41,9 +44,14 @@
 #include "runtime/exec_env.h"
 #include "util/md5.h"
 #include "util/path_util.h"
+#include "util/security.h"
 #include "util/url_coding.h"
 
 namespace doris {
+
+const uint32_t CHECK_SUPPORT_TIMEOUT = 3;
+const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
+const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 
 std::string encode_basic_auth(const std::string& user, const std::string& passwd) {
     std::string auth = user + ":" + passwd;
@@ -190,20 +198,26 @@ void do_file_response(const std::string& file_path, HttpRequest* req,
     HttpChannel::send_file(req, fd, 0, file_size, rate_limit_group);
 }
 
-void do_dir_response(const std::string& dir_path, HttpRequest* req) {
+void do_dir_response(const std::string& dir_path, HttpRequest* req, bool is_acquire_filesize) {
     bool exists = true;
     std::vector<io::FileInfo> files;
     Status st = io::global_local_filesystem()->list(dir_path, true, &files, &exists);
     if (!st.ok()) {
         LOG(WARNING) << "Failed to scan dir. " << st;
         HttpChannel::send_error(req, HttpStatus::INTERNAL_SERVER_ERROR);
+        return;
     }
+
+    VLOG_DEBUG << "list dir: " << dir_path << ", file count: " << files.size();
 
     const std::string FILE_DELIMITER_IN_DIR_RESPONSE = "\n";
 
     std::stringstream result;
     for (auto& file : files) {
         result << file.file_name << FILE_DELIMITER_IN_DIR_RESPONSE;
+        if (is_acquire_filesize) {
+            result << file.file_size << FILE_DELIMITER_IN_DIR_RESPONSE;
+        }
     }
 
     std::string result_str = result.str();
@@ -219,6 +233,120 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
     // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
     size_t max_available_size = ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
     return (content_length < 0.8 * max_available_size);
+}
+
+Status is_support_batch_download(const std::string& endpoint) {
+    std::string url = fmt::format("http://{}/api/_tablet/_batch_download?check=true", endpoint);
+    auto check_support_cb = [&url](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(url));
+        client->set_timeout_ms(CHECK_SUPPORT_TIMEOUT * 1000);
+        client->set_method(HttpMethod::HEAD);
+        std::string response;
+        return client->execute(&response);
+    };
+    return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, check_support_cb);
+}
+
+Status list_remote_files_v2(const std::string& address, const std::string& token,
+                            const std::string& remote_dir,
+                            std::vector<std::pair<std::string, size_t>>* file_info_list) {
+    std::string remote_url =
+            fmt::format("http://{}/api/_tablet/_batch_download?token={}&dir={}&list=true", address,
+                        token, remote_dir);
+
+    std::string file_list_str;
+    auto list_files_cb = [&](HttpClient* client) {
+        file_list_str.clear();
+        RETURN_IF_ERROR(client->init(remote_url, false));
+        client->set_method(HttpMethod::GET);
+        client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
+        return client->execute(&file_list_str);
+    };
+    Status status = HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to list remote files from " << remote_url
+                     << ", status: " << status.to_string() << ", response: " << file_list_str;
+        return status;
+    }
+
+    std::vector<string> file_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    if (file_list.size() % 2 != 0) {
+        return Status::InternalError("batch download files: invalid file list, size is not even");
+    }
+
+    VLOG_DEBUG << "list remote files from " << remote_url
+               << ", file count: " << file_list.size() / 2;
+
+    for (size_t i = 0; i < file_list.size(); i += 2) {
+        uint64_t file_size = 0;
+        try {
+            file_size = std::stoull(file_list[i + 1]);
+        } catch (std::exception&) {
+            return Status::InternalError("batch download files: invalid file size format: " +
+                                         file_list[i + 1]);
+        }
+        file_info_list->emplace_back(std::move(file_list[i]), file_size);
+    }
+
+    return Status::OK();
+}
+
+Status download_files_v2(const std::string& address, const std::string& token,
+                         const std::string& remote_dir, const std::string& local_dir,
+                         const std::vector<std::pair<std::string, size_t>>& file_info_list) {
+    std::string remote_url = fmt::format("http://{}/api/_tablet/_batch_download?dir={}&token={}",
+                                         address, remote_dir, token);
+
+    size_t batch_file_size = 0;
+    std::unordered_set<std::string> expected_files;
+    std::stringstream ss;
+    for (const auto& file_info : file_info_list) {
+        ss << file_info.first << "\n";
+        batch_file_size += file_info.second;
+        expected_files.insert(file_info.first);
+    }
+    std::string payload = ss.str();
+
+    uint64_t estimate_timeout = batch_file_size / config::download_low_speed_limit_kbps / 1024;
+    if (estimate_timeout < config::download_low_speed_time) {
+        estimate_timeout = config::download_low_speed_time;
+    }
+
+    LOG(INFO) << "begin to download files from " << remote_url << " to " << local_dir
+              << ", file count: " << file_info_list.size() << ", total size: " << batch_file_size
+              << ", timeout: " << estimate_timeout;
+
+    auto callback = [&](HttpClient* client) -> Status {
+        RETURN_IF_ERROR(client->init(remote_url, false));
+        client->set_method(HttpMethod::POST);
+        client->set_payload(payload);
+        client->set_timeout_ms(estimate_timeout * 1000);
+        RETURN_IF_ERROR(client->download_multi_files(local_dir, expected_files));
+        for (auto&& [file_name, file_size] : file_info_list) {
+            std::string local_file_path = local_dir + "/" + file_name;
+
+            std::error_code ec;
+            // Check file length
+            uint64_t local_file_size = std::filesystem::file_size(local_file_path, ec);
+            if (ec) {
+                LOG(WARNING) << "download file error: " << ec.message();
+                return Status::IOError("can't retrive file_size of {}, due to {}", local_file_path,
+                                       ec.message());
+            }
+            if (local_file_size != file_size) {
+                LOG(WARNING) << "download file length error"
+                             << ", remote_path=" << mask_token(remote_url)
+                             << ", file_name=" << file_name << ", file_size=" << file_size
+                             << ", local_file_size=" << local_file_size;
+                return Status::InternalError("downloaded file size is not equal");
+            }
+            RETURN_IF_ERROR(io::global_local_filesystem()->permission(
+                    local_file_path, io::LocalFileSystem::PERMS_OWNER_RW));
+        }
+
+        return Status::OK();
+    };
+    return HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, callback);
 }
 
 } // namespace doris

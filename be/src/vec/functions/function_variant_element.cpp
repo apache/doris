@@ -137,6 +137,7 @@ private:
             *result = ColumnObject::create(src.max_subcolumns_count());
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
+            // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
             (*result)->assume_mutable()->finalize();
             return Status::OK();
         }
@@ -269,6 +270,7 @@ private:
                 result_col->insert_range_from(*container, 0, container->size());
             }
             *result = result_col->get_ptr();
+            // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
             (*result)->assume_mutable()->finalize();
             VLOG_DEBUG << "dump new object "
                        << static_cast<const ColumnObject*>(result_col.get())->debug_string()

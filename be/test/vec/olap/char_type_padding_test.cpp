@@ -40,10 +40,10 @@ TEST(CharTypePaddingTest, CharTypePaddingFullTest) {
     for (size_t i = 0; i < rows; i++) {
         input->insert_data(str.data(), str.length());
     }
-    EXPECT_FALSE(ConvertorChar::should_padding(input, str.length()));
+    EXPECT_FALSE(ConvertorChar::should_padding(input.get(), str.length()));
 
     input->insert_data(str.data(), str.length() - 1);
-    EXPECT_TRUE(ConvertorChar::should_padding(input, str.length()));
+    EXPECT_TRUE(ConvertorChar::should_padding(input.get(), str.length()));
 }
 
 TEST(CharTypePaddingTest, CharTypePaddingDataTest) {
@@ -56,7 +56,7 @@ TEST(CharTypePaddingTest, CharTypePaddingDataTest) {
         input->insert_data(str.data(), str.length() - i);
     }
 
-    auto output = ConvertorChar::clone_and_padding(input, str.length());
+    auto output = ConvertorChar::clone_and_padding(input.get(), str.length());
 
     for (int i = 0; i < rows; i++) {
         auto cell = output->get_data_at(i).to_string();

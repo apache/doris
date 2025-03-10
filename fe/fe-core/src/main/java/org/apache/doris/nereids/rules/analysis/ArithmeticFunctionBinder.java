@@ -39,6 +39,9 @@ import java.util.Map;
  * bind arithmetic function
  */
 public class ArithmeticFunctionBinder {
+
+    public static final ArithmeticFunctionBinder INSTANCE = new ArithmeticFunctionBinder();
+
     private static final NullLiteral DUMMY_EXPRESSION = new NullLiteral();
     private static final Map<String, Expression> FUNCTION_TO_EXPRESSION = ImmutableMap.<String, Expression>builder()
             .put("add", new Add(DUMMY_EXPRESSION, DUMMY_EXPRESSION))

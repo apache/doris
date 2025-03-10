@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.check;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
@@ -44,7 +45,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Cast.class).then(CheckCast::check)
+                matchesType(Cast.class).then(CheckCast::check).toRule(ExpressionRuleType.CHECK_CAST)
         );
     }
 

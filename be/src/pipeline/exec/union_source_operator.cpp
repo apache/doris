@@ -30,6 +30,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -48,11 +49,9 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _dependency = _only_const_dependency.get();
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-    }
-
-    if (p.get_child_count() == 0) {
         _dependency->set_ready();
     }
+
     return Status::OK();
 }
 
@@ -90,7 +89,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     if (_shared_state) {
         fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
                        _shared_state->data_queue.is_all_finish(),
-                       _shared_state->data_queue.remaining_has_data());
+                       _shared_state->data_queue.has_more_data());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -140,6 +139,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
+
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
@@ -148,7 +150,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
         vectorized::Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
-        int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
             return Status::InternalError(
                     "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
@@ -183,4 +185,5 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
 }
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

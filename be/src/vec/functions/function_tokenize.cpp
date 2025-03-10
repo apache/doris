@@ -129,7 +129,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
     NullMapType* dest_nested_null_map = nullptr;
     ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
-    dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+    dest_nested_column = dest_nullable_col->get_nested_column_ptr().get();
     dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
     if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {

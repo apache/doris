@@ -204,7 +204,7 @@ private:
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorVarChar(bool check_length);
+        OlapColumnDataConvertorVarChar(bool check_length, bool is_jsonb = false);
         ~OlapColumnDataConvertorVarChar() override = default;
 
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
@@ -216,6 +216,8 @@ private:
 
     private:
         bool _check_length;
+        bool _is_jsonb =
+                false; // Make sure that the json binary data written in is the correct jsonb value.
         PaddedPODArray<Slice> _slice;
     };
 
@@ -455,7 +457,8 @@ private:
 
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
-            LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorArray";
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "now not support get_data_at for OlapColumnDataConvertorArray");
             __builtin_unreachable();
         };
         Status convert_to_olap() override;
@@ -484,7 +487,8 @@ private:
         Status convert_to_olap() override;
         const void* get_data() const override { return _results.data(); };
         const void* get_data_at(size_t offset) const override {
-            LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "now not support get_data_at for OlapColumnDataConvertorMap");
             __builtin_unreachable();
         };
 

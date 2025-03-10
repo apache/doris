@@ -22,14 +22,18 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "vec/core/block.h"
 
+namespace doris {
+class BetaRowset;
+using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
+}; // namespace doris
 namespace doris::segment_v2 {
 
 using namespace vectorized;
 
 class LazyInitSegmentIterator : public RowwiseIterator {
 public:
-    LazyInitSegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema,
-                            const StorageReadOptions& opts);
+    LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int64_t segment_id, bool should_use_cache,
+                            SchemaSPtr schema, const StorageReadOptions& opts);
 
     ~LazyInitSegmentIterator() override = default;
 
@@ -50,17 +54,18 @@ public:
         return _inner_iterator->current_block_row_locations(locations);
     }
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
-            return _inner_iterator->update_profile(profile);
+            _inner_iterator->update_profile(profile);
         }
-        return false;
     }
 
 private:
     bool _need_lazy_init {true};
+    BetaRowsetSharedPtr _rowset;
+    int64_t _segment_id {-1};
+    bool _should_use_cache {false};
     SchemaSPtr _schema = nullptr;
-    std::shared_ptr<Segment> _segment;
     StorageReadOptions _read_options;
     RowwiseIteratorUPtr _inner_iterator;
 };

@@ -92,8 +92,20 @@ suite("test_segcompaction_unique_keys_mow") {
 
         qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47; """
 
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def row_count = sql """ SELECT count(*) FROM ${tableName}; """
+        logger.info("row_count: " + row_count)
+        assertEquals(4999989, row_count[0][0])
 
+        def result = sql """ select col_0, count(*) a from ${tableName} group by col_0 having a > 1; """
+        logger.info("duplicated keys: " + result)
+        assertTrue(result.size() == 0, "There are duplicate keys in the table")
+
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        for (def tablet in tablets) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            logger.info("Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+        }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

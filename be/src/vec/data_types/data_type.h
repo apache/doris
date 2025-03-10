@@ -151,16 +151,6 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    /** Integers, Enums, Date, DateTime. Not nullable.
-      */
-    virtual bool is_value_represented_by_integer() const { return false; }
-
-    virtual bool is_object() const { return false; }
-
-    /** Unsigned Integers, Date, DateTime. Not nullable.
-      */
-    virtual bool is_value_represented_by_unsigned_integer() const { return false; }
-
     /** Values are unambiguously identified by contents of contiguous memory region,
       *  that can be obtained by IColumn::get_data_at method.
       * Examples: numbers, Date, DateTime, String, FixedString,
@@ -282,6 +272,7 @@ struct WhichDataType {
     bool is_struct() const { return idx == TypeIndex::Struct; }
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
+    bool is_fixed_length_object() const { return idx == TypeIndex::FixedLengthObject; }
 
     bool is_nothing() const { return idx == TypeIndex::Nothing; }
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
@@ -289,6 +280,7 @@ struct WhichDataType {
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
     bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
     bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
+    bool is_num_can_compare() const { return is_int_or_uint() || is_float() || is_ip(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
@@ -380,13 +372,14 @@ bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
 }
 
+template <typename T>
+bool is_fixed_length_object(const T& data_type) {
+    return WhichDataType(data_type).is_fixed_length_object();
+}
+
 inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
-}
-
-inline bool is_compilable_type(const DataTypePtr& data_type) {
-    return data_type->is_value_represented_by_number() && !is_decimal(data_type);
 }
 
 inline bool is_complex_type(const DataTypePtr& data_type) {

@@ -106,7 +106,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
-    if (source_col->is_column_array()) {
+    if (is_column<vectorized::ColumnArray>(source_col.get())) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
             return Status::NotSupported(fmt::format(
@@ -171,6 +171,9 @@ std::vector<std::string> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(inverted_index_ctx->parser_type);
     std::vector<std::string> query_tokens;
+    if (inverted_index_ctx == nullptr) {
+        return query_tokens;
+    }
     if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;

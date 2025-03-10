@@ -29,6 +29,7 @@ import org.apache.doris.common.proc.BuildIndexProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -223,5 +224,14 @@ public class ShowBuildIndexStmt extends ShowStmt implements NotFallbackInParser 
         }
 
         return builder.build();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

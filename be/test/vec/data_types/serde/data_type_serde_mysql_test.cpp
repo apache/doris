@@ -37,6 +37,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/types.cpp"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
@@ -70,6 +71,19 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::vectorized {
+
+class TestBlockSerializer final : public vectorized::MySQLResultBlockBuffer {
+public:
+    TestBlockSerializer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
+    ~TestBlockSerializer() override = default;
+    std::shared_ptr<TFetchDataResult> get_block() {
+        std::lock_guard<std::mutex> l(_lock);
+        DCHECK_EQ(_result_batch_queue.size(), 1);
+        auto result = std::move(_result_batch_queue.front());
+        _result_batch_queue.pop_front();
+        return result;
+    }
+};
 
 void serialize_and_deserialize_mysql_test() {
     vectorized::Block block;
@@ -204,7 +218,7 @@ void serialize_and_deserialize_mysql_test() {
                 auto& date_v2_data = column_vector_date_v2->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     DateV2Value<DateV2ValueType> value;
-                    value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
+                    value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
                     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
                 }
                 vectorized::DataTypePtr date_v2_type(
@@ -315,7 +329,9 @@ void serialize_and_deserialize_mysql_test() {
     std::cout << "block structure: " << block.dump_structure() << std::endl;
 
     // mysql_writer init
-    vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _output_vexpr_ctxs, nullptr);
+    MockRuntimeState state;
+    auto serializer = std::make_shared<TestBlockSerializer>(&state);
+    vectorized::VMysqlResultWriter<false> mysql_writer(serializer, _output_vexpr_ctxs, nullptr);
 
     Status st = mysql_writer.write(&runtime_stat, block);
     EXPECT_TRUE(st.ok());

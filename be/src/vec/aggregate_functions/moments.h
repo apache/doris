@@ -24,6 +24,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class BufferReadable;
 class BufferWritable;
@@ -112,3 +113,4 @@ struct VarMoments {
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

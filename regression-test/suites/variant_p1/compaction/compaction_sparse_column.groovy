@@ -54,7 +54,7 @@ suite("test_compaction_sparse_column", "p1,nonConcurrent") {
                 k bigint,
                 v variant
             )
-            DUPLICATE KEY(`k`) 
+            DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(`k`) BUCKETS 1
             PROPERTIES (
                  "replication_num" = "1",

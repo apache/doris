@@ -23,8 +23,6 @@
 #include <rapidjson/rapidjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -42,19 +40,13 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/simd_json_parser.h"
 
-namespace simdjson {
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -87,7 +79,8 @@ public:
     ~NewJsonReader() override = default;
 
     Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                               col_default_value_ctx);
+                               col_default_value_ctx,
+                       bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -128,7 +121,8 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                 const std::string& column_name, DataTypeSerDeSPtr serde,
                                  bool* valid);
 
     Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
@@ -141,6 +135,10 @@ private:
     static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -177,8 +175,10 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          SlotDescriptor* slot_desc,
-                                          vectorized::IColumn* column_ptr, bool* valid);
+                                          const TypeDescriptor& type_desc,
+                                          vectorized::IColumn* column_ptr,
+                                          const std::string& column_name, DataTypeSerDeSPtr serde,
+                                          bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,
@@ -196,8 +196,8 @@ private:
             const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
                     col_default_value_ctx);
 
-    Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                bool* valid);
+    Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
+                                vectorized::IColumn* column_ptr, bool* valid);
 
     // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
     // and the current load is a flexible partial update
@@ -226,10 +226,10 @@ private:
     bool _skip_first_line;
 
     std::string _line_delimiter;
-    int _line_delimiter_length;
+    size_t _line_delimiter_length;
 
-    int _next_row;
-    int _total_rows;
+    uint32_t _next_row;
+    size_t _total_rows;
 
     std::string _jsonpaths;
     std::string _json_root;
@@ -292,7 +292,24 @@ private:
     std::unordered_map<std::string, std::string> _col_default_value_map;
 
     int32_t skip_bitmap_col_idx {-1};
+
+    bool _is_load = true;
+    //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
+    //If an illegal value is encountered during the load process, `_append_error_msg` should be called
+    //instead of directly returning `Status::DataQualityError`
+
+    bool _is_hive_table = false;
+    // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+    // Hive will not allow you to create columns with the same name but different case, including field names inside
+    // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
+    // to table, the column names in the data may be uppercase,and there may be multiple columns with
+    // the same name but different capitalization.We refer to the behavior of hive, convert all column names
+    // in the data to lowercase,and use the last one as the insertion value
+
+    DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _serde_options;
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

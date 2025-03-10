@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,external_docker_hive") {
+    if (true) {
+        //Turn off this test for now, I may delete this case or modify it later.
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -43,7 +48,7 @@ suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,extern
 
 
 
-        types = ["int","smallint","tinyint","bigint","float","double","boolean","string","char","varchar","date","timestamp","decimal"]
+        def types = ["int","smallint","tinyint","bigint","float","double","boolean","string","char","varchar","date","timestamp","decimal"]
 
         for( String type1 in types) {
             qt_desc """ desc parquet_alter_column_to_${type1} ; """

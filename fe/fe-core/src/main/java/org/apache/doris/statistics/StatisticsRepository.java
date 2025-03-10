@@ -198,7 +198,7 @@ public class StatisticsRepository {
         return size == 0 ? null : rows.get(0);
     }
 
-    private static Histogram queryColumnHistogramByName(
+    public static Histogram queryColumnHistogramByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
         ResultRow resultRow = queryColumnHistogramById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {
@@ -379,9 +379,8 @@ public class StatisticsRepository {
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
                     null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
-            long timestamp = System.currentTimeMillis();
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(timestamp)
+                    .setTblUpdateTime(objects.table.getUpdateTime())
                     .setColName("")
                     .setRowCount((long) Double.parseDouble(rowCount))
                     .setJobColumns(Sets.newHashSet())

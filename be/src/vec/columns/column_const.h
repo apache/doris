@@ -48,6 +48,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class Block;
@@ -117,8 +118,6 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
-    ColumnPtr remove_low_cardinality() const;
-
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     void resize(size_t new_size) override { s = new_size; }
@@ -179,8 +178,7 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override {
         data->serialize_vec(keys, num_rows, max_row_byte_size);
     }
 
@@ -199,7 +197,7 @@ public:
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override {
         data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }
@@ -221,6 +219,8 @@ public:
     size_t byte_size() const override { return s > 0 ? data->byte_size() + sizeof(s) : 0; }
 
     size_t allocated_bytes() const override { return data->allocated_bytes() + sizeof(s); }
+
+    bool has_enough_capacity(const IColumn& src) const override { return true; }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
         auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
@@ -254,7 +254,6 @@ public:
     // ColumnConst is not nullable, but may be concrete nullable.
     bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
-    bool is_numeric() const override { return data->is_numeric(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
@@ -267,7 +266,8 @@ public:
 
     template <typename T>
     T get_value() const {
-        return get_field().safe_get<NearestFieldType<T>>();
+        // Here the cast is correct, relevant code is rather tricky.
+        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -276,3 +276,4 @@ public:
     }
 };
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

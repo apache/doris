@@ -101,7 +101,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected SplitAssignment splitAssignment = null;
 
     protected long selectedPartitionNum = 0;
-    protected long selectedSplitNum = 0;
+    protected int selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -727,15 +727,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanRangeLocation;
     }
 
-    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
-        return context != null
-                && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && !fragment.hasNullAwareLeftAntiJoin()
-                && getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
-                * (numScanBackends() > 0 ? numScanBackends() : numBackends);
-    }
-
     public int numScanBackends() {
         return scanBackendIds.size();
     }
@@ -860,5 +851,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return numScanBackends() <= 0 || getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numScanBackends()
                 || (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle());
+    }
+
+    @Override
+    public boolean hasSerialScanChildren() {
+        return isSerialOperator();
     }
 }

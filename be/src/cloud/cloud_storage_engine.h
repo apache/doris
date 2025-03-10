@@ -24,6 +24,7 @@
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/schema_cloud_dictionary_cache.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/storage_engine.h"
@@ -69,13 +70,15 @@ public:
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
+    SchemaCloudDictionaryCache& get_schema_cloud_dictionary_cache() {
+        return *_schema_cloud_dictionary_cache;
+    }
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
-    void _check_file_cache_ttl_block_valid();
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
-        LOG(INFO) << "Getting storage resource for vault_id: " << vault_id;
+        VLOG_DEBUG << "Getting storage resource for vault_id: " << vault_id;
 
         bool synced = false;
         do {
@@ -156,6 +159,7 @@ private:
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
+    void _check_tablet_delete_bitmap_score_callback();
 
     std::atomic_bool _stopped {false};
 
@@ -163,6 +167,7 @@ private:
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
+    std::unique_ptr<SchemaCloudDictionaryCache> _schema_cloud_dictionary_cache;
 
     // Components for cache warmup
     std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;

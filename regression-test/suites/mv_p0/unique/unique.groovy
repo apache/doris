@@ -73,6 +73,7 @@ suite ("unique") {
     qt_select_star "select * from u_table order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table u_table modify column k1 set stats ('row_count'='3');"""
     mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
 
     // todo: support match query

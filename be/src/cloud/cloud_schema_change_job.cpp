@@ -21,11 +21,14 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -73,13 +76,18 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));
 
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        LOG(WARNING) << "Failed to obtain schema change lock. base_tablet="
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        LOG(WARNING) << "Failed to obtain schema change lock, there might be inverted index being "
+                        "built on base_tablet="
                      << request.base_tablet_id;
-        return Status::Error<TRY_LOCK_FAILED>("Failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built on base_tablet=",
+                request.base_tablet_id);
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
     RETURN_IF_ERROR(_base_tablet->sync_rowsets(request.alter_version));
@@ -169,6 +177,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
     reader_context.version = Version(0, start_resp.alter_version());
+    std::vector<uint32_t> cluster_key_idxes;
+    if (!_base_tablet_schema->cluster_key_uids().empty()) {
+        for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+            cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+        }
+        reader_context.read_orderby_key_columns = &cluster_key_idxes;
+        reader_context.is_unique = false;
+        reader_context.sequence_id_idx = -1;
+    }
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));
@@ -274,7 +291,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
-        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
+        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
+        bool vertical = false;
+        if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            // see VBaseSchemaChangeWithSorting::_external_sorting
+            vertical = true;
+        }
+        auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, vertical));
 
         RowsetMetaSharedPtr existed_rs_meta;
         auto st = _cloud_storage_engine.meta_mgr().prepare_rowset(*rowset_writer->rowset_meta(),
@@ -340,17 +363,23 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         int64_t num_output_rows = 0;
         int64_t size_output_rowsets = 0;
         int64_t num_output_segments = 0;
+        int64_t index_size_output_rowsets = 0;
+        int64_t segment_size_output_rowsets = 0;
         for (auto& rs : _output_rowsets) {
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
             size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
+            index_size_output_rowsets += rs->index_disk_size();
+            segment_size_output_rowsets += rs->data_disk_size();
         }
         sc_job->set_num_output_rows(num_output_rows);
         sc_job->set_size_output_rowsets(size_output_rowsets);
         sc_job->set_num_output_segments(num_output_segments);
         sc_job->set_num_output_rowsets(_output_rowsets.size());
+        sc_job->set_index_size_output_rowsets(index_size_output_rowsets);
+        sc_job->set_segment_size_output_rowsets(segment_size_output_rowsets);
     }
     _output_cumulative_point = std::min(_output_cumulative_point, sc_job->alter_version() + 1);
     sc_job->set_output_cumulative_point(_output_cumulative_point);
@@ -371,6 +400,13 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     }
 
     cloud::FinishTabletJobResponse finish_resp;
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.test_conflict", {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        int random_value = std::rand() % 100;
+        if (random_value < 20) {
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("test txn conflict");
+        }
+    });
     auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
@@ -387,13 +423,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -435,6 +464,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         }
     }
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.before_new_inc.block",
+                    DBUG_BLOCK);
+
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
@@ -455,6 +487,18 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
     }
+
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        auto sleep_time = dp->param("sleep", 100);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}, sc job_id={}", sleep_time,
+                     _new_tablet->tablet_id(), _job_id);
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
 
     auto& delete_bitmap = tmp_tablet->tablet_meta()->delete_bitmap();
 

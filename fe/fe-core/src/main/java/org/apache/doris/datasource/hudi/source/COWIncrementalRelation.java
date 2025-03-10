@@ -37,6 +37,7 @@ import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.storage.StoragePath;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -105,7 +106,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
         List<HoodieInstant> commitsToReturn = commitsTimelineToReturn.getInstants();
 
         // todo: support configuration hoodie.datasource.read.incr.filters
-        Path basePath = metaClient.getBasePathV2();
+        StoragePath basePath = metaClient.getBasePathV2();
         Map<String, String> regularFileIdToFullPath = new HashMap<>();
         Map<String, String> metaBootstrapFileIdToFullPath = new HashMap<>();
         HoodieTimeline replacedTimeline = commitsTimelineToReturn.getCompletedReplaceTimeline();
@@ -113,8 +114,8 @@ public class COWIncrementalRelation implements IncrementalRelation {
         for (HoodieInstant instant : replacedTimeline.getInstants()) {
             HoodieReplaceCommitMetadata.fromBytes(metaClient.getActiveTimeline().getInstantDetails(instant).get(),
                     HoodieReplaceCommitMetadata.class).getPartitionToReplaceFileIds().forEach(
-                        (key, value) -> value.forEach(
-                            e -> replacedFile.put(e, FSUtils.getPartitionPath(basePath, key).toString())));
+                            (key, value) -> value.forEach(
+                                    e -> replacedFile.put(e, FSUtils.constructAbsolutePath(basePath, key).toString())));
         }
 
         fileToWriteStat = new HashMap<>();
@@ -123,7 +124,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
                     commitTimeline.getInstantDetails(commit).get(), HoodieCommitMetadata.class);
             metadata.getPartitionToWriteStats().forEach((partition, stats) -> {
                 for (HoodieWriteStat stat : stats) {
-                    fileToWriteStat.put(FSUtils.getPartitionPath(basePath, stat.getPath()).toString(), stat);
+                    fileToWriteStat.put(FSUtils.constructAbsolutePath(basePath, stat.getPath()).toString(), stat);
                 }
             });
             if (HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS.equals(commit.getTimestamp())) {
@@ -158,7 +159,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
         }
 
-        fs = basePath.getFileSystem(configuration);
+        fs = new Path(basePath.toUri().getPath()).getFileSystem(configuration);
         fullTableScan = shouldFullTableScan();
         includeStartTime = !fullTableScan;
         if (fullTableScan || commitsToReturn.isEmpty()) {

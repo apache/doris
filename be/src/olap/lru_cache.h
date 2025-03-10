@@ -4,16 +4,16 @@
 
 #pragma once
 
-#include <assert.h>
 #include <butil/macros.h>
 #include <bvar/bvar.h>
 #include <glog/logging.h>
 #include <gtest/gtest_prod.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <set>
@@ -25,30 +25,7 @@
 #include "util/metrics.h"
 
 namespace doris {
-
-#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
-    do {                                                           \
-        if (r_len > str.size()) {                                  \
-            memcpy(cur, str.c_str(), str.size());                  \
-            r_len -= str.size();                                   \
-            cur += str.size();                                     \
-        } else {                                                   \
-            LOG(WARNING) << "construct cache key buf not enough."; \
-            return CacheKey(nullptr, 0);                           \
-        }                                                          \
-    } while (0)
-
-#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)             \
-    do {                                                           \
-        if (r_len > sizeof(numeric)) {                             \
-            memcpy(cur, &numeric, sizeof(numeric));                \
-            r_len -= sizeof(numeric);                              \
-            cur += sizeof(numeric);                                \
-        } else {                                                   \
-            LOG(WARNING) << "construct cache key buf not enough."; \
-            return CacheKey(nullptr, 0);                           \
-        }                                                          \
-    } while (0)
+#include "common/compile_check_begin.h"
 
 class Cache;
 class LRUCachePolicy;
@@ -62,10 +39,11 @@ enum LRUCacheType {
 static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
 static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 32;
 static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
+static constexpr bool DEFAULT_LRU_CACHE_IS_LRU_K = false;
 
 class CacheKey {
 public:
-    CacheKey() : _data(nullptr), _size(0) {}
+    CacheKey() : _size(0) {}
     // Create a slice that refers to d[0,n-1].
     CacheKey(const char* d, size_t n) : _data(d), _size(n) {}
 
@@ -75,7 +53,7 @@ public:
     // Create a slice that refers to s[0,strlen(s)-1]
     CacheKey(const char* s) : _data(s), _size(strlen(s)) {}
 
-    ~CacheKey() {}
+    ~CacheKey() = default;
 
     // Return a pointer to the beginning of the referenced data
     const char* data() const { return _data; }
@@ -107,7 +85,7 @@ public:
     }
 
     // Return a string that contains the copy of the referenced data.
-    std::string to_string() const { return std::string(_data, _size); }
+    std::string to_string() const { return {_data, _size}; }
 
     bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
@@ -162,11 +140,11 @@ struct PrunedInfo {
 
 class Cache {
 public:
-    Cache() {}
+    Cache() = default;
 
     // Destroys all existing entries by calling the "deleter"
     // function that was passed to the constructor.
-    virtual ~Cache();
+    virtual ~Cache() = default;
 
     // Opaque handle to an entry stored in the cache.
     struct Handle {};
@@ -180,6 +158,10 @@ public:
     //
     // When the inserted entry is no longer needed, the key and
     // value will be passed to "deleter".
+    //
+    // if cache is lru k and cache is full, first insert of key will not succeed.
+    //
+    // Note: if is ShardedLRUCache, cache capacity = ShardedLRUCache_capacity / num_shards.
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            CachePriority priority = CachePriority::NORMAL) = 0;
 
@@ -263,7 +245,7 @@ struct LRUHandle {
         if (next == this) {
             return *(reinterpret_cast<CacheKey*>(value));
         } else {
-            return CacheKey(key_data, key_length);
+            return {key_data, key_length};
         }
     }
 
@@ -283,7 +265,7 @@ struct LRUHandle {
 
 class HandleTable {
 public:
-    HandleTable() : _length(0), _elems(0), _list(nullptr) { _resize(); }
+    HandleTable() { _resize(); }
 
     ~HandleTable();
 
@@ -306,8 +288,8 @@ private:
 
     // The tablet consists of an array of buckets where each bucket is
     // a linked list of cache entries that hash into the bucket.
-    uint32_t _length;
-    uint32_t _elems;
+    uint32_t _length {};
+    uint32_t _elems {};
     LRUHandle** _list = nullptr;
 
     // Return a pointer to slot that points to a cache entry that
@@ -326,8 +308,15 @@ using LRUHandleSortedSet = std::set<std::pair<int64_t, LRUHandle*>>;
 // A single shard of sharded cache.
 class LRUCache {
 public:
-    LRUCache(LRUCacheType type);
+    LRUCache(LRUCacheType type, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K);
     ~LRUCache();
+
+    // visits_lru_cache_key is the hash value of CacheKey.
+    // If there is a hash conflict, a cache entry may be inserted early
+    // and another cache entry with the same key hash may be inserted later.
+    // Otherwise, this does not affect the correctness of the cache.
+    using visits_lru_cache_key = uint32_t;
+    using visits_lru_cache_pair = std::pair<visits_lru_cache_key, size_t>;
 
     // Separate from constructor so caller can easily make an array of LRUCache
     PrunedInfo set_capacity(size_t capacity);
@@ -365,6 +354,7 @@ private:
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
     bool _check_element_count_limit();
+    bool _lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key visits_key);
 
 private:
     LRUCacheType _type;
@@ -396,18 +386,24 @@ private:
     LRUHandleSortedSet _sorted_durable_entries_with_timestamp;
 
     uint32_t _element_count_capacity = 0;
+
+    bool _is_lru_k = false; // LRU-K algorithm, K=2
+    std::list<visits_lru_cache_pair> _visits_lru_cache_list;
+    std::unordered_map<visits_lru_cache_key, std::list<visits_lru_cache_pair>::iterator>
+            _visits_lru_cache_map;
+    size_t _visits_lru_cache_usage = 0;
 };
 
 class ShardedLRUCache : public Cache {
 public:
-    virtual ~ShardedLRUCache();
-    virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
-                           CachePriority priority = CachePriority::NORMAL) override;
-    virtual Handle* lookup(const CacheKey& key) override;
-    virtual void release(Handle* handle) override;
-    virtual void erase(const CacheKey& key) override;
-    virtual void* value(Handle* handle) override;
-    virtual uint64_t new_id() override;
+    ~ShardedLRUCache() override;
+    Handle* insert(const CacheKey& key, void* value, size_t charge,
+                   CachePriority priority = CachePriority::NORMAL) override;
+    Handle* lookup(const CacheKey& key) override;
+    void release(Handle* handle) override;
+    void erase(const CacheKey& key) override;
+    void* value(Handle* handle) override;
+    uint64_t new_id() override;
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t get_usage() override;
@@ -420,17 +416,18 @@ private:
     friend class LRUCachePolicy;
 
     explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity);
+                             uint32_t num_shards, uint32_t element_count_capacity, bool is_lru_k);
     explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity,
+                             bool is_lru_k);
 
     void update_cache_metrics() const;
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
-    uint32_t _shard(uint32_t hash) {
+    uint32_t _shard(uint32_t hash) const {
         return _num_shard_bits > 0 ? (hash >> (32 - _num_shard_bits)) : 0;
     }
 
@@ -447,10 +444,10 @@ private:
     IntGauge* cache_usage = nullptr;
     IntGauge* cache_element_count = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
-    IntAtomicCounter* cache_lookup_count = nullptr;
-    IntAtomicCounter* cache_hit_count = nullptr;
-    IntAtomicCounter* cache_miss_count = nullptr;
-    IntAtomicCounter* cache_stampede_count = nullptr;
+    IntCounter* cache_lookup_count = nullptr;
+    IntCounter* cache_hit_count = nullptr;
+    IntCounter* cache_miss_count = nullptr;
+    IntCounter* cache_stampede_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
@@ -481,3 +478,4 @@ public:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

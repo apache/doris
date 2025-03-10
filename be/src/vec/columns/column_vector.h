@@ -61,6 +61,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
@@ -151,8 +152,6 @@ public:
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
 public:
-    bool is_numeric() const override { return IsNumber<T>; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -178,10 +177,9 @@ public:
     void insert_range_of_integer(T begin, T end) {
         if constexpr (std::is_integral_v<T>) {
             auto old_size = data.size();
-            data.resize(old_size + (end - begin));
-            for (int i = 0; i < end - begin; i++) {
-                data[old_size + i] = begin + i;
-            }
+            auto new_size = old_size + static_cast<size_t>(end - begin);
+            data.resize(new_size);
+            std::iota(data.begin() + old_size, data.begin() + new_size, begin);
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
@@ -249,17 +247,16 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -321,6 +318,11 @@ public:
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_vec = assert_cast<const ColumnVector&>(src);
+        return data.capacity() - data.size() > src_vec.data.size();
+    }
+
     void insert_value(const T value) { data.push_back(value); }
 
     /// This method implemented in header because it could be possibly devirtualized.
@@ -337,7 +339,13 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override {
+        // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
+        if (std::is_same_v<T, IPv4>) {
+            return "IPv4";
+        }
+        return TypeName<T>::get();
+    }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -409,3 +417,4 @@ protected:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

@@ -45,6 +45,8 @@ suite ("orderByOnPView") {
     sql """insert into orderByOnPView values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table orderByOnPView with sync;"
+    sql """alter table orderByOnPView modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from orderByOnPView where time_col='2020-01-01' order by empid;", "orderByOnPView_mv")
@@ -54,6 +56,7 @@ suite ("orderByOnPView") {
     order_qt_select_mv "select empid from orderByOnPView order by deptno;"
 
     sql """set enable_stats=true;"""
+
     mv_rewrite_fail("select * from orderByOnPView where time_col='2020-01-01' order by empid;", "orderByOnPView_mv")
 
     mv_rewrite_success("select empid from orderByOnPView where deptno = 0 order by deptno;", "orderByOnPView_mv")

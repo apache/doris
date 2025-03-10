@@ -285,8 +285,13 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
+# build thirdparty libraries if necessary. check last thirdparty lib installation
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    LAST_THIRDPARTY_LIB='libbrotlienc.a'
+else
+    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+fi
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
@@ -375,7 +380,11 @@ BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
 if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
     USE_JEMALLOC='OFF'
 elif [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='ON'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     # compatible with old thirdparty
@@ -454,7 +463,7 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
 fi
 
 if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='OFF'
+    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${BUILD_BENCHMARK}" ]]; then
@@ -538,6 +547,7 @@ fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("be-java-extensions/hudi-scanner")
+    modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
@@ -747,7 +757,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
-    mkdir -p "${DORIS_OUTPUT}/fe/connectors"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -825,6 +839,7 @@ EOF
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
+    extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
@@ -873,7 +888,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
-    mkdir -p "${DORIS_OUTPUT}/be/connectors"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

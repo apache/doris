@@ -88,8 +88,9 @@ public:
         PrimitiveType type;
         int size;
         bool is_null;
-        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        /// Only set if type == TYPE_DECIMAL
         int precision = -1;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
         int scale = -1;
     };
     SchemaScanner(const std::vector<ColumnDesc>& columns,
@@ -106,11 +107,7 @@ public:
     // factory function
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dep,
-                        std::shared_ptr<pipeline::Dependency> fin_dep) {
-        _dependency = dep;
-        _finish_dependency = fin_dep;
-    }
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dep) { _dependency = dep; }
     Status get_next_block_async(RuntimeState* state);
 
 protected:
@@ -139,7 +136,6 @@ protected:
     RuntimeProfile::Counter* _fill_block_timer = nullptr;
 
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 
     std::unique_ptr<vectorized::Block> _data_block;
     AtomicStatus _scanner_status;

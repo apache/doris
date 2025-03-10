@@ -24,7 +24,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.PointQueryExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
@@ -70,28 +72,37 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getLogicalPlan(), executor.getContext()
                 .getStatementContext());
         executor.setParsedStmt(planAdapter);
-        // If it's not a short circuit query or schema version is different(indicates schema changed),
-        // need to do reanalyze and plan
-        boolean isShortCircuit = executor.getContext().getStatementContext().isShortCircuitQuery();
-        boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
-        boolean schemaVersionMismatch = hasShortCircuitContext
-                    && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
-                    != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion;
-        boolean needAnalyze = !isShortCircuit || schemaVersionMismatch || !hasShortCircuitContext;
-        if (needAnalyze) {
-            // execute real statement
-            preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
-            statementContext.setShortCircuitQueryContext(null);
-            executor.execute();
-            if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
-                // cache short-circuit plan
-                preparedStmtCtx.shortCircuitQueryContext = Optional.of(
-                        new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
-                statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
-            }
+        // If it's not a short circuit query or schema version is different(indicates schema changed) or
+        // has nondeterministic functions in statement, then need to do reanalyze and plan
+        if (executor.getContext().getStatementContext().isShortCircuitQuery()
+                && preparedStmtCtx.shortCircuitQueryContext.isPresent()
+                && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
+                == preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion && !executor.getContext()
+                .getStatementContext().hasNondeterministic()) {
+            PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
-        PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
+        if (ctx.getSessionVariable().enableGroupCommitFullPrepare) {
+            if (preparedStmtCtx.groupCommitPlanner.isPresent()) {
+                OlapGroupCommitInsertExecutor.fastAnalyzeGroupCommit(ctx, prepareCommand);
+            } else {
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, prepareCommand);
+            }
+            if (ctx.isGroupCommit()) {
+                GroupCommitPlanner.executeGroupCommitInsert(ctx, preparedStmtCtx, statementContext);
+                return;
+            }
+        }
+        // execute real statement
+        preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+        statementContext.setShortCircuitQueryContext(null);
+        executor.execute();
+        if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
+            // cache short-circuit plan
+            preparedStmtCtx.shortCircuitQueryContext = Optional.of(
+                    new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
+            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+        }
     }
 
     /**

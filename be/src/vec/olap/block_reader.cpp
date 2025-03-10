@@ -108,40 +108,49 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
-    _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse);
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
+        _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
+        _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
+                            read_params.read_orderby_key_reverse);
+    }
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
     RuntimeState* runtime_state = read_params.runtime_state;
 
-    for (int i = 0; i < read_params.rs_splits.size(); ++i) {
-        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
-            return runtime_state->cancel_reason();
-        }
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+        for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+                return runtime_state->cancel_reason();
+            }
 
-        auto& rs_split = read_params.rs_splits[i];
+            auto& rs_split = read_params.rs_splits[i];
 
-        // _vcollect_iter.topn_next() will init rs_reader by itself
-        if (!_vcollect_iter.use_topn_next()) {
-            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
-        }
+            // _vcollect_iter.topn_next() will init rs_reader by itself
+            if (!_vcollect_iter.use_topn_next()) {
+                RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+            }
 
-        Status res = _vcollect_iter.add_child(rs_split);
-        if (!res.ok() && !res.is<END_OF_FILE>()) {
-            LOG(WARNING) << "failed to add child to iterator, err=" << res;
-            return res;
-        }
-        if (res.ok()) {
-            valid_rs_readers.push_back(rs_split.rs_reader);
+            Status res = _vcollect_iter.add_child(rs_split);
+            if (!res.ok() && !res.is<END_OF_FILE>()) {
+                LOG(WARNING) << "failed to add child to iterator, err=" << res;
+                return res;
+            }
+            if (res.ok()) {
+                valid_rs_readers.push_back(rs_split.rs_reader);
+            }
         }
     }
 
-    RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
-    // _vcollect_iter.topn_next() can not use current_row
-    if (!_vcollect_iter.use_topn_next()) {
-        auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status.is<END_OF_FILE>();
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+        RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
+        // _vcollect_iter.topn_next() can not use current_row
+        if (!_vcollect_iter.use_topn_next()) {
+            auto status = _vcollect_iter.current_row(&_next_row);
+            _eof = status.is<END_OF_FILE>();
+        }
     }
 
     return Status::OK();

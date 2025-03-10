@@ -66,7 +66,9 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
 MemoryScratchSinkOperatorX::MemoryScratchSinkOperatorX(const RowDescriptor& row_desc,
                                                        int operator_id,
                                                        const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
+        : DataSinkOperatorX(operator_id, 0, 0),
+          _row_desc(row_desc),
+          _t_output_expr(t_output_expr) {}
 
 Status MemoryScratchSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::init(thrift_sink));
@@ -75,8 +77,8 @@ Status MemoryScratchSinkOperatorX::init(const TDataSink& thrift_sink) {
     return Status::OK();
 }
 
-Status MemoryScratchSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::open(state));
+Status MemoryScratchSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     _timezone_obj = state->timezone_obj();
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));

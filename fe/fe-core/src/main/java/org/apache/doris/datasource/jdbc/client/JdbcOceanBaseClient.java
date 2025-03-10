@@ -54,7 +54,7 @@ public class JdbcOceanBaseClient extends JdbcClient {
                 throw new JdbcClientException("Failed to determine OceanBase compatibility mode");
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient", e.getMessage());
+            throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient: %s", e.getMessage());
         } finally {
             close(rs, stmt, conn);
         }
@@ -65,8 +65,12 @@ public class JdbcOceanBaseClient extends JdbcClient {
         throw new UnsupportedOperationException("JdbcOceanBaseClient does not support jdbcTypeToDoris");
     }
 
-    private void setOracleMode() {
+    @Override
+    public String getTestQuery() {
+        return "SELECT 1 FROM DUAL";
+    }
+
+    void setOracleMode() {
         this.dbType = JdbcResource.OCEANBASE_ORACLE;
     }
 }
-

@@ -28,7 +28,7 @@ suite("ssb_sf1_q3_1_nereids") {
 
     test {
         // sql(new File(context.file.parentFile, "../sql/q3.1.sql").text)
-        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/   
+        sql """SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/
         c_nation, s_nation, d_year,
         SUM(lo_revenue)  AS  REVENUE
         FROM customer, lineorder, supplier, date

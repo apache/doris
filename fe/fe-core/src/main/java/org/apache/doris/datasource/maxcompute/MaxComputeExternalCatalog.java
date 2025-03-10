@@ -33,6 +33,7 @@ import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.security.SecurityManager;
+import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
@@ -70,6 +71,12 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private SplitOptions splitOptions;
     private long splitRowCount;
     private long splitByteSize;
+
+    private int connectTimeout;
+    private int readTimeout;
+    private int retryTimes;
+
+    public boolean dateTimePredicatePushDown;
 
     private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
@@ -159,31 +166,46 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         defaultProject = props.get(MCProperties.PROJECT);
         quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
+        boolean splitCrossPartition =
+                Boolean.parseBoolean(props.getOrDefault(MCProperties.SPLIT_CROSS_PARTITION,
+                MCProperties.DEFAULT_SPLIT_CROSS_PARTITION));
 
         splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
         if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
             splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
                     MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
-
             splitOptions = SplitOptions.newBuilder()
                     .SplitByByteSize(splitByteSize)
-                    .withCrossPartition(false)
+                    .withCrossPartition(splitCrossPartition)
                     .build();
         } else {
             splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
                     MCProperties.DEFAULT_SPLIT_ROW_COUNT));
             splitOptions = SplitOptions.newBuilder()
                     .SplitByRowOffset()
-                    .withCrossPartition(false)
+                    .withCrossPartition(splitCrossPartition)
                     .build();
         }
 
+        connectTimeout = Integer.parseInt(
+                props.getOrDefault(MCProperties.CONNECT_TIMEOUT, MCProperties.DEFAULT_CONNECT_TIMEOUT));
+        readTimeout = Integer.parseInt(
+                props.getOrDefault(MCProperties.READ_TIMEOUT, MCProperties.DEFAULT_READ_TIMEOUT));
+        retryTimes = Integer.parseInt(
+                props.getOrDefault(MCProperties.RETRY_COUNT, MCProperties.DEFAULT_RETRY_COUNT));
+
+        RestOptions restOptions = RestOptions.newBuilder()
+                .withConnectTimeout(connectTimeout)
+                .withReadTimeout(readTimeout)
+                .withRetryTimes(retryTimes).build();
 
         CloudCredential credential = MCProperties.getCredential(props);
         accessKey = credential.getAccessKey();
         secretKey = credential.getSecretKey();
 
-
+        dateTimePredicatePushDown = Boolean.parseBoolean(
+                props.getOrDefault(MCProperties.DATETIME_PREDICATE_PUSH_DOWN,
+                        MCProperties.DEFAULT_DATETIME_PREDICATE_PUSH_DOWN));
 
         Account account = new AliyunAccount(accessKey, secretKey);
         this.odps = new Odps(account);
@@ -196,6 +218,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 .withCredentials(credentials)
                 .withServiceEndpoint(odps.getEndpoint())
                 .withQuotaName(quota)
+                .withRestOptions(restOptions)
                 .build();
     }
 
@@ -304,6 +327,25 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return defaultProject;
     }
 
+    public int getRetryTimes() {
+        makeSureInitialized();
+        return retryTimes;
+    }
+
+    public int getConnectTimeout() {
+        makeSureInitialized();
+        return connectTimeout;
+    }
+
+    public int getReadTimeout() {
+        makeSureInitialized();
+        return readTimeout;
+    }
+
+    public boolean getDateTimePredicatePushDown() {
+        return dateTimePredicatePushDown;
+    }
+
     public ZoneId getProjectDateTimeZone() {
         makeSureInitialized();
 
@@ -383,6 +425,31 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         } catch (NumberFormatException e) {
             throw new DdlException("property " + MCProperties.SPLIT_BYTE_SIZE + "/"
                     + MCProperties.SPLIT_ROW_COUNT + "must be an integer");
+        }
+
+
+        try {
+            connectTimeout = Integer.parseInt(
+                    props.getOrDefault(MCProperties.CONNECT_TIMEOUT, MCProperties.DEFAULT_CONNECT_TIMEOUT));
+            readTimeout = Integer.parseInt(
+                    props.getOrDefault(MCProperties.READ_TIMEOUT, MCProperties.DEFAULT_READ_TIMEOUT));
+            retryTimes = Integer.parseInt(
+                    props.getOrDefault(MCProperties.RETRY_COUNT, MCProperties.DEFAULT_RETRY_COUNT));
+            if (connectTimeout <= 0) {
+                throw new DdlException(MCProperties.CONNECT_TIMEOUT + " must be greater than 0");
+            }
+
+            if (readTimeout <= 0) {
+                throw new DdlException(MCProperties.READ_TIMEOUT + " must be greater than 0");
+            }
+
+            if (retryTimes <= 0) {
+                throw new DdlException(MCProperties.RETRY_COUNT + " must be greater than 0");
+            }
+
+        } catch (NumberFormatException e) {
+            throw new DdlException("property " + MCProperties.CONNECT_TIMEOUT + "/"
+                    + MCProperties.READ_TIMEOUT + "/" + MCProperties.RETRY_COUNT + "must be an integer");
         }
 
         CloudCredential credential = MCProperties.getCredential(props);

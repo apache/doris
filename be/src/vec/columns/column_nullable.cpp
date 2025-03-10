@@ -29,6 +29,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : NullMapProvider(std::move(null_map_)), nested_column(std::move(nested_column_)) {
@@ -62,7 +63,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::xxHash64NullWithSeed(hash);
             }
@@ -78,7 +79,7 @@ void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& h
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::zlib_crc_hash_null(hash);
             }
@@ -248,13 +249,13 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
     const auto& arr = get_null_map_data();
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
-void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
     auto& arr = get_null_map_data();
     const size_t old_size = arr.size();
     arr.resize(old_size + num_rows);
@@ -536,6 +537,12 @@ size_t ColumnNullable::byte_size() const {
 
 size_t ColumnNullable::allocated_bytes() const {
     return get_nested_column().allocated_bytes() + get_null_map_column().allocated_bytes();
+}
+
+bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    return get_nested_column().has_enough_capacity(src_concrete.get_nested_column()) &&
+           get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
 }
 
 ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {

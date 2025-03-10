@@ -68,7 +68,7 @@ suite("test_primary_key_simple_case", "inverted_index") {
         """
     sql """ set enable_common_expr_pushdown = true """
 
-    result = sql """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+    def result = sql """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     assertTrue(result.size() == 5)
     assertTrue(result[0].size() == 11)
 

@@ -55,7 +55,9 @@ struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup& other) = default;
     RecyclerThreadPoolGroup& operator=(RecyclerThreadPoolGroup&& other) = default;
     RecyclerThreadPoolGroup(RecyclerThreadPoolGroup&&) = default;
+    // used for accessor.delete_files, accessor.delete_directory
     std::shared_ptr<SimpleThreadPool> s3_producer_pool;
+    // used for InstanceRecycler::recycle_tablet
     std::shared_ptr<SimpleThreadPool> recycle_tablet_pool;
     std::shared_ptr<SimpleThreadPool> group_recycle_function_pool;
 };
@@ -108,6 +110,11 @@ private:
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
+enum class RowsetRecyclingState {
+    FORMAL_ROWSET,
+    TMP_ROWSET,
+};
+
 class InstanceRecycler {
 public:
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
@@ -128,19 +135,26 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
-    // scan and recycle expired indexes
+    // scan and recycle expired indexes:
+    // 1. dropped table, dropped mv
+    // 2. half-successtable/index when create
     // returns 0 for success otherwise error
     int recycle_indexes();
 
-    // scan and recycle expired partitions
+    // scan and recycle expired partitions:
+    // 1. dropped parttion
+    // 2. half-success partition when create
     // returns 0 for success otherwise error
     int recycle_partitions();
 
-    // scan and recycle expired rowsets
+    // scan and recycle expired rowsets:
+    // 1. prepare_rowset will produce recycle_rowset before uploading data to remote storage (memo)
+    // 2. compaction will change the input rowsets to recycle_rowset
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
-    // scan and recycle expired tmp rowsets
+    // scan and recycle expired tmp rowsets:
+    // 1. commit_rowset will produce tmp_rowset when finish upload data (load or compaction) to remote storage
     // returns 0 for success otherwise error
     int recycle_tmp_rowsets();
 
@@ -203,14 +217,18 @@ private:
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
                          std::function<int()> loop_done = nullptr);
+
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
     // return 0 for success otherwise error
     // NOTE: this function ONLY be called when the file paths cannot be calculated
     int delete_rowset_data(const std::string& resource_id, int64_t tablet_id,
                            const std::string& rowset_id);
+
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
+    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
+                           RowsetRecyclingState type);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor

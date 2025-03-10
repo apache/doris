@@ -58,6 +58,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -113,7 +114,7 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (args[0].column->is_column_map() ||
+        if (is_column<ColumnMap>(args[0].column.get()) ||
             check_column_const<ColumnMap>(args[0].column.get())) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
@@ -147,14 +148,16 @@ private:
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
-                    matched_indices->insert_value(j - begin + 1);
+                    matched_indices->insert_value(
+                            cast_set<MapIndiceDataType::FieldType, size_t, false>(j - begin + 1));
                     matched = true;
                     break;
                 }
             }
 
             if (!matched) {
-                matched_indices->insert_value(end - begin + 1); // make indices for null
+                matched_indices->insert_value(cast_set<MapIndiceDataType::FieldType, size_t, false>(
+                        end - begin + 1)); // make indices for null
             }
         }
 
@@ -415,4 +418,5 @@ private:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

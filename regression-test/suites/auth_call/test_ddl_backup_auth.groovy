@@ -76,7 +76,7 @@ suite("test_ddl_backup_auth","p0,auth_call") {
             )"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
                     TO ${repositoryName}
@@ -100,7 +100,7 @@ suite("test_ddl_backup_auth","p0,auth_call") {
         }
     }
     sql """grant LOAD_PRIV on ${dbName}.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
                 TO ${repositoryName}
                 ON (${tableName})

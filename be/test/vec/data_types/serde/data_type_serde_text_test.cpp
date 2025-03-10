@@ -399,14 +399,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "\"\\N\", "
                          "\"\x1\x2\x3,\\u0001bc\"]",
                          "[\"heeeee\", null, \"null\", \"\\N\", null, \"sssssssss\"]"}),
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_DATE,
-                        {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
-                         "[2022-07-13 12:30:00, \"2022-07-13\"]",
-                         "[2022-07-13 12:30:00.000, 2022-07-13]"},
-                        {"[null, null]", "[2022-07-13, null]", "[2022-07-13, 2022-07-13]"},
-                        {"[null, 2022-07-13]", "[2022-07-13, 2022-07-13]",
-                         "[2022-07-13, 2022-07-13]"}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE,
+                                  {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
+                                   "[2022-07-13 12:30:00, \"2022-07-13\"]",
+                                   "[2022-07-13 12:30:00.000, 2022-07-13]"},
+                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
+                                   "[\"2022-07-13\", \"2022-07-13\"]"},
+                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
+                                   "[\"2022-07-13\", \"2022-07-13\"]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME,
                         {
@@ -510,7 +510,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 {
                     // from_string
                     ReadBuffer rb(rand_str.data(), rand_str.size());
-                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    Status status = array_data_type_ptr->from_string(rb, col2.get());
                     EXPECT_EQ(status.ok(), true);
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
@@ -594,10 +594,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}",
                          "\\N"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
-                         "null:null, 2022-07-13:null}",
-                         "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
-                         "2022-07-13:null}",
+                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
+                         "\"2022-07-13\":null, null:null, \"2022-07-13\":null}",
+                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
+                         "\"2022-07-13\":null}",
                          "\\N"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
@@ -661,7 +661,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 {
                     ReadBuffer rb(rand_str.data(), rand_str.size());
                     std::cout << "from string rb: " << rb.to_string() << std::endl;
-                    Status stat = map_data_type_ptr->from_string(rb, col2);
+                    Status stat = map_data_type_ptr->from_string(rb, col2.get());
                     std::cout << stat.to_json() << std::endl;
                     auto ser_col = ColumnString::create();
                     ser_col->reserve(1);
@@ -688,10 +688,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          // escaped char ':'
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
-                         "null:null, 2022-07-13:2022-07-13 12:30:00}",
-                         "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
-                         "2022-07-13:2022-07-13 12:30:00}"}),
+                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
+                         "\"2022-07-13\":null, null:null, \"2022-07-13\":2022-07-13 12:30:00}",
+                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
+                         "\"2022-07-13\":2022-07-13 12:30:00}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
@@ -840,7 +840,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     // from_string
                     ReadBuffer rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
-                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
                         EXPECT_EQ(status.ok(), false);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
@@ -995,7 +995,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     // from_string
                     ReadBuffer rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
-                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
                         EXPECT_EQ(status.ok(), false);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
@@ -1213,7 +1213,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     // from_string
                     ReadBuffer rb(rand_str.data(), rand_str.size());
                     auto col2 = map_data_type_ptr->create_column();
-                    Status status = map_data_type_ptr->from_string(rb, col2);
+                    Status status = map_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
                         EXPECT_EQ(status.ok(), false);
                         std::cout << "test from_string: " << status.to_json() << std::endl;
@@ -1354,7 +1354,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
                     // from_string
                     ReadBuffer rb(rand_str.data(), rand_str.size());
                     auto col2 = array_data_type_ptr->create_column();
-                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    Status status = array_data_type_ptr->from_string(rb, col2.get());
                     if (expect_from_string_str == "") {
                         EXPECT_EQ(status.ok(), false);
                         std::cout << "test from_string: " << status.to_json() << std::endl;

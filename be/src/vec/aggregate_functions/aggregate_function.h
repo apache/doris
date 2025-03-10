@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/defer_op.h"
@@ -36,6 +38,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -80,7 +83,7 @@ using ConstAggregateDataPtr = const char*;
   */
 class IAggregateFunction {
 public:
-    IAggregateFunction(const DataTypes& argument_types_) : argument_types(argument_types_) {}
+    IAggregateFunction(DataTypes argument_types_) : argument_types(std::move(argument_types_)) {}
 
     /// Get main function name.
     virtual String get_name() const = 0;
@@ -224,7 +227,7 @@ public:
 
     virtual void set_version(const int version_) { version = version_; }
 
-    virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
+    virtual IAggregateFunction* transmit_to_stable() { return nullptr; }
 
     /// Verify function signature
     virtual Status verify_result_type(const bool without_key, const DataTypes& argument_types,
@@ -598,3 +601,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

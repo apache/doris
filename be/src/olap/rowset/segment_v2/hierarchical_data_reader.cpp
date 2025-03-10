@@ -97,8 +97,7 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
 }
 
 Status HierarchicalDataReader::seek_to_first() {
-    LOG(FATAL) << "Not implemented";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("Not implemented"));
 }
 
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {

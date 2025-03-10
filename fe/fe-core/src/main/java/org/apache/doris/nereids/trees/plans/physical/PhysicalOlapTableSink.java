@@ -178,7 +178,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalOlapTableSink[" + id.asInt() + "]",
+        return Utils.toSqlString("PhysicalOlapTableSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs,
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),

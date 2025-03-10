@@ -23,12 +23,17 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+
+namespace doris {
+class RowsetMetaCloudPB;
+} // namespace doris
 
 namespace doris::cloud {
 class StorageVaultAccessor;
@@ -86,6 +91,18 @@ public:
     // Return 1 if data loss is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_check();
+
+    // Return 0 if success.
+    // Return 1 if delete bitmap leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_delete_bitmap_inverted_check();
+
+    // checks if https://github.com/apache/doris/pull/40204 works as expected
+    // the stale delete bitmap will be cleared in MS when BE delete expired stale rowsets
+    // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
+    // which will not be cleared.
+    int do_delete_bitmap_storage_optimize_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -99,6 +116,17 @@ private:
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
+
+    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_rowset_delete_bitmaps(
+            int64_t tablet_id, std::string rowset_id,
+            const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
+    int collect_tablet_rowsets(
+            int64_t tablet_id,
+            const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
+    int traverse_delete_bitmaps(const std::function<int(int64_t)>& check_func);
+
+    int check_delete_bitmap_storage_optimize(int64_t tablet_id);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

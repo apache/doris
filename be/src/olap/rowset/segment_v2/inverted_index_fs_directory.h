@@ -180,6 +180,7 @@ class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput 
             : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = std::move(handle);
+        _io_ctx.is_inverted_index = true;
     }
 
 protected:

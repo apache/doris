@@ -232,7 +232,7 @@ inline auto create_bitmap_filter(PrimitiveType type) {
 template <PrimitiveType PT>
 ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                               const std::shared_ptr<BloomFilterFuncBase>& filter,
-                                              int be_exec_version, const TabletColumn*) {
+                                              const TabletColumn*) {
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
@@ -243,10 +243,10 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
 template <PrimitiveType PT>
 ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                               const std::shared_ptr<BitmapFilterFuncBase>& filter,
-                                              int be_exec_version, const TabletColumn*) {
+                                              const TabletColumn*) {
     if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
                   PT == TYPE_BIGINT) {
-        return new BitmapFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
+        return new BitmapFilterColumnPredicate<PT>(column_id, filter);
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR, "bitmap filter do not support type {}", PT);
     }
@@ -254,7 +254,7 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
 
 template <PrimitiveType PT>
 ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<HybridSetBase>& filter, int,
+                                              const std::shared_ptr<HybridSetBase>& filter,
                                               const TabletColumn* column = nullptr) {
     return create_in_list_predicate<PT, PredicateType::IN_LIST>(column_id, filter,
                                                                 column->length());
@@ -262,7 +262,7 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
 
 template <PrimitiveType PT>
 ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
-                                              const std::shared_ptr<FunctionFilter>& filter, int,
+                                              const std::shared_ptr<FunctionFilter>& filter,
                                               const TabletColumn* column = nullptr) {
     // currently only support like predicate
     if constexpr (PT == TYPE_CHAR) {
@@ -277,22 +277,19 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
 
 template <typename T>
 ColumnPredicate* create_column_predicate(uint32_t column_id, const std::shared_ptr<T>& filter,
-                                         FieldType type, int be_exec_version,
-                                         const TabletColumn* column = nullptr) {
+                                         FieldType type, const TabletColumn* column = nullptr) {
     switch (type) {
-#define M(NAME)                                                                                \
-    case FieldType::OLAP_FIELD_##NAME: {                                                       \
-        return create_olap_column_predicate<NAME>(column_id, filter, be_exec_version, column); \
+#define M(NAME)                                                               \
+    case FieldType::OLAP_FIELD_##NAME: {                                      \
+        return create_olap_column_predicate<NAME>(column_id, filter, column); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        return create_olap_column_predicate<TYPE_DECIMALV2>(column_id, filter, be_exec_version,
-                                                            column);
+        return create_olap_column_predicate<TYPE_DECIMALV2>(column_id, filter, column);
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        return create_olap_column_predicate<TYPE_BOOLEAN>(column_id, filter, be_exec_version,
-                                                          column);
+        return create_olap_column_predicate<TYPE_BOOLEAN>(column_id, filter, column);
     }
     default:
         return nullptr;

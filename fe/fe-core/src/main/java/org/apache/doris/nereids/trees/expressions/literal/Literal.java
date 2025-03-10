@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -54,7 +56,7 @@ import java.util.Optional;
  * All data type literal expression in Nereids.
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public abstract class Literal extends Expression implements LeafExpression, Comparable<Literal> {
+public abstract class Literal extends Expression implements LeafExpression {
 
     protected final DataType dataType;
 
@@ -135,7 +137,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return toString();
     }
 
@@ -155,14 +157,6 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitLiteral(this, context);
-    }
-
-    /**
-     * literal expr compare.
-     */
-    @Override
-    public int compareTo(Literal other) {
-        return toLegacyLiteral().compareLiteral(other.toLegacyLiteral());
     }
 
     /**
@@ -300,8 +294,28 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (literalExpr instanceof org.apache.doris.analysis.NullLiteral) {
             return new NullLiteral(dataType);
         }
-        // fast path
         switch (type.getPrimitiveType()) {
+            case TINYINT: {
+                IntLiteral intLiteral = (IntLiteral) literalExpr;
+                return new TinyIntLiteral((byte) intLiteral.getValue());
+            }
+            case SMALLINT: {
+                IntLiteral intLiteral = (IntLiteral) literalExpr;
+                return new SmallIntLiteral((short) intLiteral.getValue());
+            }
+            case INT: {
+                IntLiteral intLiteral = (IntLiteral) literalExpr;
+                return new IntegerLiteral((int) intLiteral.getValue());
+            }
+            case BIGINT: {
+                IntLiteral intLiteral = (IntLiteral) literalExpr;
+                return new BigIntLiteral(intLiteral.getValue());
+            }
+            case LARGEINT: {
+                org.apache.doris.analysis.LargeIntLiteral intLiteral
+                        = (org.apache.doris.analysis.LargeIntLiteral) literalExpr;
+                return new LargeIntLiteral(intLiteral.getRealValue());
+            }
             case DATEV2: {
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
                 return new DateV2Literal(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay());
@@ -310,42 +324,68 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
                 org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
                 return new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay());
             }
+            case DATETIME: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateTimeLiteral(
+                        DateTimeType.INSTANCE, dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
+            }
+            case DATETIMEV2: {
+                org.apache.doris.analysis.DateLiteral dateLiteral = (org.apache.doris.analysis.DateLiteral) literalExpr;
+                return new DateTimeV2Literal(
+                        (DateTimeV2Type) DateType.fromCatalogType(type),
+                        dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
+                        dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond(),
+                        dateLiteral.getMicrosecond()
+                );
+            }
             case BOOLEAN: {
                 return ((BoolLiteral) literalExpr).getValue() ? BooleanLiteral.TRUE : BooleanLiteral.FALSE;
             }
-            default: {
+            case CHAR: {
+                return new CharLiteral(literalExpr.getStringValue(), ((CharType) dataType).getLen());
             }
-        }
-        // slow path
-        String stringValue = literalExpr.getStringValue();
-        switch (type.getPrimitiveType()) {
-            case TINYINT: return new TinyIntLiteral(Byte.parseByte(stringValue));
-            case SMALLINT: return new SmallIntLiteral(Short.parseShort(stringValue));
-            case INT: return new IntegerLiteral(Integer.parseInt(stringValue));
-            case BIGINT: return new BigIntLiteral(Long.parseLong(stringValue));
-            case LARGEINT: return new LargeIntLiteral(new BigInteger(stringValue));
-            case STRING: return new StringLiteral(stringValue);
-            case CHAR: return new CharLiteral(stringValue, ((CharType) dataType).getLen());
-            case VARCHAR: return new VarcharLiteral(stringValue, ((VarcharType) dataType).getLen());
-            case FLOAT: return new FloatLiteral(Float.parseFloat(stringValue));
-            case DOUBLE: return new DoubleLiteral(Double.parseDouble(stringValue));
-            case DECIMALV2: return new DecimalLiteral((DecimalV2Type) dataType, new BigDecimal(stringValue));
+            case VARCHAR: {
+                return new VarcharLiteral(literalExpr.getStringValue(), ((VarcharType) dataType).getLen());
+            }
+            case STRING: {
+                return new StringLiteral(literalExpr.getStringValue());
+            }
+            case FLOAT: {
+                org.apache.doris.analysis.FloatLiteral floatLiteral
+                        = (org.apache.doris.analysis.FloatLiteral) literalExpr;
+                return new FloatLiteral((float) floatLiteral.getValue());
+            }
+            case DOUBLE: {
+                org.apache.doris.analysis.FloatLiteral floatLiteral
+                        = (org.apache.doris.analysis.FloatLiteral) literalExpr;
+                return new DoubleLiteral(floatLiteral.getValue());
+            }
+            case DECIMALV2: {
+                org.apache.doris.analysis.DecimalLiteral decimalLiteral
+                        = (org.apache.doris.analysis.DecimalLiteral) literalExpr;
+                BigDecimal clonedValue = decimalLiteral.getValue().add(BigDecimal.ZERO);
+                return new DecimalLiteral((DecimalV2Type) dataType, clonedValue);
+            }
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256: {
-                return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(stringValue));
+                org.apache.doris.analysis.DecimalLiteral decimalLiteral
+                        = (org.apache.doris.analysis.DecimalLiteral) literalExpr;
+                BigDecimal clonedValue = decimalLiteral.getValue().add(BigDecimal.ZERO);
+                return new DecimalV3Literal((DecimalV3Type) dataType, clonedValue);
             }
-            case DATETIME: return new DateTimeLiteral(stringValue);
-            case DATETIMEV2: return new DateTimeV2Literal(stringValue);
-            case JSONB: return new JsonLiteral(stringValue);
-            case IPV4: return new IPv4Literal(stringValue);
-            case IPV6: return new IPv6Literal(stringValue);
+            case JSONB: return new JsonLiteral(literalExpr.getStringValue());
+            case IPV4: return new IPv4Literal(literalExpr.getStringValue());
+            case IPV6: return new IPv6Literal(literalExpr.getStringValue());
             default: {
+                throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
+                        + " of legacy literal to nereids literal");
             }
         }
-        throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
-                + " of legacy literal to nereids literal");
     }
 
     @Override
@@ -361,7 +401,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    public int hashCode() {
+    protected int computeHashCode() {
         return Objects.hashCode(getValue());
     }
 

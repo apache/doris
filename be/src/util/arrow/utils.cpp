@@ -28,7 +28,7 @@ Status to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
         return Status::OK();
     } else {
-        return Status::InvalidArgument(status.ToString());
+        return Status::InternalError(status.ToString());
     }
 }
 

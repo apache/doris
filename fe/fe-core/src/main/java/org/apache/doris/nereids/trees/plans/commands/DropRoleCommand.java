@@ -29,14 +29,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 /**
  * drop roles command
  */
 public class DropRoleCommand extends DropCommand {
-    public static final Logger LOG = LogManager.getLogger(DropRoleCommand.class);
     private final boolean ifExists;
     private final String role;
 

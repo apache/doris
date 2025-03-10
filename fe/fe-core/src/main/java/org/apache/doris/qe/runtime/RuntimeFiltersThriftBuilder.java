@@ -27,11 +27,8 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRuntimeFilterParams;
-import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
-import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
@@ -94,13 +91,6 @@ public class RuntimeFiltersThriftBuilder {
                 runtimeFilterParams.putToRidToTargetParamv2(
                         rf.getFilterId().asInt(), new ArrayList<>(targetToParams.values())
                 );
-            } else {
-                List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
-                for (RuntimeFilterTarget target : targets) {
-                    // Instance id make no sense if this runtime filter doesn't have remote targets.
-                    targetParams.add(new TRuntimeFilterTargetParams(new TUniqueId(), target.address));
-                }
-                runtimeFilterParams.putToRidToTargetParam(rf.getFilterId().asInt(), targetParams);
             }
         }
         for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {

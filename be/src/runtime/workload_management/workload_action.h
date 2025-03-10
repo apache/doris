@@ -17,36 +17,53 @@
 
 #pragma once
 
-#include "runtime/workload_management/workload_query_info.h"
+#include <gen_cpp/BackendService_types.h>
+#include <glog/logging.h>
 
 namespace doris {
+
+class ResourceContext;
 
 enum WorkloadActionType { MOVE_QUERY_TO_GROUP = 0, CANCEL_QUERY = 1 };
 
 class WorkloadAction {
 public:
+    // only used as a temporary variable in `WorkloadSchedPolicyMgr::_schedule_workload`.
+    struct RuntimeContext {
+    public:
+        RuntimeContext(const std::shared_ptr<ResourceContext>& ctx) : resource_ctx(ctx) {}
+
+        int64_t policy_id;
+        std::string policy_name;
+        std::string cond_eval_msg;
+
+        std::shared_ptr<ResourceContext> resource_ctx;
+    };
+
     WorkloadAction() = default;
     virtual ~WorkloadAction() = default;
 
-    virtual void exec(WorkloadQueryInfo* query_info) = 0;
+    virtual void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) = 0;
 
     virtual WorkloadActionType get_action_type() = 0;
 };
 
 class WorkloadActionCancelQuery : public WorkloadAction {
 public:
-    void exec(WorkloadQueryInfo* query_info) override;
+    void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) override;
 
-    WorkloadActionType get_action_type() override { return CANCEL_QUERY; }
+    WorkloadActionType get_action_type() override { return WorkloadActionType::CANCEL_QUERY; }
 };
 
 //todo(wb) implement it
 class WorkloadActionMoveQuery : public WorkloadAction {
 public:
     WorkloadActionMoveQuery(std::string wg_name) : _wg_name(wg_name) {}
-    void exec(WorkloadQueryInfo* query_info) override;
+    void exec(WorkloadAction::RuntimeContext* action_runtime_ctx) override;
 
-    WorkloadActionType get_action_type() override { return MOVE_QUERY_TO_GROUP; }
+    WorkloadActionType get_action_type() override {
+        return WorkloadActionType::MOVE_QUERY_TO_GROUP;
+    }
 
 private:
     std::string _wg_name;

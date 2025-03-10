@@ -40,7 +40,7 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    def calc_segment_count = { tablet -> 
+    def calc_segment_count = { tablet ->
         int segment_count = 0
         String tablet_id = tablet.TabletId
         StringBuilder sb = new StringBuilder();
@@ -163,69 +163,12 @@ suite("test_mow_table_with_format_v2", "inverted_index_format_v2") {
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
         // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            String ip = backendId_to_backendIP.get(backend_id)
-            String port = backendId_to_backendHttpPort.get(backend_id)
-            int segment_count = calc_segment_count(tablet)
-            logger.info("TabletId: " + tablet_id + ", segment_count: " + segment_count)
-            check_nested_index_file(ip, port, tablet_id, 9, 3, "V2")
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run?tablet_id=")
-            sb.append(tablet_id)
-            sb.append("&compact_type=cumulative")
-
-            String command = sb.toString()
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
-
-        // wait for all compactions done
+        trigger_and_wait_compaction(tableName, "cumulative")
+        // check indexes
         for (def tablet in tablets) {
             boolean running = true
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
-            do {
-                Thread.sleep(1000)
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://")
-                sb.append(backendId_to_backendIP.get(backend_id))
-                sb.append(":")
-                sb.append(backendId_to_backendHttpPort.get(backend_id))
-                sb.append("/api/compaction/run_status?tablet_id=")
-                sb.append(tablet_id)
-
-                String command = sb.toString()
-                logger.info(command)
-                process = command.execute()
-                code = process.waitFor()
-                err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                out = process.getText()
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
             check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")

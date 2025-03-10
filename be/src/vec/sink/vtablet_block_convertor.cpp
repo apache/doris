@@ -438,7 +438,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // Only two case:
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
-    if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
+    if ((!is_nullable || type.is<TYPE_OBJECT>()) && column_ptr) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
@@ -506,7 +506,8 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column =
+                check_and_get_column<vectorized::ColumnConst>(src_column_ptr.get())) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -530,7 +531,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             dst_values.resize_fill(rows, value);
         }
     } else if (const auto* src_nullable_column =
-                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
+                       check_and_get_column<vectorized::ColumnNullable>(src_column_ptr.get())) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);

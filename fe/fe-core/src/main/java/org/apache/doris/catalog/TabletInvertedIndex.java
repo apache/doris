@@ -37,13 +37,14 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
@@ -135,7 +136,7 @@ public class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
@@ -314,7 +315,7 @@ public class TabletInvertedIndex {
     }
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
-            TabletMeta tabletMeta, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            TabletMeta tabletMeta, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
             ListMultimap<Long, Long> transactionsToClear) {
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         long partitionId = tabletMeta.getPartitionId();
@@ -376,15 +377,15 @@ public class TabletInvertedIndex {
     }
 
     private void publishPartition(TransactionState transactionState, long transactionId, TabletMeta tabletMeta,
-            long partitionId, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
+            long partitionId, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
         TPartitionVersionInfo versionInfo = generatePartitionVersionInfoWhenReport(transactionState,
                 transactionId, tabletMeta, partitionId);
         if (versionInfo != null) {
             synchronized (transactionsToPublish) {
-                ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
+                SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
                         transactionState.getDbId());
                 if (map == null) {
-                    map = ArrayListMultimap.create();
+                    map = LinkedHashMultimap.create();
                     transactionsToPublish.put(transactionState.getDbId(), map);
                 }
                 map.put(transactionId, versionInfo);

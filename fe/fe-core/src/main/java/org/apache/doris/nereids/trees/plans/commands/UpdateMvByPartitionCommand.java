@@ -28,6 +28,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -85,6 +87,13 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
         super(logicalQuery, Optional.empty(), Optional.empty());
+    }
+
+    @Override
+    public boolean isForceDropPartition() {
+        // After refreshing the data in MTMV, it will be synchronized with the base table
+        // and there is no need to put it in the recycle bin
+        return true;
     }
 
     /**
@@ -246,11 +255,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.isEmpty()) {
                 return cte;
             }
+            List<LogicalSubQueryAlias<Plan>> rewrittenSubQueryAlias = new ArrayList<>();
             for (LogicalSubQueryAlias<Plan> subQueryAlias : cte.getAliasQueries()) {
+                List<Plan> subQueryAliasChildren = new ArrayList<>();
                 this.virtualRelationNamePartSet.add(subQueryAlias.getQualifier());
-                subQueryAlias.children().forEach(subQuery -> subQuery.accept(this, predicates));
+                subQueryAlias.children().forEach(subQuery ->
+                        subQueryAliasChildren.add(subQuery.accept(this, predicates))
+                );
+                rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(cte, predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
         }
 
         @Override
@@ -301,15 +315,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
-                        if (!(targetTable instanceof OlapTable)) {
-                            // check partition is have data or not, only support olap table
-                            break;
-                        }
-                        if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                        if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
                                 Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has data
+                            // Add filter only when partition has data when olap table
                             partitionHasDataItems.add(
                                     ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                        }
+                        if (targetTable instanceof ExternalTable) {
+                            // Add filter only when partition has data when external table
+                            partitionHasDataItems.add(((ExternalTable) targetTable).getNameToPartitionItems(
+                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName));
                         }
                     }
                     if (partitionHasDataItems.isEmpty()) {

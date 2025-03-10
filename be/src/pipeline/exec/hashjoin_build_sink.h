@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/be_mock_util.h"
 #include "exprs/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
@@ -25,7 +26,7 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
-class HashJoinBuildSinkLocalState final
+class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
         : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
@@ -54,6 +55,10 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
+    Status disable_runtime_filters(RuntimeState* state);
+
+    [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 protected:
     Status _hash_table_init(RuntimeState* state);
     void _set_build_side_has_external_nullmap(vectorized::Block& block,
@@ -75,6 +80,9 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
+
+    bool _runtime_filters_disabled = false;
+    size_t _evaluate_mem_usage = 0;
 
     size_t _build_side_rows = 0;
 
@@ -102,11 +110,11 @@ protected:
     RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
-class HashJoinBuildSinkOperatorX final
+class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
-    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                               const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -114,9 +122,15 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    [[nodiscard]] size_t get_memory_usage(RuntimeState* state) const;
+
+    MOCK_FUNCTION std::string get_memory_usage_debug_str(RuntimeState* state) const;
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state()
@@ -198,6 +212,11 @@ struct ProcessHashTableBuild {
         hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
                                                                       *has_null_key);
 
+        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
+        if (_build_raw_ptrs.size() == 1 && null_map) {
+            _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
+        }
+
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
@@ -206,7 +225,7 @@ struct ProcessHashTableBuild {
         if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
              JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
             with_other_conjuncts) {
-            //null aware join with other conjuncts
+            // null aware join with other conjuncts
             keep_null_key = true;
         } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
                    _parent->_shared_state->is_null_safe_eq_join[0]) {

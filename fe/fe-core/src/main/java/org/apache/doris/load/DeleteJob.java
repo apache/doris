@@ -508,6 +508,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         private final Collection<String> partitionNames;
 
         private final List<Predicate> deleteConditions;
+        private final List<Partition> selectedPartitions;
 
         public BuildParams(Database db, OlapTable table,
                            Collection<String> partitionNames,
@@ -516,6 +517,18 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             this.table = table;
             this.partitionNames = partitionNames;
             this.deleteConditions = deleteConditions;
+            this.selectedPartitions = null;
+        }
+
+        public BuildParams(Database db, OlapTable table,
+                List<String> partitionNames,
+                List<Partition> selectedPartitions,
+                List<Predicate> deleteConditions) {
+            this.db = db;
+            this.table = table;
+            this.partitionNames = partitionNames;
+            this.deleteConditions = deleteConditions;
+            this.selectedPartitions = selectedPartitions;
         }
 
         public OlapTable getTable() {
@@ -533,14 +546,54 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         public List<Predicate> getDeleteConditions() {
             return deleteConditions;
         }
+
+        public List<Partition> getSelectedPartitions() {
+            return selectedPartitions;
+        }
     }
 
     public static class Builder {
 
+        public DeleteJob buildWithNereids(BuildParams params) {
+            boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
+            List<Partition> partitions = params.getSelectedPartitions();
+            Map<Long, Short> partitionReplicaNum = partitions.stream()
+                    .collect(Collectors.toMap(
+                            Partition::getId,
+                            partition ->
+                                    params.getTable()
+                                            .getPartitionInfo()
+                                            .getReplicaAllocation(partition.getId())
+                                            .getTotalReplicaNum()));
+            // generate label
+            String label = DELETE_PREFIX + UUID.randomUUID();
+            //generate jobId
+            long jobId = Env.getCurrentEnv().getNextId();
+            List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
+            List<Long> partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
+            DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
+                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
+                    noPartitionSpecified, partitionIds, partitionNames);
+            DeleteJob deleteJob = ConnectContext.get() != null && ConnectContext.get().isTxnModel()
+                    ? new TxnDeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo)
+                    : new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
+            long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
+            deleteJob.setPartitions(partitions);
+            deleteJob.setDeleteConditions(params.getDeleteConditions());
+            deleteJob.setTargetDb(params.getDb());
+            deleteJob.setTargetTbl(params.getTable());
+            deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+            }
+            return deleteJob;
+        }
+
         public DeleteJob buildWith(BuildParams params) throws Exception {
             boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
-            List<Partition> partitions = getSelectedPartitions(params.getTable(),
-                    params.getPartitionNames(), params.getDeleteConditions());
+            List<Partition> partitions = getSelectedPartitions(params.getTable(), params.getPartitionNames(),
+                    params.getDeleteConditions());
             Map<Long, Short> partitionReplicaNum = partitions.stream()
                     .collect(Collectors.toMap(
                             Partition::getId,
@@ -619,7 +672,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     }
                 } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     // this is an un-partitioned table, use table name as partition name
-                    partitionNames.add(olapTable.getName());
+                    partitionNames.add(olapTable.getDisplayName());
                 } else {
                     throw new UserException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                 }

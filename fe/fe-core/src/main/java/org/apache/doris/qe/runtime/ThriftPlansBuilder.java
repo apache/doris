@@ -134,7 +134,7 @@ public class ThriftPlansBuilder {
             Collections.reverse(fragmentsGroupByWorker.get(worker).getParamsList());
         }
 
-        setParamsForOlapTableSink(distributedPlans, fragmentsGroupByWorker);
+        setParamsForOlapTableSink(distributedPlans, fragmentsGroupByWorker, coordinatorContext);
 
         // remove redundant params to reduce rpc message size
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
@@ -188,7 +188,8 @@ public class ThriftPlansBuilder {
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
-            Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker) {
+            Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker,
+            CoordinatorContext coordinatorContext) {
         int numBackendsWithSink = 0;
         for (PipelineDistributedPlan distributedPlan : distributedPlans) {
             PlanFragment fragment = distributedPlan.getFragmentJob().getFragment();
@@ -201,13 +202,14 @@ public class ThriftPlansBuilder {
             }
         }
 
+        ConnectContext connectContext = coordinatorContext.connectContext;
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
             TPipelineFragmentParamsList fragments = kv.getValue();
             for (TPipelineFragmentParams fragmentParams : fragments.getParamsList()) {
                 if (fragmentParams.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
                     int loadStreamPerNode = 1;
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-                        loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                    if (connectContext != null && connectContext.getSessionVariable() != null) {
+                        loadStreamPerNode = connectContext.getSessionVariable().getLoadStreamPerNode();
                     }
                     fragmentParams.setLoadStreamPerNode(loadStreamPerNode);
                     fragmentParams.setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);
@@ -240,14 +242,19 @@ public class ThriftPlansBuilder {
         return senderNum;
     }
 
-    private static void setMultiCastDestinationThrift(PipelineDistributedPlan fragmentPlan) {
+    private static void setMultiCastDestinationThriftIfNotSet(PipelineDistributedPlan fragmentPlan) {
         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) fragmentPlan.getFragmentJob().getFragment().getSink();
         List<List<TPlanFragmentDestination>> destinationList = multiCastDataSink.getDestinations();
 
         List<DataStreamSink> dataStreamSinks = multiCastDataSink.getDataStreamSinks();
         for (int i = 0; i < dataStreamSinks.size(); i++) {
-            DataStreamSink realSink = dataStreamSinks.get(i);
             List<TPlanFragmentDestination> destinations = destinationList.get(i);
+            if (!destinations.isEmpty()) {
+                // we should only set destination only once,
+                // because all backends share the same MultiCastDataSink object
+                continue;
+            }
+            DataStreamSink realSink = dataStreamSinks.get(i);
             for (Entry<DataSink, List<AssignedJob>> kv : fragmentPlan.getDestinations().entrySet()) {
                 DataSink sink = kv.getKey();
                 if (sink == realSink) {
@@ -318,7 +325,7 @@ public class ThriftPlansBuilder {
             List<TPlanFragmentDestination> nonMultiCastDestinations;
             if (fragment.getSink() instanceof MultiCastDataSink) {
                 nonMultiCastDestinations = Lists.newArrayList();
-                setMultiCastDestinationThrift(fragmentPlan);
+                setMultiCastDestinationThriftIfNotSet(fragmentPlan);
             } else {
                 nonMultiCastDestinations = nonMultiCastDestinationToThrift(fragmentPlan);
             }
@@ -414,21 +421,18 @@ public class ThriftPlansBuilder {
         if (runtimeFiltersThriftBuilder.isMergeRuntimeFilterInstance(instance)) {
             runtimeFiltersThriftBuilder.setRuntimeFilterThriftParams(runtimeFilterParams);
         }
+        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
+        if (isLocalShuffle) {
+            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
+            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
+            ignoreDataDistribution(currentFragmentParam);
+        }
         return instanceParam;
     }
 
     private static void setScanSourceParam(
             TPipelineFragmentParams currentFragmentParam, AssignedJob instance,
             TPipelineInstanceParams instanceParams) {
-
-        boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
-        if (isLocalShuffle && ((LocalShuffleAssignedJob) instance).receiveDataFromLocal) {
-            // save thrift rpc message size, don't need perNodeScanRanges,
-            // but the perNodeScanRanges is required rpc field
-            instanceParams.setPerNodeScanRanges(Maps.newLinkedHashMap());
-            return;
-        }
-
         ScanSource scanSource = instance.getScanSource();
         PerNodeScanParams scanParams;
         if (scanSource instanceof BucketScanSource) {
@@ -438,12 +442,6 @@ public class ThriftPlansBuilder {
         }
         // perNodeScanRanges is required
         instanceParams.setPerNodeScanRanges(scanParams.perNodeScanRanges);
-
-        if (isLocalShuffle) {
-            // a fragment in a backend only enable local shuffle once for the first local shuffle instance,
-            // because we just skip set scan params for LocalShuffleAssignedJob.receiveDataFromLocal == true
-            ignoreDataDistribution(currentFragmentParam);
-        }
     }
 
     // local shuffle has two functions:

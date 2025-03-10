@@ -25,12 +25,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -749,7 +752,7 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateTableWithStringLen() throws DdlException  {
+    public void testCreateTableWithStringLen() throws DdlException {
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
                     + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
@@ -763,7 +766,7 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateTableWithForceReplica() throws DdlException  {
+    public void testCreateTableWithForceReplica() throws DdlException {
         try {
             Config.force_olap_table_replication_num = 1;
             // no need to specify replication_num, the table can still be created.
@@ -787,6 +790,20 @@ public class CreateTableTest extends TestWithFeService {
         } finally {
             Config.force_olap_table_replication_num = -1;
         }
+    }
+
+    @Test
+    public void testCreateTableDetailMsg() throws Exception {
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "group_a"),  (short) 6);
+        Assert.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
+                Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)));
+
+        allocMap.clear();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
+        String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
+        Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
     }
 
     @Test
@@ -972,5 +989,97 @@ public class CreateTableTest extends TestWithFeService {
                         + "(k1 int, k2 int)\n"
                         + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n", true));
+    }
+
+    @Test
+    public void testCreateTableTrimPropertyKey() throws Exception {
+        String sql = "create table test.tbl_trim_property_key\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"min_load_replica_num \" = \"1\",\n"
+                + "\" dynamic_partition.enable\" = \"true\",\n"
+                + "\" dynamic_partition.time_unit \" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");";
+        createTable(sql);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key");
+        Assert.assertEquals(1, table.getMinLoadReplicaNum());
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid dynamic partition properties: dynamic_partition. enable",
+                () -> createTable("create table test.tbl_trim_property_key_invalid\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"dynamic_partition. enable\" = \"true\",\n"
+                        + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                        + "\"dynamic_partition.end\" = \"3\",\n"
+                        + "\"dynamic_partition.prefix\" = \"p\",\n"
+                        + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testCreateTableTrimPropertyKeyWithNereids() throws Exception {
+        String sql = "create table test.tbl_trim_property_key_with_nereids\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"min_load_replica_num \" = \"1\",\n"
+                + "\" dynamic_partition.enable\" = \"true\",\n"
+                + "\" dynamic_partition.time_unit \" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");";
+        createTable(sql, true);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key_with_nereids");
+        Assert.assertEquals(1, table.getMinLoadReplicaNum());
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid dynamic partition properties: dynamic_partition. enable",
+                () -> createTable("create table test.tbl_trim_property_key_invalid\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"dynamic_partition. enable\" = \"true\",\n"
+                        + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                        + "\"dynamic_partition.end\" = \"3\",\n"
+                        + "\"dynamic_partition.prefix\" = \"p\",\n"
+                        + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");", true));
     }
 }

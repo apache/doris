@@ -51,6 +51,7 @@
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
@@ -74,6 +75,7 @@ class Block;
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
                              io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
@@ -477,8 +479,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
-        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -744,7 +745,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
                     const tparquet::ColumnChunk& chunk =
                             row_group.columns[field->physical_column_index];
                     auto& chunk_meta = chunk.meta_data;
-                    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
+                    int64_t chunk_start = has_dict_page(chunk_meta)
                                                   ? chunk_meta.dictionary_page_offset
                                                   : chunk_meta.data_page_offset;
                     int64_t chunk_end = chunk_start + chunk_meta.total_compressed_size;
@@ -845,7 +846,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
         tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff.data(), &column_index));
-        const int num_of_pages = column_index.null_pages.size();
+        const int64_t num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             continue;
         }
@@ -878,7 +879,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                   return std::tie(lhs.first_row, lhs.last_row) <
                          std::tie(rhs.first_row, rhs.last_row);
               });
-    int skip_end = 0;
+    int64_t skip_end = 0;
     int64_t read_rows = 0;
     for (auto& skip_range : skipped_row_ranges) {
         if (skip_end >= skip_range.first_row) {
@@ -1007,11 +1008,7 @@ Status ParquetReader::_process_bloom_filter(bool* filter_group) {
 }
 
 int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
-    if (column.__isset.dictionary_page_offset) {
-        DCHECK_LT(column.dictionary_page_offset, column.data_page_offset);
-        return column.dictionary_page_offset;
-    }
-    return column.data_page_offset;
+    return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 
 void ParquetReader::_collect_profile() {
@@ -1117,5 +1114,5 @@ SortOrder ParquetReader::_determine_sort_order(const tparquet::SchemaElement& pa
         }
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

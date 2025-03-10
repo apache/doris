@@ -42,7 +42,7 @@ public:
     template <PrimitiveType type>
     BitmapFilterColumnPredicate<type> create_predicate(
             const std::shared_ptr<BitmapFilterFunc<type>>& filter) {
-        return BitmapFilterColumnPredicate<type>(0, filter, 0);
+        return BitmapFilterColumnPredicate<type>(0, filter);
     }
 
     const std::string kTestDir = "./ut_dir/bitmap_filter_column_predicate_test";

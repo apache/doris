@@ -32,13 +32,18 @@ struct TExportTaskRequest {
 
 struct TTabletStat {
     1: required i64 tablet_id
-    // local data size
+    // local data size = local inverted index file size + local segment file size
     2: optional i64 data_size
     3: optional i64 row_count
     4: optional i64 total_version_count
+    // remote data size = remote inverted index file size + remote segment file size
     5: optional i64 remote_data_size
     6: optional i64 visible_version_count
     7: optional i64 visible_version
+    8: optional i64 local_index_size = 0      // .idx
+    9: optional i64 local_segment_size = 0    // .dat
+    10: optional i64 remote_index_size = 0    // .idx
+    11: optional i64 remote_segment_size = 0  // .dat
 }
 
 struct TTabletStatResult {
@@ -253,6 +258,12 @@ enum TTopicInfoType {
     WORKLOAD_SCHED_POLICY = 2
 }
 
+enum TWgSlotMemoryPolicy {
+    NONE = 0,
+    FIXED = 1,
+    DYNAMIC = 2
+}
+
 struct TWorkloadGroupInfo {
   1: optional i64 id
   2: optional string name
@@ -270,6 +281,9 @@ struct TWorkloadGroupInfo {
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
   16: optional string tag
+  17: optional i32 total_query_slot_count
+  18: optional i32 write_buffer_ratio
+  19: optional TWgSlotMemoryPolicy slot_memory_policy
 }
 
 enum TWorkloadMetricType {
@@ -327,10 +341,6 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
-enum TWorkloadType {
-    INTERNAL = 2
-}
-
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
@@ -351,11 +361,6 @@ service BackendService {
     // Cancellation is asynchronous.
     PaloInternalService.TCancelPlanFragmentResult cancel_plan_fragment(
         1:PaloInternalService.TCancelPlanFragmentParams params);
-
-    // Called by sender to transmit single row batch. Returns error indication
-    // if params.fragmentId or params.destNodeId are unknown or if data couldn't be read.
-    PaloInternalService.TTransmitDataResult transmit_data(
-        1:PaloInternalService.TTransmitDataParams params);
 
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 

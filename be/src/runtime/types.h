@@ -48,6 +48,7 @@ struct TypeDescriptor {
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
+    /// Only set if type == TYPE_DECIMAL or type = TYPE_DATETIMEV2
     int scale;
 
     std::vector<TypeDescriptor> children;
@@ -71,13 +72,12 @@ struct TypeDescriptor {
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type, int variant_max_subcolumns_count_ = -1)
-            : type(type), len(-1), precision(-1), scale(-1) {
+    TypeDescriptor(PrimitiveType type, int variant_max_subcolumns_count_ = -1) : type(type), len(-1), precision(-1), scale(-1) {
+        // TODO, should not initialize default values, force initialization by parameters or external.
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
-            precision = 18;
             scale = 6;
         } else if (type == TYPE_VARIANT) {
             variant_max_subcolumns_count = variant_max_subcolumns_count_;
@@ -174,7 +174,13 @@ struct TypeDescriptor {
         return result;
     }
 
+    template <PrimitiveType o>
+    bool is() const {
+        return this->type == o;
+    }
+
     bool operator==(const TypeDescriptor& o) const {
+<<<<<<< HEAD
         if (type != o.type) {
             return false;
         }
@@ -191,6 +197,10 @@ struct TypeDescriptor {
             return variant_max_subcolumns_count == o.variant_max_subcolumns_count;
         }
         return true;
+=======
+        return type == o.type && len == o.len && precision == o.precision && scale == o.scale &&
+               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls;
+>>>>>>> upstream-apache/master
     }
 
     bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }

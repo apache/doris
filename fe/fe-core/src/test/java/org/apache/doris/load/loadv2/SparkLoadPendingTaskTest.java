@@ -29,6 +29,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -50,6 +51,7 @@ import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartition;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartitionInfo;
 import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -87,6 +89,9 @@ public class SparkLoadPendingTaskTest {
         // partition and distribution infos
         long partitionId = 2L;
         DistributionInfo distributionInfo = new HashDistributionInfo(2, Lists.newArrayList(columns.get(0)));
+        MaterializedIndexMeta indexMeta =
+                new MaterializedIndexMeta(indexId, columns, 0, 123, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS,
+                        null, null, null);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         Partition partition = new Partition(partitionId, "p1", null, distributionInfo);
         List<Partition> partitions = Lists.newArrayList(partition);
@@ -111,8 +116,8 @@ public class SparkLoadPendingTaskTest {
                 result = indexIdToSchema;
                 table.getDefaultDistributionInfo();
                 result = distributionInfo;
-                table.getSchemaHashByIndexId(indexId);
-                result = 123;
+                table.getIndexMetaByIndexId(indexId);
+                result = indexMeta;
                 table.getPartitionInfo();
                 result = partitionInfo;
                 table.getPartition(partitionId);
@@ -169,6 +174,12 @@ public class SparkLoadPendingTaskTest {
         long partition2Id = 5L;
         int distributionColumnIndex = 1;
         DistributionInfo distributionInfo = new HashDistributionInfo(3, Lists.newArrayList(columns.get(distributionColumnIndex)));
+        MaterializedIndexMeta indexMeta1 =
+                new MaterializedIndexMeta(index1Id, columns, 0, 123, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS,
+                        null, null, null);
+        MaterializedIndexMeta indexMeta2 =
+                new MaterializedIndexMeta(index2Id, columns, 0, 234, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS,
+                        null, null, null);
         Partition partition1 = new Partition(partition1Id, "p1", null,
                 distributionInfo);
         Partition partition2 = new Partition(partition2Id, "p2", null,
@@ -203,10 +214,10 @@ public class SparkLoadPendingTaskTest {
                 result = indexIdToSchema;
                 table.getDefaultDistributionInfo();
                 result = distributionInfo;
-                table.getSchemaHashByIndexId(index1Id);
-                result = 123;
-                table.getSchemaHashByIndexId(index2Id);
-                result = 234;
+                table.getIndexMetaByIndexId(index1Id);
+                result = indexMeta1;
+                table.getIndexMetaByIndexId(index2Id);
+                result = indexMeta2;
                 table.getPartitionInfo();
                 result = partitionInfo;
                 table.getPartition(partition1Id);
@@ -222,7 +233,8 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc, LoadTask.Priority.NORMAL);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc,
+                LoadTask.Priority.NORMAL);
         EtlJobConfig etlJobConfig = Deencapsulation.getField(task, "etlJobConfig");
         Assert.assertEquals(null, etlJobConfig);
         task.init();
