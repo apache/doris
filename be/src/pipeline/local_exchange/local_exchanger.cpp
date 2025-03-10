@@ -428,7 +428,8 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
     }
     _merger = std::make_unique<vectorized::VSortedRunMerger>(
             ordering_expr_ctxs, _merge_info.is_asc_order, _merge_info.nulls_first,
-            state->batch_size(), _merge_info.limit, _merge_info.offset, local_state->profile());
+            state->batch_size(), _merge_info.limit, _merge_info.offset,
+            local_state->custom_profile());
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
         vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
