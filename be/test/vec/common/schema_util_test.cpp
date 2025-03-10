@@ -153,7 +153,7 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
             construct_column_map_with_random_values(column_map, 200, 100, "key_");
 
     // calculate stats
-    schema_util::calculate_variant_stats(*column_map, &stats);
+    schema_util::calculate_variant_stats(*column_map, &stats, 0, 200);
     EXPECT_EQ(stats.sparse_column_non_null_size_size(), key_value_counts.size());
 
     for (const auto& kv : key_value_counts) {
@@ -166,7 +166,7 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     column_map->clear();
     const auto& key_value_counts2 =
             construct_column_map_with_random_values(column_map, 3000, 100, "key_");
-    schema_util::calculate_variant_stats(*column_map, &stats);
+    schema_util::calculate_variant_stats(*column_map, &stats, 0, 3000);
     EXPECT_EQ(stats.sparse_column_non_null_size_size(), 3000);
 
     for (const auto& [path, size] : stats.sparse_column_non_null_size()) {
@@ -183,7 +183,7 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     column_map->clear();
     const auto& key_value_counts3 = construct_column_map_with_random_values(
             column_map, VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE, 5, "key2_");
-    schema_util::calculate_variant_stats(*column_map, &stats);
+    schema_util::calculate_variant_stats(*column_map, &stats, 0, VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
     EXPECT_EQ(VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE,
               stats.sparse_column_non_null_size_size());
 
