@@ -111,11 +111,26 @@ public:
 
 class MockHashJoinSharedState : public HashJoinSharedState {};
 
+class MockRuntimeFilterProducerHelper : public RuntimeFilterProducerHelper {
+public:
+    MockRuntimeFilterProducerHelper() = default;
+    ~MockRuntimeFilterProducerHelper() override = default;
+
+    Status send_filter_size(
+            RuntimeState* state, uint64_t hash_table_size,
+            std::shared_ptr<pipeline::CountedFinishDependency> dependency) override {
+        return Status::OK();
+    }
+
+    Status skip_process(RuntimeState* state) override { return Status::OK(); }
+};
+
 class MockHashJoinBuildSinkLocalState : public HashJoinBuildSinkLocalState {
 public:
     // DataSinkOperatorXBase* parent, RuntimeState* state
     MockHashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : HashJoinBuildSinkLocalState(parent, state) {
+        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
         _runtime_profile = std::make_unique<RuntimeProfile>("test");
         _profile = _runtime_profile.get();
         _memory_used_counter =
