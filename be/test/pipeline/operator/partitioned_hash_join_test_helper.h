@@ -178,24 +178,26 @@ class MockPartitionedHashJoinProbeLocalState : public PartitionedHashJoinProbeLo
 public:
     MockPartitionedHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : PartitionedHashJoinProbeLocalState(state, parent) {
-        _operator_profile = std::make_unique<RuntimeProfile>("test");
+        _operator_profile = std::make_unique<RuntimeProfile>("MockPartitionedHashJoinProbe");
         _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
         _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
+        _operator_profile->add_child(_custom_profile.get(), true);
+        _operator_profile->add_child(_common_profile.get(), true);
     }
 
     void init_counters() {
         PartitionedHashJoinProbeLocalState::init_counters();
         _rows_returned_counter =
-                ADD_COUNTER_WITH_LEVEL(_operator_profile, "RowsProduced", TUnit::UNIT, 1);
+                ADD_COUNTER_WITH_LEVEL(_common_profile, "RowsProduced", TUnit::UNIT, 1);
         _blocks_returned_counter =
-                ADD_COUNTER_WITH_LEVEL(_operator_profile, "BlocksProduced", TUnit::UNIT, 1);
-        _projection_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ProjectionTime", 1);
-        _init_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "InitTime", 1);
-        _open_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "OpenTime", 1);
-        _close_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "CloseTime", 1);
-        _exec_timer = ADD_TIMER_WITH_LEVEL(_operator_profile, "ExecTime", 1);
+                ADD_COUNTER_WITH_LEVEL(_common_profile, "BlocksProduced", TUnit::UNIT, 1);
+        _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ProjectionTime", 1);
+        _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 1);
+        _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 1);
+        _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 1);
+        _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
         _memory_used_counter =
-                _operator_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     }
 
     void update_profile_from_inner() override {};
