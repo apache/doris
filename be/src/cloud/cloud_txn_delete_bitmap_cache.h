@@ -43,7 +43,7 @@ public:
                                RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
                                std::shared_ptr<PartialUpdateInfo>* partial_update_info,
                                std::shared_ptr<PublishStatus>* publish_status,
-                               TxnPublishInfo* previous_publish_info);
+                               TxnPublishInfo* previous_publish_info, bool* cache_hit);
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,

@@ -61,7 +61,7 @@ suite("test_cloud_publish_skip_calc_cache_miss", "nonConcurrent") {
 
             Thread.sleep(3000)
 
-            GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep")
+            GetDebugPoint().disableDebugPointForAllBEs("CloudTablet::save_delete_bitmap.injected_error")
 
             t1.join()
 
