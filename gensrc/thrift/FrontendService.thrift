@@ -382,6 +382,7 @@ struct TMasterOpRequest {
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
+    31: optional binary prepareExecuteBuffer
 
     // selectdb cloud
     1000: optional string cloud_cluster
