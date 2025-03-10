@@ -171,7 +171,7 @@ public class FunctionRegistry {
                             || fb instanceof JavaUdtfBuilder))
                     .collect(Collectors.toList());
             if (candidateBuilders.isEmpty()) {
-                FunctionUtil.checkEnableJavaUdfForNereids();
+                throw new org.apache.doris.nereids.exceptions.AnalysisException("java_udf has been disabled.");
             }
         }
         if (candidateBuilders.size() > 1) {
