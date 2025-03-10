@@ -507,6 +507,8 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
+
     class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
