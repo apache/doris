@@ -87,7 +87,7 @@ private:
     void _init_result_columns();
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
-    void _insert_result_info(int64_t real_deal_with_width);
+    void _insert_result_info(int64_t real_deal_with_width, int64_t pos = 0);
     void _output_current_block(vectorized::Block* block);
     void _reset_state_for_next_partition();
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);
@@ -137,6 +137,7 @@ private:
     executor _executor;
 
     bool _current_window_empty = false;
+    bool _streaming_mode = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;

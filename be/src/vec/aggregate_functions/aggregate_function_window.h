@@ -76,7 +76,15 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                doris::vectorized::WindowFunctionRowNumber::data(place).count);
+    }
+
+    void insert_result_into_pos(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                size_t pos) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        // column.get_data()[pos] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
+        column.get_data().push_back(doris::vectorized::WindowFunctionRowNumber::data(place).count);
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
