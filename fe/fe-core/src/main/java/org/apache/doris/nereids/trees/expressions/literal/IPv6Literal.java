@@ -48,6 +48,11 @@ public class IPv6Literal extends Literal {
     }
 
     @Override
+    public double getDouble() {
+        return value.toBigInteger().doubleValue();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitIPv6Literal(this, context);
     }
