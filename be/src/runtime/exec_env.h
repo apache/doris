@@ -294,7 +294,8 @@ public:
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
     }
-    void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
+    void set_wal_mgr(std::shared_ptr<WalManager>&& wm);
+    void clear_wal_mgr();
     void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
         this->_dummy_lru_cache = dummy_lru_cache;
     }

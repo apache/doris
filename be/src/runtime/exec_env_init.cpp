@@ -643,6 +643,15 @@ Status ExecEnv::_check_deploy_mode() {
     return Status::OK();
 }
 
+#ifdef BE_TEST
+void ExecEnv::set_wal_mgr(std::shared_ptr<WalManager>&& wm) {
+    this->_wal_manager = std::move(wm);
+}
+void ExecEnv::clear_wal_mgr() {
+    this->_wal_manager.reset();
+}
+#endif
+
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
 void ExecEnv::destroy() {
