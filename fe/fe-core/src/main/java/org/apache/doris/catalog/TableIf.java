@@ -566,4 +566,8 @@ public interface TableIf {
         }
         return Optional.empty();
     }
+
+    default boolean isTemporary() {
+        return false;
+    }
 }
