@@ -40,6 +40,8 @@ public:
 
     static FunctionPtr create() { return std::make_shared<FunctionNullable>(); }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
@@ -73,6 +75,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionNonNullable>(); }
 
     String get_name() const override { return name; }
+
+    bool has_return_type_in_signature() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 1; }
 

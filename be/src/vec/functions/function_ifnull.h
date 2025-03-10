@@ -55,6 +55,8 @@ public:
 
     String get_name() const override { return name; }
 
+    bool has_return_type_in_signature() const override { return false; }
+
     size_t get_number_of_arguments() const override { return 2; }
 
     // be compatible with fe code

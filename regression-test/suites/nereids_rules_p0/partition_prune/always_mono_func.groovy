@@ -161,7 +161,7 @@ suite("always_mono_func") {
     }
     explain {
         sql """select * from always_mono_func where to_date(dt) is null """
-        contains("partitions=5/5 (p1,p2,p3,p4,p5)")
+        contains("partitions=1/5 (p1)")
     }
     explain {
         sql """select * from always_mono_func where to_date(dt) is not null """

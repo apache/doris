@@ -54,6 +54,7 @@ public:
     String get_name() const override { return name; }
 
     bool is_variadic() const override { return true; }
+    bool has_return_type_in_signature() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
