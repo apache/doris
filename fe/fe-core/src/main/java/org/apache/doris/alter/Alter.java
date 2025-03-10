@@ -47,15 +47,18 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.cloud.alter.CloudSchemaChangeHandler;
 import org.apache.doris.common.AnalysisException;
@@ -82,6 +85,8 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
@@ -101,6 +106,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -982,6 +988,15 @@ public class Alter {
 
         // modify meta here
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        Map<Long, Long> tableBeToReplicaNumMap = Maps.newHashMap();
+        for (String partitionName : partitionNames) {
+            Partition partition = olapTable.getPartition(partitionName, isTempPartition);
+            Map<Long, Long> partitionBeToReplicaNumMap = getReplicaCountByBackend(partition);
+
+            for (Map.Entry<Long, Long> entry : partitionBeToReplicaNumMap.entrySet()) {
+                tableBeToReplicaNumMap.merge(entry.getKey(), entry.getValue(), Long::sum);
+            }
+        }
         for (String partitionName : partitionNames) {
             Partition partition = olapTable.getPartition(partitionName, isTempPartition);
             // 4. data property
@@ -1034,6 +1049,8 @@ public class Alter {
             }
             // 2. replica allocation
             if (!replicaAlloc.isNotSet()) {
+                setReplicasToDrop(partition, partitionInfo.getReplicaAllocation(partition.getId()),
+                        replicaAlloc, tableBeToReplicaNumMap);
                 partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
             }
             // 3. in memory
@@ -1056,11 +1073,103 @@ public class Alter {
         Env.getCurrentEnv().getEditLog().logBatchModifyPartition(info);
     }
 
+    public void setReplicasToDrop(Partition partition,
+                                 ReplicaAllocation oldReplicaAlloc,
+                                 ReplicaAllocation newReplicaAlloc,
+                                 Map<Long, Long> tableBeToReplicaNumMap) {
+        Set<Tag> scaleInTags = getScaleInTags(oldReplicaAlloc, newReplicaAlloc);
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+        List<Long> aliveBes = systemInfoService.getAllBackendIds(true);
+
+        for (Tag tag : scaleInTags) {
+            int replicasToDrop = oldReplicaAlloc.getReplicaNumByTag(tag) - newReplicaAlloc.getReplicaNumByTag(tag);
+            if (replicasToDrop <= 0) {
+                return;
+            }
+
+            processReplicasInPartition(partition, tag, replicasToDrop,
+                    tableBeToReplicaNumMap, systemInfoService, oldReplicaAlloc, aliveBes);
+        }
+    }
+
+    private void processReplicasInPartition(Partition partition, Tag tag, int replicasToDrop,
+                                            Map<Long, Long> tableBeToReplicaNumMap, SystemInfoService systemInfoService,
+                                            ReplicaAllocation oldReplicaAlloc,
+                                            List<Long> aliveBes) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+            for (Tablet tablet : index.getTablets()) {
+                if (!isTabletHealthy(tablet, systemInfoService, partition, oldReplicaAlloc, aliveBes)) {
+                    continue;
+                }
+
+                List<Replica> toDealReplicas = getReplicasByTag(tablet, tag);
+                if (toDealReplicas == null) {
+                    continue;
+                }
+
+                sortReplicasByBackendCount(toDealReplicas, tableBeToReplicaNumMap);
+
+                markReplicasForDropping(toDealReplicas, replicasToDrop, tableBeToReplicaNumMap);
+            }
+        }
+    }
+
+    private boolean isTabletHealthy(Tablet tablet, SystemInfoService systemInfoService,
+                                    Partition partition, ReplicaAllocation oldReplicaAlloc,
+                                    List<Long> aliveBes) {
+        return tablet.getHealth(systemInfoService, partition.getVisibleVersion(), oldReplicaAlloc, aliveBes)
+                     .status == Tablet.TabletStatus.HEALTHY;
+    }
+
+    private Set<Tag> getScaleInTags(ReplicaAllocation oldReplicaAlloc, ReplicaAllocation newReplicaAlloc) {
+        return oldReplicaAlloc.getAllocMap().entrySet().stream()
+            .filter(entry -> entry.getValue() > newReplicaAlloc.getAllocMap()
+                .getOrDefault(entry.getKey(), (short) 0))
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toSet());
+    }
+
+    private List<Replica> getReplicasByTag(Tablet tablet, Tag tag) {
+        Map<Tag, List<Replica>> replicasByTag = tablet.getReplicas().stream()
+                .collect(Collectors.groupingBy(replica -> Env.getCurrentSystemInfo()
+                .getBackend(replica.getBackendIdWithoutException()).getLocationTag()));
+        return replicasByTag.get(tag);
+    }
+
+    private void sortReplicasByBackendCount(List<Replica> replicas, Map<Long, Long> tableBeToReplicaNumMap) {
+        replicas.sort((Replica r1, Replica r2) -> {
+            long count1 = tableBeToReplicaNumMap.getOrDefault(r1.getBackendIdWithoutException(), 0L);
+            long count2 = tableBeToReplicaNumMap.getOrDefault(r2.getBackendIdWithoutException(), 0L);
+            return Long.compare(count2, count1); // desc sort
+        });
+    }
+
+    private void markReplicasForDropping(List<Replica> replicas, int replicasToDrop,
+                                      Map<Long, Long> tableBeToReplicaNumMap) {
+        for (int i = 0; i < replicas.size(); i++) {
+            Replica r = replicas.get(i);
+            long beId = r.getBackendIdWithoutException();
+            if (i >= replicasToDrop) {
+                r.setScaleInDropTimeStamp(-1); // Mark for not dropping
+            } else {
+                r.setScaleInDropTimeStamp(System.currentTimeMillis()); // Mark for dropping
+                tableBeToReplicaNumMap.put(beId, tableBeToReplicaNumMap.get(beId) - 1);
+            }
+        }
+    }
+
+    public static Map<Long, Long> getReplicaCountByBackend(Partition partition) {
+        return partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).stream()
+                .flatMap(index -> index.getTablets().stream())
+                .flatMap(tablet -> tablet.getBackendIds().stream())
+                .collect(Collectors.groupingBy(id -> id, Collectors.counting()));
+    }
+
     public void checkNoForceProperty(Map<String, String> properties) throws DdlException {
         for (RewriteProperty property : PropertyAnalyzer.getInstance().getForceProperties()) {
             if (properties.containsKey(property.key())) {
                 throw new DdlException("Cann't modify property '" + property.key() + "'"
-                        + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
+                    + (Config.isCloudMode() ? " in cloud mode" : "") + ".");
             }
         }
     }

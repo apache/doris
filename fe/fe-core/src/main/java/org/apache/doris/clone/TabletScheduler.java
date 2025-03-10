@@ -900,6 +900,7 @@ public class TabletScheduler extends MasterDaemon {
                 || deleteReplicaNotInValidTag(tabletCtx, force)
                 || deleteReplicaChosenByRebalancer(tabletCtx, force)
                 || deleteReplicaOnUrgentHighDisk(tabletCtx, force)
+                || deleteFromScaleInDropReplicas(tabletCtx, force)
                 || deleteReplicaOnHighLoadBackend(tabletCtx, force)) {
             // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
@@ -1087,6 +1088,17 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         return deleteFromHighLoadBackend(tabletCtx, tabletCtx.getReplicas(), force, statistic);
+    }
+
+    private boolean deleteFromScaleInDropReplicas(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        // Check if there are any scale drop replicas
+        for (Replica replica : tabletCtx.getReplicas()) {
+            if (replica.isScaleInDrop()) {
+                deleteReplicaInternal(tabletCtx, replica, "scale drop replica", force);
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean deleteFromHighLoadBackend(TabletSchedCtx tabletCtx, List<Replica> replicas,
