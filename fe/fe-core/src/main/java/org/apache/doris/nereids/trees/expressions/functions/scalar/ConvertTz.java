@@ -94,6 +94,11 @@ public class ConvertTz extends ScalarFunction
     }
 
     @Override
+    public boolean isStrictlyMonotonic() {
+        return isMonotonic(null, null);
+    }
+
+    @Override
     public boolean isPositive() {
         return true;
     }
