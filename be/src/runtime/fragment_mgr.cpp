@@ -565,7 +565,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             for (auto* rs : req.runtime_states) {
                 if (auto rs_tci = rs->tablet_commit_infos(); !rs_tci.empty()) {
                     params.__isset.commitInfos = true;
-                    params.commitInfos.insert(params.commitInfos.end(), rs_tci.begin(), rs_tci.end());
+                    params.commitInfos.insert(params.commitInfos.end(), rs_tci.begin(),
+                                              rs_tci.end());
                 }
             }
         }
@@ -577,7 +578,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 if (auto rs_eti = rs->error_tablet_infos(); !rs_eti.empty()) {
                     params.__isset.errorTabletInfos = true;
                     params.errorTabletInfos.insert(params.errorTabletInfos.end(), rs_eti.begin(),
-                                                rs_eti.end());
+                                                   rs_eti.end());
                 }
             }
         }
