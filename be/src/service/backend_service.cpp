@@ -102,9 +102,7 @@ struct IngestBinlogArg {
 };
 
 void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
-    // Save the http client instance for persistent connection
-    thread_local HttpClient client;
-
+    HttpClient client;
     auto txn_id = arg->txn_id;
     auto partition_id = arg->partition_id;
     auto local_tablet_id = arg->local_tablet_id;

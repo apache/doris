@@ -19,6 +19,8 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <rocksdb/iostats_context.h>
+#include <rocksdb/perf_context.h>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
@@ -35,6 +37,7 @@
 #include "olap/olap_meta.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -256,8 +259,20 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
         return false;
     };
 
+    MonotonicStopWatch watch(true);
+    rocksdb::SetPerfLevel(rocksdb::PerfLevel::kEnableTimeExceptForMutex);
+    rocksdb::get_perf_context()->Reset();
+    rocksdb::get_iostats_context()->Reset();
+
     // get binlog meta by prefix
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, traverse_func);
+    if (watch.elapsed_time_milliseconds() > 100) {
+        LOG(INFO) << "walter get binlog info perf ctx: " << rocksdb::get_perf_context()->ToString(true);
+        LOG(INFO) << "walter get binlog info iostats: "
+                  << rocksdb::get_iostats_context()->ToString(true);
+    }
+    rocksdb::SetPerfLevel(rocksdb::PerfLevel::kDisable);
+
     if (!status.ok() || rowset_id.empty() || num_segments < 0) {
         LOG(WARNING) << fmt::format(
                 "fail to get binlog filename. tablet uid:{}, binlog version:{}, status:{}, "
