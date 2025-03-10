@@ -23,11 +23,13 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
@@ -36,11 +38,14 @@ import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
@@ -85,10 +90,12 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -236,6 +243,11 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
+
+    // unique session id in the doris cluster
+    private String sessionId;
+
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
     // but the internal implementation will call the logic of `AlterTable`.
@@ -304,7 +316,8 @@ public class ConnectContext {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
-            insertResult = new InsertResult(txnId, label, db, tbl, txnStatus, loadedRows, filteredRows);
+            insertResult = new InsertResult(txnId, label, db, Util.getTempTableDisplayName(tbl),
+                txnStatus, loadedRows, filteredRows);
         }
     }
 
@@ -367,6 +380,11 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+
+        sessionId = UUID.randomUUID().toString();
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().registerSessionInfo(sessionId);
+        }
     }
 
     public ConnectContext() {
@@ -375,6 +393,12 @@ public class ConnectContext {
 
     public ConnectContext(StreamConnection connection) {
         this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy, String sessionId) {
+        this(connection, isProxy);
+        // used for binding new created temporary table with its original session
+        this.sessionId = sessionId;
     }
 
     public ConnectContext(StreamConnection connection, boolean isProxy) {
@@ -779,6 +803,10 @@ public class ConnectContext {
         return getCatalog(defaultCatalog);
     }
 
+    public String getSessionId() {
+        return sessionId;
+    }
+
     /**
      * Maybe return when catalogName is not exist. So need to check nullable.
      */
@@ -843,6 +871,50 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
+        deleteTempTable();
+        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+    }
+
+    protected void deleteTempTable() {
+        // only delete temporary table in its creating session, not proxy session in master fe
+        if (isProxy) {
+            return;
+        }
+
+        // if current fe is master, delete temporary table directly
+        if (Env.getCurrentEnv().isMaster()) {
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
+                    try {
+                        Env.getCurrentEnv().getInternalCatalog()
+                            .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
+                    } catch (DdlException e) {
+                        LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
+                    }
+                }
+            }
+        } else {
+            // forward to master fe to drop table
+            RedirectStatus redirectStatus = new RedirectStatus(true, false);
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
+                    String dropTableSql = String.format("drop table `%s`", tableName);
+                    OriginStatement originStmt = new OriginStatement(dropTableSql, 0);
+                    MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, this, redirectStatus, false);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("need to transfer to Master. stmt: {}", this.getStmtId());
+                    }
+                    try {
+                        masterOpExecutor.execute();
+                    } catch (Exception e) {
+                        LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
+                    }
+                }
+            }
+        }
     }
 
     public boolean isKilled() {
@@ -1418,5 +1490,31 @@ public class ConnectContext {
 
     public byte[] getAuthPluginData() {
         return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + qualifiedUser;
+    }
+
+    public Map<String, Set<String>> getDbToTempTableNamesMap() {
+        return dbToTempTableNamesMap;
+    }
+
+    public void addTempTableToDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet == null) {
+            tableNameSet = new HashSet<>();
+            dbToTempTableNamesMap.put(database, tableNameSet);
+        }
+
+        tableNameSet.add(tableName);
+    }
+
+    public void removeTempTableFromDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet != null) {
+            tableNameSet.remove(tableName);
+        }
     }
 }
