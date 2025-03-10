@@ -429,12 +429,27 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** dynamicComputeVariantArgs */
+    /**
+     * Dynamically compute function signature for variant type arguments.
+     * This method handles cases where the function signature contains variant types
+     * and needs to be adjusted based on the actual argument types.
+     *
+     * @param signature Original function signature
+     * @param arguments List of actual arguments passed to the function
+     * @return Updated function signature with resolved variant types
+     */
     public static FunctionSignature dynamicComputeVariantArgs(
             FunctionSignature signature, List<Expression> arguments) {
+        // If return type is not variant, no need to compute
+        if (!(signature.returnType instanceof VariantType)) {
+            return signature;
+        }
+
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
         boolean findVariantType = false;
+
         for (int i = 0; i < arguments.size(); i++) {
+            // Get signature type for current argument position
             DataType sigType;
             if (i >= signature.argumentsTypes.size()) {
                 sigType = signature.getVarArgType().orElseThrow(
@@ -442,15 +457,23 @@ public class ComputeSignatureHelper {
             } else {
                 sigType = signature.argumentsTypes.get(i);
             }
+
+            // Get actual type of the argument expression
             DataType expressionType = arguments.get(i).getDataType();
+
+            // If both signature type and expression type are variant,
+            // use expression type and update return type
             if (sigType instanceof VariantType && expressionType instanceof VariantType) {
                 newArgTypes.add(expressionType);
                 signature = signature.withReturnType(expressionType);
                 findVariantType = true;
             } else {
+                // Otherwise keep original signature type
                 newArgTypes.add(sigType);
             }
         }
+
+        // Update signature with new argument types if any variant type was found
         if (findVariantType) {
             signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         }
