@@ -129,6 +129,7 @@ public class RelationUtil {
             String sourceTableName = sourceTblNameWithMetaTblName.first;
             TableIf table = db.getTable(sourceTableName).orElseThrow(() -> new AnalysisException(
                     "Table [" + sourceTableName + "] does not exist in database [" + dbName + "]."));
+            table.setAccessTime();
             return Pair.of(db, table);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());

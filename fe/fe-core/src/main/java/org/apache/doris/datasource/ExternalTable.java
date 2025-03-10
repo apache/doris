@@ -87,6 +87,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     // this field will be refreshed after reloading schema
     protected volatile long schemaUpdateTime;
 
+    protected volatile long accessTime;
+
     protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
@@ -187,6 +189,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public void setNewFullSchema(List<Column> newSchema) {
     }
+
+    public void setAccessTime() {
+        this.accessTime = System.currentTimeMillis();
+    }
+
 
     @Override
     public Column getColumn(String name) {

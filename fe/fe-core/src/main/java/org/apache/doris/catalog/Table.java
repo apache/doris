@@ -85,6 +85,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected TableType type;
     @SerializedName(value = "createTime")
     protected long createTime;
+    protected volatile long accessTime;
     protected MonitoredReentrantReadWriteLock rwLock;
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
@@ -392,6 +393,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    @Override
+    public void setAccessTime() {
+        this.accessTime = System.currentTimeMillis();
+    }
+
     public String getDisplayName() {
         return isTemporary ? Util.getTempTableDisplayName(name) : name;
     }
@@ -448,6 +454,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public long getUpdateTime() {
         return -1L;
+    }
+
+    public long getAccessTime() {
+        return accessTime;
     }
 
     public long getRowCount() {
