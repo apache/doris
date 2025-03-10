@@ -415,6 +415,10 @@ public class OperationType {
 
     public static final short OP_ALTER_ROLE = 475;
 
+    // outline 500
+    public static final short OP_CREATE_OUTLINE = 500;
+    public static final short OP_DROP_OUTLINE = 501;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

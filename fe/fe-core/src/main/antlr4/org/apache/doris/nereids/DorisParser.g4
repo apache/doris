@@ -355,6 +355,12 @@ supportedLoadStatement
     | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
+supportedOutlineStatement
+    : CREATE (OR REPLACE)? OUTLINE outline_name=Identifier ON (query TO (query)? |
+      sql_id=STRING_LITERAL USING HINT_START identifier HINT_END )                  #createOutline
+    | DROP OUTLINE (IF EXISTS)? outline_name=Identifier                             #dropOutline
+    ;
+
 supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     | UNLOCK TABLES                                                                 #unlockTables
