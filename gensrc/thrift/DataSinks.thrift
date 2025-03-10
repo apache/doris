@@ -40,6 +40,7 @@ enum TDataSinkType {
     GROUP_COMMIT_BLOCK_SINK,
     HIVE_TABLE_SINK,
     ICEBERG_TABLE_SINK,
+    DICTIONARY_SINK,
 }
 
 enum TResultSinkType {
@@ -416,6 +417,23 @@ struct TIcebergTableSink {
     13: optional PlanNodes.TFileCompressType compression_type
 }
 
+enum TDictLayoutType {
+    HASH_MAP,
+    IP_TRIE,
+}
+
+struct TDictionarySink {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional string dictionary_name
+    4: optional TDictLayoutType layout_type
+    5: optional list<i64> key_output_expr_slots
+    6: optional list<i64> value_output_expr_slots
+    7: optional list<string> value_names
+    8: optional bool skip_null_key
+    9: optional i64 memory_limit
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -430,4 +448,5 @@ struct TDataSink {
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
   14: optional TIcebergTableSink iceberg_table_sink
+  15: optional TDictionarySink dictionary_sink
 }
