@@ -43,7 +43,8 @@ private:
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                              size_t partition_count, const ChannelIdType* __restrict channel_ids,
-                             size_t rows, vectorized::Block* block, bool eos) const;
+                             size_t rows, vectorized::Block* block, const std::vector<bool> skipped,
+                             bool eos) const;
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
