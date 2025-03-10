@@ -68,6 +68,8 @@ public:
 
     static VExprContextSPtr create_mock_context(int column_id, DataTypePtr data_type);
 
+    static VExprContextSPtrs create_mock_contexts(DataTypes data_types);
+
 private:
     const std::string _name = "MockSlotRef";
 };
