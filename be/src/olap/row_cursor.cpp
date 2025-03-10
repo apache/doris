@@ -75,7 +75,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
                         const std::vector<uint32_t>& columns) {
-    _schema.reset(new Schema(*shared_schema));
+    _schema = shared_schema;
     return _init(columns);
 }
 
