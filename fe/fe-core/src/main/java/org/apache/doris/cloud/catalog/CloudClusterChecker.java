@@ -52,6 +52,8 @@ public class CloudClusterChecker extends MasterDaemon {
 
     private CloudSystemInfoService cloudSystemInfoService;
 
+    private final Object checkLock = new Object();
+
     boolean isUpdateCloudUniqueId = false;
 
     public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
@@ -334,9 +336,11 @@ public class CloudClusterChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        checkCloudBackends();
-        updateCloudMetrics();
-        checkCloudFes();
+        synchronized (checkLock) {
+            checkCloudBackends();
+            updateCloudMetrics();
+            checkCloudFes();
+        }
     }
 
     private void checkFeNodesMapValid() {
@@ -556,6 +560,14 @@ public class CloudClusterChecker extends MasterDaemon {
                 aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
             }
             MetricRepo.updateClusterBackendAliveTotal(entry.getKey(), entry.getValue(), aliveNum);
+        }
+    }
+
+    public void checkNow() {
+        if (Env.getCurrentEnv().isMaster()) {
+            synchronized (checkLock) {
+                runAfterCatalogReady();
+            }
         }
     }
 }
