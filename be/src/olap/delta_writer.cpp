@@ -302,8 +302,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
         int64_t segment_size = 0;
         Status status = safe_get_file_size(seg_path, &segment_size);
-        if (!segment_size.ok()) {
-            LOG(ERROR) << "Failed to get segment file size: " << seg_path;
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to get segment file size: " << seg_path
+                       << ", error: " << status.msg();
             continue;
         }
         request->mutable_segments_size()->insert({segment_id, segment_size});
@@ -315,10 +316,11 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     index_path_prefix, index_meta.first, index_meta.second);
-                    int64_t index_size = 0;
-                    Status status = safe_get_file_size(inverted_index_file);
+                    int64_t size = 0;
+                    Status status = safe_get_file_size(inverted_index_file, &size);
                     if (!status.ok()) {
-                        LOG(ERROR) << "Failed to get index file size: " << inverted_index_file;
+                        LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
+                                   << ", error: " << status.msg();
                         continue;
                     }
                     PTabletWriteSlaveRequest::IndexSize index_size;
@@ -335,10 +337,11 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
             } else {
                 std::string inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                int64_t index_size = 0;
-                Status status = safe_get_file_size(inverted_index_file, &index_size);
+                int64_t size = 0;
+                Status status = safe_get_file_size(inverted_index_file, &size);
                 if (!status.ok()) {
-                    LOG(ERROR) << "Failed to get index file size: " << inverted_index_file;
+                    LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
+                               << ", error: " << status.msg();
                     continue;
                 }
                 PTabletWriteSlaveRequest::IndexSize index_size;
