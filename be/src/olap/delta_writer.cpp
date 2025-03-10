@@ -231,6 +231,25 @@ int64_t BaseDeltaWriter::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
 }
 
+Status safe_get_file_size(const std::string& file_path, int64_t* file_size) {
+    if (file_size == nullptr) {
+        return Status::InvalidArgument("Null output parameter in safe_get_file_size");
+    }
+
+    try {
+        if (!std::filesystem::exists(file_path)) {
+            LOG(WARNING) << "File does not exist: " << file_path;
+            return Status::NotFound("File not found: " + file_path);
+        }
+
+        *file_size = std::filesystem::file_size(file_path);
+        return Status::OK();
+    } catch (const std::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "Failed to get file size for: " << file_path << ", error: " << e.what();
+        return Status::IOError("Failed to get file size: " + std::string(e.what()));
+    }
+}
+
 void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) {
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
@@ -281,7 +300,13 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         auto seg_path =
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
-        int64_t segment_size = std::filesystem::file_size(seg_path);
+        int64_t segment_size = 0;
+        Status status = safe_get_file_size(seg_path, &segment_size);
+        if (!status.ok()) {
+            LOG(ERROR) << "Failed to get segment file size: " << seg_path
+                       << ", error: " << status.msg();
+            continue;
+        }
         request->mutable_segments_size()->insert({segment_id, segment_size});
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
         if (!indices_ids.empty()) {
@@ -291,7 +316,13 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                     std::string inverted_index_file =
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     index_path_prefix, index_meta.first, index_meta.second);
-                    int64_t size = std::filesystem::file_size(inverted_index_file);
+                    int64_t size = 0;
+                    Status status = safe_get_file_size(inverted_index_file, &size);
+                    if (!status.ok()) {
+                        LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
+                                   << ", error: " << status.msg();
+                        continue;
+                    }
                     PTabletWriteSlaveRequest::IndexSize index_size;
                     index_size.set_indexid(index_meta.first);
                     index_size.set_size(size);
@@ -306,7 +337,13 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
             } else {
                 std::string inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                int64_t size = std::filesystem::file_size(inverted_index_file);
+                int64_t size = 0;
+                Status status = safe_get_file_size(inverted_index_file, &size);
+                if (!status.ok()) {
+                    LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
+                               << ", error: " << status.msg();
+                    continue;
+                }
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
                 index_size.set_indexid(0);
