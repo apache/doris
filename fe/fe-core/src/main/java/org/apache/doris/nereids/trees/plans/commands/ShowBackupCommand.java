@@ -75,14 +75,11 @@ public class ShowBackupCommand extends ShowCommand {
         this.where = where;
     }
 
-    public String getDbName() {
-        return dbName;
-    }
 
     /**
      * get metadata
      */
-    public ShowResultSetMetaData getMetaData() {
+    private ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
@@ -93,7 +90,7 @@ public class ShowBackupCommand extends ShowCommand {
     /**
      * get label predicate for show backup
      */
-    public Predicate<String> getSnapshotPredicate() throws AnalysisException {
+    private Predicate<String> getSnapshotPredicate() throws AnalysisException {
         if (null == where) {
             return label -> true;
         }
