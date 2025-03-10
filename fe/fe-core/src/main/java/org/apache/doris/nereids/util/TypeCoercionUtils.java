@@ -600,12 +600,12 @@ public class TypeCoercionUtils {
             } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
             } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
-                Result<DateLiteral, AnalysisException> parseResult
+                Result<DateLiteral, ? extends Exception> parseResult
                         = DateV2Literal.parseDateLiteral(value);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
-                    Result<DateTimeLiteral, AnalysisException> parseResult2
+                    Result<DateTimeLiteral, ? extends Exception> parseResult2
                             = DateTimeV2Literal.parseDateTimeLiteral(value, true);
                     if (parseResult2.isOk()) {
                         ret = parseResult2.get();
