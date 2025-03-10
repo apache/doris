@@ -128,7 +128,7 @@ private:
 
     Status _init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& scan_keys);
 
-    std::unique_ptr<Schema> _schema;
+    std::shared_ptr<Schema> _schema;
 
     char* _fixed_buf = nullptr; // point to fixed buf
     size_t _fixed_len;
