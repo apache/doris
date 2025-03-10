@@ -247,7 +247,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDisk) {
                                 _helper.runtime_state.get(), spill_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
