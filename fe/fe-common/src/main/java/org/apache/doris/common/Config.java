@@ -1325,6 +1325,14 @@ public class Config extends ConfigBase {
     public static long dynamic_partition_check_interval_seconds = 600;
 
     /**
+     * When scheduling dynamic partition tables,
+     * the execution interval of each table to prevent excessive consumption of FE CPU at the same time
+     * default is 0
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long dynamic_partition_step_interval_ms = 0;
+
+    /**
      * If set to true, dynamic partition feature will open
      */
     @ConfField(mutable = true, masterOnly = true)
