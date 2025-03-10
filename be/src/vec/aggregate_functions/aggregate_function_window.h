@@ -80,11 +80,14 @@ public:
                 doris::vectorized::WindowFunctionRowNumber::data(place).count);
     }
 
-    void insert_result_into_pos(ConstAggregateDataPtr __restrict place, IColumn& to,
-                                size_t pos) const override {
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
-        // column.get_data()[pos] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
-        column.get_data().push_back(doris::vectorized::WindowFunctionRowNumber::data(place).count);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -129,7 +132,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                data(place).rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionRank::data(place).rank);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -171,7 +185,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                data(place).rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionDenseRank::data(place).rank);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -227,7 +252,19 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(percent_rank);
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                percent_rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = percent_rank;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -280,7 +317,19 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                cume_dist);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = cume_dist;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -331,8 +380,18 @@ public:
     void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 WindowFunctionNTile::data(place).bucket_index);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = WindowFunctionNTile::data(place).bucket_index;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
