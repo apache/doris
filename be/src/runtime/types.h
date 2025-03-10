@@ -72,7 +72,8 @@ struct TypeDescriptor {
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type, int variant_max_subcolumns_count_ = -1) : type(type), len(-1), precision(-1), scale(-1) {
+    TypeDescriptor(PrimitiveType type, int variant_max_subcolumns_count_ = -1)
+            : type(type), len(-1), precision(-1), scale(-1) {
         // TODO, should not initialize default values, force initialization by parameters or external.
         if (type == TYPE_DECIMALV2) {
             precision = 27;
@@ -180,27 +181,9 @@ struct TypeDescriptor {
     }
 
     bool operator==(const TypeDescriptor& o) const {
-<<<<<<< HEAD
-        if (type != o.type) {
-            return false;
-        }
-        if (children != o.children) {
-            return false;
-        }
-        if (type == TYPE_CHAR) {
-            return len == o.len;
-        }
-        if (type == TYPE_DECIMALV2) {
-            return precision == o.precision && scale == o.scale;
-        }
-        if (type == TYPE_VARIANT) {
-            return variant_max_subcolumns_count == o.variant_max_subcolumns_count;
-        }
-        return true;
-=======
         return type == o.type && len == o.len && precision == o.precision && scale == o.scale &&
-               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls;
->>>>>>> upstream-apache/master
+               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls &&
+               variant_max_subcolumns_count == o.variant_max_subcolumns_count;
     }
 
     bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }

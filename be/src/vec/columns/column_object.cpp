@@ -1667,7 +1667,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
@@ -1682,7 +1682,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (is_scalar_variant()) {
         subcolumns.get_root()->data.serialize_text_json(row, output);
         return Status::OK();
@@ -2081,7 +2081,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size());
              ++i) {
             // if too many null values, then consider it as sparse column
-            if (sorted_by_size[i].second < num_rows * 0.95) {
+            if ((double) sorted_by_size[i].second < (double) num_rows * 0.95) {
                 continue;
             }
             selected_path.insert(sorted_by_size[i].first);

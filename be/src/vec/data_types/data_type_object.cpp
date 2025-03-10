@@ -166,7 +166,7 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
-
+    bool root_added = false;
     // 2. deserialize each subcolumn in a loop
     for (uint32_t i = 0; i < num_subcolumns; i++) {
         // 2.1 deserialize subcolumn column path (str size + str data)
@@ -186,6 +186,8 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         PathInData key;
         if (!column_meta_pb.name().empty()) {
             key = PathInData {column_meta_pb.name()};
+        } else {
+            root_added = true;
         }
         column_object->add_sub_column(key, std::move(sub_column), type);
     }

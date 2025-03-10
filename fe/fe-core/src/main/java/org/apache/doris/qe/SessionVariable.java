@@ -4723,12 +4723,11 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
-<<<<<<< HEAD
     public int getGlobalVariantMaxSubcolumnsCount() {
         return globalVariantMaxSubcolumnsCount;
-=======
+    }
+
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
->>>>>>> upstream-apache/master
     }
 }

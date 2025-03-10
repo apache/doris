@@ -171,6 +171,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         }
         // set variant root column/type to from column/type
         CHECK(arg.column->is_nullable());
+        auto to_type = remove_nullable(type);
         const auto& data_type_object = assert_cast<const DataTypeObject&>(*to_type);
         auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
 
@@ -248,13 +249,9 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // TODO handle more types like struct/date/datetime/decimal...
-<<<<<<< HEAD
     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                            "unexcepted data column type: {}, column name is: {}",
                            data_type->get_name(), name);
-=======
-    throw Exception(Status::FatalError("__builtin_unreachable"));
->>>>>>> upstream-apache/master
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
@@ -633,7 +630,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
-<<<<<<< HEAD
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
     res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
@@ -868,7 +864,5 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
     }
 }
 
-=======
 #include "common/compile_check_end.h"
->>>>>>> upstream-apache/master
 } // namespace doris::vectorized::schema_util

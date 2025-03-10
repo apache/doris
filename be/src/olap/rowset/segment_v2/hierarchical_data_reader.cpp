@@ -26,6 +26,7 @@
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type.h"
@@ -206,7 +207,7 @@ Status HierarchicalDataReader::_process_nested_columns(
         for (const auto& subcolumn : entry.second) {
             const auto& column = subcolumn.column;
             const auto& type = subcolumn.type;
-            if (!remove_nullable(column)->is_column_array()) {
+            if (!check_and_get_column<ColumnArray>(remove_nullable(column).get())) {
                 return Status::InvalidArgument(
                         "Meet none array column when flatten nested array, path {}, type {}",
                         subcolumn.path.get_path(), subcolumn.type->get_name());

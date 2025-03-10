@@ -611,7 +611,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
 }
 
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
-    SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
+    if (stats != nullptr) {
+        SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
+    }
     return _create_column_readers_once_call.call([&] {
         DCHECK(_footer_pb);
         Defer defer([&]() { _footer_pb.reset(); });
@@ -849,7 +851,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 }
 
 Result<ColumnReader*> Segment::get_column_reader(int32_t col_unique_id) {
-    auto status = _create_column_readers_once();
+    auto status = _create_column_readers_once(nullptr);
     if (!status) {
         return ResultError(std::move(status));
     }
