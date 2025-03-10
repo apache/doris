@@ -165,6 +165,15 @@ public class FunctionRegistry {
             throw new AnalysisException("Can not found function '" + qualifiedName
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
+        if (!Config.enable_java_udf) {
+            candidateBuilders = candidateBuilders.stream()
+                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
+                            || fb instanceof JavaUdtfBuilder))
+                    .collect(Collectors.toList());
+            if (candidateBuilders.isEmpty()) {
+                FunctionUtil.checkEnableJavaUdfForNereids();
+            }
+        }
         if (candidateBuilders.size() > 1) {
             boolean needChooseOne = true;
             List<FunctionSignature> signatures = Lists.newArrayListWithCapacity(candidateBuilders.size());
@@ -216,14 +225,7 @@ public class FunctionRegistry {
             for (String scope : scopes) {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
-                if (candidate != null && !candidate.isEmpty() && !Config.enable_java_udf) {
-                    candidate = candidate.stream()
-                            .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
-                                    || fb instanceof JavaUdtfBuilder))
-                            .collect(Collectors.toList());
-                    if (candidate.isEmpty()) {
-                        FunctionUtil.checkEnableJavaUdfForNereids();
-                    }
+                if (candidate != null && !candidate.isEmpty()) {
                     return candidate;
                 }
             }
