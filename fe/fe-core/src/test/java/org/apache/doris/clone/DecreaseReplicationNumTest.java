@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.alibaba.google.common.collect.Lists;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,6 +29,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -116,13 +116,13 @@ public class DecreaseReplicationNumTest extends TestWithFeService {
     @Test
     public void testDecreaseMultiPartitionReplicaNum() throws Exception {
         createTable("create table test_multi(id int, part int) "
-            + "partition by range(part) ("
-            + "  partition p1 values[('1'), ('2')),"
-            + "  partition p2 values[('2'), ('3')),"
-            + "  partition p3 values[('3'), ('4'))"
-            + ") "
-            + "distributed by hash(id) BUCKETS 9 "
-            + "properties ('replication_num'='4')");
+                + "partition by range(part) ("
+                + "  partition p1 values[('1'), ('2')),"
+                + "  partition p2 values[('2'), ('3')),"
+                + "  partition p3 values[('3'), ('4'))"
+                + ") "
+                + "distributed by hash(id) BUCKETS 9 "
+                + "properties ('replication_num'='4')");
 
         OlapTable table = (OlapTable) db.getTableOrMetaException("test_multi");
         List<Partition> partitions = table.getAllPartitions();
@@ -155,7 +155,9 @@ public class DecreaseReplicationNumTest extends TestWithFeService {
                 }
                 try {
                     Thread.sleep(1000);
-                } catch (InterruptedException e) {}
+                } catch (InterruptedException ignored) {
+                    System.out.println(ignored);
+                }
             }
             Assertions.assertTrue(succ);
         });
