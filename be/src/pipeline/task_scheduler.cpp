@@ -84,9 +84,6 @@ bool close_task(PipelineTask* task, Status exec_status) {
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
-    if (task->is_finalized()) {
-        return false;
-    }
     if (!exec_status.ok()) {
         task->fragment_context()->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
