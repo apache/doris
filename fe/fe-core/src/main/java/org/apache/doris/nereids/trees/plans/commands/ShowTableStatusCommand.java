@@ -160,7 +160,7 @@ public class ShowTableStatusCommand extends ShowCommand {
             throws AnalysisException {
         List<AliasInfo> selectList = new ArrayList<>();
         ALIAS_COLUMN_MAP.forEach((key, value) -> {
-            selectList.add(AliasInfo.of(key, value));
+            selectList.add(AliasInfo.of(value, key));
         });
 
         TableNameInfo fullTblName = new TableNameInfo(catalog, InfoSchemaDb.DATABASE_NAME, "tables");
