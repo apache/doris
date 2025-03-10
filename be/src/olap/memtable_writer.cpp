@@ -126,7 +126,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     //    thus preventing potential crashes
     if (!st.ok()) [[unlikely]] {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        _mem_table.reset();
+        _reset_mem_table();
         return st;
     }
 
@@ -178,11 +178,6 @@ Status MemTableWriter::flush_async() {
 
     if (_is_cancelled) {
         return _cancel_status;
-    }
-
-    // _mem_table may be null after write failure triggers reset
-    if (_mem_table == nullptr) {
-        return Status::OK();
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "

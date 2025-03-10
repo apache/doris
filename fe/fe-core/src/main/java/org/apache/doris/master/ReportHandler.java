@@ -44,6 +44,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
@@ -593,7 +594,22 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
+    private static void debugBlock() {
+        if (DebugPointUtil.isEnable("ReportHandler.block")) {
+            LOG.info("debug point: block at ReportHandler.block");
+            while (DebugPointUtil.isEnable("ReportHandler.block")) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave ReportHandler.block");
+        }
+    }
+
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        debugBlock();
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
         }
