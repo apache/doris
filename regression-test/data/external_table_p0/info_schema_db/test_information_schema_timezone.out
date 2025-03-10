@@ -15,10 +15,8 @@
 time_zone	Asia/Shanghai	Asia/Shanghai	0
 
 -- !select_kerberos --
-1	a	3.16	cc0
-2	b	41.2	cc1
-3	c	6.2	cc2
-4	d	1.4	cc3
+1	krb1	2023-05-14
+2	krb2	2023-05-24
 
 -- !session_time_zone_UTC --
 time_zone	UTC	Asia/Shanghai	1
