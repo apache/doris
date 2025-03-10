@@ -244,6 +244,16 @@ class InternalSchemaInitializerTest {
         );
         auditTable.fullSchema = initialSchema;
 
+        Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
+        Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
+
+        Assertions.assertNotNull(localStorageCol, "The scan_bytes_from_local_storage column should exist in auditTable");
+        Assertions.assertNotNull(remoteStorageCol, "The scan_bytes_from_remote_storage column should exist in auditTable");
+        Assertions.assertTrue(localStorageCol.getType().isVarchar(),
+                "The type of the scan_bytes_from_local_storage column should be VARCHAR");
+        Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
+                "The type of scan_bytes_from_remote_storage column should be VARCHAR");
+
         List<ColumnDef> expectedSchema = Lists.newArrayList();
         for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
             expectedSchema.add(def);
@@ -254,7 +264,6 @@ class InternalSchemaInitializerTest {
         for (int i = 0; i < expectedSchema.size(); i++) {
             ColumnDef def = expectedSchema.get(i);
             if (auditTable.getColumn(def.getName()) == null) {
-                // 如果列不存在，添加它
                 String afterColumn = null;
                 if (i > 0) {
                     for (int j = i - 1; j >= 0; j--) {
@@ -285,19 +294,7 @@ class InternalSchemaInitializerTest {
             }
         }
 
-        Assertions.assertTrue(hasLocalStorageClause,
-                "The system should generate an AlterClause for the scan_bytes_from_local_storage column with inconsistent types");
-        Assertions.assertTrue(hasRemoteStorageClause,
-                "The system should generate an AlterClause for the scan_bytes_from_remote_storage column with inconsistent types");
-
-        Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
-        Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
-
-        Assertions.assertNotNull(localStorageCol);
-        Assertions.assertNotNull(remoteStorageCol);
-        Assertions.assertTrue(localStorageCol.getType().isVarchar(),
-                "The type of the scan_bytes_from_local_storage column should remain VARCHAR");
-        Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
-                "The type of the scan_bytes_from_remote_storage column should remain VARCHAR");
+        Assertions.assertTrue(hasLocalStorageClause, "The system should generate an AlterClause for the scan_bytes_from_local_storage column with inconsistent types");
+        Assertions.assertTrue(hasRemoteStorageClause, "The system should generate an AlterClause for the scan_bytes_from_remote_storage column with inconsistent types");
     }
 }
