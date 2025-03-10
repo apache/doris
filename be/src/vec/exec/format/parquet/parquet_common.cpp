@@ -19,11 +19,12 @@
 
 #include <glog/logging.h>
 
+#include "common/cast_set.h"
 #include "util/simd/bits.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const int32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
 const int64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
 const int64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
@@ -47,7 +48,7 @@ Status FilterMap::init(const uint8_t* filter_map_data, size_t filter_map_size, b
             _filter_ratio = 1;
         } else if (filter_count > 0 && filter_map_size > 0) {
             _has_filter = true;
-            _filter_ratio = (double)filter_count / filter_map_size;
+            _filter_ratio = (double)filter_count / (double)filter_map_size;
         } else {
             _has_filter = false;
             _filter_ratio = 0;
@@ -352,7 +353,7 @@ SemanticVersion::Prerelease::Prerelease(std::string original) : _original(std::m
 }
 
 int SemanticVersion::Prerelease::compare_to(const Prerelease& that) const {
-    int size = std::min(this->_identifiers.size(), that._identifiers.size());
+    auto size = std::min(this->_identifiers.size(), that._identifiers.size());
     for (int i = 0; i < size; ++i) {
         int cmp = this->_identifiers[i].compare_to(that._identifiers[i]);
         if (cmp != 0) {
@@ -455,5 +456,6 @@ bool CorruptStatistics::should_ignore_statistics(const std::string& created_by,
     // This file was created after the fix
     return false;
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
