@@ -143,7 +143,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
-import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -268,7 +267,6 @@ public class StmtExecutor {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private String stmtName;
-    private String prepareStmtName; // for proxy
     private StatementBase prepareStmt = null;
     private String mysqlLoadId;
     // Distinguish from prepare and execute command
@@ -683,10 +681,8 @@ public class StmtExecutor {
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
-            this.prepareStmtName = String.valueOf(stmtId);
-            List<Placeholder> placeholders = context == null
-                    ? statementContext.getPlaceholders() : context.getStatementContext().getPlaceholders();
-            logicalPlan = new PrepareCommand(prepareStmtName, logicalPlan, placeholders, originStmt);
+            logicalPlan = new PrepareCommand(String.valueOf(stmtId),
+                    logicalPlan, statementContext.getPlaceholders(), originStmt);
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
@@ -3480,9 +3476,5 @@ public class StmtExecutor {
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
-    }
-
-    public String getPrepareStmtName() {
-        return this.prepareStmtName;
     }
 }

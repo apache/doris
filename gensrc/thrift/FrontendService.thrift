@@ -571,7 +571,6 @@ struct TMasterOpRequest {
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
-    31: optional binary prepareExecuteBuffer
 }
 
 struct TColumnDefinition {
