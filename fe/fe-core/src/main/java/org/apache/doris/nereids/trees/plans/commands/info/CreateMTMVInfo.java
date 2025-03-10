@@ -40,6 +40,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -281,7 +282,14 @@ public class CreateMTMVInfo {
                 throw new AnalysisException("can not contain invalid expression");
             }
 
-            getRelation(Sets.newHashSet(statementContext.getTables().values()), ctx);
+            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            for (TableIf table : baseTables) {
+                if (table.isTemporary()) {
+                    throw new AnalysisException("do not support create materialized view on temporary table ("
+                        + Util.getTempTableDisplayName(table.getName()) + ")");
+                }
+            }
+            getRelation(baseTables, ctx);
             this.mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             this.partitionDesc = generatePartitionDesc(ctx);
             getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);

@@ -964,6 +964,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int tablet_stat_update_interval_second = 60;  // 1 min
 
+    // update interval of alive session
+    // Only master FE collect this info from all frontends at each interval
+    @ConfField public static int alive_session_update_interval_second = 5;
+
+    @ConfField public static int fe_session_mgr_threads_num = 1;
+
+    @ConfField public static int fe_session_mgr_blocking_queue_size = 1024;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int loss_conn_fe_temp_table_keep_second = 60;
+
     /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.

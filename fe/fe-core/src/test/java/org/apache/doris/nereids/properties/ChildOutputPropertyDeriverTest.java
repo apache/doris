@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
@@ -89,6 +90,8 @@ class ChildOutputPropertyDeriverTest {
 
     @BeforeEach
     public void setUp() {
+        FeConstants.runningUnitTest = true;
+
         new MockUp<Env>() {
             @Mock
             ColocateTableIndex getCurrentColocateIndex() {
