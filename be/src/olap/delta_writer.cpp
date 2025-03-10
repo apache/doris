@@ -307,8 +307,6 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                                     index_path_prefix, index_meta.first, index_meta.second);
                     int64_t size = safe_get_file_size(inverted_index_file);
                     if (size == -1) {
-                        LOG(WARNING) << "Failed to get inverted index  v1 file size: "
-                                     << inverted_index_file;
                         return;
                     }
                     PTabletWriteSlaveRequest::IndexSize index_size;
@@ -327,8 +325,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
                 int64_t size = safe_get_file_size(inverted_index_file);
                 if (size == -1) {
-                    LOG(WARNING) << "Failed to get inverted index  v2 file size: "
-                                 << inverted_index_file;
+                    return;
                 }
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
