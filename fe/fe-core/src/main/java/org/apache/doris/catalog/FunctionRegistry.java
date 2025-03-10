@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -213,7 +214,9 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
-                    FunctionUtil.checkEnableJavaUdfForNereids();
+                    if (candidate.stream().anyMatch(builder -> !(builder instanceof AliasUdfBuilder))) {
+                        FunctionUtil.checkEnableJavaUdfForNereids();
+                    }
                     return candidate;
                 }
             }
