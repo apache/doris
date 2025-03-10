@@ -237,7 +237,7 @@ private:
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
-    Status _open_inverted_index();
+    std::shared_ptr<InvertedIndexFileReader> _open_inverted_index();
 
     Status _create_column_readers_once(OlapReaderStatistics* stats);
 
@@ -298,8 +298,7 @@ private:
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     std::mutex _open_lock;
     // inverted index file reader
-    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
-    DorisCallOnce<Status> _inverted_index_file_reader_open;
+    DorisCallOnce<std::shared_ptr<InvertedIndexFileReader>> _inverted_index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
 

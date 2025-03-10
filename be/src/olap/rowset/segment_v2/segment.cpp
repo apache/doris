@@ -215,13 +215,12 @@ Status Segment::_open() {
     return Status::OK();
 }
 
-Status Segment::_open_inverted_index() {
-    _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
+std::shared_ptr<InvertedIndexFileReader> Segment::_open_inverted_index() {
+    return std::make_shared<InvertedIndexFileReader>(
             _fs,
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format(), _idx_file_info);
-    return Status::OK();
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -555,9 +554,6 @@ Status Segment::healthy_status() {
         }
         if (_create_column_readers_once_call.has_called()) {
             RETURN_IF_ERROR(_create_column_readers_once_call.stored_result());
-        }
-        if (_inverted_index_file_reader_open.has_called()) {
-            RETURN_IF_ERROR(_inverted_index_file_reader_open.stored_result());
         }
         // This status is set by running time, for example, if there is something wrong during read segment iterator.
         return _healthy_status.status();
@@ -964,12 +960,9 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(
-                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        }
-        RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
-                                                            read_options, iter));
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(
+                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }),
+                index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
