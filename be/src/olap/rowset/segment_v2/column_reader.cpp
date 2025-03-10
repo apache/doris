@@ -324,9 +324,10 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterato
     VLOG_DEBUG << "subcolumns to merge " << src_subcolumns_for_sparse.size();
 
     // Create sparse column merge reader
-    *iterator = new SparseColumnMergeReader(
-            path_set_info.sub_path_set, std::unique_ptr<ColumnIterator>(inner_iter),
-            std::move(src_subcolumns_for_sparse), const_cast<StorageReadOptions*>(opts));
+    *iterator = new SparseColumnMergeReader(path_set_info.sub_path_set,
+                                            std::unique_ptr<ColumnIterator>(inner_iter),
+                                            std::move(src_subcolumns_for_sparse),
+                                            const_cast<StorageReadOptions*>(opts), target_col);
     return Status::OK();
 }
 
@@ -385,7 +386,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
             *iterator = new SparseColumnExtractReader(
                     relative_path.get_path(), std::unique_ptr<ColumnIterator>(inner_iter),
                     // need to modify sparse_column_cache, so use const_cast here
-                    const_cast<StorageReadOptions*>(opts));
+                    const_cast<StorageReadOptions*>(opts), target_col);
             return Status::OK();
         }
         if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
@@ -465,8 +466,9 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
         ColumnIterator* inner_iter;
         RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
         DCHECK(opt);
-        *iterator = new SparseColumnExtractReader(
-                relative_path.get_path(), std::unique_ptr<ColumnIterator>(inner_iter), nullptr);
+        *iterator = new SparseColumnExtractReader(relative_path.get_path(),
+                                                  std::unique_ptr<ColumnIterator>(inner_iter),
+                                                  nullptr, target_col);
         return Status::OK();
     }
 
