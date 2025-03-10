@@ -25,14 +25,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** BottomUpVisitorRewriteJob */
 public class BottomUpVisitorRewriteJob implements RewriteJob {
-    private final Rules rules;
     private static AtomicInteger batchId = new AtomicInteger(0);
+    private final Rules rules;
 
     public BottomUpVisitorRewriteJob(Rules rules) {
         this.rules = rules;
@@ -88,8 +89,9 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
 
     private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
+        BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
-            if (!currentRule.getPattern().matchPlanTree(plan)) {
+            if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(plan)) {
                 continue;
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
