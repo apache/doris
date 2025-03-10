@@ -1440,9 +1440,12 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
-    4: optional list<i64> dropped_partitions
-    5: optional list<i64> dropped_tables
-    6: optional list<i64> dropped_indexes
+    4: optional list<i64> dropped_partitions    // DEPRECATED
+    5: optional list<i64> dropped_tables        // DEPRECATED
+    6: optional list<i64> dropped_indexes       // DEPRECATED
+    7: optional map<i64, i64> dropped_partition_map     // id -> commit seq
+    8: optional map<i64, i64> dropped_table_map         // id -> commit seq
+    9: optional map<i64, i64> dropped_index_map         // id -> commit seq
 }
 
 struct TGetMetaResult {

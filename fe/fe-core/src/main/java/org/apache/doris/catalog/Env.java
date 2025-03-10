@@ -6689,9 +6689,26 @@ public class Env {
 
         if (Config.enable_feature_binlog) {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
-            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
-            dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
-            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
+            // id -> commit seq
+            List<Pair<Long, Long>> droppedPartitions = binlogManager.getDroppedPartitions(db.getId());
+            List<Pair<Long, Long>> droppedTables = binlogManager.getDroppedTables(db.getId());
+            List<Pair<Long, Long>> droppedIndexes = binlogManager.getDroppedIndexes(db.getId());
+            dbMeta.setDroppedPartitionMap(droppedPartitions.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            dbMeta.setDroppedTableMap(droppedTables.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            dbMeta.setDroppedIndexMap(droppedIndexes.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            // Keep compatibility with old version
+            dbMeta.setDroppedPartitions(droppedPartitions.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
+            dbMeta.setDroppedTables(droppedTables.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
+            dbMeta.setDroppedIndexes(droppedIndexes.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
         }
 
         result.setDbMeta(dbMeta);
