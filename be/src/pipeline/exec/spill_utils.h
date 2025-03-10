@@ -25,6 +25,7 @@
 #include <functional>
 #include <utility>
 
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
@@ -153,6 +154,7 @@ public:
 
         auto status = _spill_exec_func();
         if (!status.ok()) {
+            DCHECK(ExecEnv::GetInstance()->fragment_mgr() != nullptr);
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status);
         }
 
