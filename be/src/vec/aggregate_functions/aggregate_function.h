@@ -184,6 +184,11 @@ public:
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
+    virtual void insert_result_into_pos(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                        size_t pos) const {
+        insert_result_into(place, to);
+    }
+
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
                                         const size_t offset, IColumn& to,
                                         const size_t num_rows) const = 0;
