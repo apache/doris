@@ -59,8 +59,8 @@ public class IndexesProcNodeTest {
         indexes.add(indexBf);
         indexes.add(indexNgramBf);
 
-        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", Lists.newArrayList(new Column()), KeysType.DUP_KEYS, new PartitionInfo(),
-                new HashDistributionInfo(), new TableIndexes(indexes));
+        OlapTable table = new OlapTable(1, "tbl_test_indexes_proc", false, Lists.newArrayList(new Column()),
+                KeysType.DUP_KEYS, new PartitionInfo(), new HashDistributionInfo(), new TableIndexes(indexes));
 
         IndexesProcNode indexesProcNode = new IndexesProcNode(table);
         ProcResult procResult = indexesProcNode.fetchResult();

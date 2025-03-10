@@ -111,6 +111,8 @@ public interface DatabaseIf<T extends TableIf> {
 
     T getTableNullable(String tableName);
 
+    T getNonTempTableNullable(String tableName);
+
     default T getTableNullableIfException(String tableName) {
         try {
             return getTableNullable(tableName);
@@ -139,6 +141,15 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default <E extends Exception> T getNonTempTableOrException(String tableName,
+            java.util.function.Function<String, E> e) throws E {
+        T table = getNonTempTableNullable(tableName);
+        if (table == null) {
+            throw e.apply(tableName);
+        }
+        return table;
+    }
+
     default <E extends Exception> T getTableOrException(long tableId, Function<Long, E> e) throws E {
         T table = getTableNullable(tableId);
         if (table == null) {
@@ -152,6 +163,11 @@ public interface DatabaseIf<T extends TableIf> {
                                                         ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
+    default T getNonTempTableOrMetaException(String tableName) throws MetaNotFoundException {
+        return getNonTempTableOrException(tableName, t -> new MetaNotFoundException("table not found, tableName=" + t,
+            ErrorCode.ERR_BAD_TABLE_ERROR));
+    }
+
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
         return getTableOrException(tableId, t -> new MetaNotFoundException("table not found, tableId=" + t,
                                                         ErrorCode.ERR_BAD_TABLE_ERROR));
@@ -163,6 +179,17 @@ public interface DatabaseIf<T extends TableIf> {
         if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
                     "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
+        }
+        return table;
+    }
+
+    default T getNonTempTableOrMetaException(String tableName, TableIf.TableType tableType)
+            throws MetaNotFoundException {
+        T table = getNonTempTableOrMetaException(tableName);
+        TableType type = Objects.requireNonNull(table.getType(), "table type not found, type = " + table.getType());
+        if (type != tableType && type.getParentType() != tableType) {
+            throw new MetaNotFoundException(
+                "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
         }
         return table;
     }
@@ -256,7 +283,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
         T table = getTableOrAnalysisException(tableName);
-        if (!(table instanceof OlapTable)) {
+        if (!(table instanceof OlapTable) && !(table.isTemporary())) {
             throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;
