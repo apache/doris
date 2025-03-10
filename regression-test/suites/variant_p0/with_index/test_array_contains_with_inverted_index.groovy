@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_contains_with_inverted_index"){
+suite("test_array_contains_with_inverted_index") {
     // prepare test table
     def indexTblName = "tai"
     sql "set disable_inverted_index_v1_for_variant = false"

@@ -150,8 +150,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
-    // int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
-    int rand_subcolumns_count = 10;
+    int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
+    // int rand_subcolumns_count = 0;
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -206,14 +206,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             v variant not null
         )
         UNIQUE KEY(`k`)
-<<<<<<< HEAD:regression-test/suites/variant_github_events_p2/load.groovy
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false",
-                            "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
-=======
-        DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
->>>>>>> upstream-apache/master:regression-test/suites/variant_github_events_nonConcurrent_p2/load.groovy
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""

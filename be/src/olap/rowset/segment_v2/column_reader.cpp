@@ -461,11 +461,15 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     }
 
     // if path exists in sparse column, read sparse column with extract reader
-    if (existed_in_sparse_column) {
-        // Sparse column exists or reached sparse size limit, read sparse column
+    if (existed_in_sparse_column && !node) {
+        // node should be nullptr, example
+        // {"b" : {"c":456}}   b.c in subcolumn
+        // {"b" : 123}         b in sparse column
+        // Then we should use hierarchical reader to read b
         ColumnIterator* inner_iter;
         RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
         DCHECK(opt);
+        // Sparse column exists or reached sparse size limit, read sparse column
         *iterator = new SparseColumnExtractReader(relative_path.get_path(),
                                                   std::unique_ptr<ColumnIterator>(inner_iter),
                                                   nullptr, target_col);

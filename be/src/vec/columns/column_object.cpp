@@ -2081,7 +2081,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size());
              ++i) {
             // if too many null values, then consider it as sparse column
-            if ((double) sorted_by_size[i].second < (double) num_rows * 0.95) {
+            if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
                 continue;
             }
             selected_path.insert(sorted_by_size[i].first);

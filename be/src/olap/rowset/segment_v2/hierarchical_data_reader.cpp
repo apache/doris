@@ -24,9 +24,9 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
-#include "vec/columns/column_nothing.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type.h"
@@ -427,6 +427,14 @@ Status HierarchicalDataReader::_init_null_map_and_clear_columns(
             dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
             // clear nullmap and inner data
             src_null_map.clear();
+        } else {
+            if (dst->is_nullable()) {
+                // No nullable info exist in hirearchical data, fill nullmap with all none null
+                ColumnUInt8& dst_null_map =
+                        assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
+                dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+            }
         }
         _root_reader->column->clear();
     } else {
