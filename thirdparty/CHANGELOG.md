@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20250310
+
+- Modified: cctz 2.3 -> 2.4
+
 ## 20250225
 
 - Modified: hadoop-libs 3.3.6.4 -> 3.3.6.5
