@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -438,6 +439,21 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // TODO: same action will be taken for set operation
         for (Expression expression : project.getProjects()) {
             if (expression.children().isEmpty()) {
+                continue;
+            }
+            /*
+             * join(#5=#6)
+             *   -->project(null as #5)
+             *       --> any
+             *   -->project(#6)
+             *       --->scan(T[#5, #6])
+             *
+             * both left tree and right tree contain exprId=5.
+             * remove #5 from alias map to avoid generate wrong rf
+             */
+            if (expression instanceof Alias && expression.child(0) instanceof Literal) {
+                Alias alias = (Alias) expression;
+                ctx.aliasTransferMapRemove(alias.toSlot());
                 continue;
             }
             Expression expr = ExpressionUtils.getSingleNumericSlotOrExpressionCoveredByCast(expression.child(0));
