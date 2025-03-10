@@ -30,10 +30,14 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -46,6 +50,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class S3ResourceTest {
+    private static final Logger LOG = LogManager.getLogger(S3ResourceTest.class);
     private String name;
     private String type;
 
@@ -237,5 +242,35 @@ public class S3ResourceTest {
         S3Resource s3Resource = new S3Resource("s3_2");
         s3Resource.setProperties(properties);
         Assert.assertEquals(s3Resource.getProperty(S3Properties.ENDPOINT), "https://aaa");
+    }
+
+    @Test
+    public void testPingS3() {
+        try {
+            String accessKey = System.getenv("ACCESS_KEY");
+            String secretKey = System.getenv("SECRET_KEY");
+            String bucket = System.getenv("BUCKET");
+            String endpoint = System.getenv("ENDPOINT");
+            String region = System.getenv("REGION");
+            String provider = System.getenv("PROVIDER");
+
+            Assume.assumeTrue("ACCESS_KEY isNullOrEmpty.", !Strings.isNullOrEmpty(accessKey));
+            Assume.assumeTrue("SECRET_KEY isNullOrEmpty.", !Strings.isNullOrEmpty(secretKey));
+            Assume.assumeTrue("BUCKET isNullOrEmpty.", !Strings.isNullOrEmpty(bucket));
+            Assume.assumeTrue("ENDPOINT isNullOrEmpty.", !Strings.isNullOrEmpty(endpoint));
+            Assume.assumeTrue("REGION isNullOrEmpty.", !Strings.isNullOrEmpty(region));
+            Assume.assumeTrue("PROVIDER isNullOrEmpty.", !Strings.isNullOrEmpty(provider));
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("s3.endpoint", endpoint);
+            properties.put("s3.region", region);
+            properties.put("s3.access_key", accessKey);
+            properties.put("s3.secret_key", secretKey);
+            properties.put("provider", provider);
+            S3Resource.pingS3(bucket, "fe_ut_prefix", properties);
+        } catch (DdlException e) {
+            LOG.info("testPingS3 exception:", e);
+            Assert.assertTrue(e.getMessage(), false);
+        }
     }
 }
