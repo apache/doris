@@ -61,7 +61,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
     debug_string = local_state->debug_string(0);
     std::cout << "debug string: " << debug_string << std::endl;
 
-    ASSERT_TRUE(local_state->custom_profile()->pretty_print().find("ExecTime") !=
+    ASSERT_TRUE(local_state->operator_profile()->pretty_print().find("ExecTime") !=
                 std::string::npos);
 }
 
