@@ -15,9 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <memory>
 #include <string>
 
@@ -25,12 +22,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gtest/gtest.h"
-#include "gtest/gtest_pred_impl.h"
-#include "http/ev_http_server.h"
-#include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
-#include "olap/storage_engine.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
@@ -38,14 +31,12 @@
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "service/backend_service.h"
 #include "service/http_service.h"
 #include "test_util.h"
 #include "testutil/http_utils.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "util/thrift_server.h"
 
 int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -105,6 +96,7 @@ int main(int argc, char** argv) {
     listeners.Append(new TestListener);
     doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
+    google::ParseCommandLineFlags(&argc, &argv, false);
     int res = RUN_ALL_TESTS();
 
     doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
