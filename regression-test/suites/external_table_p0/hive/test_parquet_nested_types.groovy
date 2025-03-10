@@ -132,11 +132,11 @@ suite("test_parquet_nested_types", "p0,external,hive,external_docker,external_do
         order_qt_nested_cross_page2_parquet_q5 """
             SELECT
                 id,
-                STRUCT_ELEMENT(e1, 'x'),
-                STRUCT_ELEMENT(e1, 'y'),
+                STRUCT_ELEMENT(item, 'x'),
+                STRUCT_ELEMENT(item, 'y')
             FROM nested_cross_page2_parquet
             LATERAL VIEW EXPLODE(array_struct_col) tmp AS item
-            WHERE id = 1 AND STRUCT_ELEMENT(e1, 'x') > 100
+            WHERE id = 1 AND STRUCT_ELEMENT(item, 'x') > 100
         """
 
         order_qt_nested_cross_page2_parquet_q6 """
