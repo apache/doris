@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -78,12 +77,13 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
     private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
         List<Rule> currentRules = rules.getCurrentRules(plan);
+        BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
         for (Rule currentRule : currentRules) {
-            if (!currentRule.getPattern().matchPlanTree(plan)) {
+            if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(plan)) {
                 continue;
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
-            if (!transform.isEmpty() && transform.get(0) != plan) {
+            if (!transform.isEmpty() && !transform.get(0).deepEquals(plan)) {
                 return transform.get(0);
             }
         }
@@ -97,14 +97,14 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
             return Optional.empty();
         }
 
-        Rules enableRules = originRules;
-        if (validRules.size() != originRules.getAllRules().size()) {
-            enableRules = new FilteredRules(validRules);
-        }
-
-        if (enableRules.getCurrentAndChildrenRules(plan).isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(enableRules);
+        // Rules enableRules = originRules;
+        // if (validRules.size() != originRules.getAllRules().size()) {
+        //     enableRules = new FilteredRules(validRules);
+        // }
+        //
+        // if (enableRules.getCurrentAndChildrenRules(plan).isEmpty()) {
+        //     return Optional.empty();
+        // }
+        return Optional.of(originRules);
     }
 }

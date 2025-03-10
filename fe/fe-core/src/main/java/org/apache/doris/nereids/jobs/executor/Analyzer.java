@@ -102,9 +102,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateLogicalSelectHint()),
             bottomUp(
                     new BindRelation(),
-                    new CheckPolicy()
+                    new CheckPolicy(),
+                    new BindExpression()
             ),
-            bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(new AddInitMaterializationHook()),

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -57,7 +58,7 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         Optional<CTEId> cteId = jobContext.getCascadesContext().getCurrentTree();
-        if (cteId.isPresent()) {
+        if (cteId.isPresent() || !plan.containsType(Aggregate.class)) {
             return plan;
         }
         Map<ExprId, ExprId> replaceMap = new HashMap<>();

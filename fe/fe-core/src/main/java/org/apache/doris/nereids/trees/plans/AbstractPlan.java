@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -27,14 +26,12 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.json.JSONArray;
@@ -44,6 +41,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -74,7 +72,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             LogicalProperties logicalProperties = optLogicalProperties.get();
             this.logicalPropertiesSupplier = () -> logicalProperties;
         } else {
-            this.logicalPropertiesSupplier = Suppliers.memoize(this::computeLogicalProperties);
+            this.logicalPropertiesSupplier = new LazyCompute<>(this::computeLogicalProperties);
         }
         this.statistics = statistics;
         this.id = StatementScopeIdGenerator.newObjectId();
@@ -230,7 +228,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     private Supplier<Boolean> buildHasUnboundChildCache() {
-        return Suppliers.memoize(() -> {
+        return new LazyCompute<>(() -> {
             if (hasUnboundExpression()) {
                 return true;
             }

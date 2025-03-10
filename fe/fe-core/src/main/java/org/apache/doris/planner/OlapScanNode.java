@@ -749,7 +749,7 @@ public class OlapScanNode extends ScanNode {
 
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
-        long visibleVersion;// = Partition.PARTITION_INIT_VERSION;
+        long visibleVersion; // = Partition.PARTITION_INIT_VERSION;
         // String visibleVersionStr = "1";
 
         // For cloud mode, set scan range visible version in Coordinator.exec so that we could

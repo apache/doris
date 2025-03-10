@@ -21,30 +21,21 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.httpv2.entity.ResponseBody;
-import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.persist.MetaCleaner;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.system.Frontend;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.util.Iterator;
-import java.util.List;
 
 /**
  * Checkpoint daemon is running on master node. handle the checkpoint work for palo.

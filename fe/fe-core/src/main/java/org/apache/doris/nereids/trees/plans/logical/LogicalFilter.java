@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
@@ -78,6 +77,11 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public Expression getPredicate() {
         return predicate.get();
+    }
+
+    @Override
+    public List<Slot> getOutput() {
+        return child().getOutput();
     }
 
     public List<Expression> getExpressions() {

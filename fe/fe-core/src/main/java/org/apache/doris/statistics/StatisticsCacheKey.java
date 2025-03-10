@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Objects;
 import java.util.StringJoiner;
 
 public class StatisticsCacheKey {

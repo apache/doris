@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 
 import com.google.common.collect.ImmutableList;
 

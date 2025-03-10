@@ -95,8 +95,9 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
             if ((selectedTabletIds.isEmpty() && olapScan.getManuallySpecifiedTabletIds().isEmpty())) {
                 return null;
-            } else if (!selectedTabletIds.isEmpty() && !olapScan.getManuallySpecifiedTabletIds().isEmpty() &&
-                    new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getManuallySpecifiedTabletIds()))) {
+            } else if (!selectedTabletIds.isEmpty() && !olapScan.getManuallySpecifiedTabletIds().isEmpty()
+                    && new HashSet<>(selectedTabletIds).equals(
+                            new HashSet<>(olapScan.getManuallySpecifiedTabletIds()))) {
                 return null;
             }
             return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));

@@ -48,8 +48,8 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                boolean needGlobalAggregate = false;
                for (NamedExpression output : project.getProjects()) {
                    if (output.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null)) {
-                        needGlobalAggregate = true;
-                        break;
+                       needGlobalAggregate = true;
+                       break;
                    }
                }
 

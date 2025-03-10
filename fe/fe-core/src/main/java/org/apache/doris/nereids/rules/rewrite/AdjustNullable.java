@@ -294,7 +294,27 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     }
 
     private <T extends Expression> T updateExpression(T input, Map<ExprId, Slot> replaceMap) {
-        return (T) input.rewriteDownShortCircuit(e -> e.accept(SlotReferenceReplacer.INSTANCE, replaceMap));
+        Expression replaced = input.rewriteDownShortCircuit(e -> {
+            if (e instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) e;
+                Slot replacedSlot = replaceMap.get(slotReference.getExprId());
+                if (replacedSlot != null) {
+                    if (replacedSlot.getDataType().isAggStateType()) {
+                        // we must replace data type, because nested type and agg state contains nullable of their children.
+                        // TODO: remove if statement after we ensure be constant folding do not change expr type at all.
+                        return slotReference.withNullableAndDataType(replacedSlot.nullable(),
+                                replacedSlot.getDataType());
+                    } else {
+                        return slotReference.withNullable(replacedSlot.nullable());
+                    }
+                } else {
+                    return slotReference;
+                }
+            } else {
+                return e;
+            }
+        });
+        return (T) replaced;
     }
 
     private <T extends Expression> List<T> updateExpressions(List<T> inputs, Map<ExprId, Slot> replaceMap) {
@@ -311,25 +331,5 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             result.add(updateExpression(input, replaceMap));
         }
         return result.build();
-    }
-
-    private static class SlotReferenceReplacer extends DefaultExpressionRewriter<Map<ExprId, Slot>> {
-        public static SlotReferenceReplacer INSTANCE = new SlotReferenceReplacer();
-
-        @Override
-        public Expression visitSlotReference(SlotReference slotReference, Map<ExprId, Slot> context) {
-            if (context.containsKey(slotReference.getExprId())) {
-                Slot slot = context.get(slotReference.getExprId());
-                if (slot.getDataType().isAggStateType()) {
-                    // we must replace data type, because nested type and agg state contains nullable of their children.
-                    // TODO: remove if statement after we ensure be constant folding do not change expr type at all.
-                    return slotReference.withNullableAndDataType(slot.nullable(), slot.getDataType());
-                } else {
-                    return slotReference.withNullable(slot.nullable());
-                }
-            } else {
-                return slotReference;
-            }
-        }
     }
 }

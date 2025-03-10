@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,7 +35,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -55,6 +53,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     // private final Semaphore semaphore = new Semaphore(1);
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private final AtomicBoolean lock = new AtomicBoolean(false);
+    private volatile long lastWarnTime;
     // private AtomicBoolean spinLock = new AtomicBoolean();
 
     private class BeReportInfo {
@@ -116,9 +115,14 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
-                        queryAuditEventList.size());
+                long now = System.currentTimeMillis();
+
+                if (now - lastWarnTime >= 1000) {
+                    lastWarnTime = now;
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                    + "you can check whether qps is too high or reset audit_event_log_queue_size",
+                            queryAuditEventList.size());
+                }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event, true);
                 return;
             }

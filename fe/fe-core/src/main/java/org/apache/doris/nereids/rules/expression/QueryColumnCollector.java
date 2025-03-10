@@ -28,11 +28,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -41,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -75,7 +74,8 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
      * Context.
      */
     public static class CollectorContext {
-        public Map<Slot/*project output column*/, NamedExpression/*Actual project expr*/> projects = new LinkedHashMap<>();
+        public Map<Slot/*project output column*/, NamedExpression/*Actual project expr*/> projects
+                = new LinkedHashMap<>();
 
         public Set<Slot> highPriority = new LinkedHashSet<>();
 
@@ -94,13 +94,20 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
                 || project.child() instanceof LogicalFilter
                 && ((LogicalFilter<?>) project.child()).child() instanceof LogicalCatalogRelation) {
 
-            Set<Slot> allUsed = project.getInputSlots();
+            BitSet bitSet = new BitSet();
+            for (NamedExpression output : project.getOutputs()) {
+                output.foreach(e -> {
+                    if (e instanceof Slot) {
+                        bitSet.set(((Slot) e).getExprId().asInt());
+                    }
+                });
+            }
             LogicalCatalogRelation scan = project.child() instanceof LogicalCatalogRelation
                     ? (LogicalCatalogRelation) project.child()
                     : (LogicalCatalogRelation) project.child().child(0);
             List<Slot> outputOfScan = scan.getOutput();
             for (Slot slot : outputOfScan) {
-                if (!allUsed.contains(slot)) {
+                if (!bitSet.get(slot.getExprId().asInt())) {
                     context.midPriority.remove(slot);
                 }
             }
@@ -140,20 +147,6 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
                 .flatMap(s -> backtrace(s, context).stream())
                 .collect(Collectors.toSet()));
         return having;
-    }
-
-    @Override
-    public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, CollectorContext context) {
-        List<Slot> slots = olapScan.getOutput();
-        context.midPriority.addAll(slots);
-        return olapScan;
-    }
-
-    @Override
-    public Plan visitLogicalFileScan(LogicalFileScan fileScan, CollectorContext context) {
-        List<Slot> slots = fileScan.getOutput();
-        context.midPriority.addAll(slots);
-        return fileScan;
     }
 
     @Override
