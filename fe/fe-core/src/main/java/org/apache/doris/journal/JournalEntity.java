@@ -955,6 +955,16 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_OUTLINE: {
+                data = CreateTableInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_OUTLINE: {
+                data = CreateTableInfo.read(in);
+                isRead = true;
+                break;
+            }
             // FIXME: support cloud related operation types.
             case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                 data = UpdateCloudReplicaInfo.read(in);
