@@ -994,6 +994,7 @@ struct TSortNode {
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
+  12: optional bool use_local_merge
 }
 
 enum TopNAlgorithm {
