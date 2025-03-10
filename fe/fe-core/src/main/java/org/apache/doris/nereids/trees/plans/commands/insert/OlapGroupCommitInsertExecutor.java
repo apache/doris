@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
@@ -133,12 +134,14 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
                     () -> "not allowModifyMTMVData"));
             conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
-            conditions.add(Pair.of(
-                    () -> tableSink.child() instanceof OneRowRelation
-                            || tableSink.child() instanceof LogicalUnion
-                            || tableSink.child() instanceof InlineTable,
-                    () -> "not one row relation or union or inline table, class: "
-                            + tableSink.child().getClass().getName()));
+            Plan tableSinkChild = tableSink.child();
+            conditions.add(Pair.of(() -> tableSinkChild instanceof OneRowRelation
+                            || (tableSinkChild instanceof LogicalUnion
+                            && tableSinkChild.getExpressions().size() > 0)
+                            || tableSinkChild instanceof InlineTable,
+                    () -> "should be one row relation or union or inline table, class: "
+                            + tableSinkChild.getClass().getName() + (tableSinkChild instanceof LogicalUnion
+                            ? ", expression size is 0" : "")));
             ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
