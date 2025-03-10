@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
@@ -393,6 +394,21 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitYear(Year year, Statistics context) {
         ColumnStatistic childStat = year.child().accept(this, context);
+        double rowCount = context.getRowCount();
+        long minYear = 1970;
+        long maxYear = 2038;
+        return new ColumnStatisticBuilder()
+                .setNdv(maxYear - minYear + 1)
+                .setAvgSizeByte(4)
+                .setNumNulls(childStat.numNulls)
+                .setDataSize(4 * rowCount)
+                .setMinValue(minYear)
+                .setMaxValue(maxYear).setMinExpr(null).build();
+    }
+
+    @Override
+    public ColumnStatistic visitYearOfWeek(YearOfWeek yearOfWeek, Statistics context) {
+        ColumnStatistic childStat = yearOfWeek.child().accept(this, context);
         double rowCount = context.getRowCount();
         long minYear = 1970;
         long maxYear = 2038;

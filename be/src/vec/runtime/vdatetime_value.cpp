@@ -3735,6 +3735,32 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
     }
 }
 
+// An ISO week-numbering year (also called ISO year informally) has 52 or 53 full weeks. That is 364 or 371 days instead of the usual 365 or 366 days. These 53-week years occur on all years that have Thursday as 1 January and on leap years that start on Wednesday. The extra week is sometimes referred to as a leap week, although ISO 8601 does not use this term. https://en.wikipedia.org/wiki/ISO_week_date
+template <typename T>
+uint16_t DateV2Value<T>::year_of_week() const {
+    constexpr uint8_t THURSDAY = 3;
+
+    if (date_v2_value_.month_ == 1) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = 6 - THURSDAY;
+        if (date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is after Thursday and Thursday is in the previous year, return the previous year
+            return date_v2_value_.year_ -
+                   (weekday > THURSDAY && weekday - THURSDAY > date_v2_value_.day_ - 1);
+        }
+    } else if (date_v2_value_.month_ == 12) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = THURSDAY - 0;
+        if (S_DAYS_IN_MONTH[12] - date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is before Thursday and Thursday is in the next year, return the next year
+            return date_v2_value_.year_ +
+                   (weekday < THURSDAY &&
+                    (THURSDAY - weekday) > S_DAYS_IN_MONTH[12] - date_v2_value_.day_);
+        }
+    }
+    return date_v2_value_.year_;
+}
+
 template <typename T>
 uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,

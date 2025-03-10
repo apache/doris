@@ -58,6 +58,7 @@ namespace doris::vectorized {
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
 TO_TIME_FUNCTION(ToDayImpl, day);
@@ -377,8 +378,8 @@ struct Transformer {
     }
 };
 
-template <typename FromType, typename ToType>
-struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
+template <typename FromType, typename ToType, template <typename> typename Impl>
+struct TransformerYear {
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
                        NullMap& null_map) {
         size_t size = vec_from.size();
@@ -390,7 +391,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict null_map_ptr = null_map.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
 
         for (size_t i = 0; i < size; ++i) {
@@ -406,8 +407,30 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict from_ptr = vec_from.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
+    }
+};
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
+                       NullMap& null_map) {
+        TransformerYear<FromType, ToType, ToYearImpl>::vector(vec_from, vec_to, null_map);
+    }
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        TransformerYear<FromType, ToType, ToYearImpl>::vector(vec_from, vec_to);
+    }
+};
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>> {
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
+                       NullMap& null_map) {
+        TransformerYear<FromType, ToType, ToYearOfWeekImpl>::vector(vec_from, vec_to, null_map);
+    }
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        TransformerYear<FromType, ToType, ToYearOfWeekImpl>::vector(vec_from, vec_to);
     }
 };
 
