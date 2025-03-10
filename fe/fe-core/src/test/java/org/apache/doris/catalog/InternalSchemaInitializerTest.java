@@ -316,11 +316,9 @@ class InternalSchemaInitializerTest {
         }
 
         Assertions.assertFalse(hasLocalStorageClause,
-                "AlterClause should not be generated for an existing scan_bytes_from_local_storage column,
-                        even if the types do not match");
+                "AlterClause should not be generated for an existing scan_bytes_from_local_storage column, even if the types do not match");
         Assertions.assertFalse(hasRemoteStorageClause,
-                "AlterClause should not be generated for an existing scan_bytes_from_remote_storage column,
-                        even if the types do not match");
+                "AlterClause should not be generated for an existing scan_bytes_from_remote_storage column, even if the types do not match");
 
         Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
         Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
