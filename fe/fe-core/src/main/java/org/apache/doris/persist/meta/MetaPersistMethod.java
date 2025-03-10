@@ -260,6 +260,13 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("savePlsqlProcedure",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "outline":
+                metaPersistMethod.readMethod =
+                    Env.class.getDeclaredMethod("loadOutlines", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                    Env.class.getDeclaredMethod("saveOutlines", CountingDataOutputStream.class,
+                        long.class);
+                break;
             default:
                 break;
         }
