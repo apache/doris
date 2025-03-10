@@ -146,6 +146,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -282,6 +283,7 @@ public class StmtExecutor {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private String stmtName;
+    private String prepareStmtName; // for prox
     private String mysqlLoadId;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
@@ -704,8 +706,12 @@ public class StmtExecutor {
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
-            logicalPlan = new PrepareCommand(String.valueOf(stmtId),
-                    logicalPlan, statementContext.getPlaceholders(), originStmt);
+            this.prepareStmtName = String.valueOf(stmtId);
+            // When proxy executing, this.statementContext is created in constructor.
+            // But context.statementContext is created in LogicalPlanBuilder.
+            List<Placeholder> placeholders = context == null
+                    ? statementContext.getPlaceholders() : context.getStatementContext().getPlaceholders();
+            logicalPlan = new PrepareCommand(prepareStmtName, logicalPlan, placeholders, originStmt);
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
@@ -726,8 +732,7 @@ public class StmtExecutor {
                     if (logicalPlan instanceof InsertIntoTableCommand) {
                         profileType = ProfileType.LOAD;
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
-                            || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -3682,5 +3687,9 @@ public class StmtExecutor {
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
+    }
+
+    public String getPrepareStmtName() {
+        return this.prepareStmtName;
     }
 }
