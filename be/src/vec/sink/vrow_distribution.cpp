@@ -486,19 +486,27 @@ void VRowDistribution::_reset_row_part_tablet_ids(
 Status VRowDistribution::generate_rows_distribution(
         vectorized::Block& input_block, std::shared_ptr<vectorized::Block>& block,
         int64_t& filtered_rows, bool& has_filtered_rows,
-        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val) {
+        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val, bool reentry) {
     auto input_rows = input_block.rows();
     _reset_row_part_tablet_ids(row_part_tablet_ids, input_rows);
 
     int64_t prev_filtered_rows =
             _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
-    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 
-    // batching block rows which need new partitions. deal together at finish.
-    if (!_batching_block) [[unlikely]] {
-        std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
-        _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
+    if (reentry) {
+        // if reentry, means the block is batching block which has been converted. dont convert again.
+        block = vectorized::Block::create_shared(input_block.get_columns_with_type_and_name());
+        VLOG_DEBUG << "Reentry! block is: " << block->dump_data();
+    } else {
+        RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
+                _state, &input_block, block, *_vec_output_expr_ctxs, input_rows,
+                has_filtered_rows));
+
+        // batching block rows which need new partitions. deal together at finish.
+        if (!_batching_block) [[unlikely]] {
+            std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+            _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
+        }
     }
 
     auto num_rows = block->rows();
