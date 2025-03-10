@@ -243,7 +243,6 @@ suite("check_before_quit", "nonConcurrent,p0") {
         for (int j = 0; j < allTables.size(); j++) {
             def tbl = allTables[j][0]
             def createTableSql = ""
-            def isNotLightSchemaChanged = false
             try {
                 createTableSql = sql "show create table ${db}.${tbl}"
                 logger.info("create table sql: ${createTableSql}")
@@ -263,10 +262,6 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 }
             }
 
-            if (!createTableSql[0][1].contains("\"light_schema_change\" = \"true\"")) {
-                isNotLightSchemaChanged = true
-            }
-
             if (createTableSql[0][1].contains("CREATE VIEW")) {
                 sql "drop view if exists ${tbl}"
             } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
@@ -277,11 +272,9 @@ suite("check_before_quit", "nonConcurrent,p0") {
                 // so recreate view may fail
                 sql(createTableSql[0][1])
                 def createTableSqlResult = sql "show create table ${tbl}"
-                logger.info("create table/view sql result info: ${createTableSqlResult}")
+                logger.info("target: ${createTableSqlResult[0][1]}, origin: ${createTableSql[0][1]}")
 
-                createTableSqlResult = createTableSqlResult[0][1].replaceAll(",?\\s*light_schema_change = true", "")
-                
-                assertEquals(createTableSqlResult, createTableSql[0][1])
+                assertEquals(createTableSqlResult[0][1].trim(), createTableSql[0][1].trim())
             }
         }
     }
