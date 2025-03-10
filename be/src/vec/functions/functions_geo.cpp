@@ -626,385 +626,116 @@ struct StCircle {
     }
 };
 
-struct StContains {
+template <typename Func>
+struct StRelationFunction {
     static constexpr auto NEED_CONTEXT = true;
+    static constexpr auto NAME = Func::NAME;
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeUInt8;
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+        auto return_type = block.get_data_type(result);
+        const auto& [left_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto size = std::max(left_column->size(), right_column->size());
+
+        auto res = ColumnUInt8::create();
+        res->reserve(size);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+
+        if (left_const) {
+            const_vector(left_column, right_column, res, null_map_data, size);
+        } else if (right_const) {
+            vector_const(left_column, right_column, res, null_map_data, size);
+        } else {
+            vector_vector(left_column, right_column, res, null_map_data, size);
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+
+    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
+                        std::vector<std::shared_ptr<GeoShape>>& shapes,
+                        ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
+        StringRef* strs[2] = {&lhs_value, &rhs_value};
+        for (int i = 0; i < 2; ++i) {
+            shapes[i] =
+                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            if (shapes[i] == nullptr) {
+                null_map[row] = 1;
+                res->insert_default();
+                break;
+            }
+        }
+        auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
+        res->insert_data(const_cast<const char*>((char*)&relation_value), 0);
+    }
+
+    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
+        auto lhs_value = left_column->get_data_at(0);
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        for (int row = 0; row < size; ++row) {
+            auto rhs_value = right_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+
+    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
+        auto rhs_value = right_column->get_data_at(0);
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = left_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+
+    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
+                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        for (int row = 0; row < size; ++row) {
+            auto lhs_value = left_column->get_data_at(row);
+            auto rhs_value = right_column->get_data_at(row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
+        }
+    }
+
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+
+    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+};
+
+struct StContainsFunc {
     static constexpr auto NAME = "st_contains";
-    static const size_t NUM_ARGS = 2;
-    using Type = DataTypeUInt8;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->contains(shape2); }
+};
 
-        const auto size = std::max(left_column->size(), right_column->size());
-
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
-        auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
-
-        if (left_const) {
-            const_vector(left_column, right_column, res, null_map_data, size);
-        } else if (right_const) {
-            vector_const(left_column, right_column, res, null_map_data, size);
-        } else {
-            vector_vector(left_column, right_column, res, null_map_data, size);
-        }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
-        return Status::OK();
-    }
-
-    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
-                        ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
-        StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
-                null_map[row] = 1;
-                res->insert_default();
-                break;
-            }
-        }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->contains(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
-        }
-    }
-
-    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-}; // namespace doris::vectorized
-
-struct StIntersects {
-    static constexpr auto NEED_CONTEXT = true;
+struct StIntersectsFunc {
     static constexpr auto NAME = "st_intersects";
-    static const size_t NUM_ARGS = 2;
-    using Type = DataTypeUInt8;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->intersects(shape2); }
+};
 
-        const auto size = std::max(left_column->size(), right_column->size());
-
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
-        auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
-
-        if (left_const) {
-            const_vector(left_column, right_column, res, null_map_data, size);
-        } else if (right_const) {
-            vector_const(left_column, right_column, res, null_map_data, size);
-        } else {
-            vector_vector(left_column, right_column, res, null_map_data, size);
-        }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
-        return Status::OK();
-    }
-
-    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
-                        ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
-        StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
-                null_map[row] = 1;
-                res->insert_default();
-                break;
-            }
-        }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->intersects(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
-        }
-    }
-
-    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-}; // namespace doris::vectorized
-
-struct StDisjoint {
-    static constexpr auto NEED_CONTEXT = true;
+struct StDisjointFunc {
     static constexpr auto NAME = "st_disjoint";
-    static const size_t NUM_ARGS = 2;
-    using Type = DataTypeUInt8;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->disjoint(shape2); }
+};
 
-        const auto size = std::max(left_column->size(), right_column->size());
-
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
-        auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
-
-        if (left_const) {
-            const_vector(left_column, right_column, res, null_map_data, size);
-        } else if (right_const) {
-            vector_const(left_column, right_column, res, null_map_data, size);
-        } else {
-            vector_vector(left_column, right_column, res, null_map_data, size);
-        }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
-        return Status::OK();
-    }
-
-    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
-                        ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
-        StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
-                null_map[row] = 1;
-                res->insert_default();
-                break;
-            }
-        }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->disjoint(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
-        }
-    }
-
-    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-}; // namespace doris::vectorized
-
-struct StTouches {
-    static constexpr auto NEED_CONTEXT = true;
+struct StTouchesFunc {
     static constexpr auto NAME = "st_touches";
-    static const size_t NUM_ARGS = 2;
-    using Type = DataTypeUInt8;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
-        DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        const auto& [left_column, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& [right_column, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1]).column);
-
-        const auto size = std::max(left_column->size(), right_column->size());
-
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
-        auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
-
-        if (left_const) {
-            const_vector(left_column, right_column, res, null_map_data, size);
-        } else if (right_const) {
-            vector_const(left_column, right_column, res, null_map_data, size);
-        } else {
-            vector_vector(left_column, right_column, res, null_map_data, size);
-        }
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(res), std::move(null_map)));
-        return Status::OK();
-    }
-
-    static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
-                        ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
-        StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
-                null_map[row] = 1;
-                res->insert_default();
-                break;
-            }
-        }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->touches(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
-        }
-    }
-
-    static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                             ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
-                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
-        for (int row = 0; row < size; ++row) {
-            auto lhs_value = left_column->get_data_at(row);
-            auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
-        }
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-}; // namespace doris::vectorized
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
+};
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -1199,10 +930,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAngleSphere>>();
     factory.register_function<GeoFunction<StAngle>>();
     factory.register_function<GeoFunction<StAzimuth>>();
-    factory.register_function<GeoFunction<StContains>>();
-    factory.register_function<GeoFunction<StIntersects>>();
-    factory.register_function<GeoFunction<StDisjoint>>();
-    factory.register_function<GeoFunction<StTouches>>();
+    factory.register_function<GeoFunction<StRelationFunction<StContainsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();
