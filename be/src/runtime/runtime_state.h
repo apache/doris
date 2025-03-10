@@ -633,11 +633,6 @@ public:
         return -1;
     }
 
-    bool enable_local_merge_sort() const {
-        return _query_options.__isset.enable_local_merge_sort &&
-               _query_options.enable_local_merge_sort;
-    }
-
     MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;

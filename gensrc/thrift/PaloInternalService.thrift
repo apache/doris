@@ -309,7 +309,7 @@ struct TQueryOptions {
 
   112: optional i32 max_column_reader_num = 0
 
-  113: optional bool enable_local_merge_sort = false;
+  113: optional bool enable_local_merge_sort = false; // deprecated
 
   114: optional bool enable_parallel_result_sink = false;
 

@@ -30,7 +30,6 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
-class LocalMergeSortExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
@@ -54,7 +53,6 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
-    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
     template <typename BlockType>
     friend class Exchanger;
