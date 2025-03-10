@@ -184,6 +184,7 @@ private:
 
     // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
     mutable std::mutex _compaction_mtx;
+    mutable std::mutex _cumu_compaction_delay_mtx;
     // tablet_id -> submitted base compaction, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _submitted_base_compactions;
     // tablet_id -> submitted full compaction, guarded by `_compaction_mtx`
@@ -196,6 +197,8 @@ private:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    int _cumu_compaction_thread_pool_remaining_threads;
+    int _cumu_compaction_thread_pool_small_tasks_running;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;

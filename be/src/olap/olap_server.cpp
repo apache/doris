@@ -57,6 +57,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -1038,13 +1039,36 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            bool is_small_task = false;
             Defer defer {[&]() {
                 if (!force) {
                     _permit_limiter.release(permits);
                 }
                 _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                 tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+                std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+                _cumu_compaction_thread_pool_remaining_threads--;
+                if (is_small_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running--;
+                }
             }};
+            if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+                std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+                _cumu_compaction_thread_pool_remaining_threads++;
+                if (_cumu_compaction_thread_pool->max_threads() >=
+                    config::min_threads_for_cumu_delay_strategy) {
+                    if (assert_cast<CumulativeCompaction*>(compaction.get())
+                                ->should_delay_submission(
+                                        _cumu_compaction_thread_pool_remaining_threads,
+                                        _cumu_compaction_thread_pool_small_tasks_running,
+                                        is_small_task)) {
+                        long now = duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::system_clock::now().time_since_epoch())
+                                           .count();
+                        tablet->set_last_cumu_compaction_failure_time(now);
+                    }
+                }
+            }
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="

@@ -677,6 +677,30 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+        bool is_small_task = false;
+        Defer defer {[&]() {
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_remaining_threads--;
+            if (is_small_task) {
+                _cumu_compaction_thread_pool_small_tasks_running--;
+            }
+        }};
+        {
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_remaining_threads++;
+            if (_cumu_compaction_thread_pool->max_threads() >=
+                config::min_threads_for_cumu_delay_strategy) {
+                if (compaction->should_delay_submission(
+                            _cumu_compaction_thread_pool_remaining_threads,
+                            _cumu_compaction_thread_pool_small_tasks_running, is_small_task)) {
+                    long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+                                       .count();
+                    tablet->set_last_cumu_compaction_failure_time(now);
+                    erase_submitted_cumu_compaction();
+                    return;
+                }
+            }
+        }
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
