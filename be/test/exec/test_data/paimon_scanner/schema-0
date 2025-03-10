@@ -1,0 +1,51 @@
+{
+  "version" : 2,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "k",
+    "type" : "INT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "vVV",
+    "type" : "STRING"
+  }, {
+    "id" : 2,
+    "name" : "array_col",
+    "type" : {
+      "type" : "ARRAY",
+      "element" : "INT"
+    }
+  }, {
+    "id" : 3,
+    "name" : "struct_COL",
+    "type" : {
+      "type" : "ROW",
+      "fields" : [ {
+        "id" : 4,
+        "name" : "a",
+        "type" : "INT"
+      }, {
+        "id" : 5,
+        "name" : "b",
+        "type" : "STRING"
+      } ]
+    }
+  }, {
+    "id" : 6,
+    "name" : "map_COL",
+    "type" : {
+      "type" : "MAP",
+      "key" : "STRING NOT NULL",
+      "value" : "INT"
+    }
+  } ],
+  "highestFieldId" : 6,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "k" ],
+  "options" : {
+    "owner" : "root",
+    "file.format" : "parquet"
+  },
+  "timeMillis" : 1741374407429
+}
