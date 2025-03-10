@@ -15,33 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.processor.post.materialize;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
-import com.google.common.collect.ImmutableList;
+/**
+    the table and slot used to do lazy materialize
+ */
+public class MaterializeSource {
+    public final CatalogRelation relation;
+    public final SlotReference baseSlot;
 
-import java.util.Collection;
-import java.util.List;
-
-/** CatalogRelation */
-public interface CatalogRelation extends Relation {
-
-    TableIf getTable();
-
-    DatabaseIf getDatabase() throws AnalysisException;
-
-    List<String> getQualifier();
-
-    default CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
-        return this;
+    /*
+        constructor
+     */
+    public MaterializeSource(CatalogRelation relation, SlotReference baseSlot) {
+        this.relation = relation;
+        this.baseSlot = baseSlot;
     }
-
-    default List<Slot> getOperativeSlots() {
-        return ImmutableList.of();
-    }
-
 }
