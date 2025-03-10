@@ -57,6 +57,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("trigger")
                     .add("new_partition")
                     .add("user_inject")
+                    .add("enable_auto_analyze")
                     .add("last_analyze_time")
                     .build();
 
@@ -193,6 +194,7 @@ public class ShowTableStatsStmt extends ShowStmt {
             row.add("");
             row.add("");
             row.add("");
+            row.add(String.valueOf(table.autoAnalyzeEnabled()));
             row.add("");
             result.add(row);
             return new ShowResultSet(getMetaData(), result);
@@ -214,6 +216,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
+        row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
         row.add(lastAnalyzeTime.format(formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);

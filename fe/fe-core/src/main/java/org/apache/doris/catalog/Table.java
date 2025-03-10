@@ -607,4 +607,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public long getCachedRowCount() {
         return getRowCount();
     }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        return true;
+    }
 }
