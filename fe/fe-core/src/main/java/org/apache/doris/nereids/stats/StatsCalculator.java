@@ -557,13 +557,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 });
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache;
-                    if (ConnectContext.get() != null
-                            && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
-                        cache = getColumnStatsFromPartitionCacheOrTableCache(
-                                olapScan, slot, selectedPartitionNames);
-                    } else {
-                        cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
-                    }
+                    cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
+
                     if (slot.getColumn().isPresent()) {
                         cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                     }
