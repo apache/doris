@@ -58,6 +58,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         {"CREATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"UPDATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"CHECK_TIME", TYPE_DATETIME, sizeof(int128_t), true},
+        {"ACCESS_TIME", TYPE_DATETIME, sizeof(int128_t), true},
         {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -325,6 +326,26 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
     }
+    // access_time
+    {
+        std::vector<VecDateTimeValue> srcs(table_num);
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.access_time) {
+                int64_t access_time = tbl_status.access_time;
+                if (access_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(access_time, TimezoneUtils::default_time_zone);
+                    datas[i] = srcs.data() + i;
+                }
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
+    }
+ 
     // collation
     {
         std::vector<StringRef> strs(table_num);
@@ -338,12 +359,12 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
     }
     // checksum
-    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, null_datas)); }
-    // create_options
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, null_datas)); }
+    // create_options
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, null_datas)); }
     // create_comment
     {
         std::vector<StringRef> strs(table_num);
@@ -352,7 +373,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs.data() + i;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
     }
     return Status::OK();
 }
