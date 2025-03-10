@@ -778,7 +778,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
         // caculate stats for variant type
         // TODO it's tricky here, maybe come up with a better idea
-        _maybe_calculate_variant_stats(block, id, cid);
+        _maybe_calculate_variant_stats(block, id, cid, row_pos, num_rows);
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
@@ -1297,8 +1297,11 @@ inline bool SegmentWriter::_is_mow_with_cluster_key() {
 // Compaction will extend sparse column and is visible during read and write, in order to
 // persit variant stats info, we should do extra caculation during flushing segment, otherwise
 // the info is lost
-void SegmentWriter::_maybe_calculate_variant_stats(const vectorized::Block* block, size_t id,
-                                                   size_t cid) {
+void SegmentWriter::_maybe_calculate_variant_stats(
+        const vectorized::Block* block,
+        size_t id,  // id is the offset of the column in the block
+        size_t cid, // cid is the column id in TabletSchema
+        size_t row_pos, size_t num_rows) {
     // Only process sparse columns during compaction
     if (!_tablet_schema->columns()[cid]->is_sparse_column() ||
         _opts.write_type != DataWriteType::TYPE_COMPACTION) {
@@ -1319,7 +1322,8 @@ void SegmentWriter::_maybe_calculate_variant_stats(const vectorized::Block* bloc
 
         // Found matching column, calculate statistics
         auto* stats = column.mutable_variant_statistics();
-        vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column, stats);
+        vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column, stats,
+                                                         row_pos, num_rows);
 
         VLOG_DEBUG << "sparse stats columns " << stats->sparse_column_non_null_size_size();
         break;
