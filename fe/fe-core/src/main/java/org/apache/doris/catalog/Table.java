@@ -130,6 +130,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    @SerializedName(value = "isTemporary")
+    private boolean isTemporary = false;
+
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
@@ -139,6 +142,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             this.readLockThreads = Maps.newConcurrentMap();
         }
         this.commitLock = new MonitoredReentrantLock(true);
+    }
+
+    public Table(long id, String tableName, TableType type, boolean isTemporary, List<Column> fullSchema) {
+        this(id, tableName, type, fullSchema);
+        this.isTemporary = isTemporary;
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -383,6 +391,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public String getDisplayName() {
+        return isTemporary ? Util.getTempTableDisplayName(name) : name;
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }
@@ -451,6 +463,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public long getIndexLength() {
         return 0;
+    }
+
+    public boolean isTemporary() {
+        return isTemporary;
     }
 
     public TTableDescriptor toThrift() {

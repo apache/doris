@@ -44,6 +44,7 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
     private static final Logger LOG = LogManager.getLogger(CreateTableLikeStmt.class);
 
     private final boolean ifNotExists;
+    private final boolean isTemp;
     private final TableName tableName;
     private final TableName existedTableName;
     private final ArrayList<String> rollupNames;
@@ -51,7 +52,13 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
 
     public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName,
             ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
+        this(ifNotExists, false, tableName, existedTableName, rollupNames, withAllRollup);
+    }
+
+    public CreateTableLikeStmt(boolean ifNotExists, boolean isTemp, TableName tableName, TableName existedTableName,
+            ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
         this.ifNotExists = ifNotExists;
+        this.isTemp = isTemp;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
         if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup) {
@@ -63,6 +70,10 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
 
     public boolean isIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
     }
 
     public String getDbName() {
@@ -115,7 +126,11 @@ public class CreateTableLikeStmt extends DdlStmt implements NotFallbackInParser 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
+        sb.append("CREATE ");
+        if (isTemp) {
+            sb.append("TEMPORARY ");
+        }
+        sb.append("TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
         if (withAllRollup && CollectionUtils.isEmpty(rollupNames)) {
             sb.append(" WITH ROLLUP");
         }

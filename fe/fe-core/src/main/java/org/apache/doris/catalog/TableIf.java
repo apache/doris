@@ -521,4 +521,8 @@ public interface TableIf {
     boolean autoAnalyzeEnabled();
 
     TableIndexes getTableIndexes();
+
+    default boolean isTemporary() {
+        return false;
+    }
 }
