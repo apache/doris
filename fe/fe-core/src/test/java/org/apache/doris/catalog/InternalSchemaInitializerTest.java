@@ -183,52 +183,71 @@ class InternalSchemaInitializerTest {
         );
         auditTable.fullSchema = initialSchema;
 
-        List<ColumnDef> expectedSchema = Lists.newArrayList();
-        for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
-            expectedSchema.add(def);
+        ColumnDef localStorageDef = null;
+        ColumnDef remoteStorageDef = null;
+        int localStorageIndex = -1;
+        int remoteStorageIndex = -1;
+
+        for (int i = 0; i < InternalSchema.AUDIT_SCHEMA.size(); i++) {
+            ColumnDef def = InternalSchema.AUDIT_SCHEMA.get(i);
+            if (def.getName().equals("scan_bytes_from_local_storage")) {
+                localStorageDef = def;
+                localStorageIndex = i;
+            } else if (def.getName().equals("scan_bytes_from_remote_storage")) {
+                remoteStorageDef = def;
+                remoteStorageIndex = i;
+            }
         }
+
+        Assertions.assertNotNull(localStorageDef, "scan_bytes_from_local_storage column does not exist in AUDIT_SCHEMA");
+        Assertions.assertNotNull(remoteStorageDef, "scan_bytes_from_remote_storage column does not exist in AUDIT_SCHEMA");
+
+        String beforeLocalStorage = null;
+        String beforeRemoteStorage = null;
+
+        if (localStorageIndex > 0) {
+            for (int i = localStorageIndex - 1; i >= 0; i--) {
+                String prevColName = InternalSchema.AUDIT_SCHEMA.get(i).getName();
+                if (auditTable.getColumn(prevColName) != null) {
+                    beforeLocalStorage = prevColName;
+                    break;
+                }
+            }
+        }
+
+        if (remoteStorageIndex > 0) {
+            for (int i = remoteStorageIndex - 1; i >= 0; i--) {
+                String prevColName = InternalSchema.AUDIT_SCHEMA.get(i).getName();
+                if (prevColName.equals("scan_bytes_from_local_storage") || auditTable.getColumn(prevColName) != null) {
+                    beforeRemoteStorage = prevColName;
+                    break;
+                }
+            }
+        }
+
+        Assertions.assertEquals("shuffle_send_bytes", beforeLocalStorage,
+                "scan_bytes_from_local_storage should come after the shuffle_send_bytes column");
+        Assertions.assertEquals("scan_bytes_from_local_storage", beforeRemoteStorage,
+                "scan_bytes_from_remote_storage should be after the scan_bytes_from_local_storage column");
 
         List<AlterClause> alterClauses = Lists.newArrayList();
+        ColumnPosition localStoragePosition = beforeLocalStorage == null ? ColumnPosition.FIRST :
+                new ColumnPosition(beforeLocalStorage);
+        ModifyColumnClause localStorageClause = new ModifyColumnClause(localStorageDef, localStoragePosition, null, Maps.newHashMap());
+        localStorageClause.setColumn(localStorageDef.toColumn());
+        alterClauses.add(localStorageClause);
 
-        for (int i = 0; i < expectedSchema.size(); i++) {
-            ColumnDef def = expectedSchema.get(i);
-            if (auditTable.getColumn(def.getName()) == null) {
-                String afterColumn = null;
-                if (i > 0) {
-                    for (int j = i - 1; j >= 0; j--) {
-                        String prevColName = expectedSchema.get(j).getName();
-                        if (auditTable.getColumn(prevColName) != null) {
-                            afterColumn = prevColName;
-                            break;
-                        }
-                    }
-                }
-                ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
-                        new ColumnPosition(afterColumn);
-                ModifyColumnClause clause = new ModifyColumnClause(def, position, null, Maps.newHashMap());
-                clause.setColumn(def.toColumn());
-                alterClauses.add(clause);
-            }
-        }
+        ColumnPosition remoteStoragePosition = beforeRemoteStorage == null ? ColumnPosition.FIRST :
+                new ColumnPosition(beforeRemoteStorage);
+        ModifyColumnClause remoteStorageClause = new ModifyColumnClause(remoteStorageDef, remoteStoragePosition, null, Maps.newHashMap());
+        remoteStorageClause.setColumn(remoteStorageDef.toColumn());
+        alterClauses.add(remoteStorageClause);
 
-        ModifyColumnClause localStorageClause = null;
-        ModifyColumnClause remoteStorageClause = null;
+        Assertions.assertEquals(2, alterClauses.size(), "2 AlterClause should be generated");
 
-        for (AlterClause clause : alterClauses) {
-            ModifyColumnClause modifyClause = (ModifyColumnClause) clause;
-            if (modifyClause.getColumn().getName().equals("scan_bytes_from_local_storage")) {
-                localStorageClause = modifyClause;
-            } else if (modifyClause.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
-                remoteStorageClause = modifyClause;
-            }
-        }
-
-        Assertions.assertNotNull(localStorageClause, "AlterClause for scan_bytes_from_local_storage column does not exist");
-        Assertions.assertNotNull(remoteStorageClause, "AlterClause for scan_bytes_from_remote_storage column does not exist");
-
-        Assertions.assertEquals("shuffle_send_bytes", localStorageClause.getColPos().getLastCol(),
+        Assertions.assertEquals("shuffle_send_bytes", ((ModifyColumnClause) alterClauses.get(0)).getColPos().getLastCol(),
                 "scan_bytes_from_local_storage should come after the shuffle_send_bytes column");
-        Assertions.assertEquals("scan_bytes_from_local_storage", remoteStorageClause.getColPos().getLastCol(),
+        Assertions.assertEquals("scan_bytes_from_local_storage", ((ModifyColumnClause) alterClauses.get(1)).getColPos().getLastCol(),
                 "scan_bytes_from_remote_storage should be after the scan_bytes_from_local_storage column");
     }
 
@@ -297,9 +316,11 @@ class InternalSchemaInitializerTest {
         }
 
         Assertions.assertFalse(hasLocalStorageClause,
-                "AlterClause should not be generated for scan_bytes_from_local_storage column with inconsistent type");
+                "AlterClause should not be generated for an existing scan_bytes_from_local_storage column,
+                        even if the types do not match");
         Assertions.assertFalse(hasRemoteStorageClause,
-                "AlterClause should not be generated for scan_bytes_from_remote_storage column with inconsistent type");
+                "AlterClause should not be generated for an existing scan_bytes_from_remote_storage column,
+                        even if the types do not match");
 
         Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
         Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
