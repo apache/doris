@@ -110,6 +110,15 @@ public:
               _is_asc_order(is_asc_order),
               _nulls_first(nulls_first),
               _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()) {}
+#ifdef BE_TEST
+    VSortExecExprs mock_vsort_exec_exprs;
+    std::vector<bool> mock_is_asc_order;
+    std::vector<bool> mock_nulls_first;
+    Sorter()
+            : _vsort_exec_exprs(mock_vsort_exec_exprs),
+              _is_asc_order(mock_is_asc_order),
+              _nulls_first(mock_nulls_first) {}
+#endif
 
     virtual ~Sorter() = default;
 
