@@ -295,7 +295,7 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
                                          uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {
     auto s = rows;
-    DCHECK(s == size());
+    DORIS_CHECK(s == size());
 
     if (null_data) {
         for (size_t i = 0; i < s; ++i) {
@@ -326,7 +326,7 @@ void ColumnArray::insert(const Field& x) {
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
-    DCHECK_LT(n, src_.size());
+    DORIS_CHECK_LT(n, src_.size());
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -354,7 +354,7 @@ void ColumnArray::insert_default() {
 
 void ColumnArray::pop_back(size_t n) {
     auto& offsets_data = get_offsets();
-    DCHECK(n <= offsets_data.size()) << " n:" << n << " with offsets size: " << offsets_data.size();
+    DORIS_CHECK(n <= offsets_data.size(), "n:{} with offsets size: {}", n, offsets_data.size());
     size_t nested_n = offsets_data.back() - offset_at(offsets_data.size() - n);
     if (nested_n) get_data().pop_back(nested_n);
     offsets_data.resize_assume_reserved(offsets_data.size() - n);
