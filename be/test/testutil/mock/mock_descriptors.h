@@ -73,6 +73,7 @@ public:
         auto* tuple_desc = pool->add(new MockTupleDescriptor());
         tuple_desc->Slots = slots;
         tuple_descriptors.push_back(tuple_desc);
+        _tuple_desc_map[0] = tuple_desc;
     }
 
     MOCK_METHOD(std::vector<TupleDescriptor*>, get_tuple_descs, (), (const));
