@@ -88,8 +88,8 @@ RepeatOperatorX::RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode, int o
           _output_tuple_id(tnode.repeat_node.output_tuple_id) {};
 
 bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(operator_id())->cast<RepeatLocalState>();
-    return !local_state._child_block->rows() && !local_state._child_eos;
+    auto& local_state = get_local_state(state);
+    return local_state._child_block->empty() && !local_state._child_eos;
 }
 
 Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
