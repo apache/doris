@@ -355,21 +355,20 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    PageReadOptions opts {
-            .verify_checksum = _opts.verify_checksum,
-            .use_page_cache = iter_opts.use_page_cache,
-            .kept_in_memory = _opts.kept_in_memory,
-            .type = iter_opts.type,
-            .file_reader = iter_opts.file_reader,
-            .page_pointer = pp,
-            .codec = codec,
-            .stats = iter_opts.stats,
-            .encoding_info = _encoding_info,
-            .io_ctx = iter_opts.io_ctx,
-    };
+    PageReadOptions opts(iter_opts.io_ctx);
+    opts.verify_checksum = _opts.verify_checksum;
+    opts.use_page_cache = iter_opts.use_page_cache;
+    opts.kept_in_memory = _opts.kept_in_memory;
+    opts.type = iter_opts.type;
+    opts.file_reader = iter_opts.file_reader;
+    opts.page_pointer = pp;
+    opts.codec = codec;
+    opts.stats = iter_opts.stats;
+    opts.encoding_info = _encoding_info;
+
     // index page should not pre decode
     if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
-    return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
+    return PageIO::read_and_decompress_page_with_file_cache_retry(opts, handle, page_body, footer);
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(
