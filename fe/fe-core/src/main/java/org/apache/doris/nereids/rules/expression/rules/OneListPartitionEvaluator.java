@@ -17,14 +17,20 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -58,23 +64,74 @@ public class OneListPartitionEvaluator<K>
 
     @Override
     public List<Map<Slot, PartitionSlotInput>> getOnePartitionInputs() {
-        return partitionItem.getItems().stream()
-            .map(keys -> {
-                List<Literal> literals = keys.getKeys()
-                        .stream()
-                        .map(literal -> Literal.fromLegacyLiteral(literal, literal.getType()))
-                        .collect(ImmutableList.toImmutableList());
+        if (partitionSlots.size() == 1) {
+            // fast path
+            return getInputsByOneSlot();
+        } else {
+            // slow path
+            return getInputsByMultiSlots();
+        }
+    }
 
-                return IntStream.range(0, partitionSlots.size())
-                        .mapToObj(index -> {
-                            Slot partitionSlot = partitionSlots.get(index);
-                            // partitionSlot will be replaced to this literal
-                            Literal literal = literals.get(index);
-                            // list partition don't need to compute the slot's range,
-                            // so we pass through an empty map
-                            return Pair.of(partitionSlot, new PartitionSlotInput(literal, ImmutableMap.of()));
-                        }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
-            }).collect(ImmutableList.toImmutableList());
+    private List<Map<Slot, PartitionSlotInput>> getInputsByOneSlot() {
+        ImmutableList.Builder<Map<Slot, PartitionSlotInput>> inputs
+                = ImmutableList.builderWithExpectedSize(partitionItem.getItems().size());
+        Slot slot = partitionSlots.get(0);
+        for (PartitionKey item : partitionItem.getItems()) {
+            LiteralExpr legacy = item.getKeys().get(0);
+            inputs.add(ImmutableMap.of(
+                    slot,
+                    new PartitionSlotInput(Literal.fromLegacyLiteral(legacy, legacy.getType()), ImmutableMap.of()))
+            );
+        }
+        return inputs.build();
+    }
+
+    private List<Map<Slot, PartitionSlotInput>> getInputsByMultiSlots() {
+        return partitionItem.getItems().stream()
+                .map(keys -> {
+                    List<Literal> literals = keys.getKeys()
+                            .stream()
+                            .map(literal -> Literal.fromLegacyLiteral(literal, literal.getType()))
+                            .collect(ImmutableList.toImmutableList());
+
+                    return IntStream.range(0, partitionSlots.size())
+                            .mapToObj(index -> {
+                                Slot partitionSlot = partitionSlots.get(index);
+                                // partitionSlot will be replaced to this literal
+                                Literal literal = literals.get(index);
+                                // list partition don't need to compute the slot's range,
+                                // so we pass through an empty map
+                                return Pair.of(partitionSlot, new PartitionSlotInput(literal, ImmutableMap.of()));
+                            }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+                }).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Expression visitInPredicate(InPredicate inPredicate, Map<Slot, PartitionSlotInput> context) {
+        if (!inPredicate.optionsAreLiterals()) {
+            return super.visitInPredicate(inPredicate, context);
+        }
+
+        Expression newCompareExpr = inPredicate.getCompareExpr().accept(this, context);
+        if (newCompareExpr.isNullLiteral()) {
+            return new NullLiteral(BooleanType.INSTANCE);
+        }
+
+        try {
+            // fast path
+            boolean contains = inPredicate.getLiteralOptionSet().contains(newCompareExpr);
+            if (contains) {
+                return BooleanLiteral.TRUE;
+            }
+            if (inPredicate.optionsContainsNullLiteral()) {
+                return new NullLiteral(BooleanType.INSTANCE);
+            }
+            return BooleanLiteral.FALSE;
+        } catch (Throwable t) {
+            // slow path
+            return super.visitInPredicate(inPredicate, context);
+        }
     }
 
     @Override

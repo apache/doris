@@ -48,6 +48,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -440,11 +441,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
-                            tblName, tbl.getType().toString());
+                            tblName, tbl.isTemporary() ? "temporary" : tbl.getType().toString());
                     tblRefsNotSupport.add(tblRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
+            }
+
+            if (tbl.isTemporary()) {
+                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
+                    LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            Util.getTempTableDisplayName(tblName));
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException("Table " + Util.getTempTableDisplayName(tblName)
+                            + " is a temporary table, do not support backup");
                 }
             }
 

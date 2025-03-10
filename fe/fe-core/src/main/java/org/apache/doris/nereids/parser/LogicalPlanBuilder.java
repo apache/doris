@@ -650,6 +650,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -3084,6 +3085,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         // TODO: support catalog
         if (nameParts.size() == 1) {
+            // dbName should be set
+            dbName = ConnectContext.get().getDatabase();
             tableName = nameParts.get(0);
         } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
@@ -3142,6 +3145,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -3161,6 +3165,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -4234,6 +4239,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             withAllRollUp = true;
         }
         CreateTableLikeInfo info = new CreateTableLikeInfo(ctx.EXISTS() != null,
+                ctx.TEMPORARY() != null,
                 new TableNameInfo(nameParts), new TableNameInfo(existedTableNameParts),
                 rollupNames, withAllRollUp);
         return new CreateTableLikeCommand(info);
@@ -5925,6 +5931,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
         String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
         return new ShowQueuedAnalyzeJobsCommand(tableName, stateKey, stateValue);
+    }
+
+    @Override
+    public LogicalPlan visitShowTableStatus(DorisParser.ShowTableStatusContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowTableStatusCommand(dbName, ctlName,
+                    stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            } else {
+                Expression expr = (Expression) ctx.wildWhere().expression().accept(this);
+                return new ShowTableStatusCommand(dbName, ctlName, null, expr);
+            }
+        }
+        return new ShowTableStatusCommand(dbName, ctlName);
     }
 
     @Override

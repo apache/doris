@@ -37,7 +37,7 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 
 namespace doris {
 
@@ -53,7 +53,7 @@ class Dependency;
 
 namespace vectorized {
 
-class VScanner;
+class Scanner;
 class ScannerDelegate;
 class ScannerScheduler;
 class SimplifiedScanScheduler;

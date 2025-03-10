@@ -15,30 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include <gtest/gtest.h>
 
-#include "vec/exec/scan/vscanner.h"
+#include "agg_function_test.h"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
-class VScanner;
-class VSlotRef;
+struct AggregateFunctionAvgTest : public AggregateFunctiontest {};
 
-// We want to close scanner automatically, so using a delegate class
-// and call close method in the delegate class's dctor.
-class ScannerDelegate {
-public:
-    VScannerSPtr _scanner;
-    ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
-    ~ScannerDelegate() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_scanner->runtime_state()->query_mem_tracker());
-        Status st = _scanner->close(_scanner->runtime_state());
-        if (!st.ok()) {
-            LOG(WARNING) << "close scanner failed, st = " << st;
-        }
-        _scanner.reset();
-    }
-    ScannerDelegate(ScannerDelegate&&) = delete;
-};
+TEST_F(AggregateFunctionAvgTest, test_int64) {
+    create_agg("avg", false, {std::make_shared<DataTypeInt64>()});
 
+    execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
+            ColumnHelper::create_column_with_name<DataTypeFloat64>({2}));
+}
 } // namespace doris::vectorized

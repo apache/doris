@@ -182,12 +182,13 @@ public class PolicyMgr implements Writable {
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
                         OlapTable olapTable = (OlapTable) table;
+                        String tableName = table.getDisplayName();
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                         for (Long partitionId : olapTable.getPartitionIds()) {
                             String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
                             if (policyName.equals(dropPolicyLog.getPolicyName())) {
                                 throw new DdlException("the policy " + policyName + " is used by table: "
-                                    + table.getName());
+                                    + tableName);
                             }
                         }
                     }

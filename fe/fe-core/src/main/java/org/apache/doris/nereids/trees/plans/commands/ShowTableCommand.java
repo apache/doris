@@ -30,21 +30,20 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -52,7 +51,6 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * ShowTableCommand
@@ -107,39 +105,8 @@ public class ShowTableCommand extends ShowCommand {
     }
 
     /**
-     * sql to logical plan
-     * @param sql sql
+     * isShowTablesCaseSensitive
      */
-    private LogicalPlan toLogicalPlan(String sql) {
-        return new NereidsParser().parseSingle(sql);
-    }
-
-    /**
-     * Construct a basic SQL without query conditions
-     * @param columns (original name, alias)
-     * @param tableName ctl.db.tbl
-     */
-    private String toBaseSql(List<Pair<String, String>> columns, String tableName) throws AnalysisException {
-        if (columns == null || columns.isEmpty()) {
-            throw new AnalysisException("columns cannot be empty");
-        }
-        if (tableName == null || tableName.isEmpty()) {
-            throw new AnalysisException("tableName cannot be empty");
-        }
-
-        StringBuilder sb = new StringBuilder("SELECT ");
-        columns.forEach(column -> {
-            sb.append(column.first);
-            if (column.second != null && !column.second.isEmpty()) {
-                sb.append(" AS ").append(column.second);
-            }
-            sb.append(", ");
-        });
-        sb.setLength(sb.length() - 2);
-        sb.append(" FROM ").append(tableName);
-        return sb.toString();
-    }
-
     public boolean isShowTablesCaseSensitive() {
         if (GlobalVariable.lowerCaseTableNames == 0) {
             return CaseSensibility.TABLE.getCaseSensibility();
@@ -149,27 +116,20 @@ public class ShowTableCommand extends ShowCommand {
 
     private ShowResultSet executeWhere(ConnectContext ctx, StmtExecutor executor)
             throws AnalysisException {
-        List<Pair<String, String>> columns = new ArrayList<>();
-        columns.add(Pair.of("`TABLE_NAME`",
+        List<AliasInfo> selectList = new ArrayList<>();
+        selectList.add(AliasInfo.of("TABLE_NAME",
                 NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)));
         if (isVerbose) {
-            columns.add(Pair.of("`TABLE_TYPE`", TYPE_COL));
+            selectList.add(AliasInfo.of("TABLE_TYPE", TYPE_COL));
         }
 
-        String fullTblName = String.format("`%s`.`%s`.`%s`",
-                catalog,
-                InfoSchemaDb.DATABASE_NAME,
-                "tables");
+        TableNameInfo fullTblName = new TableNameInfo(catalog, InfoSchemaDb.DATABASE_NAME, "tables");
 
         // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
         // This also applies to the internal catalog.
-        LogicalPlan plan = toLogicalPlan(toBaseSql(columns, fullTblName) + " " + whereClause
-                + " and `TABLE_SCHEMA` = '" + db + "'");
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
-        executor.setParsedStmt(adapter);
-        List<ResultRow> resultRows = executor.executeInternalQuery();
-        List<List<String>> rows = resultRows.stream()
-                .map(ResultRow::getValues).collect(Collectors.toList());
+        LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName,
+                whereClause + " and `TABLE_SCHEMA` = '" + db + "'");
+        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
         return new ShowResultSet(getMetaData(), rows);
     }
 
@@ -192,6 +152,9 @@ public class ShowTableCommand extends ShowCommand {
                 continue;
             }
             if (matcher != null && !matcher.match(tbl.getName())) {
+                continue;
+            }
+            if (tbl.isTemporary()) {
                 continue;
             }
             // check tbl privs

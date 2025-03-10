@@ -37,7 +37,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -56,17 +56,17 @@ struct TypeDescriptor;
 
 namespace doris::vectorized {
 
-class VFileScanner : public VScanner {
-    ENABLE_FACTORY_CREATOR(VFileScanner);
+class FileScanner : public Scanner {
+    ENABLE_FACTORY_CREATOR(FileScanner);
 
 public:
-    static constexpr const char* NAME = "VFileScanner";
+    static constexpr const char* NAME = "FileScanner";
 
-    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                 std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-                 const std::unordered_map<std::string, int>* colname_to_slot_id);
+    FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
+                std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
 
@@ -76,7 +76,7 @@ public:
 
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
-    std::string get_name() override { return VFileScanner::NAME; }
+    std::string get_name() override { return FileScanner::NAME; }
 
     std::string get_current_scan_range_name() override { return _current_range_path; }
 

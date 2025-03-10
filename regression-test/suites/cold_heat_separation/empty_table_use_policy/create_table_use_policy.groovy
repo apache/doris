@@ -92,6 +92,28 @@ suite("create_table_use_policy") {
     // storage policy is disabled on mow table
     assertEquals(create_table_use_created_policy.size(), 1);
 
+    // success
+    def create_temp_table_use_created_policy = try_sql """
+        CREATE TEMPORARY TABLE IF NOT EXISTS create_temp_table_use_created_policy 
+        (
+            k1 BIGINT,
+            k2 LARGEINT,
+            v1 VARCHAR(2048)
+        )
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH (k1) BUCKETS 3
+        PROPERTIES(
+            "storage_policy" = "test_create_table_use_policy",
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false"
+        );
+    """
+    // storage policy is disabled on mow table
+    assertEquals(create_temp_table_use_created_policy.size(), 1);
+
+    sql """
+    DROP TABLE IF EXISTS create_temp_table_use_created_policy
+    """
     sql """
     DROP TABLE IF EXISTS create_table_use_created_policy
     """

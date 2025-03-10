@@ -129,7 +129,7 @@ public class Alter {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
 
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db.getNonTempTableOrMetaException(tableName, TableType.OLAP);
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
@@ -553,6 +553,9 @@ public class Alter {
         switch (tableIf.getType()) {
             case MATERIALIZED_VIEW:
             case OLAP:
+                if (tableIf.isTemporary()) {
+                    throw new DdlException("Do not support alter temporary table[" + tableName + "]");
+                }
                 OlapTable olapTable = (OlapTable) tableIf;
                 needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, (Database) dbIf);
                 break;
@@ -729,6 +732,9 @@ public class Alter {
         try {
             List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
             Table newTbl = db.getTableOrMetaException(newTblName, tableTypes);
+            if (newTbl.isTemporary()) {
+                throw new UserException("Do not support replace with temporary table");
+            }
             OlapTable olapNewTbl = (OlapTable) newTbl;
             List<Table> tableList = Lists.newArrayList(origTable, newTbl);
             tableList.sort((Comparator.comparing(Table::getId)));

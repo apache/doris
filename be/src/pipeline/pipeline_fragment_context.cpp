@@ -1786,8 +1786,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
@@ -1811,6 +1810,8 @@ Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
+    // Load will set _is_report_success to true because load wants to know
+    // the process.
     if (!_is_report_success && done && exec_status.ok()) {
         return Status::NeedSendAgain("");
     }
@@ -1819,6 +1820,8 @@ Status PipelineFragmentContext::send_report(bool done) {
     // which means no matter query is success or failed, no report is needed.
     // This may happen when the query limit reached and
     // a internal cancellation being processed
+    // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
+    // be set to false, to avoid sending fault report to FE.
     if (!_is_report_success && !_is_report_on_cancel) {
         return Status::NeedSendAgain("");
     }
