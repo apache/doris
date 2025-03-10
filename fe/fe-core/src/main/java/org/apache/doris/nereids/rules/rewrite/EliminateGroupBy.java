@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -66,8 +67,7 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                         return null;
                     }
                     for (AggregateFunction f : agg.getAggregateFunctions()) {
-                        if (!((f instanceof Sum || f instanceof Count || f instanceof Min || f instanceof Max)
-                                && (f.arity() == 1 && f.child(0) instanceof Slot))) {
+                        if (!canRewrite(f)) {
                             return null;
                         }
                     }
@@ -79,13 +79,18 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     for (NamedExpression ne : outputExpressions) {
                         if (ne instanceof Alias && ne.child(0) instanceof AggregateFunction) {
                             AggregateFunction f = (AggregateFunction) ne.child(0);
-                            if (f instanceof Sum || f instanceof Min || f instanceof Max) {
+                            if (f instanceof Sum || f instanceof Min || f instanceof Max || f instanceof Avg) {
                                 newOutput.add(new Alias(ne.getExprId(), TypeCoercionUtils
                                         .castIfNotSameType(f.child(0), f.getDataType()), ne.getName()));
                             } else if (f instanceof Count) {
-                                newOutput.add((NamedExpression) ne.withChildren(
-                                        new If(new IsNull(f.child(0)), new BigIntLiteral(0),
-                                                new BigIntLiteral(1))));
+                                if (((Count) f).isStar()) {
+                                    newOutput.add((NamedExpression) ne.withChildren(TypeCoercionUtils
+                                            .castIfNotSameType(new BigIntLiteral(1), f.getDataType())));
+                                } else {
+                                    newOutput.add((NamedExpression) ne.withChildren(
+                                            new If(new IsNull(f.child(0)), new BigIntLiteral(0),
+                                                    new BigIntLiteral(1))));
+                                }
                             } else {
                                 throw new IllegalStateException("Unexpected aggregate function: " + f);
                             }
@@ -95,5 +100,15 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
                     }
                     return PlanUtils.projectOrSelf(newOutput.build(), child);
                 }).toRule(RuleType.ELIMINATE_GROUP_BY);
+    }
+
+    private boolean canRewrite(AggregateFunction f) {
+        if (f instanceof Sum || f instanceof Min || f instanceof Max || f instanceof Avg) {
+            return true;
+        }
+        if (f instanceof Count) {
+            return ((Count) f).isStar() || 1 == f.arity();
+        }
+        return false;
     }
 }
