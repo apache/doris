@@ -101,9 +101,10 @@ suite("insert_group_commit_with_large_data") {
     sql """ drop table if exists ${testTable}; """
     sql """create table ${testTable}(a int,b int,c double generated always as (abs(a+b)) not null)
     DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1", "group_commit_interval_ms" = "40");"""
-    sql "INSERT INTO ${testTable} values(6,7,default);"
-    sql "INSERT INTO ${testTable}(a,b) values(1,2);"
-    sql "INSERT INTO ${testTable} values(3,5,default);"
+    sql " set group_commit = async_mode; "
+    group_commit_insert "INSERT INTO ${testTable} values(6,7,default);", 1
+    group_commit_insert "INSERT INTO ${testTable}(a,b) values(1,2);", 1
+    group_commit_insert "INSERT INTO ${testTable} values(3,5,default);", 1
     getRowCount(3)
     qt_select1  "select * from ${testTable} order by 1,2,3;"
 
@@ -123,7 +124,6 @@ suite("insert_group_commit_with_large_data") {
             if (exception != null) {
                 throw exception
             }
-            log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(4, json.NumberTotalRows)
@@ -131,4 +131,50 @@ suite("insert_group_commit_with_large_data") {
     }
     getRowCount(7)
     qt_select2  "select * from ${testTable} order by 1,2,3;"
+
+    try {
+        sql """set group_commit = off_mode;"""
+        sql "drop table if exists gc_ctas1"
+        sql "drop table if exists gc_ctas2"
+        sql "drop table if exists gc_ctas3"
+        sql '''
+            CREATE TABLE IF NOT EXISTS `gc_ctas1` (
+                `k1` varchar(5) NULL,
+                `k2` varchar(5) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `gc_ctas2` (
+                `k1` varchar(10) NULL,
+                `k2` varchar(10) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql ''' insert into gc_ctas1 values('11111','11111'); '''
+        sql ''' insert into gc_ctas2 values('1111111111','1111111111'); '''
+        sql "sync"
+        order_qt_select_cte1 """ select * from gc_ctas1; """
+        order_qt_select_cte2 """ select * from gc_ctas2; """
+        sql """set group_commit = async_mode;"""
+        sql '''
+            create table `gc_ctas3`(k1, k2) 
+            PROPERTIES("replication_num" = "1") 
+            as select * from gc_ctas1
+                union all 
+                select * from gc_ctas2;
+        '''
+        sql  " insert into gc_ctas3 select * from gc_ctas1 union all select * from gc_ctas2;"
+        sql "sync"
+        order_qt_select_cte3 """ select * from gc_ctas3; """
+    } finally {
+    }
 }

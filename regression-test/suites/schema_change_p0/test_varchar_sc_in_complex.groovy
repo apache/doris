@@ -52,11 +52,12 @@ suite ("test_varchar_sc_in_complex") {
                 (1,['2025-01-02'], {'doris':'better'}, named_struct('col','amory'));
             """
         // this can be insert but with cut off the left string to 10
+        def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
         test {
             sql """ insert into ${tableName} values
                 (11, ['2025-01-03-22-33'], {'doris111111111':'better2222222222'}, named_struct('col','amoryIsBetter'));
             """
-            exception "Insert has filtered data in strict mode"
+            exception exception_str
         }
 
         test {
