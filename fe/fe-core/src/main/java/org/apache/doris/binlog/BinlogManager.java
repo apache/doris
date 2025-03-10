@@ -158,7 +158,11 @@ public class BinlogManager {
         if (tableIds != null) {
             for (long tableId : tableIds) {
                 boolean tableBinlogEnable = binlogConfigCache.isEnableTable(dbId, tableId);
-                anyEnable = anyEnable || tableBinlogEnable;
+                if (tableIds.size() > 1) {
+                    anyEnable = anyEnable || tableBinlogEnable;
+                } else {
+                    anyEnable = tableBinlogEnable;
+                }
                 if (anyEnable) {
                     break;
                 }

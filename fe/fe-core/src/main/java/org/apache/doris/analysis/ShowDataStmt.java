@@ -220,12 +220,21 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             }
         });
 
+        boolean isAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN);
         for (Table table : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                             table.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
+            }
+            // admin users can see all temporary tables no matter they are created by which session
+            if (!isAdmin) {
+                // non admin user can only see temporary tables in current session
+                if (table.isTemporary() && !Util.isTempTableInCurrentSession(table.getName())) {
+                    continue;
+                }
             }
             sortedTables.add(table);
         }
@@ -244,14 +253,19 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             replicaCount = olapTable.getReplicaCount();
             remoteSize = olapTable.getRemoteDataSize();
 
+            boolean useDisplayName = false;
+            if (!isAdmin && olapTable.isTemporary()) {
+                useDisplayName = true;
+            }
+            String tableName = useDisplayName ? olapTable.getDisplayName() : olapTable.getName();
             if (!detailed) {
-                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize));
+                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize));
             } else {
                 long localIndexSize = olapTable.getLocalIndexFileSize();
                 long localSegmentSize = olapTable.getLocalSegmentSize();
                 long remoteIndexSize = olapTable.getRemoteIndexFileSize();
                 long remoteSegmentSize = olapTable.getRemoteSegmentSize();
-                totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
+                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize,
                         localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
                 totalLocalInvertedSize += localIndexSize;
                 totalLocalSegmentSize += localSegmentSize;

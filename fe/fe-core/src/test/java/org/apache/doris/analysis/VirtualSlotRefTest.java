@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
@@ -27,6 +28,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -40,8 +42,15 @@ public class VirtualSlotRefTest {
     private TupleDescriptor virtualTuple;
     private VirtualSlotRef virtualSlot;
 
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+
+    }
+
     @Before
     public void setUp() throws IOException, AnalysisException {
+        FeConstants.runningUnitTest = true;
+
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
         // read objects from file
         MetaContext metaContext = new MetaContext();

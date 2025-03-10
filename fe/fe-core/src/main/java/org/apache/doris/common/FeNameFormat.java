@@ -48,6 +48,8 @@ public class FeNameFormat {
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
+    public static final String TEMPORARY_TABLE_SIGN = "_#TEMP#_";
+
     public static void checkCatalogName(String catalogName) throws AnalysisException {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName) && (Strings.isNullOrEmpty(catalogName)
                 || !catalogName.matches(getCommonNameRegex()))) {
@@ -70,6 +72,11 @@ public class FeNameFormat {
         if (tableName.length() > Config.table_name_length_limit) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_NAME_LENGTH_LIMIT, tableName,
                     tableName.length(), Config.table_name_length_limit);
+        }
+        // forbid table name contains sign of temporary table
+        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+            ErrorReport.reportAnalysisException("Incorrect table name, table name can't contains "
+                    + FeNameFormat.TEMPORARY_TABLE_SIGN);
         }
     }
 
