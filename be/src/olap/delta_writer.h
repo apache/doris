@@ -144,6 +144,8 @@ public:
 private:
     void _init_profile(RuntimeProfile* profile) override;
 
+    int64_t safe_get_filesize(const std::string& file_path);
+
     void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
 
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
