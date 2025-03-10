@@ -26,6 +26,7 @@ import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -742,6 +743,9 @@ public class DBBinlog {
                 case RECOVER_INFO:
                     raw = RecoverInfo.fromJson(data);
                     break;
+                case REPLACE_PARTITIONS:
+                    raw = ReplacePartitionOperationLog.fromJson(data);
+                    break;
                 default:
                     break;
             }
@@ -802,6 +806,11 @@ public class DBBinlog {
                 droppedPartitions.removeIf(entry -> (entry.first == partitionId));
             } else if (tableId > 0) {
                 droppedTables.removeIf(entry -> (entry.first == tableId));
+            }
+        } else if ((binlogType == TBinlogType.REPLACE_PARTITIONS) && (raw instanceof ReplacePartitionOperationLog)) {
+            ReplacePartitionOperationLog replacePartitionOperationLog = (ReplacePartitionOperationLog) raw;
+            for (Long partitionId : replacePartitionOperationLog.getReplacedPartitionIds()) {
+                droppedPartitions.add(Pair.of(partitionId, commitSeq));
             }
         }
     }
