@@ -645,8 +645,6 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
-using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
-
 Status collect_path_stats(const RowsetSharedPtr& rs,
                           std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
     SegmentCacheHandle segment_cache;

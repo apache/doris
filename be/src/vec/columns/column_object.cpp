@@ -1107,7 +1107,8 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
     row -= num_of_defaults_in_prefix;
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
-        if (row < part->size()) {
+        size_t current_column_size = part->size();
+        if (row < current_column_size) {
             // no need null in sparse column
             if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part).is_null_at(
                         row)) {
@@ -1129,7 +1130,7 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
             return;
         }
 
-        row -= part->size();
+        row -= current_column_size;
     }
 
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,
