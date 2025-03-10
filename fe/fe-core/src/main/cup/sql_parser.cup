@@ -3765,11 +3765,11 @@ opt_key_value_map_in_paren ::=
     | STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
     RESULT = Maps.newHashMap();
-    RESULT.put(name, value);
+    RESULT.put(name.trim(), value);
     :}
     | opt_key_value_map_in_paren:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
-    map.put(name, value);
+    map.put(name.trim(), value);
     RESULT = map;
     :}
     ;
@@ -3778,11 +3778,11 @@ key_value_map ::=
     STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
     RESULT = Maps.newHashMap();
-    RESULT.put(name, value);
+    RESULT.put(name.trim(), value);
     :}
     | key_value_map:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
-    map.put(name, value);
+    map.put(name.trim(), value);
     RESULT = map;
     :}
     ;
