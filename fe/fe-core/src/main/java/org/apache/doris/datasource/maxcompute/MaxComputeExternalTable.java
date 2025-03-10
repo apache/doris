@@ -269,6 +269,7 @@ public class MaxComputeExternalTable extends ExternalTable {
             case DATETIME: {
                 return ScalarType.createDatetimeV2Type(3);
             }
+            case TIMESTAMP:
             case TIMESTAMP_NTZ: {
                 return ScalarType.createDatetimeV2Type(6);
             }
