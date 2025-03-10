@@ -20,13 +20,13 @@
 #include <cstddef>
 
 #include "common/status.h"
+#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
 class Block;
 } // namespace doris::vectorized
 
@@ -47,10 +47,12 @@ public:
     int get_value(MutableColumnPtr& column, int max_step) override;
 
 private:
-    Status _process_init_variant(Block* block, int value_column_idx);
-    ColumnPtr _array_column;
-    ColumnArrayExecutionData _detail;
-    size_t _array_offset; // start offset of array[row_idx]
+    Status _process_init_variant(Block* block, int value_column_idx, ColumnArrayExecutionData& data,
+                                 ColumnPtr& column);
+    std::vector<ColumnPtr> _array_columns;
+    size_t _row_idx;
+    ColumnArrayExecutionDatas _multi_detail;
+    std::vector<size_t> _array_offsets;
 };
 
 #include "common/compile_check_end.h"

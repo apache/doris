@@ -21,29 +21,30 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * explode_variant_array(variant([1, 2, 3])), generate 3 lines include 1, 2 and 3.
  */
-public class ExplodeVariantArray extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new VariantType()).args(new VariantType())
-    );
+public class ExplodeVariantArray extends TableGeneratingFunction
+        implements ExplicitlyCastableSignature, AlwaysNullable {
 
     /**
      * constructor with 1 argument.
      */
-    public ExplodeVariantArray(Expression arg) {
-        super("explode_variant_array", arg);
+    public ExplodeVariantArray(Expression[] args) {
+        super("explode_variant_array", args);
     }
 
     /**
@@ -51,21 +52,30 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements Unar
      */
     @Override
     public ExplodeVariantArray withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeVariantArray(children.get(0));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ExplodeVariantArray(children.toArray(new Expression[0]));
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof VariantType)) {
-            throw new AnalysisException("only support variant type for explode_variant_array function but got "
-                    + child().getDataType());
+        for (Expression child : children) {
+            if (!(child.getDataType() instanceof VariantType)) {
+                throw new AnalysisException("only support variant type for explode_variant_array function but got "
+                        + child.getDataType());
+            }
         }
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < children.size(); i++) {
+            structFields.add(
+                new StructField("col" + (i + 1), VariantType.INSTANCE, true, ""));
+            arguments.add(VariantType.INSTANCE);
+        }
+        return ImmutableList.of(FunctionSignature.of(new StructType(structFields.build()), arguments));
     }
 
     @Override

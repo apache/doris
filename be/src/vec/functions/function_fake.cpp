@@ -63,9 +63,26 @@ struct FunctionFakeBaseImpl {
 
 struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
-        return make_nullable(
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+        DataTypes fieldTypes(arguments.size());
+        for (int i = 0; i < arguments.size(); i++) {
+            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
+                if (arguments[i]->is_nullable()) {
+                    fieldTypes[i] = arguments[i];
+                } else {
+                    fieldTypes[i] = make_nullable(arguments[i]);
+                }
+            } else {
+                auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
+                                          ->get_nested_type();
+                if (nestedType->is_nullable()) {
+                    fieldTypes[i] = nestedType;
+                } else {
+                    fieldTypes[i] = make_nullable(nestedType);
+                }
+            }
+        }
+
+        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -187,8 +204,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
-    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
-                                                                        "explode_variant_array");
+    register_table_function_expand_outer<FunctionExplode>(factory, "explode_variant_array");
 }
 
 } // namespace doris::vectorized

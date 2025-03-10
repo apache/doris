@@ -1689,7 +1689,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // if later view explode map type, we need to add a project to convert map to struct
         String columnName = ctx.columnNames.get(0).getText();
         List<String> expandColumnNames = Lists.newArrayList();
-        if (ctx.columnNames.size() > 1) {
+
+        // explode can pass multiple columns
+        // then use struct to return the result of the expansion of multiple columns.
+        String funcName = ctx.functionName.getText().toLowerCase();
+        if (ctx.columnNames.size() > 1 || (funcName.equals("explode")
+                || funcName.equals("explode_outer")
+                || funcName.equals("explode_variant_array"))) {
             columnName = ConnectContext.get() != null
                     ? ConnectContext.get().getStatementContext().generateColumnName() : "expand_cols";
             expandColumnNames = ctx.columnNames.stream()
