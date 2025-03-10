@@ -997,15 +997,15 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(
-                        _file_col_names, place_holder, _colname_to_value_range,
+                std::unique_ptr<PaimonParquetReader> paimon_reader =
+                        PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                           _state, *_params, range, _io_ctx.get(),
+                                                           _kv_cache);
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                         &_slot_id_to_filter_conjuncts);
-                std::unique_ptr<PaimonParquetReader> paimon_reader =
-                        PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
-                                                           _state, *_params, range, _io_ctx.get());
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -1063,12 +1063,14 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
-                        _real_tuple_desc, _default_val_row_desc.get(),
+                std::unique_ptr<PaimonOrcReader> paimon_reader =
+                        PaimonOrcReader::create_unique(std::move(orc_reader), _profile, _state,
+                                                       *_params, range, _io_ctx.get(), _kv_cache);
+
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
-                std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
-                        std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
             } else {
@@ -1273,7 +1275,7 @@ Status FileScanner::_init_expr_ctxes() {
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
-            if (it->second->col_unique_id() > 0) {
+            if (it->second->col_unique_id() >= 0) {
                 _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
             }
         } else {
