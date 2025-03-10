@@ -301,7 +301,8 @@ void WalManagerTest::init() {
     _env->_cluster_info->master_fe_addr.hostname = "host name";
     _env->_cluster_info->master_fe_addr.port = _backend_id;
     _env->_cluster_info->backend_id = 1001;
-    _env->set_wal_mgr(WalManager::create_shared(_env, _wal_dir));
+    auto wal_mgr = WalManager::create_shared(_env, _wal_dir);
+    _env->set_wal_mgr(std::move(wal_mgr));
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
     st = _env->_wal_manager->create_wal_path(_db_id, _tb_id, _txn_id_1, _label_1, base_path,
