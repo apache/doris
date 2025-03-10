@@ -163,26 +163,6 @@ class InternalSchemaInitializerTest {
 
     @Test
     public void testStorageColumnsPositionInAuditTable() throws Exception {
-        OlapTable auditTable = new OlapTable();
-        List<Column> initialSchema = Lists.newArrayList(
-                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
-                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
-                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
-                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
-                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, "")
-        );
-        auditTable.fullSchema = initialSchema;
-
         ColumnDef localStorageDef = null;
         ColumnDef remoteStorageDef = null;
 
@@ -222,7 +202,6 @@ class InternalSchemaInitializerTest {
 
     @Test
     public void testIgnoreStorageColumnsTypeInconsistency() throws Exception {
-        OlapTable auditTable = new OlapTable();
         List<Column> initialSchema = Lists.newArrayList(
                 new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
                 new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
@@ -239,10 +218,13 @@ class InternalSchemaInitializerTest {
                 new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
                 new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
                 new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, ""),
+                // Intentionally using inconsistent types (VARCHAR instead of BIGINT)
                 new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null, ""),
                 new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null, "")
         );
-        auditTable.fullSchema = initialSchema;
+
+        OlapTable auditTable = new OlapTable(1000, "audit_log", initialSchema, KeysType.AGG_KEYS,
+                new SinglePartitionInfo(), new HashDistributionInfo());
 
         Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
         Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
@@ -294,7 +276,9 @@ class InternalSchemaInitializerTest {
             }
         }
 
-        Assertions.assertTrue(hasLocalStorageClause, "The system should generate an AlterClause for the scan_bytes_from_local_storage column with inconsistent types");
-        Assertions.assertTrue(hasRemoteStorageClause, "The system should generate an AlterClause for the scan_bytes_from_remote_storage column with inconsistent types");
+        Assertions.assertTrue(hasLocalStorageClause,
+                "The system should generate an AlterClause for the scan_bytes_from_local_storage column with inconsistent types");
+        Assertions.assertTrue(hasRemoteStorageClause,
+                "The system should generate an AlterClause for the scan_bytes_from_remote_storage column with inconsistent types");
     }
 }
