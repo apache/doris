@@ -367,7 +367,7 @@ struct TQueryOptions {
 
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
-  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false; // deprecated
 
   147: optional i32 profile_level = 1;
 
@@ -724,7 +724,7 @@ struct TCondition {
     // In delete condition, the different column may have same column name, need
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
-    5:  optional bool marked_by_runtime_filter = false
+    5:  optional bool marked_by_runtime_filter = false // deprecated
 
     // For cloud
     1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN

@@ -1270,7 +1270,7 @@ struct TRuntimeFilterDesc {
 
   // Indicates if there is at least one target scan node that is not in the same
   // fragment as the broadcast join that produced the runtime filter
-  7: required bool has_remote_targets
+  7: required bool has_remote_targets // deprecated
 
   // The type of runtime filter to build.
   8: required TRuntimeFilterType type
@@ -1300,7 +1300,7 @@ struct TRuntimeFilterDesc {
 
   16: optional bool sync_filter_size; // Deprecated
   
-  17: optional bool build_bf_exactly;
+  17: optional bool build_bf_by_runtime_size;
 }
 
 
