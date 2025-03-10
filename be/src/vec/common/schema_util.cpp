@@ -530,7 +530,8 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnObject::create(var.max_subcolumns_count());
+            // now, subcolumns have not been set, so we set it to 0
+            variant_column = ColumnObject::create(0);
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
@@ -573,43 +574,6 @@ vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
     return sorted;
 }
 
-// ---------------------------
-
-std::string dump_column(DataTypePtr type, const ColumnPtr& col) {
-    Block tmp;
-    tmp.insert(ColumnWithTypeAndName {col, type, col->get_name()});
-    return tmp.dump_data(0, tmp.rows());
-}
-
-// ---------------------------
-Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) {
-    auto type_string = std::make_shared<DataTypeString>();
-    std::string jsonpath = path.to_jsonpath();
-    bool is_nullable = source->is_nullable();
-    auto json_type = is_nullable ? make_nullable(std::make_shared<DataTypeJsonb>())
-                                 : std::make_shared<DataTypeJsonb>();
-    ColumnsWithTypeAndName arguments {
-            {source, json_type, ""},
-            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
-             type_string, ""}};
-    auto function =
-            SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);
-    if (!function) {
-        return Status::InternalError("Not found function jsonb_extract");
-    }
-    Block tmp_block {arguments};
-    vectorized::ColumnNumbers argnum;
-    argnum.emplace_back(0);
-    argnum.emplace_back(1);
-    size_t result_column = tmp_block.columns();
-    tmp_block.insert({nullptr, json_type, ""});
-    RETURN_IF_ERROR(function->execute(nullptr, tmp_block, argnum, result_column, source->size()));
-    dst = tmp_block.get_by_position(result_column)
-                  .column->convert_to_full_column_if_const()
-                  ->assume_mutable();
-    return Status::OK();
-}
-
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx) {
     const auto& column_new = new_schema->column(new_col_idx);
@@ -640,8 +604,6 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.add_sub_column(child_tcolumn);
     return res;
 }
-
-using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
 
 Status collect_path_stats(const RowsetSharedPtr& rs,
                           std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
@@ -816,6 +778,10 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
                              size_t num_rows) {
+    DCHECK(stats->sparse_column_non_null_size_size() <=
+           VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+    int limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
+                stats->sparse_column_non_null_size_size();
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
 
@@ -840,8 +806,7 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (sparse_data_paths_statistics.size() <
-                     VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            else if (sparse_data_paths_statistics.size() < limit) {
                 sparse_data_paths_statistics.emplace(path, 1);
             }
         }
