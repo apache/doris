@@ -54,7 +54,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+    return _schema_scanner->init(state, &_scanner_param, state->obj_pool());
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {

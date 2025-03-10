@@ -49,7 +49,6 @@ SchemaBackendKerberosTicketCacheScanner::~SchemaBackendKerberosTicketCacheScanne
 
 Status SchemaBackendKerberosTicketCacheScanner::start(RuntimeState* state) {
     _block_rows_limit = state->batch_size();
-    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
