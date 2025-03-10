@@ -270,7 +270,13 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
 
 Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                                 LocalExchangeSinkLocalState& local_state) {
-    vectorized::Block new_block(in_block->clone_empty());
+    if (in_block->empty()) {
+        return Status::OK();
+    }
+    vectorized::Block new_block;
+    if (!_free_blocks.try_dequeue(new_block)) {
+        new_block = {in_block->clone_empty()};
+    }
     new_block.swap(*in_block);
     _enqueue_data_and_set_ready(0, local_state, std::move(new_block));
 
@@ -285,7 +291,12 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
     }
     vectorized::Block next_block;
     if (_dequeue_data(local_state, next_block, eos)) {
-        *block = std::move(next_block);
+        block->swap(next_block);
+        local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
+        if (_free_block_limit == 0 ||
+            _free_blocks.size_approx() < _free_block_limit * _num_sources) {
+            _free_blocks.enqueue(std::move(next_block));
+        }
     }
     return Status::OK();
 }
