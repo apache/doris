@@ -1039,6 +1039,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            bool is_small_task = false;
             Defer defer {[&]() {
                 if (!force) {
                     _permit_limiter.release(permits);
@@ -1047,15 +1048,20 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
                 std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
                 _cumu_compaction_thread_pool_remaining_threads--;
+                if (is_small_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running--;
+                }
             }};
             if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
                 _cumu_compaction_thread_pool_remaining_threads++;
                 if (_cumu_compaction_thread_pool->max_threads() >=
                     config::min_threads_for_cumu_delay_strategy) {
-                    if (assert_cast<CumulativeCompaction, TypeCheckOnRelease::DISABLE>(compaction)
-                                .should_delay_submission(
-                                        _cumu_compaction_thread_pool_remaining_threads)) {
+                    if (assert_cast<CumulativeCompaction*>(compaction.get())
+                                ->should_delay_submission(
+                                        _cumu_compaction_thread_pool_remaining_threads,
+                                        _cumu_compaction_thread_pool_small_tasks_running,
+                                        is_small_task)) {
                         long now = duration_cast<std::chrono::milliseconds>(
                                            std::chrono::system_clock::now().time_since_epoch())
                                            .count();

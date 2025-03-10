@@ -529,6 +529,7 @@ private:
 
     std::mutex _cumu_compaction_delay_mtx;
     int _cumu_compaction_thread_pool_remaining_threads;
+    int _cumu_compaction_thread_pool_small_tasks_running;
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;

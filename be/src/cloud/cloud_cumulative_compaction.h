@@ -34,7 +34,8 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact() override;
-    bool should_delay_submission(int remaining_threads);
+    bool should_delay_submission(int remaining_threads, int small_tasks_running,
+                                 bool& is_small_task);
 
     void do_lease();
 

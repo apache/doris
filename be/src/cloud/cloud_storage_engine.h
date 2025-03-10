@@ -198,6 +198,7 @@ private:
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     int _cumu_compaction_thread_pool_remaining_threads;
+    int _cumu_compaction_thread_pool_small_tasks_running;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
