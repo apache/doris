@@ -75,7 +75,6 @@ public class ShowBackupCommand extends ShowCommand {
         this.where = where;
     }
 
-
     /**
      * get metadata
      */
