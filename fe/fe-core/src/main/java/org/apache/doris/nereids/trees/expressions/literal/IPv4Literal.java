@@ -50,6 +50,11 @@ public class IPv4Literal extends Literal implements ComparableLiteral {
     }
 
     @Override
+    public double getDouble() {
+        return (double) value;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitIPv4Literal(this, context);
     }

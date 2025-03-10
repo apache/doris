@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 
 #include <glog/logging.h>
 
@@ -25,13 +25,13 @@
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
-VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
-                   RuntimeProfile* profile)
+Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+                 RuntimeProfile* profile)
         : _state(state),
           _local_state(local_state),
           _limit(limit),
@@ -42,7 +42,7 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
-Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+Status Scanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -73,8 +73,7 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
     return Status::OK();
 }
 
-Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
@@ -85,7 +84,7 @@ Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block
     return get_block(state, block, eos);
 }
 
-Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
+Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
     // scanner running time
@@ -157,7 +156,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status VScanner::_filter_output_block(Block* block) {
+Status Scanner::_filter_output_block(Block* block) {
     Defer clear_tmp_block([&]() { block->erase_tmp_columns(); });
     if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
         // scanner filter_block is already done (only by _topn_next currently), just skip it
@@ -169,7 +168,7 @@ Status VScanner::_filter_output_block(Block* block) {
     return st;
 }
 
-Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     SCOPED_RAW_TIMER(&_projection_timer);
 
@@ -216,7 +215,7 @@ Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Bl
     return Status::OK();
 }
 
-Status VScanner::try_append_late_arrival_runtime_filter() {
+Status Scanner::try_append_late_arrival_runtime_filter() {
     if (_applied_rf_num == _total_rf_num) {
         return Status::OK();
     }
@@ -242,7 +241,7 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     return Status::OK();
 }
 
-Status VScanner::close(RuntimeState* state) {
+Status Scanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
@@ -253,7 +252,7 @@ Status VScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-void VScanner::_collect_profile_before_close() {
+void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
     if (!_state->enable_profile() && !_is_load) return;
@@ -262,7 +261,7 @@ void VScanner::_collect_profile_before_close() {
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
-void VScanner::update_scan_cpu_timer() {
+void Scanner::update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
     _scan_cpu_timer += cpu_time;
     if (_state && _state->get_query_ctx()) {
