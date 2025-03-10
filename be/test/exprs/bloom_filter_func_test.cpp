@@ -91,6 +91,21 @@ TEST_F(BloomFilterFuncTest, Init) {
     bloom_filter_func2.light_copy(&bloom_filter_func);
 }
 
+TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
+    fixed_len_to_uint32 fixed_len;
+    fixed_len_to_uint32_v2 fixed_lenv2;
+    int64_t a = 1;
+    int64_t b = 1024;
+    int64_t c = 1024L * 1024;
+    int64_t d = 1024L * 1024 * 1024;
+    int64_t e = 1024L * 1024 * 1024 * 1024;
+    ASSERT_EQ(fixed_len(a), fixed_lenv2(a));
+    ASSERT_EQ(fixed_len(b), fixed_lenv2(b));
+    ASSERT_EQ(fixed_len(c), fixed_lenv2(c));
+    ASSERT_EQ(fixed_len(d), fixed_lenv2(d));
+    ASSERT_EQ(fixed_len(e), fixed_lenv2(e));
+}
+
 TEST_F(BloomFilterFuncTest, InsertSet) {
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
@@ -558,6 +573,54 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
             reinterpret_cast<const char*>(decimal_column2->get_data().data()), nullmap.data(),
             offsets.data(), count, true);
     ASSERT_EQ(find_count, count);
+
+    BloomFilterFunc<PrimitiveType::TYPE_CHAR> bloom_filter_func2(true);
+    params.column_return_type = PrimitiveType::TYPE_STRING;
+    bloom_filter_func2.init_params(&params);
+    st = bloom_filter_func2.init_with_fixed_length(0);
+    ASSERT_TRUE(st) << "Failed to init bloom filter with fixed length: " << st.to_string();
+
+    auto string_column = vectorized::ColumnHelper::create_column<vectorized::DataTypeString>(
+            {"aa", "bb", "cc", "dd"});
+
+    bloom_filter_func2.insert_fixed_len(string_column->clone(), 0);
+
+    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"),
+                           StringRef("dd\0\0", 4), StringRef("ef\0\0", 4)};
+
+    vectorized::PODArray<uint16_t> offsets2(5);
+    std::iota(offsets2.begin(), offsets2.end(), 0);
+
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
+            reinterpret_cast<const char*>(&strings[0]), nullmap.data(), offsets2.data(), 5, false);
+    ASSERT_EQ(find_count, 4);
+
+    std::iota(offsets2.begin(), offsets2.end(), 0);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
+            reinterpret_cast<const char*>(&strings[0]), nullmap.data(), offsets2.data(), 5, true);
+    ASSERT_EQ(find_count, 4);
+
+    std::iota(offsets2.begin(), offsets2.end(), 0);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
+            reinterpret_cast<const char*>(&strings[0]), nullptr, offsets2.data(), 5, false);
+    ASSERT_EQ(find_count, 4);
+
+    std::iota(offsets2.begin(), offsets2.end(), 0);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
+            reinterpret_cast<const char*>(&strings[0]), nullptr, offsets2.data(), 5, true);
+    ASSERT_EQ(find_count, 4);
+
+    vectorized::PODArray<uint8_t> nullmap2;
+    nullmap2.assign(size_t(5), flag);
+    nullmap2[1] = 1;
+    nullmap2[2] = 1;
+
+    std::iota(offsets2.begin(), offsets2.end(), 0);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
+            reinterpret_cast<const char*>(&strings[0]), nullmap2.data(), offsets2.data(), 5, false);
+    ASSERT_EQ(find_count, 2);
+    ASSERT_EQ(offsets2[0], 0);
+    ASSERT_EQ(offsets2[1], 3);
 }
 
 } // namespace doris
