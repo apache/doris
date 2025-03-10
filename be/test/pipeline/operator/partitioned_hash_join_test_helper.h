@@ -131,9 +131,11 @@ class MockHashJoinProbeLocalState : public HashJoinProbeLocalState {
 public:
     MockHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : HashJoinProbeLocalState(state, parent) {
-        _operator_profile = std::make_unique<RuntimeProfile>("test");
+        _operator_profile = std::make_unique<RuntimeProfile>("MockHashJoinProbeOperator");
         _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
         _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
+        _operator_profile->add_child(_custom_profile.get(), true);
+        _operator_profile->add_child(_common_profile.get(), true);
     }
 
     Status open(RuntimeState* state) override { return Status::OK(); }
