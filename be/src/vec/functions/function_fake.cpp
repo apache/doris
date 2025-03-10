@@ -65,12 +65,20 @@ struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DataTypes fieldTypes(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            auto nestedType =
-                    check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
-            if (nestedType->is_nullable()) {
-                fieldTypes[i] = nestedType;
+            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
+                if (arguments[i]->is_nullable()) {
+                    fieldTypes[i] = arguments[i];
+                } else {
+                    fieldTypes[i] = make_nullable(arguments[i]);
+                }
             } else {
-                fieldTypes[i] = make_nullable(nestedType);
+                auto nestedType =
+                        check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
+                if (nestedType->is_nullable()) {
+                    fieldTypes[i] = nestedType;
+                } else {
+                    fieldTypes[i] = make_nullable(nestedType);
+                }
             }
         }
 
@@ -196,8 +204,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
-    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
-                                                                        "explode_variant_array");
+    register_table_function_expand_outer<FunctionExplode>(factory, "explode_variant_array");
 }
 
 } // namespace doris::vectorized
