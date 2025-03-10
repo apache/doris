@@ -714,6 +714,8 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
         if (!_is_load) {
             return Status::InternalError<false>("Only support csv data in utf8 codec");
         } else {
+            _counter->num_rows_filtered++;
+            *success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
@@ -722,10 +724,7 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
                                        "Unable to display, only support csv data in utf8 codec",
                                        ", please check the data encoding");
                         return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
+                    }));
             return Status::OK();
         }
     }
@@ -749,6 +748,8 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
             (ignore_col && _split_values.size() < _file_slot_descs.size())) {
             std::string cmp_str =
                     _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
+            _counter->num_rows_filtered++;
+            *success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
@@ -772,10 +773,7 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                         }
                         fmt::format_to(error_msg, "result values:[{}]", fmt::to_string(values));
                         return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
+                    }));
             return Status::OK();
         }
     }
@@ -798,6 +796,8 @@ Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is
         }
         const Slice& value = split_values[j];
         if (slot_desc->type().is_array_type() && !_is_null(value) && !_is_array(value)) {
+            _counter->num_rows_filtered++;
+            *is_success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(value.data, value.size); },
                     [&]() -> std::string {
@@ -805,10 +805,7 @@ Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is
                         fmt::format_to(err_msg, "Invalid format for array column({})",
                                        slot_desc->col_name());
                         return fmt::to_string(err_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *is_success = false;
+                    }));
             return Status::OK();
         }
     }
