@@ -72,8 +72,8 @@ struct FunctionExplode {
                     fieldTypes[i] = make_nullable(arguments[i]);
                 }
             } else {
-                auto nestedType =
-                        check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
+                auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
+                                          ->get_nested_type();
                 if (nestedType->is_nullable()) {
                     fieldTypes[i] = nestedType;
                 } else {
