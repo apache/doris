@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -160,4 +161,9 @@ public interface ExternalMetadataOps {
      * close the connection, eg, to hms
      */
     void close();
+
+    default void alterTable(String dbName, String tblName, List<AlterClause> changes) throws UserException {
+        throw new DdlException("Alter table is not supported.");
+    }
+
 }
