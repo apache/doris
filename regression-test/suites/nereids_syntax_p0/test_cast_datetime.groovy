@@ -54,4 +54,6 @@ suite("test_cast_datetime") {
     qt_7 "select '' > cast('2019-06-01 00:00:00' as datetime)"
     qt_8 "select date_add('', 10)"
     qt_9 "select date_add('2020', 10)"
+    qt_10 "select date_add('08-09', 10)"
+    qt_12 "select date_add('abcd', 10)"
 }
