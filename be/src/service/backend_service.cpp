@@ -94,9 +94,21 @@ struct IngestBinlogArg {
     TStatus* tstatus;
 };
 
+Status _exec_http_req(std::optional<HttpClient>& client, int retry_times, int sleep_time,
+                      const std::function<Status(HttpClient*)>& callback) {
+    if (client.has_value()) {
+        return client->execute(retry_times, sleep_time, callback);
+    } else {
+        return HttpClient::execute_with_retry(retry_times, sleep_time, callback);
+    }
+}
+
 void _ingest_binlog(IngestBinlogArg* arg) {
-    // Save the http client instance for persistent connection
-    thread_local HttpClient client;
+    std::optional<HttpClient> client;
+    if (config::enable_ingest_binlog_with_persistent_connection) {
+        // Save the http client instance for persistent connection
+        client = std::make_optional<HttpClient>();
+    }
 
     auto txn_id = arg->txn_id;
     auto partition_id = arg->partition_id;
@@ -175,7 +187,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
-    auto status = client.execute(max_retry, 1, get_binlog_info_cb);
+    auto status = _exec_http_req(client, max_retry, 1, get_binlog_info_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
                      << ", status=" << status.to_string();
@@ -214,7 +226,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
-    status = client.execute(max_retry, 1, get_rowset_meta_cb);
+    status = _exec_http_req(client, max_retry, 1, get_rowset_meta_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
                      << ", status=" << status.to_string();
@@ -265,7 +277,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
             return client->get_content_length(&segment_file_size);
         };
 
-        status = client.execute(max_retry, 1, get_segment_file_size_cb);
+        status = _exec_http_req(client, max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
                          << ", status=" << status.to_string();
@@ -354,7 +366,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        auto status = client.execute(max_retry, 1, get_segment_file_cb);
+        auto status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
                          << ", status=" << status.to_string();
@@ -395,7 +407,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                         index_id, index.get_index_suffix());
                 segment_index_file_names.push_back(index_file);
 
-                status = client.execute(max_retry, 1, get_segment_index_file_size_cb);
+                status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -430,7 +442,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                 auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
                 segment_index_file_names.push_back(index_file);
 
-                status = client.execute(max_retry, 1, get_segment_index_file_size_cb);
+                status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -522,7 +534,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        status = client.execute(max_retry, 1, get_segment_index_file_cb);
+        status = _exec_http_req(client, max_retry, 1, get_segment_index_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment index file from " << get_segment_index_file_url
                          << ", status=" << status.to_string();
