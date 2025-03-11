@@ -200,7 +200,9 @@ DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32
             _entries->put(aid, entry);
             // read header file data
             if (entry->offset < 0) {
-                copyFile(entry->file_name.c_str(), entry->length, buffer, BUFFER_LENGTH);
+                //if offset is -1, it means it's size is lower than DorisFSDirectory::MAX_HEADER_DATA_SIZE, which is 128k.
+                _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length), buffer,
+                          BUFFER_LENGTH);
             }
         }
     } catch (...) {
@@ -226,16 +228,16 @@ DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32
     }
 }
 
-void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_t* buffer,
-                                   int32_t buffer_length) {
+void DorisCompoundReader::_copyFile(const char* file, int32_t file_length, uint8_t* buffer,
+                                    int32_t buffer_length) {
     std::unique_ptr<lucene::store::IndexOutput> output(_ram_dir->createOutput(file));
     int64_t start_ptr = output->getFilePointer();
-    int64_t remainder = file_length;
-    int32_t chunk = buffer_length;
-    int32_t batch_len = file_length < chunk ? (int32_t)file_length : chunk;
+    auto remainder = file_length;
+    auto chunk = buffer_length;
+    auto batch_len = file_length < chunk ? file_length : chunk;
 
     while (remainder > 0) {
-        int32_t len = remainder < batch_len ? (int32_t)remainder : batch_len;
+        auto len = remainder < batch_len ? remainder : batch_len;
         _stream->readBytes(buffer, len);
         output->writeBytes(buffer, len);
         remainder -= len;
