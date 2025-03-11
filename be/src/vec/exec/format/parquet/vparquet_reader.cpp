@@ -343,8 +343,10 @@ Status ParquetReader::init_reader(
     bool is_hive1_parquet = false;
     _init_parquet_cols(parquet_cols, &is_hive1_parquet);
 
-    _is_hive1_parquet_or_use_idx = (is_hive1_parquet || _is_hive1_parquet_or_use_idx);
+    _is_hive1_parquet_or_use_idx =
+            (is_hive1_parquet || _is_hive1_parquet_or_use_idx) && colname_to_slot_id;
     std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
+    std::map<int, int> file_col_id_to_table_col_idx;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         std::string table_col_name = (*_column_names)[i];
         if (_is_hive1_parquet_or_use_idx) {
@@ -371,8 +373,15 @@ Status ParquetReader::init_reader(
         if (iter == parquet_cols.end()) {
             _missing_cols.emplace_back(table_col_name);
         } else {
-            _read_columns.emplace_back(table_col_name);
+            auto pos = std::distance(parquet_cols.begin(), iter);
+            file_col_id_to_table_col_idx.insert({pos, i});
         }
+    }
+
+    // Make the order of read columns the same as physical order in parquet file
+    for (auto& [file_col_idx, table_col_idx] : file_col_id_to_table_col_idx) {
+        auto name = (*_column_names)[table_col_idx];
+        _read_columns.emplace_back(name);
     }
 
     for (auto it : new_colname_to_value_range) {
