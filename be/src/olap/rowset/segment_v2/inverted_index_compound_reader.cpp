@@ -48,9 +48,8 @@ class FileWriter;
 
 using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
@@ -94,7 +93,7 @@ CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const std::string& fi
 void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     std::lock_guard wlock(((DorisFSDirectory::FSIndexInput*)base)->_this_lock);
 
-    int64_t start = getFilePointer();
+    auto start = getFilePointer();
     if (start + len > _length) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
@@ -228,14 +227,15 @@ DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32
 }
 
 void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_t* buffer,
-                                   int64_t buffer_length) {
+                                   int32_t buffer_length) {
     std::unique_ptr<lucene::store::IndexOutput> output(_ram_dir->createOutput(file));
     int64_t start_ptr = output->getFilePointer();
     int64_t remainder = file_length;
-    int64_t chunk = buffer_length;
+    int32_t chunk = buffer_length;
+    int32_t batch_len = file_length < chunk ? (int32_t)file_length : chunk;
 
     while (remainder > 0) {
-        int64_t len = std::min(std::min(chunk, file_length), remainder);
+        int32_t len = remainder < batch_len ? (int32_t)remainder : batch_len;
         _stream->readBytes(buffer, len);
         output->writeBytes(buffer, len);
         remainder -= len;
@@ -284,8 +284,8 @@ bool DorisCompoundReader::list(std::vector<std::string>* names) const {
     if (_closed || _entries == nullptr) {
         _CLTHROWA(CL_ERR_IO, "DorisCompoundReader is already closed");
     }
-    for (EntriesType::const_iterator i = _entries->begin(); i != _entries->end(); i++) {
-        names->push_back(i->first);
+    for (auto& _entry : *_entries) {
+        names->push_back(_entry.first);
     }
     return true;
 }
@@ -400,7 +400,7 @@ lucene::store::IndexOutput* DorisCompoundReader::createOutput(const char* /*name
 }
 
 std::string DorisCompoundReader::toString() const {
-    return std::string("DorisCompoundReader@");
+    return "DorisCompoundReader@";
 }
 
 CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
@@ -412,5 +412,5 @@ void DorisCompoundReader::initialize(const io::IOContext* io_ctx) {
     _stream->setIdxFileCache(true);
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"
