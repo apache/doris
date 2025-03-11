@@ -6162,6 +6162,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new DropExpiredStatsCommand();
     }
 
+    @Override
     public LogicalPlan visitAlterTableStats(DorisParser.AlterTableStatsContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
         PartitionNamesInfo partitionNamesInfo = null;
