@@ -21,7 +21,8 @@ suite("test_iot_recycle_mtmv","mtmv") {
     String suiteName = "test_iot_recycle_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
-    String partitionName = "${suiteName}_p1"
+    String partitionName1 = "${suiteName}_p1"
+    String partitionName1 = "${suiteName}_p1"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -34,7 +35,8 @@ suite("test_iot_recycle_mtmv","mtmv") {
         )
         PARTITION BY LIST(`k2`)
         (
-            PARTITION ${partitionName} VALUES IN ('1')
+            PARTITION ${partitionName1} VALUES IN ('1'),
+            PARTITION ${partitionName2} VALUES IN ('2')
         )
         DISTRIBUTED BY HASH(k3) BUCKETS 2
         PROPERTIES (
