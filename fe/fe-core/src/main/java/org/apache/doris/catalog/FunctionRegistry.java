@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -167,8 +166,7 @@ public class FunctionRegistry {
         }
         if (!Config.enable_java_udf) {
             candidateBuilders = candidateBuilders.stream()
-                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
-                            || fb instanceof JavaUdtfBuilder))
+                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder))
                     .collect(Collectors.toList());
             if (candidateBuilders.isEmpty()) {
                 throw new AnalysisException("java_udf has been disabled.");
