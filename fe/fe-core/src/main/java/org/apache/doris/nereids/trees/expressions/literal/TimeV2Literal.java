@@ -56,8 +56,8 @@ public class TimeV2Literal extends Literal {
     public TimeV2Literal(double value) throws AnalysisException {
         super(TimeV2Type.of(6));
         if (value > (double) PART_MAX.getValue() || value < -(double) PART_MAX.getValue()) {
-            throw new AnalysisException("The value "+ value + " is out of range, expect value range is [" +
-                    (-(double) PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
+            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
+                    + (-(double) PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
         }
         this.negative = 1.0 / value < 0;
         long v = (long) Math.abs(value);
@@ -181,7 +181,7 @@ public class TimeV2Literal extends Literal {
     }
 
     protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second 
+        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second
                 || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
                 || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
     }

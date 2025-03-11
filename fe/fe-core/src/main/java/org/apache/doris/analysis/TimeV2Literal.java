@@ -52,8 +52,8 @@ public class TimeV2Literal extends LiteralExpr {
     public TimeV2Literal(double value) throws AnalysisException {
         super();
         if (value > (double) PART_MAX.getValue() || value < -(double) PART_MAX.getValue()) {
-            throw new AnalysisException("The value "+ value + " is out of range, expect value range is [" +
-                    (-PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
+            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
+                    + (-PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
         }
         this.type = ScalarType.createTimeV2Type(6);
         this.negative = 1.0 / value < 0;
@@ -244,7 +244,7 @@ public class TimeV2Literal extends LiteralExpr {
     }
 
     protected static boolean checkRange(int hour, int minute, int second, int microsecond) {
-        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second 
+        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second
                 || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
                 || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
     }
