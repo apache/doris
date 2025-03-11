@@ -93,7 +93,7 @@ public class ShowRestoreCommand extends ShowCommand {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         List<String> titleNames = needBriefResult ? BRIEF_TITLE_NAMES : TITLE_NAMES;
         for (String title : titleNames) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.STRING));
         }
         return builder.build();
     }
