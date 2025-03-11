@@ -17,21 +17,34 @@
 
 #pragma once
 
-#include "ICUCommon.h"
+#include <unicode/utext.h>
+
+#include "CLucene.h"
+#include "CLucene/analysis/AnalysisHeader.h"
+#include "composite_break_iterator.h"
+#include "default_icu_tokenizer_config.h"
+#include "icu_common.h"
+
+using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
-class ICUTokenizerConfig {
+class ICUTokenizer : public Tokenizer {
 public:
-    ICUTokenizerConfig() = default;
-    virtual ~ICUTokenizerConfig() = default;
+    ICUTokenizer();
+    ICUTokenizer(bool lowercase, bool ownReader);
+    ~ICUTokenizer() override = default;
 
-    virtual void initialize(const std::string& dictPath) = 0;
-    virtual icu::BreakIterator* get_break_iterator(int32_t script) = 0;
-    virtual bool combine_cj() = 0;
+    void initialize(const std::string& dictPath);
+    Token* next(Token* token) override;
+    void reset(lucene::util::Reader* reader) override;
 
-    static const int32_t EMOJI_SEQUENCE_STATUS = 299;
+private:
+    std::string utf8Str_;
+    icu::UnicodeString buffer_;
+
+    ICUTokenizerConfigPtr config_;
+    CompositeBreakIteratorPtr breaker_;
 };
-using ICUTokenizerConfigPtr = std::shared_ptr<ICUTokenizerConfig>;
 
 } // namespace doris::segment_v2

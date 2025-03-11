@@ -19,7 +19,7 @@
 
 #include <memory>
 
-#include "ICUTokenizer.h"
+#include "icu_tokenizer.h"
 
 namespace doris::segment_v2 {
 
