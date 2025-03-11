@@ -59,10 +59,6 @@ suite("prepare_stmt_with_sql_cache") {
             sql "select * from test_prepare_stmt_with_sql_cache where id=10"
             result([[10]])
         }
-        test {
-            sql "select * from test_prepare_stmt_with_sql_cache where id=10"
-            result([[10]])
-        }
     }
 
     connect(context.config.jdbcUser, context.config.jdbcPassword, serverPrepareUrl) {
