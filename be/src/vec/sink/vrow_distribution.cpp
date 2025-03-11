@@ -94,6 +94,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
+    request.__set_write_single_replica(_write_single_replica);
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
@@ -127,6 +128,7 @@ static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg
     result.nodes = std::move(arg.nodes);
     result.partitions = std::move(arg.partitions);
     result.tablets = std::move(arg.tablets);
+    result.slave_tablets = std::move(arg.slave_tablets);
     return result;
 }
 
@@ -138,6 +140,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
+    request.__set_write_single_replica(_write_single_replica);
 
     // only request for partitions not recorded for replacement
     std::set<int64_t> id_deduper;
