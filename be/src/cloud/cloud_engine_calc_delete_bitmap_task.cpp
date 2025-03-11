@@ -280,10 +280,9 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     TxnPublishInfo previous_publish_info;
-    bool cache_hit {false};
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_publish_info, &cache_hit);
+            &partial_update_info, &publish_status, &previous_publish_info);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
                      << ", status=" << status;
@@ -302,8 +301,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    if (cache_hit && txn_info.publish_status &&
-        (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
         _ms_cumulative_compaction_cnt == previous_publish_info.cumulative_compaction_cnt &&

@@ -56,8 +56,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
-        std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
-        bool* cache_hit) {
+        std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -76,20 +75,15 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
 
     auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
 
-    if (cache_hit != nullptr) {
-        if (st.ok()) {
-            *cache_hit = true;
-        } else {
-            *cache_hit = false;
-        }
-    }
-
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // Because of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         if (delete_bitmap != nullptr) {
             *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
         }
+        // to avoid to skip calculating
+        **publish_status = PublishStatus::INIT;
+
         return Status::OK();
     }
     return st;
