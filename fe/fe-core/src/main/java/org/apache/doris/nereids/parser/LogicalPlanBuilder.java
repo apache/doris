@@ -522,6 +522,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
@@ -529,6 +530,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -654,6 +656,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -3089,6 +3092,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         // TODO: support catalog
         if (nameParts.size() == 1) {
+            // dbName should be set
+            dbName = ConnectContext.get().getDatabase();
             tableName = nameParts.get(0);
         } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
@@ -3147,6 +3152,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -3166,6 +3172,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -3990,9 +3997,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private String parsePropertyKey(PropertyKeyContext item) {
         if (item.constant() != null) {
-            return parseConstant(item.constant());
+            return parseConstant(item.constant()).trim();
         }
-        return item.getText();
+        return item.getText().trim();
     }
 
     private String parsePropertyValue(PropertyValueContext item) {
@@ -4239,6 +4246,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             withAllRollUp = true;
         }
         CreateTableLikeInfo info = new CreateTableLikeInfo(ctx.EXISTS() != null,
+                ctx.TEMPORARY() != null,
                 new TableNameInfo(nameParts), new TableNameInfo(existedTableNameParts),
                 rollupNames, withAllRollUp);
         return new CreateTableLikeCommand(info);
@@ -5933,6 +5941,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowTableStatus(DorisParser.ShowTableStatusContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowTableStatusCommand(dbName, ctlName,
+                    stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            } else {
+                Expression expr = (Expression) ctx.wildWhere().expression().accept(this);
+                return new ShowTableStatusCommand(dbName, ctlName, null, expr);
+            }
+        }
+        return new ShowTableStatusCommand(dbName, ctlName);
+    }
+
+    @Override
     public LogicalPlan visitShowTables(DorisParser.ShowTablesContext ctx) {
         String ctlName = null;
         String dbName = null;
@@ -6124,6 +6160,36 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropExpiredStats(DorisParser.DropExpiredStatsContext ctx) {
         return new DropExpiredStatsCommand();
+    }
+
+    public LogicalPlan visitAlterTableStats(DorisParser.AlterTableStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterColumnStats(DorisParser.AlterColumnStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
+        PartitionNamesInfo partitionNamesInfo = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+
+        String index = ctx.indexName != null ? ctx.indexName.getText() : null;
+        String columnName = ctx.columnName.getText();
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AlterColumnStatsCommand(tableNameInfo,
+            partitionNamesInfo,
+            index,
+            columnName,
+            properties);
     }
 }
 

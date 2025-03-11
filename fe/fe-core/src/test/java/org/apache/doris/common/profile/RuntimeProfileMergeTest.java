@@ -28,11 +28,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
 
+@ResourceLock("global")
 public class RuntimeProfileMergeTest {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfileMergeTest.class);
 

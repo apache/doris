@@ -35,6 +35,7 @@ public class OlapTableFactory {
     public static class BuildParams {
         public long tableId;
         public String tableName;
+        public boolean isTemporary;
         public List<Column> schema;
         public KeysType keysType;
         public PartitionInfo partitionInfo;
@@ -43,6 +44,10 @@ public class OlapTableFactory {
 
     public static class OlapTableParams extends BuildParams {
         public TableIndexes indexes;
+
+        public OlapTableParams(boolean isTemporary) {
+            this.isTemporary = isTemporary;
+        }
     }
 
     public static class MTMVParams extends BuildParams {
@@ -65,8 +70,12 @@ public class OlapTableFactory {
         }
     }
 
-    public OlapTableFactory init(TableType type) {
-        params = (type == TableType.OLAP) ? new OlapTableParams() : new MTMVParams();
+    public OlapTableFactory init(TableType type, boolean isTemporary) {
+        if (type == TableType.OLAP) {
+            params = new OlapTableParams(isTemporary);
+        } else {
+            params = new MTMVParams();
+        }
         return this;
     }
 
@@ -78,6 +87,7 @@ public class OlapTableFactory {
             return new OlapTable(
                     olapTableParams.tableId,
                     olapTableParams.tableName,
+                    olapTableParams.isTemporary,
                     olapTableParams.schema,
                     olapTableParams.keysType,
                     olapTableParams.partitionInfo,

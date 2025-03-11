@@ -105,16 +105,6 @@ constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
-auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
-        if (ns > 0) {
-            ns_bvar << ns;
-        } else {
-            req_num_bvar << 1;
-        }
-    };
-}
-
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -193,12 +183,12 @@ S3ClientFactory::S3ClientFactory() {
     _ca_cert_file_path = get_valid_ca_cert_path();
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::GET, config::s3_get_token_per_second,
-                    config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                    config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                    config::s3_get_token_limit,
                     metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::PUT, config::s3_put_token_per_second,
-                    config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                    config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                    config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
 }
 
