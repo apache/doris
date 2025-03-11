@@ -55,7 +55,7 @@ suite("test_stream_load_with_filtered_rows", "p2") {
         streamLoad {
             table "${tableName}"
             set 'column_separator', '|'
-            file 'test_stream_load_with_dbgen_progress.csv'
+            file """${getS3Url()}/regression/load_p2/stream_load/test_stream_load_with_dbgen_progress.csv"""
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
