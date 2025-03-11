@@ -50,7 +50,7 @@ suite("test_ddl_database_external_auth","p0,auth_call,external,hive,external_doc
         sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
-    String dbName = '${suiteName}_db'
+    String dbName = "${suiteName}_db"
     try_sql """drop database if exists ${catalog_name}.${dbName}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
