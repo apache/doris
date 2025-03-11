@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -40,6 +41,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical project plan.
@@ -86,6 +88,23 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics, "projects", projects, "multi_proj", cse.toString()
         );
+    }
+
+    @Override
+    public String shapeInfo() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            StringBuilder builder = new StringBuilder();
+            builder.append(getClass().getSimpleName());
+            // the internal project list's order may be unstable, especial for join tables,
+            // so sort the projects to make it stable
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
+                    .collect(Collectors.joining(", ", "[", "]")));
+            return builder.toString();
+        } else {
+            return super.shapeInfo();
+        }
     }
 
     @Override

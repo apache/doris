@@ -37,6 +37,7 @@
 #include "exprs/function_filter.h"
 #include "io/cache/block/block_file_cache_profile.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
@@ -638,6 +639,9 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_hit);                                      \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_miss_counter,                           \
                    stats.inverted_index_searcher_cache_miss);                                     \
+    InvertedIndexProfileReporter inverted_index_profile;                                          \
+    inverted_index_profile.update(Parent->_index_filter_profile.get(),                            \
+                                  &stats.inverted_index_stats);                                   \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \

@@ -423,6 +423,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         if (ctx->is_chunked_transfer) {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
+            pipe->set_is_chunked_transfer(true);
         } else {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */,

@@ -209,6 +209,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         return ctasQuery.isPresent();
     }
 
+    public Optional<LogicalPlan> getCtasQuery() {
+        return ctasQuery;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateTableCommand(this, context);

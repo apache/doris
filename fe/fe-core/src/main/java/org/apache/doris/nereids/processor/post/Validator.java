@@ -44,13 +44,6 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         Preconditions.checkArgument(!project.getProjects().isEmpty(), "Project list can't be empty");
-
-        Plan child = project.child();
-        // Forbidden project-project, we must merge project.
-        if (child instanceof PhysicalProject) {
-            throw new AnalysisException("Nereids must merge a project-project plan");
-        }
-
         return visit(project, context);
     }
 

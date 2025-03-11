@@ -78,7 +78,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             ctx->txn_id = state->wal_id();
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-        ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->commit_infos = state->tablet_commit_infos();
         ctx->number_total_rows = state->num_rows_load_total();
         ctx->number_loaded_rows = state->num_rows_load_success();
         ctx->number_filtered_rows = state->num_rows_load_filtered();

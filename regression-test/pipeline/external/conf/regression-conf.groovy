@@ -123,7 +123,8 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Source="aliyun"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 
 // for multi cloud test case, eg. paimon_base_filesystem
 aliYunAk="***********"
@@ -139,3 +140,4 @@ externalEnvIp="127.0.0.1"
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableNonCatalogKerberosTest = true

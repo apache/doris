@@ -837,7 +837,6 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
                       << ", compaction_score=" << compaction_score
                       << ", highest_score=" << highest_score;
         picked_tablet.emplace_back(std::move(best_tablet));
-        *score = compaction_score;
     }
 
     std::vector<TabletSharedPtr> reverse_top_tablets;
@@ -850,6 +849,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         picked_tablet.emplace_back(*it);
     }
 
+    *score = highest_score;
     return picked_tablet;
 }
 

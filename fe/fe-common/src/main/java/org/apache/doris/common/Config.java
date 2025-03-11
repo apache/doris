@@ -79,8 +79,11 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "NORMAL";
 
-    @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
-            "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
+    @ConfField(description = {"FE 在 sys_log_roll_interval （日志滚动间隔）内允许保留的最大日志文件数。"
+            + "默认值为 10，意味着在每个日志滚动周期内，系统最多会保留 10 个日志文件。",
+            "This parameter defines the maximum number of FE log files that can be retained within the "
+            + "sys_log_roll_interval (log roll interval). The default value is 10, which means the system"
+            + " will keep up to 10 log files during each log roll interval."})
     public static int sys_log_roll_num = 10;
 
     @ConfField(description = {

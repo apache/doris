@@ -41,6 +41,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -449,5 +450,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public boolean supportInternalPartitionPruned() {
         return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalTable)) {
+            return false;
+        }
+        ExternalTable that = (ExternalTable) o;
+        return Objects.equal(name, that.name) && Objects.equal(db, that.db);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name, db);
     }
 }

@@ -35,7 +35,7 @@ public class MergeProjectPostProcessor extends PlanPostProcessor {
     public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         Plan child = project.child();
         Plan newChild = child.accept(this, ctx);
-        if (newChild instanceof PhysicalProject) {
+        if (newChild instanceof PhysicalProject && project.canMergeProjections((PhysicalProject) newChild)) {
             List<NamedExpression> projections = project.mergeProjections((PhysicalProject) newChild);
             return (PhysicalProject) project
                     .withProjectionsAndChild(projections, newChild.child(0))

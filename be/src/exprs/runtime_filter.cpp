@@ -1185,6 +1185,11 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
     callback->cntl_->ignore_eovercrowded();
 
+    if (config::enable_debug_points &&
+        DebugPoints::instance()->is_enable("RuntimeFilterProducer::send_size.rpc_fail")) {
+        closure->cntl_->SetFailed("inject RuntimeFilterProducer::send_size.rpc_fail");
+    }
+
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
     closure.release();

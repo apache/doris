@@ -138,6 +138,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
+
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -2038,6 +2040,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
+    public static final String DETAIL_SHAPE_NODES = "detail_shape_nodes";
+
     public Set<String> getIgnoreShapePlanNodes() {
         return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
     }
@@ -2050,6 +2054,23 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = DETAIL_SHAPE_NODES, needForward = true, setter = "setDetailShapePlanNodes",
+            description = {"'explain shape plan' 命令中显示详细信息的PlanNode 类型",
+                    "the plan node type show detail in 'explain shape plan' command"})
+    public String detailShapePlanNodes = "";
+
+    private Set<String> detailShapePlanNodesSet = ImmutableSet.of();
+
+    public Set<String> getDetailShapePlanNodesSet() {
+        return detailShapePlanNodesSet;
+    }
+
+    public void setDetailShapePlanNodes(String detailShapePlanNodes) {
+        this.detailShapePlanNodesSet = Arrays.stream(detailShapePlanNodes.split(",[\\s]*"))
+                .collect(ImmutableSet.toImmutableSet());
+        this.detailShapePlanNodes = detailShapePlanNodes;
+    }
 
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" })
@@ -2078,6 +2099,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     // CLOUD_VARIABLES_END
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableReserveMemory = true;
 
     // for spill to disk
     @VariableMgr.VarAttr(name = MIN_REVOCABLE_MEM, fuzzy = true)

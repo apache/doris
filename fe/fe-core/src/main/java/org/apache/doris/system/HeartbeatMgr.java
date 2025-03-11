@@ -225,6 +225,15 @@ public class HeartbeatMgr extends MasterDaemon {
 
         @Override
         public HeartbeatResponse call() {
+            HeartbeatResponse response = pingOnce();
+            // We ping twice here to avoid immediately failure due to connection reset.
+            if (response.getStatus() != HbStatus.OK) {
+                response = pingOnce();
+            }
+            return response;
+        }
+
+        private HeartbeatResponse pingOnce() {
             long backendId = backend.getId();
             HeartbeatService.Client client = null;
 

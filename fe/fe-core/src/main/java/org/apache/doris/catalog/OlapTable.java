@@ -706,6 +706,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.setIsBeingSynced();
         tableProperty.removeInvalidProperties();
+        partitionInfo.refreshTableStoragePolicy("");
         if (isAutoBucket()) {
             markAutoBucket();
         }

@@ -24,3 +24,12 @@ internal	regression_test_view_p0	test_view	select 1,to_base64(AES_ENCRYPT('doris
 -- !sql2 --
 
 
+-- !desc_view_1 --
+c_date	varchar(50)	Yes	false	\N	
+
+-- !desc_view_2 --
+C_DatE	varchar(50)	Yes	false	\N	
+
+-- !desc_view_3 --
+c_dATE	varchar(65533)	Yes	false	\N	
+

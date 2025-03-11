@@ -1122,6 +1122,7 @@ DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
 DECLARE_Bool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
+DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
 
@@ -1436,6 +1437,10 @@ DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 // which was incorrect, this configuration has been added to ensure compatibility
 // and guarantee that the root_path works as expected.
 DECLARE_mBool(enable_root_path_of_hdfs_resource);
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 #ifdef BE_TEST
 // test s3
