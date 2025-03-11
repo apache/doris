@@ -95,6 +95,165 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
     }
 
+    private void executeAlterAndVerify(String alterStmt, OlapTable tbl, String expectedStruct, int expectSchemaVersion)
+            throws Exception {
+        AlterTableStmt stmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmt);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(stmt);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        tbl.readLock();
+        try {
+            Column column = tbl.getColumn("c_s");
+            Assertions.assertTrue(column.getType().toSql().toLowerCase().contains(expectedStruct.toLowerCase()),
+                    "Actual struct: " + column.getType().toSql());
+            // then check schema version increase
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            int schemaVersion = indexMeta.getSchemaVersion();
+            LOG.info("schema version: {}", schemaVersion);
+            Assertions.assertEquals(expectSchemaVersion, schemaVersion);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
+    private void expectException(String alterStmt, String expectedErrorMsg) {
+        try {
+            AlterTableStmt stmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmt);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(stmt);
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.fail("Expected exception: " + expectedErrorMsg);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            Assertions.assertTrue(e.getMessage().contains(expectedErrorMsg),
+                    "Actual error: " + e.getMessage() + "\nExpected: " + expectedErrorMsg);
+        }
+    }
+
+    // In this test we should cover this following cases:
+    //  Positive Test Case
+    //    3.1 add sub-column
+    //    3.2 add sub-columns
+    //    3.3 add sub-column + lengthen sub-varchar-column
+    //  Negative Test Case
+    //    3.4 add sub-column + re-order struct-column
+    //    3.5 reduce sub-column
+    //    3.6 reduce sub-columns
+    //    3.7 add sub-column + shorten sub-varchar-column
+    //    3.8 change struct to other type
+    //    3.9 add sub-column + duplicate sub-column name
+    //    3.10 add sub-column + change origin sub-column name
+    //    3.11 add sub-column + change origin sub-column type
+    //    3.12 add sub-column with json/variant
+    // ------------------------- Positive Test Case -------------------------
+    private void testAddSingleSubColumn(OlapTable tbl, String tableName, String defaultValue) throws Exception {
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), col1:INT> "
+                + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl, "STRUCT<col:varchar(10),col1:int>", 2);
+    }
+
+    private void testAddMultipleSubColumns(OlapTable tbl, String tableName, String defaultValue) throws Exception {
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), "
+                + "col1:INT, col2:DECIMAL(10,2), col3:DATETIME> " + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<col:varchar(10),col1:int,col2:decimalv3(10,2),col3:datetimev2(0)>", 3);
+    }
+
+    private void testLengthenVarcharSubColumn(OlapTable tbl, String tableName, String defaultValue) throws Exception {
+        String alterStmt = "ALTER TABLE test." + tableName +
+                " MODIFY COLUMN c_s STRUCT<col:VARCHAR(30),col1:int,col2:decimal(10,2),col3:datetime,col4:string> "
+                + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<col:varchar(30),col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:text>", 4);
+    }
+
+    // ------------------------- Negative Test Case -------------------------
+    private void testReduceSubColumns(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10)> "
+                + defaultValue;
+        expectException(alterStmt, "Cannot reduce struct fields");
+    }
+
+    private void testShortenVarcharSubColumn(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s struct<col:varchar(10),col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:string> "
+                + defaultValue;
+        expectException(alterStmt, "Shorten type length is prohibited");
+    }
+
+    private void testChangeStructToOtherType(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s VARCHAR(100) " + defaultValue;
+        expectException(alterStmt, "Can not change");
+    }
+
+    private void testDuplicateSubColumnName(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), col:INT> "
+                + defaultValue;
+        expectException(alterStmt, "Duplicate field name");
+    }
+
+    private void testChangeExistingSubColumnName(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s struct<col6:varchar(30),"
+                + "col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:text> "
+                + defaultValue;
+        expectException(alterStmt, "Cannot change");
+    }
+
+    private void testChangeExistingSubColumnType(String defaultValue, String tableName) {
+        String alterStmt = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s struct<col:varchar(30),col1:varchar(10),col2:decimalv3(10,2),col3:datetimev2(0),col4:text> "
+                + defaultValue;
+        expectException(alterStmt, "Cannot change");
+    }
+
+    private void testAddUnsupportedSubColumnType(String defaultValue, String tableName) {
+        String alterStmtJson = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s struct<col:varchar(30),col1:varchar(10),col2:decimalv3(10,2),col3:datetimev2(0),col4:text,col5:json> "
+                + defaultValue;
+        expectException(alterStmtJson, "STRUCT unsupported sub-type");
+        String alterStmtVariant = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s struct<col:varchar(30),col1:varchar(10),col2:decimalv3(10,2),col3:datetimev2(0),col4:text,col5:variant> "
+                + defaultValue;
+        expectException(alterStmtVariant, "STRUCT unsupported sub-type");
+    }
+
+    @Test
+    public void testModifyStructColumn() throws Exception {
+        // loop for all tables to add struct column
+        String[] tableNames = {"sc_agg", "sc_uniq", "sc_dup"};
+        String[] defaultValues = {"REPLACE_IF_NOT_NULL", "NULL", "NULL"};
+        for (int i = 0; i < tableNames.length; i++) {
+            String tableName = tableNames[i];
+            String defaultVal = defaultValues[i];
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            // add struct column
+            String addValColStmtStr = "alter table test."+ tableName + " add column c_s struct<col:varchar(10)> "
+                    + defaultVal;
+            AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
+            // check alter job
+            jobSize++;
+            // check alter job, do not create job
+            Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+            waitAlterJobDone(alterJobs);
+
+            // 正向测试
+            testAddSingleSubColumn(tbl, tableName, defaultVal);
+            testAddMultipleSubColumns(tbl, tableName, defaultVal);
+            testLengthenVarcharSubColumn(tbl, tableName, defaultVal);
+
+            // 负向测试
+            testReduceSubColumns(defaultVal, tableName);
+            testShortenVarcharSubColumn(defaultVal, tableName);
+            testChangeStructToOtherType(defaultVal, tableName);
+            testDuplicateSubColumnName(defaultVal, tableName);
+            testChangeExistingSubColumnName(defaultVal, tableName);
+            testChangeExistingSubColumnType(defaultVal, tableName);
+            testAddUnsupportedSubColumnType(defaultVal, tableName);
+        }
+    }
+
     @Test
     public void testAggAddOrDropColumn() throws Exception {
         LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());

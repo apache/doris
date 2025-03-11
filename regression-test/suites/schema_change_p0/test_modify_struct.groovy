@@ -19,388 +19,329 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
+// this groovy aims
+// 1/正向测试：
+//    []      功能点一：  测试struct 加一列/多列,列类型覆盖 string，int ，decimal， datetime， array<string> , map<int, string> , struct<a:int, b:string>
+//    []      功能点二:   测试struct 加列时同时改变子列中带有varchar类型增加长度
+//    []      功能点三:   测试struct 加列时同时改变顺序
+// 2/负向测试:
+//    []      测试struct 缩减一列/多列 预期报错
+//    []      测试struct 加列时同时改变子列中带有varchar类型缩减长度 预期报错
+//    []      测试struct 变成其他列 预期报错
+//    []      测试struct 加列中 name 重复 预期报错
+//    []      测试struct 加列中 改变以前名字/或者类型 预期报错
+//    []      测试struct 加列不支持json/variant
 suite ("test_modify_struct") {
-    def getJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+    def waitUntilSchemaChangeDone = { tableName, insert_sql, canceled=false ->
+        if (canceled) {
+            Awaitility.await().atMost(300, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
+                def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1  """
+                if (jobStateResult[0][9].toString().toUpperCase() == "CANCELLED") {
+                    return true
+                }
+                return false
+            })
+        } else {
+            waitForSchemaChangeDone({
+                sql " SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 "
+                time 600
+            }, insert_sql)
+        }
     }
 
     def tableNamePrefix = "test_struct_add_sub_column"
     def tableName = tableNamePrefix
-    int max_try_secs = 300
+    List<String> tableNames = new ArrayList<String>()
+    List<String> mv_query_sql = new ArrayList<String>()
+    List<String> mvNames = new ArrayList<String>()
 
     try {
 
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+        // 1. create table with duplicate key, agg key, unique key
+        def suffixTypes = ["duplicate", "unique", "aggregate"]
+        def defaultValues = ["NULL", "NULL", "REPLACE_IF_NOT_NULL"]
+        for (int j = 0; j < suffixTypes.size(); j++) {
+            String suffix = suffixTypes[j]
+            String defaultValue = defaultValues[j]
+            String c1DefaultValue = j == 2 ? defaultValue : "DEFAULT '10.5'"
 
-        // duplicate table
-        tableName = tableNamePrefix + "_dup"
-        sql """ DROP TABLE IF EXISTS ${tableName} """
-        sql """
-                CREATE TABLE IF NOT EXISTS ${tableName} (
+            tableName = tableNamePrefix + "_" + suffix
+            tableNames.add(tableName)
+            sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
+            sql """
+                CREATE TABLE IF NOT EXISTS `${tableName}`
+                (
                     `c0` LARGEINT NOT NULL,
-                    `c_s` STRUCT<col:VARCHAR(10)>
-                ) DISTRIBUTED BY HASH(c0) BUCKETS 1
-                PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" )
+                    `c1` DECIMAL(10,2) ${c1DefaultValue},
+                    `c_s` STRUCT<col:VARCHAR(10)> ${defaultValue}
+                )
+                ${suffix.toUpperCase()} KEY(`c0`)
+                DISTRIBUTED BY HASH(c0) BUCKETS 1
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true"
+                );
             """
+            // we can create MV from original table
+            // CREATE MATERIALIZED VIEW for complex type is forbidden, which defined MaterializedViewHandler::checkAndPrepareMaterializedView
+            mvNames.add("${tableName}_mv")
+            def query_sql = "SELECT c1, c_s FROM ${tableName}"
+            mv_query_sql.add(query_sql)
+            def mvNotSupportedMsg = "errCode = 2"
+            expectExceptionLike({
+                sql """ CREATE MATERIALIZED VIEW ${tableName}_mv AS ${query_sql} """
+            }, mvNotSupportedMsg)
 
-        sql """ insert into $tableName values
-                (0, named_struct('col','commiter'));
-            """
-        sql """ insert into $tableName values
-                (1, named_struct('col','amory'));
-            """
-        // this can be insert but with cut off the left string to 10
-        test {
+            // 2. insert some data before modify struct column
             sql """ insert into $tableName values
-                (11, named_struct('col','amoryIsBetter'));
-            """
-            exception "Insert has filtered data in strict mode"
-        }
-
-
-        String[][] res = sql """ desc ${tableName} """
-        logger.info(res[1][1])
-        assertEquals(res[1][1].toLowerCase(),"struct<col:varchar(10)>")
-
-        order_qt_sc_before " select * from ${tableName} order by c0; "
-
-        // modify struct with varchar(20)
-        sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(20)> """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                return true;
+                    (0, 13.7, named_struct('col','commiter'));
+                """
+            sql """ insert into $tableName values
+                    (1, 14.9, named_struct('col','amory'));
+                """
+            // more than 10 characters
+            test {
+                sql """ insert into $tableName values
+                    (11, 111.111, named_struct('col','amoryIsBetter'));
+                """
+                exception "Insert has filtered data in strict mode"
             }
-            return false;
-        });
-        // check the struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[1][1])
-        assertEquals(res[1][1].toLowerCase(),"struct<col:varchar(20)>")
 
-        // insert some data to modified struct with varchar(20)
-        sql """ insert into ${tableName} values
-                (2, named_struct('col','amoryIsBetter'));
-            """
+            order_qt_sc_before """ select * from ${tableName} order by c0; """
 
-        order_qt_sc_after " select * from ${tableName} order by c0; "
-
-
-        // test struct add sub column
-        sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:INT> """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                return true;
+            // 3. modify struct column
+                //  Positive Test Case
+                //    3.1 add sub-column
+                
+                //    3.2 add sub-columns
+                //    3.3 add sub-column + lengthen sub-varchar-column
+                //
+                //  Negative Test Case
+                //    3.4 add sub-column + re-order struct-column
+                //    3.5 reduce sub-column
+                //    3.6 reduce sub-columns
+                //    3.7 add sub-column + shorten sub-varchar-column
+                //    3.8 change struct to other type
+                //    3.9 add sub-column + duplicate sub-column name
+                //    3.10 add sub-column + change origin sub-column name
+                //    3.11 add sub-column + change origin sub-column type
+                //    3.12 add sub-column with json/variant
+            ////////////////////////////////==================   Positive Test Case =================//////////////////
+            // 3.1 add sub-column
+            def sub_columns = ["col1:INT", "col2:DECIMAL(10, 2)", "col3:DATETIME", "col4:ARRAY<STRING>", "col5:MAP<INT, STRING>", "col6:STRUCT<a:INT, b:STRING>"]
+            def sub_column_values = ["'col1', 1", "'col2', 1.1", "'col3', '2021-01-01 00:00:01'", "'col4', ['a', 'b']", "'col5', {1:'a', 2:'b'}", "'col6', {1, 'a'}"]
+            String sub_col = "Struct<col: VARCHAR(10)>"
+            for (int i = 0; i < sub_columns.size(); i++) {
+                // we should replace > with , in sub_col
+                sub_col = sub_col[0..<sub_col.length()-1] + ", " + sub_columns[i] + ">"
+                sql """ alter table ${tableName} modify column c_s ${sub_col} ${defaultValue}"""
+                String add_columns = ""
+                for (int k = 0 ; k <= i; k++) {
+                    add_columns += ", " + sub_column_values[k]
+                }
+                def insert_sql = "insert into ${tableName} values (" + (i+2).toString() + ", 21.12, named_struct('col','amory2'${add_columns}))"
+                logger.info(insert_sql)
+                waitUntilSchemaChangeDone.call(tableName, insert_sql)
+                // check result
+                qt_sql_after """ select * from ${tableName} order by c0; """
             }
-            return false;
-        });
-        // check the struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[1][1])
-        assertEquals(res[1][1].toLowerCase(),"struct<col:varchar(30),col1:int>")
 
-        // insert some data to modified struct with varchar(30) and int
-        sql """ insert into ${tableName} values
-                (3, named_struct('col','amoryIsBetterCommiter', 'col1', 1));
-            """
+            // 3.2 add sub-columns
+            def all_sub_column = "col11:INT, col12:DECIMAL(10, 2), col13:DATETIME, col14:ARRAY<STRING>, col15:MAP<INT, STRING>, col16:STRUCT<a:INT, b:STRING>"
+            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(10), col1:INT, col2:DECIMAL(10, 2), col3:DATETIME, col4:ARRAY<STRING>, col5:MAP<INT, STRING>, col6:STRUCT<a:INT, b:STRING>, ${all_sub_column}> ${defaultValue}"""
+            def insert_sql1 = "insert into ${tableName} values (8, 31.13, named_struct('col','amory3','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}))"
+            waitUntilSchemaChangeDone.call(tableName, insert_sql1)
+            // check result
+            qt_sql_after1 """ select * from ${tableName} order by c0; """
 
-        order_qt_sc_after1 " select * from ${tableName} order by c0; "
+            // 3.3 add sub-column + lengthen sub-varchar-column
+            sql """ alter table ${tableName} add column c_s_1 STRUCT<col:VARCHAR(20)> ${defaultValue}"""
+            def insert_sql11 = "insert into ${tableName} values (9, 41.14, named_struct('col','amory4','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), named_struct('col','amoryIsBetter'))"
+            waitUntilSchemaChangeDone.call(tableName, insert_sql11)
+            // check new create struct column
+            qt_sql_after2 """ select c_s_1 from ${tableName} where c0 = 9; """
+            // add sub-column + lengthen sub-varchar-column
+            sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT> ${defaultValue}"""
+            def insert_sql12 = "insert into ${tableName} values (10, 51.15, named_struct('col','amory5','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), named_struct('col','amoryIsMoreMoreThan30Better', 'col1', 1))"
+            waitUntilSchemaChangeDone.call(tableName, insert_sql12)
+            // check new create struct column
+            qt_sql_after3 """ select c_s_1 from ${tableName} where c0 = 10; """
 
-        // test struct reduce sub-column behavior not support
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30)> """
-            exception "Cannot change"
-        }
+            //////////////////==================   Negative Test Case =================//////////////////
+            // 3.4 add sub-column + re-order struct-column
+            // add a scala column
+            sql """ alter table ${tableName} add column str_col STRING ${defaultValue}"""
+            // insert data
+            sql """ insert into ${tableName} values (11, 61.16, named_struct('col','amory6','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}),  named_struct('col','amoryIsBetter', 'col1', 1), 'amory6')"""
+            // check new create string column
+            qt_sql_after4 """ select * from ${tableName} where c0 = 11; """
+            // add sub-column + re-order struct column: which sc task will failed
+            sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:decimal(10,2)> ${defaultValue} after str_col """
+            def insert_sql13 = "insert into ${tableName} values (12, 71.17, named_struct('col','amory7','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory7', named_struct('col','amoryIsBetter', 'col1', 1, 'col2', 12.2))"
+            waitUntilSchemaChangeDone.call(tableName, insert_sql13, true)
+            // check data
+            qt_sql_after5 """ select * from ${tableName} where c0 = 12; """
+            // then we add subcolumn then re-order struct column
+            sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:decimal(10,2)> ${defaultValue} """
+            waitUntilSchemaChangeDone.call(tableName, "")
+            sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:decimal(10,2)> ${defaultValue} after str_col """
+            waitUntilSchemaChangeDone.call(tableName, insert_sql13)
+            // check data
+            qt_sql_after51 """ select * from ${tableName} where c0 = 12; """
 
-        // test struct sub-column type change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:INT, col1:INT> """
-            exception "Cannot change"
-        }
+            // desc for c_s_1
+            String[][] res = sql """ desc ${tableName} """
+            logger.info(res[4][1])
+            assertEquals(res[4][1].toLowerCase(),"struct<col:varchar(30),col1:int,col2:decimal(10,2)>")
 
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:VARCHAR(30)> """
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:BIGINT> """
-            exception "Cannot change"
-        }
-
-        // test struct sub-column name change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col2:INT> """
-            exception "Cannot change"
-        }
-
-        // test unique key table
-        tableName = tableNamePrefix + "_unique"
-        sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
-        sql """
-            CREATE TABLE IF NOT EXISTS `${tableName}`
-            (
-                `siteid` INT DEFAULT '10',
-                `citycode` SMALLINT,
-                `c_s` STRUCT<col:VARCHAR(10)>,
-            )
-            UNIQUE KEY(`siteid`, `citycode`)
-            DISTRIBUTED BY HASH(siteid) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-
-        sql """ INSERT INTO ${tableName} VALUES
-                (1, 1, named_struct('col','xxx')),
-                (2, 2, named_struct('col','yyy')),
-                (3, 3, named_struct('col','zzz'));
-            """
-
-        // check struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(10)>")
-
-        // test unique key table modify struct column
-        order_qt_sc_before " select * from ${tableName} order by siteid, citycode; "
-
-
-        // test struct add sub column
-        sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:INT> """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                return true;
+            // 3.5 reduce sub-column
+            def reduceErrMsg="errCode = 2, detailMessage = Cannot reduce struct fields from"
+            expectExceptionLike({
+                sql """ alter  table ${tableName} MODIFY  column c_s_1 STRUCT<col:VARCHAR(30), col1:INT>  ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },reduceErrMsg)
+            // 3.6 reduce sub-columns
+            expectExceptionLike({
+                sql """ alter  table ${tableName} MODIFY  column c_s_1 STRUCT<col:VARCHAR(30)> ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },reduceErrMsg)
+            // 3.7 add sub-column + shorten sub-varchar-column
+            def shortenErrMsg="errCode = 2, detailMessage = Cannot change"
+            expectExceptionLike({
+                sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(10), col1:INT, col2:DECIMAL(10,2), col3:DATETIME> ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },shortenErrMsg)
+            // 3.8 change struct to other type
+            def changeErrMsg="errCode = 2, detailMessage = Can not change"
+            for (String type : ["STRING", "INT", "DECIMAL(10, 2)", "DATETIME", "ARRAY<STRING>", "MAP<INT, STRING>"]) {
+                expectExceptionLike({
+                    sql """ alter table ${tableName} modify column c_s_1 ${type} ${defaultValue} """
+                    waitUntilSchemaChangeDone.call(tableName, "")
+                },changeErrMsg)
             }
-            return false;
-        });
-        // check the struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(30),col1:int>")
-
-        // insert some data to modified struct with varchar(30) and int
-        sql """ insert into ${tableName} values
-                (3, 4, named_struct('col','amoryIsBetterCommiter', 'col1', 1));
-            """
-        sql """ insert into ${tableName} values
-                (4, 4, named_struct('col','amoryIsBetterCommiterAgain', 'col1', 2));
-            """
-        
-
-        order_qt_sc_after " select * from ${tableName} order by siteid, citycode; "
-
-        // test struct reduce sub-column behavior not support
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30)> """
-            exception "Cannot change"
-        }
-
-        // test struct sub-column type change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:INT, col1:INT> """
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:VARCHAR(30)> """
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:BIGINT> """
-            exception "Cannot change"
-        }
-
-        // test struct sub-column name change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col2:INT> """
-            exception "Cannot change"
-        }
-
-        // test MOW table
-        tableName = tableNamePrefix + "_mow"
-        sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
-        sql """
-            CREATE TABLE IF NOT EXISTS `${tableName}`
-            (
-                `siteid` INT DEFAULT '10',
-                `citycode` SMALLINT,
-                `c_s` STRUCT<col:VARCHAR(10)>,
-            )
-            UNIQUE KEY(`siteid`, `citycode`)
-            DISTRIBUTED BY HASH(siteid) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
-            );
-        """
-
-        sql """ INSERT INTO ${tableName} VALUES
-                (1, 1, named_struct('col','xxx')),
-                (2, 2, named_struct('col','yyy')),
-                (3, 3, named_struct('col','zzz'));
-            """
-
-        // check struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(10)>")
-
-        // test MOW table modify struct column
-        order_qt_sc_before " select * from ${tableName} order by siteid, citycode; "
-
-
-        // test struct add sub column
-        sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:INT> """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                return true;
+            // 3.9 add sub-column + duplicate sub-column name; when in DataType::validateCatalogDataType will throw exception
+            def duplicateErrMsg="errCode = 2, detailMessage = Duplicate field name"
+            expectExceptionLike({
+                sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:DECIMAL(10,2), col1:INT> ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },duplicateErrMsg)
+            // 3.10 add sub-column + change origin sub-column name
+            def changeNameErrMsg="errCode = 2, detailMessage = Cannot change"
+            expectExceptionLike({
+                sql """ alter table ${tableName} modify column c_s_1 STRUCT<col4:VARCHAR(30), col1:INT, col2:DECIMAL(10,2), col3:INT> ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },changeNameErrMsg)
+            // 3.11 add sub-column + change origin sub-column type
+            def changeTypeErrMsg="errCode = 2, detailMessage = Cannot change"
+            expectExceptionLike({
+                sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:STRING, col2:DECIMAL(10,2), col3:VARCHAR(10)> ${defaultValue} """
+                waitUntilSchemaChangeDone.call(tableName, "")
+            },changeTypeErrMsg)
+            // 3.12 add sub-column with json/variant; when in DataType::validateNestedType will throw exception
+            def jsonVariantErrMsg="errCode = 2, detailMessage = STRUCT unsupported sub-type"
+            for (String type : ["JSON", "VARIANT"]) {
+                expectExceptionLike({
+                    sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:DECIMAL(10,2), col3:${type}> ${defaultValue} """
+                    waitUntilSchemaChangeDone.call(tableName, "")
+                },jsonVariantErrMsg)
             }
-            return false;
-        });
-
-        // check the struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(30),col1:int>")
-
-        // insert some data to modified struct with varchar(30) and int
-        sql """ insert into ${tableName} values
-                (3, 4, named_struct('col','amoryIsBetterCommiter', 'col1', 1));
-            """
-        sql """ insert into ${tableName} values
-                (4, 4, named_struct('col','amoryIsBetterCommiterAgain', 'col1', 2));
-            """
-
-        order_qt_sc_after " select * from ${tableName} order by siteid, citycode; "
-
-        // test struct reduce sub-column behavior not support
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30)> """
-            exception "Cannot change"
         }
 
-        // test struct sub-column type change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:INT, col1:INT> """
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:VARCHAR(30)> """
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:BIGINT> """
-            exception "Cannot change"
-        }
-
-        // test struct sub-column name change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col2:INT> """
-            exception "Cannot change"
-        }
-
-        // test agg table
-        tableName = tableNamePrefix + "_agg"
-        sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
-        sql """
-            CREATE TABLE IF NOT EXISTS `${tableName}`
-            (
-                `siteid` INT DEFAULT '10',
-                `citycode` SMALLINT,
-                `c_s` STRUCT<col:VARCHAR(10)> REPLACE,
-            )
-            AGGREGATE KEY(`siteid`, `citycode`)
-            DISTRIBUTED BY HASH(siteid) BUCKETS 1
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-        sql """ INSERT INTO ${tableName} VALUES
-                (1, 1, named_struct('col','xxx')),
-                (2, 2, named_struct('col','yyy')),
-                (3, 3, named_struct('col','zzz'));
-            """
-
-        // check struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(10)>")
-
-        // test MOW table modify struct column
-        order_qt_sc_before " select * from ${tableName} order by siteid, citycode; "
-
-        // test struct add sub column
-        sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:INT> REPLACE """
-        Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-            String result = getJobState(tableName)
-            if (result == "FINISHED") {
-                return true;
-            }
-            return false;
-        });
-
-        // check the struct column
-        res = sql """ desc ${tableName} """
-        logger.info(res[2][1])
-        assertEquals(res[2][1].toLowerCase(),"struct<col:varchar(30),col1:int>")
-
-        // insert some data to modified struct with varchar(30) and int
-        sql """ insert into ${tableName} values
-                (3, 4, named_struct('col','amoryIsBetterCommiter', 'col1', 1));
-            """
-        sql """ insert into ${tableName} values
-                (4, 4, named_struct('col','amoryIsBetterCommiterAgain', 'col1', 2));
-            """
-
-        order_qt_sc_after " select * from ${tableName} order by siteid, citycode; "
 
         // test agg table for not change agg type
+        // desc for c_s_1
+        String[][] res = sql """ desc ${tableNames[2]} """
+        logger.info(res[4][1])
+        assertEquals(res[4][1].toLowerCase(),"struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime>")
+
         test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:INT> REPLACE_IF_NOT_NULL """
+            sql """ alter table ${tableNames[2]} modify column c_s_1 struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime> REPLACE """
             exception "Can not change aggregation type"
         }
 
-        // test struct reduce sub-column behavior not support
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30)> REPLACE"""
-            exception "Cannot change"
-        }
 
-        // test struct sub-column type change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:INT, col1:INT> REPLACE"""
-            exception "Cannot change"
-        }
+        /////////////// compaction behavior ///////////////
+        for (int idx = 0; idx < tableNames.size(); idx++) {
+            String table_name = tableNames[idx]
+            String[][] descRes = sql """ desc ${table_name} """
+            logger.info(descRes[0][1])
+            assertEquals(descRes[0][1].toLowerCase(),"largeint")
+            logger.info(descRes[2][1])
+            assertEquals(descRes[2][1].toLowerCase(),"struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime,col4:array<text>,col5:map<int,text>,col6:struct<a:int,b:text>,col11:int,col12:decimal(10,2),col13:datetime,col14:array<text>,col15:map<int,text>,col16:struct<a:int,b:text>>")
+            logger.info(descRes[3][1])
+            assertEquals(descRes[3][1].toLowerCase(),"text")
+            logger.info(descRes[4][1])
+            assertEquals(descRes[4][1].toLowerCase(),"struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime>")
+            // 1. insert more data
+            sql """ insert into ${table_name} values (18, 81.18, named_struct('col','amory8','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory8', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
+            sql """ insert into ${table_name} values (19, 91.19, named_struct('col','amory9','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory9', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
+            sql """ insert into ${table_name} values (20, 10.01, named_struct('col','amory10','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory10', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
+            sql """ insert into ${table_name} 
+                                                    values 
+                                                      (
+                                                        21, 
+                                                        11.11, 
+                                                        named_struct(
+                                                          'col', 'amory11', 'col1', 1, 'col2', 
+                                                          1.1, 'col3', '2021-01-01 00:00:00', 
+                                                          'col4', [ 'a', 'b' ], 'col5', {1 : 'a', 
+                                                          2 : 'b' }, 'col6', {1, 'a' }, 'col11', 
+                                                          2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 
+                                                          'col14', [ 'a', 'b' ], 'col15', {1 : 'a', 
+                                                          2 : 'b' }, 'col16', {1, 'a' }
+                                                        ), 
+                                                        'amory11', 
+                                                        named_struct(
+                                                          'col', 'amoryComit', 'col1', 1, 
+                                                          'col2', 1.1, 'col3', '2025-04-21 10:10:00'
+                                                        )
+                                                      ), 
+                                                      (22, 12.21, null, null, null), 
+                                                      (23, 13.31, named_struct(
+                                                          'col', null, 'col1', null, 'col2', 
+                                                           null, 'col3', null, 
+                                                          'col4', null, 'col5', null, 'col6', null, 'col11', 
+                                                          null, 'col12', null, 'col13', null, 
+                                                          'col14', null, 'col15', null, 'col16', null
+                                                      ), 
+                                                      "", 
+                                                      named_struct(
+                                                          'col', null, 'col1', null, 'col2', 
+                                                          null, 'col3', null
+                                                      )), 
+                                                      (24, 14.41, null, "amory14",
+                                                      named_struct(
+                                                          'col', 'amoryComit', 'col1', null, 'col2', 
+                                                          null, 'col3', '2025-04-21 10:10:00'
+                                                      )) """
+            // 2. check insert res
+            qt_sql_after6 """ select * from ${table_name} order by c0; """
+            // 3. check compaction
+            //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
+            def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+            // trigger compactions for all tablets in ${tableName}
+            trigger_and_wait_compaction(tableName, "cumulative")
+            int rowCount = 0
+            for (def tablet in tablets) {
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
+                logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def tabletJson = parseJson(out.trim())
+                assert tabletJson.rowsets instanceof List
+                for (String rowset in (List<String>) tabletJson.rowsets) {
+                    rowCount += Integer.parseInt(rowset.split(" ")[1])
+                }
+            }
+            logger.info("rowCount: " + rowCount)
+            // check res
+            qt_sql_after7 """ select * from ${table_name} order by c0; """
 
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:VARCHAR(30)> REPLACE"""
-            exception "Cannot change"
-        }
-
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col1:BIGINT> REPLACE"""
-            exception "Cannot change"
-        }
-
-        // test struct sub-column name change
-        test {
-            sql """ alter table ${tableName} modify column c_s STRUCT<col:VARCHAR(30), col2:INT> REPLACE"""
-            exception "Cannot change"
         }
 
     } finally {
-         try_sql("DROP TABLE IF EXISTS ${tableName}")
+        for (String tb : tableNames) {
+            try_sql("DROP TABLE IF EXISTS ${tb}")
+        }
     }
 
 }
