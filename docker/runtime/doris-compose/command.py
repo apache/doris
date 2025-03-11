@@ -651,8 +651,9 @@ class UpCommand(Command):
                                     "remote_master_fe_add.conf"), "w") as f:
                             f.write(cloud_config)
                         ans = input(
-                            f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
-                            f"{cloud_config}\n\nConfirm ?  y/n: ")
+                            utils.render_red(
+                                f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: "
+                            ) + "\n\n" + f"{cloud_config}\n\nConfirm ?  y/n: ")
                         if ans != 'y':
                             LOG.info(
                                 "Up cluster failed due to not confirm write the above config."
