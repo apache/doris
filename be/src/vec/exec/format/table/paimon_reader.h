@@ -62,9 +62,6 @@ protected:
 
     bool _has_schema_change = false;
 
-    // owned by scan node
-    ShardedKVCache* _kv_cache;
-
     virtual void set_delete_rows() = 0;
 };
 

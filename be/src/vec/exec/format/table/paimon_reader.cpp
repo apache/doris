@@ -17,8 +17,6 @@
 
 #include "paimon_reader.h"
 
-#include <rapidjson/document.h>
-
 #include <vector>
 
 #include "common/status.h"
