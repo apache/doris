@@ -152,6 +152,9 @@ public class ShowTableCommand extends ShowCommand {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
         for (TableIf tbl : dbIf.getTables()) {
+            if (type.equals(PlanType.SHOW_VIEWS) && !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName())) {
+                continue;
+            }
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
                 continue;
             }
