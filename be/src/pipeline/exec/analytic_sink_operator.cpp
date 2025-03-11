@@ -120,6 +120,7 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _agg_input_columns.resize(_agg_functions_size);
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     _result_column_nullable_flags.resize(_agg_functions_size);
+    _result_column_could_resize.resize(_agg_functions_size);
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
@@ -133,6 +134,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
         _result_column_nullable_flags[i] =
                 !_agg_functions[i]->function()->get_return_type()->is_nullable() &&
                 _agg_functions[i]->data_type()->is_nullable();
+        _result_column_could_resize[i] =
+                _agg_functions[i]->function()->result_column_could_resize();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -420,7 +423,7 @@ void AnalyticSinkLocalState::_init_result_columns() {
         // return type create result column
         for (size_t i = 0; i < _agg_functions_size; ++i) {
             _result_window_columns[i] = _agg_functions[i]->data_type()->create_column();
-            if (_agg_functions[i]->function()->result_column_could_resize()) {
+            if (_result_column_could_resize[i]) {
                 _result_window_columns[i]->resize(_input_blocks[_output_block_index].rows());
             } else {
                 _result_window_columns[i]->reserve(_input_blocks[_output_block_index].rows());
@@ -802,7 +805,11 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 void AnalyticSinkLocalState::_remove_unused_rows() {
     // test column overflow 4G
     DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
+#ifndef NDEBUG
+    const size_t block_num = 0;
+#else
     const size_t block_num = 256;
+#endif
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
     }
