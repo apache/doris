@@ -514,10 +514,14 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         checkOlapTable(olapTable, tableRef);
                         if (getContent() == BackupContent.ALL) {
                             prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
+                            recordTableAndViewCommitSeq(db, (OlapTable) tbl, tableRef);
                         }
                         prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
                         break;
                     case VIEW:
+                        if (getContent() == BackupContent.ALL) {
+                            recordTableAndViewCommitSeq(db, (View) tbl, tableRef);
+                        }
                         prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
                         break;
                     case ODBC:
@@ -583,19 +587,23 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
-            TableRef backupTableRef, AgentBatchTask batchTask) {
-        // Add barrier editlog for barrier commit seq
+    private void recordTableAndViewCommitSeq(Database db, Table table,
+            TableRef backupTableRef) {
+        // // Add barrier editlog for barrier commit seq
         long dbId = db.getId();
         String dbName = db.getFullName();
-        long tableId = olapTable.getId();
-        String tableName = olapTable.getName();
+        long tableId = table.getId();
+        String tableName = table.getName();
         BarrierLog barrierLog = new BarrierLog(dbId, dbName, tableId, tableName);
         long commitSeq = env.getEditLog().logBarrier(barrierLog);
         // format as "table:{tableId}"
-        String tableKey = String.format("%s%d", TABLE_COMMIT_SEQ_PREFIX, olapTable.getId());
+        String tableKey = String.format("%s%d", TABLE_COMMIT_SEQ_PREFIX,
+                table.getId());
         properties.put(tableKey, String.valueOf(commitSeq));
+    }
 
+    private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
+            TableRef backupTableRef, AgentBatchTask batchTask) {
         // check backup table again
         if (backupTableRef.getPartitionNames() != null) {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
