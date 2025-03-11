@@ -136,6 +136,9 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _agg_functions[i]->data_type()->is_nullable();
         _result_column_could_resize[i] =
                 _agg_functions[i]->function()->result_column_could_resize();
+        if (_result_column_nullable_flags[i]) {
+            LOG(INFO) << "asd query id: " << state->query_id();
+        }
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
