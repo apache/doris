@@ -340,7 +340,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
                 _output_current_block(&block);
                 _refresh_buffer_and_dependency_state(&block);
             }
-            if (_current_row_position == _partition_by_pose.end && !_streaming_mode) {
+            if (_current_row_position == _partition_by_pose.end && _partition_by_pose.is_ended) {
                 _reset_state_for_next_partition();
             }
         }
