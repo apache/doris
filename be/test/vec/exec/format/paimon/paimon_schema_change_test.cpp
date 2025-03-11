@@ -99,7 +99,7 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     params.__isset.paimon_schema_info = true;
     params.paimon_schema_info[0] = file_id_to_name;
     TFileRangeDesc range;
-    range.table_format_params.paimon_params.shema_id = 0;
+    range.table_format_params.paimon_params.schema_id = 0;
 
     PaimonMockReader reader(nullptr, _profile, _state, params, range, _io_ctx, _kv_cache);
 

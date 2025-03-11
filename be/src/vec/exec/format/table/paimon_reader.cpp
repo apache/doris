@@ -117,13 +117,13 @@ Status PaimonReader::gen_file_col_name(
         return Status::RuntimeError("miss paimon schema info.");
     }
 
-    if (!_params.paimon_schema_info.contains(_range.table_format_params.paimon_params.shema_id))
+    if (!_params.paimon_schema_info.contains(_range.table_format_params.paimon_params.schema_id))
             [[unlikely]] {
         return Status::InternalError("miss paimon schema info.");
     }
 
     const auto& table_id_to_file_name =
-            _params.paimon_schema_info.at(_range.table_format_params.paimon_params.shema_id);
+            _params.paimon_schema_info.at(_range.table_format_params.paimon_params.schema_id);
     for (auto [table_col_id, file_col_name] : table_id_to_file_name) {
         if (table_col_id_table_name_map.find(table_col_id) == table_col_id_table_name_map.end()) {
             continue;

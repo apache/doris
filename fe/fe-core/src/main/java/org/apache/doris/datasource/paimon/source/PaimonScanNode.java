@@ -48,12 +48,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -158,13 +156,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     Map<Long, String> getSchemaInfo(Long schemaId) {
-        TableSchema tableSchema = ((PaimonExternalTable) source.getTargetTable()).getSchemaInfo(schemaId);
-        Map<Long, String> uidToName = new HashMap<>(tableSchema.fields().size());
-
-        for (DataField dataField : tableSchema.fields()) {
-            uidToName.put((long) dataField.id(), dataField.name().toLowerCase());
-        }
-        return uidToName;
+        PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
+        return table.getPaimonSchemaCacheValue(schemaId).getColumnIdToName();
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
@@ -187,7 +180,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
-            fileDesc.setShemaId(paimonSplit.getSchemaId());
+            fileDesc.setSchemaId(paimonSplit.getSchemaId());
             params.paimon_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
