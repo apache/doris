@@ -32,7 +32,7 @@ namespace doris::pipeline {
 
 using namespace vectorized;
 
-class MockChildOperator : public OperatorXBase {
+class MockOperator : public OperatorXBase {
 public:
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
@@ -56,7 +56,7 @@ struct SortOperatorTest : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
         state->batsh_size = 10;
-        _child_op = std::make_unique<MockChildOperator>();
+        _child_op = std::make_unique<MockOperator>();
     }
 
     void create_operator(TSortAlgorithm::type type, int64_t limit, int64_t offset) {
@@ -146,7 +146,7 @@ struct SortOperatorTest : public ::testing::Test {
 
     std::shared_ptr<MockRuntimeState> state;
 
-    std::shared_ptr<MockChildOperator> _child_op;
+    std::shared_ptr<MockOperator> _child_op;
 
     ObjectPool pool;
 
