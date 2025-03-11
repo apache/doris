@@ -286,8 +286,6 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             String host = url.getHost();
             if (host.startsWith("[") && host.endsWith("]")) {
                 host = host.substring(1, host.length() - 1);
-            } else {
-                host = url.getHost();
             }
             int port = url.getPort();
             SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -309,14 +307,20 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         return url;
     }
 
+    private void checkLimit() {
+        if (limit == null) {
+            limit = 100L;
+        } else if (limit <= 0) {
+            throw new AnalysisException("limit should be greater than 0");
+        }
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
 
         List<List<String>> rows = Lists.newArrayList();
 
-        if (limit == null) {
-            limit = 100L;
-        }
+        checkLimit();
         if (originUrl != null) {
             URL url = validateUrl(originUrl);
             rows.addAll(showLoadWarningsFromUrl(url));
