@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -1139,6 +1140,23 @@ public class AnalysisManager implements Writable {
                 continue;
             }
             statisticsCache.updatePartitionStats(frontend, request);
+        }
+    }
+
+    public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
+        if (analysisTaskMap == null) {
+            throw new DdlException("Job not exists or already finished");
+        }
+        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
+        if (anyTask == null) {
+            return;
+        }
+        checkPriv(anyTask);
+        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
+            taskInfo.cancel();
+            logKilled(taskInfo.info);
         }
     }
 
