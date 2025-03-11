@@ -138,7 +138,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
                 && !ClusterNamespace.getNameFromFullName(ConnectContext.get().getQualifiedUser())
                 .equals(Auth.ROOT_USER)) {
-            throw new AnalysisException("Can not alter root user, except itself");
+            throw new AnalysisException("Only root user can modify root user");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

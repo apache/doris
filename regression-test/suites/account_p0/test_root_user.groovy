@@ -30,14 +30,14 @@ suite("test_root_user", "account") {
               sql """
                   alter user root identified by '123456';
               """
-              exception "except"
+              exception "root"
         }
 
         test {
               sql """
                   set password for 'root' = password('123456');
               """
-              exception "except"
+              exception "root"
             }
     }
 
