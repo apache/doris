@@ -38,11 +38,12 @@ suite("test_cloud_sc_convert_data_replace_on_new_tablet", "nonConcurrent") {
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",
             "disable_auto_compaction" = "true",
+            "function_column.sequence_col" = "c1",
             "replication_num" = "1"); """
 
-    sql "insert into ${table1} values(1,1,1,1);"
-    sql "insert into ${table1} values(2,2,2,2);"
-    sql "insert into ${table1} values(3,3,3,2);"
+    sql "insert into ${table1} values(1,10,1,1);"
+    sql "insert into ${table1} values(2,20,2,2);"
+    sql "insert into ${table1} values(3,30,3,2);"
     sql "sync;"
     qt_sql "select * from ${table1} order by k1;"
 
@@ -61,34 +62,34 @@ suite("test_cloud_sc_convert_data_replace_on_new_tablet", "nonConcurrent") {
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.enter.block")
-        GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
-        sql "alter table ${table1} modify column c1 varchar(100);"
+        GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.after.base_tablet.sync_rowsets")
+        // GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+        sql "alter table ${table1} modify column c2 varchar(100);"
 
         Thread.sleep(1000)
 
-        tabletStats = sql_return_maparray("show tablets from ${table1};")
-        def newTabletId = "-1"
-        for (def stat : tabletStats) {
-            if (stat.TabletId != tabletId) {
-                newTabletId = stat.TabletId
-                break
-            }
-        }
-        logger.info("new_tablet_id: ${newTabletId}")
+        // tabletStats = sql_return_maparray("show tablets from ${table1};")
+        // def newTabletId = "-1"
+        // for (def stat : tabletStats) {
+        //     if (stat.TabletId != tabletId) {
+        //         newTabletId = stat.TabletId
+        //         break
+        //     }
+        // }
+        // logger.info("new_tablet_id: ${newTabletId}")
 
-        sql "insert into ${table1} values(1,99,99,99);"
-        // sql "insert into ${table1} values(1,88,88,88);"
-        // sql "insert into ${table1} values(2,99,99,99);"
+        sql "insert into ${table1} values(1,5,99,99),(2,5,99,99),(3,5,99,99);"
 
 
-        // to trigger sync_rowsets() on old tablet to let its max_version be 5
-        Thread.sleep(1000)
-        order_qt_sql "select * from ${table1};"
+        // just to trigger sync_rowsets() on base tablet
+        // and let the process of converting historical rowsets happens after base tablet's max version is updated
+        // and before the base tablet's delete bitmap is updated
+        GetDebugPoint().enableDebugPointForAllBEs("CloudMetaMgr::sync_tablet_delete_bitmap.before.merge_delete_bitmap_to_local")
+        def t1 = Thread.start { sql "select * from ${table1};" }
 
-        Thread.sleep(1000)
+        // Thread.sleep(1000)
         // alter version should be 5
-        GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.enter.block")
+        GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.after.base_tablet.sync_rowsets")
 
         // // let load 1 finish on new tablet
         // Thread.sleep(1000)
@@ -96,17 +97,16 @@ suite("test_cloud_sc_convert_data_replace_on_new_tablet", "nonConcurrent") {
         // t1.join()
 
         Thread.sleep(1000)
-        GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
+        // GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             time 1000
         }
 
-        // to trigger sync_rowsets() on new tablet to let its max_version be 5
-        Thread.sleep(1000)
-        order_qt_sql "select * from ${table1};"
+        GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::sync_tablet_delete_bitmap.before.merge_delete_bitmap_to_local")
+        t1.join()
 
-        sql "insert into ${table1} values(1,77,77,77);"
+        // sql "insert into ${table1} values(1,77,77,77);"
 
         qt_dup_key_count "select k1,count() as cnt from ${table1} group by k1 having cnt>1;"
         order_qt_sql "select * from ${table1};"
