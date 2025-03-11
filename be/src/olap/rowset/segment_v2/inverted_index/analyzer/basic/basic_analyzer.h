@@ -17,42 +17,40 @@
 
 #pragma once
 
-#include <unicode/umachine.h>
-#include <unicode/unistr.h>
-#include <unicode/utext.h>
-
 #include <memory>
-#include <vector>
 
-#include "BreakIteratorWrapper.h"
-#include "ICUCommon.h"
-#include "ICUTokenizerConfig.h"
-#include "ScriptIterator.h"
+#include "basic_tokenizer.h"
 
 namespace doris::segment_v2 {
 
-class CompositeBreakIterator {
+class BasicAnalyzer : public Analyzer {
 public:
-    CompositeBreakIterator(const ICUTokenizerConfigPtr& config);
-    ~CompositeBreakIterator() = default;
+    BasicAnalyzer() {
+        _lowercase = true;
+        _ownReader = false;
+    }
 
-    void initialize();
-    int32_t next();
-    int32_t current();
-    int32_t get_rule_status();
-    int32_t get_script_code();
-    void set_text(const UChar* text, int32_t start, int32_t length);
+    ~BasicAnalyzer() override = default;
+
+    bool isSDocOpt() override { return true; }
+
+    TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override {
+        auto* tokenizer = _CLNEW BasicTokenizer(_lowercase, _ownReader);
+        tokenizer->reset(reader);
+        return (TokenStream*)tokenizer;
+    }
+
+    TokenStream* reusableTokenStream(const TCHAR* fieldName,
+                                     lucene::util::Reader* reader) override {
+        if (_tokenizer == nullptr) {
+            _tokenizer = std::make_unique<BasicTokenizer>(_lowercase, _ownReader);
+        }
+        _tokenizer->reset(reader);
+        return (TokenStream*)_tokenizer.get();
+    };
 
 private:
-    BreakIteratorWrapper* get_break_iterator(int32_t scriptCode);
-
-    const UChar* text_ = nullptr;
-
-    ICUTokenizerConfigPtr config_;
-    std::vector<BreakIteratorWrapperPtr> word_breakers_;
-    BreakIteratorWrapper* rbbi_ = nullptr;
-    ScriptIteratorPtr scriptIterator_;
+    std::unique_ptr<BasicTokenizer> _tokenizer;
 };
-using CompositeBreakIteratorPtr = std::unique_ptr<CompositeBreakIterator>;
 
 } // namespace doris::segment_v2

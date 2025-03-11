@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -366,6 +367,23 @@ public class StatisticsUtil {
             throw new AnalysisException(e.getMessage(), e);
         }
 
+    }
+
+    public static DBObjects convertTableNameToObjects(TableNameInfo tableNameInfo) {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+        if (catalogIf == null) {
+            throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableNameInfo.getCtl()));
+        }
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableNameInfo.getDb());
+        if (databaseIf == null) {
+            throw new IllegalStateException(String.format("DB:%s doesn't exist", tableNameInfo.getDb()));
+        }
+        TableIf tableIf = databaseIf.getTableNullable(tableNameInfo.getTbl());
+        if (tableIf == null) {
+            throw new IllegalStateException(String.format("Table:%s doesn't exist", tableNameInfo.getTbl()));
+        }
+        return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
     public static DBObjects convertTableNameToObjects(TableName tableName) {

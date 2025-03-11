@@ -28,11 +28,13 @@ import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -843,5 +845,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableStatsCommand(ShowTableStatsCommand showTableStatsCommand, C context) {
         return visitCommand(showTableStatsCommand, context);
+    }
+
+    default R visitAlterTableStatsCommand(AlterTableStatsCommand alterTableStatsCommand, C context) {
+        return visitCommand(alterTableStatsCommand, context);
+    }
+
+    default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
+        return visitCommand(alterColumnStatsCommand, context);
     }
 }

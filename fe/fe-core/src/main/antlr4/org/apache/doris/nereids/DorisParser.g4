@@ -737,18 +737,18 @@ supportedStatsStatement
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
+    | ALTER TABLE name=multipartIdentifier SET STATS
+        LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
+    | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
+        MODIFY COLUMN columnName=identifier
+        SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
     ;
 
 unsupportedStatsStatement
-    : ALTER TABLE name=multipartIdentifier SET STATS
-        LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?                  #alterTableStats
-    | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
-        MODIFY COLUMN columnName=identifier
-        SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
-    | DROP STATS tableName=multipartIdentifier
+    : DROP STATS tableName=multipartIdentifier
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats

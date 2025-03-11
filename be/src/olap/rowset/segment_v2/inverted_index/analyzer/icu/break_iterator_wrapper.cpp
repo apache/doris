@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "BreakIteratorWrapper.h"
+#include "break_iterator_wrapper.h"
 
 #include <unicode/unistr.h>
 
 #include <mutex>
 #include <string>
 
-#include "ICUCommon.h"
-#include "ICUTokenizerConfig.h"
+#include "icu_common.h"
+#include "icu_tokenizer_config.h"
 
 namespace doris::segment_v2 {
 
