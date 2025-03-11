@@ -495,4 +495,16 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     return Status::OK();
 }
 
+void CloudSchemaChangeJob::clean_up_on_failed() {
+    for (const auto& output_rs : _output_rowsets) {
+        if (output_rs.use_count() > 2) {
+            LOG(WARNING) << "Rowset " << output_rs->rowset_id().to_string() << " has "
+                         << output_rs.use_count()
+                         << " references. File Cache won't be recycled when query is using it.";
+            return;
+        }
+        output_rs->clear_cache();
+    }
+}
+
 } // namespace doris
