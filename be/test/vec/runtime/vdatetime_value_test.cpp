@@ -630,4 +630,49 @@ TEST(VDateTimeValueTest, date_v2_daynr_test) {
     }
 }
 
+TEST(VDateTimeValueTest, date_v2_from_date_format_str_with_all_space) {
+    auto test_all_space = [](const std::string& format_str) {
+        std::string date_str = "   ";
+        {
+            DateV2Value<DateTimeV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            DateV2Value<DateV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATE;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATETIME;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+    };
+
+    test_all_space("%Y-%m-%d %H:%i:%s.%f");
+    test_all_space("%Y");
+    test_all_space("%Y-%m-%d");
+    test_all_space("%Y-%m-%d %H:%i:%s");
+    test_all_space("%Y-%m-%d %H:%i:%s.%f %p");
+    for (char ch = 'a'; ch <= 'z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
+    }
+    for (char ch = 'A'; ch <= 'Z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
+    }
+}
+
 } // namespace doris::vectorized
