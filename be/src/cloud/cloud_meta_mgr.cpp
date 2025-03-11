@@ -578,6 +578,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                         .error(st);
                 return st;
             }
+            DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.merge_delete_bitmap_to_local",
+                            DBUG_BLOCK);
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
         }
         {
