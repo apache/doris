@@ -56,6 +56,7 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
         _set_state(State::TIMEOUT);
+        DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
         _profile->add_info_string("ReachTimeoutLimit", "true");
     }
     return Status::OK();
@@ -69,6 +70,9 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
                           RuntimeFilterWrapper::State::READY});
     _check_state({State::NOT_READY, State::TIMEOUT});
     _set_state(State::READY);
+    DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
+    DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(MonotonicMillis() -
+                                                                               _registration_time);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();

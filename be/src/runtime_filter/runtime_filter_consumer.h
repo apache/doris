@@ -98,6 +98,8 @@ private:
         _profile->add_child(_storage_profile.get(), true, nullptr);
         _profile->add_child(_execution_profile.get(), true, nullptr);
         _wait_timer = ADD_TIMER(_profile, "WaitTime");
+
+        DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
     Status _apply_ready_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
