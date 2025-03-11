@@ -49,6 +49,7 @@ suite("test_iot_recycle_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(`k2`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
