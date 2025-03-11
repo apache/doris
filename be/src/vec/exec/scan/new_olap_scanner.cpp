@@ -503,9 +503,6 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
-    if (!_profile_updated) {
-        _profile_updated = _tablet_reader->update_profile(_profile);
-    }
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
@@ -518,7 +515,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }
@@ -542,6 +538,7 @@ void NewOlapScanner::_collect_profile_before_close() {
         return;
     }
     _has_updated_counter = true;
+    _tablet_reader->update_profile(_profile);
 
     VScanner::_collect_profile_before_close();
 

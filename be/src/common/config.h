@@ -1129,6 +1129,7 @@ DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 DECLARE_String(inverted_index_searcher_cache_limit);
 DECLARE_mBool(enable_write_index_searcher_cache);
 DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
+DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
 
@@ -1372,6 +1373,8 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
 
+DECLARE_mBool(force_azure_blob_global_endpoint);
+
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
 DECLARE_mInt64(s3_get_token_per_second);
@@ -1519,6 +1522,8 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
+
+DECLARE_mBool(enable_mow_verbose_log);
 
 #ifdef BE_TEST
 // test s3

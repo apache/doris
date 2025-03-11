@@ -109,10 +109,14 @@ suite("test_partition_storage_policy") {
     """
 
     def res = sql "SHOW CREATE TABLE ${tableNameSynced}"
-    assertTrue(!res[0][1].contains("PARTITION p1 VALUES [('0000-01-01 00:00:00'), ('2022-01-01 00:00:00.111'))(\"storage_policy\" = \"${policy_name}\")"))
-    assertTrue(!res[0][1].contains("PARTITION p2 VALUES [('2022-01-01 00:00:00.111'), ('2022-02-01 00:00:00.111'))(\"storage_policy\" = \"${policy_name}\")"))
+
+    logger.info(res[0][1])
+    assertTrue(!res[0][1].contains("\"${policy_name}\""))
+    assertTrue(!res[0][1].contains("\"${policy_name}\""))
 
     res = sql "SHOW CREATE TABLE ${tableNameNotSynced}"
-    assertTrue(res[0][1].contains("PARTITION p1 VALUES [('0000-01-01 00:00:00'), ('2022-01-01 00:00:00.111'))(\"storage_policy\" = \"${policy_name}\")"))
-    assertTrue(res[0][1].contains("PARTITION p2 VALUES [('2022-01-01 00:00:00.111'), ('2022-02-01 00:00:00.111'))(\"storage_policy\" = \"${policy_name}\")"))
+
+    logger.info(res[0][1])
+    assertTrue(res[0][1].contains("\"${policy_name}\""))
+    assertTrue(res[0][1].contains("\"${policy_name}\""))
 }

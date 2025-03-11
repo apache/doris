@@ -1083,6 +1083,7 @@ DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1294,6 +1295,8 @@ DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
+
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
@@ -1444,6 +1447,8 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST

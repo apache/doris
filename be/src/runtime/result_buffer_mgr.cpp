@@ -79,6 +79,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
         if (_buffer_map.end() != iter) {
             LOG(WARNING) << "already have buffer control block for this instance " << query_id;
+            *sender = iter->second;
             return Status::OK();
         }
     }

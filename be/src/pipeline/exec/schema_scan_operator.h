@@ -85,8 +85,6 @@ private:
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
-
-    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
 #include "common/compile_check_end.h"

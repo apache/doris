@@ -45,7 +45,7 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -341,5 +341,6 @@ private:
     std::vector<std::string> _read_column_names;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
+#include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized
