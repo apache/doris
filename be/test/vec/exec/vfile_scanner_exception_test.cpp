@@ -31,7 +31,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
-#include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/scan/file_scanner.h"
 
 namespace doris {
 
@@ -73,7 +73,7 @@ public:
                       "fail to init _runtime_state");
     }
     void init();
-    void generate_scanner(std::shared_ptr<VFileScanner>& scanner);
+    void generate_scanner(std::shared_ptr<FileScanner>& scanner);
 
     void TearDown() override {
         WARN_IF_ERROR(_scan_node->close(&_runtime_state), "fail to close scan_node")
@@ -276,11 +276,11 @@ void VfileScannerExceptionTest::init() {
     _env->_wal_manager = 0;
 }
 
-void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<VFileScanner>& scanner) {
+void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& scanner) {
     auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    scanner = std::make_shared<VFileScanner>(
+    scanner = std::make_shared<FileScanner>(
             &_runtime_state,
             &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
             split_source, _profile, _kv_cache.get(), &_colname_to_value_range,
@@ -291,7 +291,7 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<VFileScanner>& 
 }
 
 TEST_F(VfileScannerExceptionTest, failure_case) {
-    std::shared_ptr<VFileScanner> scanner = nullptr;
+    std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
     std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;

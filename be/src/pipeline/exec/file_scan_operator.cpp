@@ -26,12 +26,12 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "vec/exec/format/format_common.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exec/scan/scanner_context.h"
-#include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
         return Status::OK();
@@ -45,7 +45,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     shard_num = std::max(shard_num, 1U);
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
-        std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
+        std::unique_ptr<vectorized::FileScanner> scanner = vectorized::FileScanner::create_unique(
                 state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
                 &_colname_to_value_range, &p._colname_to_slot_id);
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));

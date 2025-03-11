@@ -49,7 +49,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
-#include "vec/exec/scan/vscanner.h"
+#include "vec/exec/scan/scanner.h"
 
 namespace doris {
 class RuntimeProfile;

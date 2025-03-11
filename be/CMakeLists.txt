@@ -451,7 +451,6 @@ include_directories(
 
 include_directories(
     ${SRC_DIR}/
-    ${TEST_DIR}/
 )
 
 include_directories(
@@ -798,6 +797,8 @@ add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)
+    include_directories(${TEST_DIR}/)
+    # must after include!
     add_subdirectory(${TEST_DIR})
 endif ()
 

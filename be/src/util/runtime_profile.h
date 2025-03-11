@@ -307,8 +307,6 @@ public:
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location = nullptr);
 
-    void insert_child_head(RuntimeProfile* child, bool indent);
-
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
     /// Creates a new child profile with the given 'name'. A child profile with that name

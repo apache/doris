@@ -155,6 +155,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
+    public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -1067,6 +1068,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS,
+            fuzzy = true,
+            description = {
+                "是否允许使用二分查找算法去过滤分区。默认开。",
+                "Whether to allow use binary search algorithm to filter partitions. ON by default."
+            }
+    )
+    public boolean enableBinarySearchFilteringPartitions = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
@@ -4066,7 +4077,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
-        tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
@@ -4715,5 +4725,9 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Check profile_level failed", exception);
             throw exception;
         }
+    }
+
+    public boolean getEnableLocalMergeSort() {
+        return enableLocalMergeSort;
     }
 }
