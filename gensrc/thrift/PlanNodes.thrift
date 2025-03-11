@@ -322,7 +322,7 @@ struct TPaimonFileDesc {
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
-    16: optional string schema_file_path;
+    16: optional i64 shema_id;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -449,6 +449,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    25: optional map<i64, map<i64, string>> paimon_schema_info //paimon map<schema id, map<column unique id , column name>> : for schema change.
 }
 
 struct TFileRangeDesc {

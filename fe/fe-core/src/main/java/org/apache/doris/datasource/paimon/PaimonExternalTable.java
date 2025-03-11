@@ -70,6 +70,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
 
     private final Table paimonTable;
+    Map<Long, TableSchema> schemaInfoCache = Maps.newConcurrentMap();
+    // schema id => schema (for schema change.)
+    // Since Paimon schema change will generate a new schema json file (the file will not be deleted or changed),
+    // each schema change will generate a schema id. Caching TableSchema can reduce the reading of schema files
+    // and json parsing.
 
     public PaimonExternalTable(long id, String name, String remoteName, PaimonExternalCatalog catalog,
             PaimonExternalDatabase db) {
@@ -236,8 +241,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         makeSureInitialized();
         PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
         try {
-            Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(key.getDbName(), name);
-            TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
+            TableSchema tableSchema = getSchemaInfo(paimonSchemaCacheKey.getSchemaId());
             List<DataField> columns = tableSchema.fields();
             List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
             Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
@@ -258,6 +262,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     paimonSchemaCacheKey.getSchemaId());
         }
 
+    }
+
+    public TableSchema getSchemaInfo(Long schemaId) {
+        makeSureInitialized();
+        return schemaInfoCache.computeIfAbsent(
+                schemaId, k -> ((DataTable) paimonTable).schemaManager().schema(k));
     }
 
     private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {

@@ -48,10 +48,12 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -122,6 +124,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         source = new PaimonSource(desc);
         serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
+        params.setPaimonSchemaInfo(new HashMap<>());
     }
 
     @Override
@@ -154,6 +157,16 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
+    Map<Long, String> getSchemaInfo(Long schemaId) {
+        TableSchema tableSchema = ((PaimonExternalTable) source.getTargetTable()).getSchemaInfo(schemaId);
+        Map<Long, String> uidToName = new HashMap<>(tableSchema.fields().size());
+
+        for (DataField dataField : tableSchema.fields()) {
+            uidToName.put((long) dataField.id(), dataField.name().toLowerCase());
+        }
+        return uidToName;
+    }
+
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
@@ -174,9 +187,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
-            LocationPath schemaPath = new LocationPath(paimonSplit.getSchemaFilePath(),
-                    source.getCatalog().getProperties());
-            fileDesc.setSchemaFilePath(schemaPath.toStorageLocation().toString());
+            fileDesc.setShemaId(paimonSplit.getSchemaId());
+            params.paimon_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
@@ -279,13 +291,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
-                    String tablePath = source.getPaimonTable().options().get("path");
                     for (int i = 0; i < rawFiles.size(); i++) {
                         RawFile file = rawFiles.get(i);
                         LocationPath locationPath = new LocationPath(file.path(),
                                 source.getCatalog().getProperties());
-                        String schemaFilePath = tablePath + "/schema/" + "schema-" + file.schemaId();
-
                         try {
                             List<Split> dorisSplits = FileSplitter.splitFile(
                                     locationPath,
@@ -299,7 +308,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     null,
                                     PaimonSplit.PaimonSplitCreator.DEFAULT);
                             for (Split dorisSplit : dorisSplits) {
-                                ((PaimonSplit) dorisSplit).setSchemaFilePath(schemaFilePath);
+                                ((PaimonSplit) dorisSplit).setSchemaId(file.schemaId());
                                 // try to set deletion file
                                 if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
                                     ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));

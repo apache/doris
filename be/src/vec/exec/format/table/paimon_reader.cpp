@@ -30,9 +30,8 @@ namespace doris::vectorized {
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
                            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                           io::IOContext* io_ctx, ShardedKVCache* kv_cache)
-        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx),
-          _kv_cache(kv_cache) {
+                           io::IOContext* io_ctx)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
     static const char* paimon_profile = "PaimonProfile";
     ADD_TIMER(_profile, paimon_profile);
     _paimon_profile.num_delete_rows =
@@ -107,62 +106,6 @@ schema :
   "timeMillis" : 1741338580187
 }
 */
-Status PaimonReader::read_schema_file(std::map<uint64_t, std::string>& file_id_to_name) {
-    file_id_to_name.clear();
-    if (!_range.table_format_params.paimon_params.__isset.schema_file_path) [[unlikely]] {
-        return Status::RuntimeError("miss schema file");
-    }
-
-    io::FileSystemProperties properties = {
-            .system_type = _params.file_type,
-            .properties = _params.properties,
-            .hdfs_params = _params.hdfs_params,
-            .broker_addresses {},
-    };
-    if (_params.__isset.broker_addresses) {
-        properties.broker_addresses.assign(_params.broker_addresses.begin(),
-                                           _params.broker_addresses.end());
-    }
-    io::FileDescription file_description = {
-            .path = _range.table_format_params.paimon_params.schema_file_path,
-            .file_size = -1,
-            .mtime = 0,
-            .fs_name = _range.fs_name,
-    };
-    auto schema_file_reader = DORIS_TRY(FileFactory::create_file_reader(
-            properties, file_description, io::FileReaderOptions::DEFAULT));
-
-    size_t bytes_read = schema_file_reader->size();
-    std::vector<char> buf(bytes_read);
-    Slice schema_result(buf.data(), bytes_read);
-    {
-        SCOPED_TIMER(_paimon_profile.delete_files_read_time);
-        RETURN_IF_ERROR(schema_file_reader->read_at(0, schema_result, &bytes_read, _io_ctx));
-    }
-
-    rapidjson::Document json_doc;
-    if (json_doc.Parse(schema_result.data, schema_result.size).HasParseError()) {
-        return Status::IOError("failed to parse json file, path:{}",
-                               _range.table_format_params.paimon_params.schema_file_path);
-    }
-
-    if (!json_doc.HasMember("fields") || !json_doc["fields"].IsArray()) {
-        return Status::IOError("Invalid JSON: missing or incorrect 'fields' array, path:{} ",
-                               _range.table_format_params.paimon_params.schema_file_path);
-    }
-    const auto& fields = json_doc["fields"];
-    for (const auto& field : fields.GetArray()) {
-        if (field.HasMember("id") && field["id"].IsInt() && field.HasMember("name") &&
-            field["name"].IsString()) {
-            int id = field["id"].GetInt();
-            std::string name = to_lower(field["name"].GetString());
-            file_id_to_name[id] = name;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status PaimonReader::gen_file_col_name(
         const std::vector<std::string>& read_table_col_names,
         const std::unordered_map<uint64_t, std::string>& table_col_id_table_name_map,
@@ -172,25 +115,17 @@ Status PaimonReader::gen_file_col_name(
     _table_col_to_file_col.clear();
     _file_col_to_table_col.clear();
 
-    if (!_range.table_format_params.paimon_params.__isset.schema_file_path) [[unlikely]] {
-        return Status::RuntimeError("miss schema file");
+    if (!_params.__isset.paimon_schema_info) [[unlikely]] {
+        return Status::RuntimeError("miss paimon schema info.");
     }
 
-    Status create_status = Status::OK();
-    using MapType = std::map<uint64_t, std::string>;
-    const auto* table_id_to_file_name_ptr = _kv_cache->get<MapType>(
-            _range.table_format_params.paimon_params.schema_file_path, [&]() -> MapType* {
-                auto* file_id_to_name_ptr = new MapType();
-                create_status = read_schema_file(*file_id_to_name_ptr);
-                if (!create_status) {
-                    delete file_id_to_name_ptr;
-                    return nullptr;
-                }
-                return file_id_to_name_ptr;
-            });
-    RETURN_IF_ERROR(create_status);
+    if (!_params.paimon_schema_info.contains(_range.table_format_params.paimon_params.shema_id))
+            [[unlikely]] {
+        return Status::InternalError("miss paimon schema info.");
+    }
 
-    const auto table_id_to_file_name = *table_id_to_file_name_ptr;
+    const auto& table_id_to_file_name =
+            _params.paimon_schema_info.at(_range.table_format_params.paimon_params.shema_id);
     for (auto [table_col_id, file_col_name] : table_id_to_file_name) {
         if (table_col_id_table_name_map.find(table_col_id) == table_col_id_table_name_map.end()) {
             continue;

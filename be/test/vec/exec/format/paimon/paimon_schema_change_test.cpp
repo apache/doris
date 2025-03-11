@@ -85,23 +85,23 @@ protected:
 };
 
 TEST_F(PaimonReaderTest, ReadSchemaFile) {
+    std::map<int64_t, std::string> file_id_to_name;
+    file_id_to_name[0] = "k";
+    file_id_to_name[1] = "vvv";
+    file_id_to_name[2] = "array_col";
+    file_id_to_name[3] = "struct_col";
+    file_id_to_name[6] = "map_col";
+
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     params.properties = {};
     params.hdfs_params = {};
-
+    params.__isset.paimon_schema_info = true;
+    params.paimon_schema_info[0] = file_id_to_name;
     TFileRangeDesc range;
-    range.table_format_params.paimon_params.schema_file_path = "";
-    range.fs_name = "";
-    range.table_format_params.paimon_params.schema_file_path = _schema_file_path;
-    range.table_format_params.paimon_params.__isset.schema_file_path = true;
+    range.table_format_params.paimon_params.shema_id = 0;
 
     PaimonMockReader reader(nullptr, _profile, _state, params, range, _io_ctx, _kv_cache);
-    std::map<uint64_t, std::string> file_id_to_name;
-    Status status = reader.read_schema_file(file_id_to_name);
-
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(file_id_to_name.size(), 5);
 
     //        create table tmp5 (
     //                k int,
@@ -113,16 +113,6 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     //                'primary-key' = 'k',
     //                "file.format" = "parquet"
     //        );
-    std::map<uint64_t, std::string> file_id_to_name_ans;
-    file_id_to_name_ans[0] = "k";
-    file_id_to_name_ans[1] = "vvv";
-    file_id_to_name_ans[2] = "array_col";
-    file_id_to_name_ans[3] = "struct_col";
-    file_id_to_name_ans[6] = "map_col";
-    for (const auto& [id, name] : file_id_to_name_ans) {
-        ASSERT_TRUE(file_id_to_name.contains(id));
-        ASSERT_TRUE(name == file_id_to_name[id]);
-    }
 
     std::vector<std::string> read_table_col_names;
     read_table_col_names.emplace_back("a");
@@ -141,8 +131,8 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     table_col_id_table_name_map[10] = "nonono";
 
     std::unordered_map<std::string, ColumnValueRangeType> table_col_name_to_value_range;
-    status = reader.gen_file_col_name(read_table_col_names, table_col_id_table_name_map,
-                                      &table_col_name_to_value_range);
+    Status status = reader.gen_file_col_name(read_table_col_names, table_col_id_table_name_map,
+                                             &table_col_name_to_value_range);
     ASSERT_TRUE(status.ok());
     reader.check();
 }
