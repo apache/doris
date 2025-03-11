@@ -146,7 +146,7 @@ private:
 
     int64_t safe_get_filesize(const std::string& file_path);
 
-    void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
+    Status _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
 
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
     RowsetBuilder* rowset_builder();
