@@ -33,9 +33,8 @@ class PaimonMockReader final : public PaimonReader {
 public:
     PaimonMockReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, io::IOContext* io_ctx, ShardedKVCache* kv_cache)
-            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                           kv_cache) {};
+                     const TFileRangeDesc& range, io::IOContext* io_ctx)
+            : PaimonReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
     ~PaimonMockReader() final = default;
 
     void set_delete_rows() final {
@@ -66,7 +65,6 @@ protected:
         _profile = new RuntimeProfile("test_profile");
         _state = new RuntimeState(TQueryGlobals());
         _io_ctx = new io::IOContext();
-        _kv_cache = new ShardedKVCache(10);
         _schema_file_path = "./be/test/exec/test_data/paimon_scanner/schema-0";
     }
 
@@ -74,13 +72,11 @@ protected:
         delete _profile;
         delete _state;
         delete _io_ctx;
-        delete _kv_cache;
     }
 
     RuntimeProfile* _profile;
     RuntimeState* _state;
     io::IOContext* _io_ctx;
-    ShardedKVCache* _kv_cache;
     std::string _schema_file_path;
 };
 
@@ -101,7 +97,7 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     TFileRangeDesc range;
     range.table_format_params.paimon_params.schema_id = 0;
 
-    PaimonMockReader reader(nullptr, _profile, _state, params, range, _io_ctx, _kv_cache);
+    PaimonMockReader reader(nullptr, _profile, _state, params, range, _io_ctx);
 
     //        create table tmp5 (
     //                k int,
