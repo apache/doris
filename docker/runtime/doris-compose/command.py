@@ -644,6 +644,12 @@ class UpCommand(Command):
                             "deploy_mode = cloud",
                             f"cluster_id = {CLUSTER.CLUSTER_ID}",
                         ])
+                        # write add conf to remote_master_fe_add.conf, remote fe can send ssh to get this content.
+                        with open(
+                                os.path.join(
+                                    CLUSTER.get_cluster_path(cluster.name),
+                                    "remote_master_fe_add.conf"), "w") as f:
+                            f.write(cloud_config)
                         ans = input(
                             f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
                             f"{cloud_config}\n\nConfirm ?  y/n: ")
