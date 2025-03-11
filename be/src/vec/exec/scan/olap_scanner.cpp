@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -61,7 +61,7 @@
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/block_reader.h"
@@ -70,9 +70,8 @@ namespace doris::vectorized {
 
 using ReadSource = TabletReader::ReadSource;
 
-NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
-                               NewOlapScanner::Params&& params)
-        : VScanner(params.state, parent, params.limit, params.profile),
+OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
+        : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
@@ -125,7 +124,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status NewOlapScanner::init() {
+Status OlapScanner::init() {
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
@@ -225,8 +224,8 @@ Status NewOlapScanner::init() {
     return Status::OK();
 }
 
-Status NewOlapScanner::open(RuntimeState* state) {
-    RETURN_IF_ERROR(VScanner::open(state));
+Status OlapScanner::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Scanner::open(state));
     SCOPED_TIMER(_local_state->cast<pipeline::OlapScanLocalState>()._reader_init_timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -245,7 +244,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 }
 
 // it will be called under tablet read lock because capture rs readers need
-Status NewOlapScanner::_init_tablet_reader_params(
+Status OlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
         const pipeline::FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
@@ -413,7 +412,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status NewOlapScanner::_init_variant_columns() {
+Status OlapScanner::_init_variant_columns() {
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     if (tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
@@ -438,7 +437,7 @@ Status NewOlapScanner::_init_variant_columns() {
     return Status::OK();
 }
 
-Status NewOlapScanner::_init_return_columns() {
+Status OlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -479,7 +478,7 @@ Status NewOlapScanner::_init_return_columns() {
     return Status::OK();
 }
 
-doris::TabletStorageType NewOlapScanner::get_storage_type() {
+doris::TabletStorageType OlapScanner::get_storage_type() {
     if (config::is_cloud_mode()) {
         // we don't have cold storage in cloud mode, all storage is treated as local
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
@@ -498,7 +497,7 @@ doris::TabletStorageType NewOlapScanner::get_storage_type() {
     return doris::TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
-Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
@@ -511,15 +510,15 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     return Status::OK();
 }
 
-Status NewOlapScanner::close(RuntimeState* state) {
+Status OlapScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(VScanner::close(state));
+    RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
 
-void NewOlapScanner::_update_realtime_counters() {
+void OlapScanner::_update_realtime_counters() {
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
@@ -532,7 +531,7 @@ void NewOlapScanner::_update_realtime_counters() {
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
-void NewOlapScanner::_collect_profile_before_close() {
+void OlapScanner::_collect_profile_before_close() {
     //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
     if (_has_updated_counter) {
         return;
@@ -540,9 +539,9 @@ void NewOlapScanner::_collect_profile_before_close() {
     _has_updated_counter = true;
     _tablet_reader->update_profile(_profile);
 
-    VScanner::_collect_profile_before_close();
+    Scanner::_collect_profile_before_close();
 
-    // Update counters for NewOlapScanner
+    // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
     auto* local_state = (pipeline::OlapScanLocalState*)_local_state;

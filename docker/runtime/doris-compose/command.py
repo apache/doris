@@ -31,33 +31,27 @@ LOG = utils.get_logger()
 
 
 def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
-
-    def is_fe_ready_service(ip):
-        return utils.is_socket_avail(ip, CLUSTER.FE_QUERY_PORT)
-
-    def is_be_ready_service(ip):
-        return utils.is_socket_avail(ip, CLUSTER.BE_HEARTBEAT_PORT)
-
     if wait_timeout == 0:
         return
     if wait_timeout == -1:
         wait_timeout = 1000000000
     expire_ts = time.time() + wait_timeout
     while True:
-        db_mgr = database.get_db_mgr(cluster.name, False)
+        db_mgr = database.get_db_mgr(cluster.name,
+                                     cluster.get_all_node_net_infos(), False)
         dead_frontends = []
         for id in fe_ids:
             fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
             fe_state = db_mgr.get_fe(id)
-            if not fe_state or not fe_state.alive or not is_fe_ready_service(
-                    fe.get_ip()):
+            if not fe_state or not fe_state.alive or not utils.is_socket_avail(
+                    fe.get_ip(), fe.meta["ports"]["query_port"]):
                 dead_frontends.append(id)
         dead_backends = []
         for id in be_ids:
             be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
             be_state = db_mgr.get_be(id)
-            if not be_state or not be_state.alive or not is_be_ready_service(
-                    be.get_ip()):
+            if not be_state or not be_state.alive or not utils.is_socket_avail(
+                    be.get_ip(), be.meta["ports"]["webserver_port"]):
                 dead_backends.append(id)
         if not dead_frontends and not dead_backends:
             break
@@ -113,8 +107,6 @@ def get_ids_related_nodes(cluster,
     nodes = []
     for node_type, ids in type_ids:
         nodes.extend(get_ids_related_nodes_with_type(node_type, ids))
-
-    related_node_num = len(nodes)
 
     return len(nodes) == cluster.get_all_nodes_num(), nodes, len(nodes)
 
@@ -247,7 +239,8 @@ class NeedStartCommand(SimpleCommand):
         cluster, related_nodes = super().run(args)
         fe_ids = [node.id for node in related_nodes if node.is_fe()]
         be_ids = [node.id for node in related_nodes if node.is_be()]
-        wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
+        if not cluster.is_host_network():
+            wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
 
 
 class UpCommand(Command):
@@ -335,6 +328,7 @@ class UpCommand(Command):
                             type=str,
                             help="Specify recycle configs for doris_cloud.conf. "\
                                     "Example: --recycle-config \"log_level = warn\".")
+
         group1.add_argument(
             "--fe-follower",
             default=False,
@@ -392,6 +386,21 @@ class UpCommand(Command):
                             action=self._get_parser_bool_action(True),
                             help="Manager fe be via sql instead of http")
 
+        parser.add_argument(
+            "--remote-master-fe",
+            type=str,
+            help=
+            "Specify remote master fe address with ip:query_port, and all the container use host network. " \
+                "Only use when creating new cluster."
+        )
+
+        parser.add_argument(
+            "--local-network-ip",
+            type=str,
+            help= "Specify local network ip, no need specify, will auto chose a proper ip. "\
+                "Only use when creating new cluster and specify --remote-master-fe."
+        )
+
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-metaservice-endpoint",
@@ -422,7 +431,7 @@ class UpCommand(Command):
                 dest='be_cluster_id',
                 default=True,
                 action=self._get_parser_bool_action(False),
-                help="Do not set BE cluser ID in conf. Default is False.")
+                help="Do not set BE cluster ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -466,6 +475,7 @@ class UpCommand(Command):
             raise Exception("Need specific not empty cluster name")
         for_all = True
         add_fdb_num = 0
+        is_new_cluster = False
         try:
             cluster = CLUSTER.Cluster.load(args.NAME)
 
@@ -483,6 +493,7 @@ class UpCommand(Command):
                 for_all = False
         except:
             # a new cluster
+            is_new_cluster = True
             if not args.IMAGE:
                 raise Exception("New cluster must specific image") from None
             if args.fe_id != None:
@@ -499,7 +510,7 @@ class UpCommand(Command):
             args.recycle_id = None
 
             if args.add_fe_num is None:
-                args.add_fe_num = 3
+                args.add_fe_num = 0 if args.remote_master_fe else 3
             if args.add_be_num is None:
                 args.add_be_num = 3
 
@@ -517,11 +528,26 @@ class UpCommand(Command):
                 args.add_ms_num = 0
                 args.add_recycle_num = 0
 
+            if args.remote_master_fe:
+                if not args.local_network_ip:
+                    args.local_network_ip = utils.get_local_ip()
+                parts = args.remote_master_fe.split(":")
+                if len(parts) != 2:
+                    raise Exception(
+                        f"invalid --remote-master-fe-addr {args.remote_master_fe}, should be 'ip:query_port'"
+                    )
+                if not parts[0]:
+                    args.remote_master_fe = args.local_network_ip + ":" + parts[
+                        1]
+                if args.cloud:
+                    args.sql_mode_node_mgr = True
+
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
-                args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
-                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
+                args.remote_master_fe, args.local_network_ip, args.fe_follower,
+                args.be_disks, args.be_cluster, args.reg_be, args.coverage_dir,
+                cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
@@ -605,32 +631,75 @@ class UpCommand(Command):
                     .format(related_node_num)))
         else:
             LOG.info("Using SQL mode for node management ? {}".format(
-                args.sql_mode_node_mgr))
+                cluster.sql_mode_node_mgr))
 
-            # Wait for FE master to be elected
-            LOG.info("Waiting for FE master to be elected...")
-            expire_ts = time.time() + 30
-            while expire_ts > time.time():
-                ready = False
-                db_mgr = database.get_db_mgr(args.NAME, False)
-                for id in add_fe_ids:
-                    fe_state = db_mgr.get_fe(id)
-                    if fe_state is not None and fe_state.alive:
-                        ready = True
+            if cluster.remote_master_fe:
+                if is_new_cluster:
+                    if not cluster.is_cloud:
+                        with open(
+                                CLUSTER.get_master_fe_addr_path(cluster.name),
+                                "w") as f:
+                            f.write(cluster.remote_master_fe)
+                    else:
+                        cloud_config = "\n".join([
+                            f"meta_service_endpoint = {cluster.get_meta_server_addr()}",
+                            "deploy_mode = cloud",
+                            f"cluster_id = {CLUSTER.CLUSTER_ID}",
+                        ])
+                        ans = input(
+                            f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
+                            f"{cloud_config}\n\nConfirm ?  y/n: ")
+                        if ans != 'y':
+                            LOG.info(
+                                "Up cluster failed due to not confirm write the above config."
+                            )
+                            return
+
+                        LOG.info("Waiting connect to remote FE...")
+                        expire_ts = time.time() + 3600 * 5
+                        parts = cluster.remote_master_fe.split(":")
+                        fe_ip = parts[0]
+                        fe_port = int(parts[1])
+                        ready = False
+                        while expire_ts > time.time():
+                            if utils.is_socket_avail(fe_ip, fe_port):
+                                ready = True
+                                break
+                        if not ready:
+                            raise Exception(
+                                "Cannot connect to remote master fe: " +
+                                cluster.remote_master_fe)
+
+                        LOG.info("After connect to remote FE...")
+            else:
+                # Wait for FE master to be elected
+                LOG.info("Waiting for FE master to be elected...")
+                expire_ts = time.time() + 30
+                while expire_ts > time.time():
+                    ready = False
+                    db_mgr = database.get_db_mgr(
+                        args.NAME, cluster.get_all_node_net_infos(), False)
+                    for id in add_fe_ids:
+                        fe_state = db_mgr.get_fe(id)
+                        if fe_state is not None and fe_state.alive:
+                            ready = True
+                            break
+                    if ready:
                         break
-                if ready:
-                    break
-                LOG.info("there is no fe ready")
-                time.sleep(1)
-            LOG.info("after Waiting for FE master to be elected...")
-            if cluster.is_cloud and args.sql_mode_node_mgr:
-                db_mgr = database.get_db_mgr(args.NAME, False)
+                    LOG.info("there is no fe ready")
+                    time.sleep(1)
+                LOG.info("after Waiting for FE master to be elected...")
+            if cluster.is_cloud and cluster.sql_mode_node_mgr:
+                db_mgr = database.get_db_mgr(args.NAME,
+                                             cluster.get_all_node_net_infos(),
+                                             False)
                 master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
                     cluster.name, True)
                 # Add FEs except master_fe
                 for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
-                    fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
-                    if fe_endpoint != master_fe_endpoint:
+                    fe_querypoint = f"{fe.get_ip()}:{fe.meta['ports']['query_port']}"
+                    fe_endpoint = f"{fe.get_ip()}:{fe.meta['ports']['edit_log_port']}"
+                    if fe_querypoint != master_fe_endpoint:
                         try:
                             db_mgr.add_fe(
                                 fe_endpoint, "FOLLOWER"
@@ -642,19 +711,19 @@ class UpCommand(Command):
 
                 # Add BEs
                 for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE):
-                    be_endpoint = f"{be.get_ip()}:{CLUSTER.BE_HEARTBEAT_PORT}"
+                    be_endpoint = f"{be.get_ip()}:{be.meta['ports']['heartbeat_service_port']}"
                     try:
                         db_mgr.add_be(be_endpoint)
                         LOG.info(f"Added BE {be_endpoint} successfully.")
                     except Exception as e:
                         LOG.error(f"Failed to add BE {be_endpoint}: {str(e)}")
+                if is_new_cluster:
+                    cloud_store_config = self._get_cloud_store_config()
+                    db_mgr.create_default_storage_vault(cloud_store_config)
 
-                cloud_store_config = self._get_cloud_store_config()
-
-                db_mgr.create_default_storage_vault(cloud_store_config)
-
-            wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
-                               add_be_ids)
+            if not cluster.is_host_network():
+                wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
+                                   add_be_ids)
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -753,51 +822,62 @@ class DownCommand(Command):
                     "it will send dropp to fe, otherwise send decommission to fe.")
 
     def run(self, args):
+        cluster_name = args.NAME
         cluster = None
-        try:
-            cluster = CLUSTER.Cluster.load(args.NAME)
-        except:
-            return "Cluster not exists or load failed"
-        for_all, related_nodes, related_node_num = get_ids_related_nodes(
-            cluster,
-            args.fe_id,
-            args.be_id,
-            args.ms_id,
-            args.recycle_id,
-            args.fdb_id,
-            ignore_not_exists=True)
 
-        LOG.info("down cluster " + args.NAME + " for all " + str(for_all))
+        try:
+            cluster = CLUSTER.Cluster.load(cluster_name)
+            for_all, related_nodes, related_node_num = get_ids_related_nodes(
+                cluster,
+                args.fe_id,
+                args.be_id,
+                args.ms_id,
+                args.recycle_id,
+                args.fdb_id,
+                ignore_not_exists=True)
+        except Exception as e:
+            for_all = not args.fe_id and not args.be_id and not args.ms_id and not args.recycle_id
+            related_nodes = []
+            related_node_num = 0
+            if not for_all:
+                raise e
+
+        LOG.info("down cluster " + args.NAME + " for all " +
+                 str(for_all).lower())
 
         if for_all:
-            if os.path.exists(cluster.get_compose_file()):
+            compose_file = CLUSTER.get_compose_file(cluster_name)
+            if os.path.exists(compose_file):
                 try:
                     utils.exec_docker_compose_command(
-                        cluster.get_compose_file(), "down",
-                        ["-v", "--remove-orphans"])
+                        compose_file, "down", ["-v", "--remove-orphans"])
                 except Exception as e:
                     LOG.warn("down cluster has exception: " + str(e))
             try:
-                utils.remove_docker_network(cluster.name)
+                utils.remove_docker_network(cluster_name)
             except Exception as e:
                 LOG.warn("remove network has exception: " + str(e))
             if args.clean:
-                utils.enable_dir_with_rw_perm(cluster.get_path())
-                shutil.rmtree(cluster.get_path())
+                cluster_path = CLUSTER.get_cluster_path(cluster_name)
+                if os.path.exists(cluster_path):
+                    utils.enable_dir_with_rw_perm(cluster_path)
+                    shutil.rmtree(cluster_path)
                 LOG.info(
                     utils.render_yellow(
                         "Clean cluster data cause has specific --clean"))
         else:
-            db_mgr = database.get_db_mgr(cluster.name)
+            db_mgr = database.get_db_mgr(cluster.name,
+                                         cluster.get_all_node_net_infos())
 
             for node in related_nodes:
                 if node.is_fe():
-                    fe_endpoint = "{}:{}".format(node.get_ip(),
-                                                 CLUSTER.FE_EDITLOG_PORT)
+                    fe_endpoint = "{}:{}".format(
+                        node.get_ip(), node.meta["ports"]["edit_log_port"])
                     db_mgr.drop_fe(fe_endpoint)
                 elif node.is_be():
-                    be_endpoint = "{}:{}".format(node.get_ip(),
-                                                 CLUSTER.BE_HEARTBEAT_PORT)
+                    be_endpoint = "{}:{}".format(
+                        node.get_ip(),
+                        node.meta["ports"]["heartbeat_service_port"])
                     if args.drop_force:
                         db_mgr.drop_be(be_endpoint)
                     else:
@@ -831,7 +911,7 @@ class DownCommand(Command):
         LOG.info(
             utils.render_green(
                 "Down cluster {} succ, related node num {}".format(
-                    args.NAME, related_node_num)))
+                    cluster_name, related_node_num)))
 
         return "down cluster succ"
 
@@ -853,6 +933,11 @@ class ListNode(object):
         self.tablet_num = ""
         self.last_heartbeat = ""
         self.err_msg = ""
+        self.query_port = ""
+        self.http_port = ""
+        self.heartbeat_port = ""
+        self.edit_log_port = ""
+        self.heartbeat_port = ""
 
     def info(self, detail):
         result = [
@@ -862,29 +947,20 @@ class ListNode(object):
             self.last_heartbeat, self.err_msg
         ]
         if detail:
-            query_port = ""
-            http_port = ""
-            heartbeat_port = ""
-            edit_log_port = ""
             node_path = CLUSTER.get_node_path(self.cluster_name,
                                               self.node_type, self.id)
-            if self.node_type == CLUSTER.Node.TYPE_FE:
-                query_port = CLUSTER.FE_QUERY_PORT
-                http_port = CLUSTER.FE_HTTP_PORT
-                edit_log_port = CLUSTER.FE_EDITLOG_PORT
-            elif self.node_type == CLUSTER.Node.TYPE_BE:
-                http_port = CLUSTER.BE_WEBSVR_PORT
-                heartbeat_port = CLUSTER.BE_HEARTBEAT_PORT
-            elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
-                http_port = CLUSTER.MS_PORT
-            else:
-                pass
             result += [
-                query_port, http_port, node_path, edit_log_port, heartbeat_port
+                self.query_port, self.http_port, node_path, self.edit_log_port,
+                self.heartbeat_port
             ]
         return result
 
-    def update_db_info(self, db_mgr):
+    def update_db_info(self, cluster, db_mgr):
+        try:
+            node = cluster.get_node(self.node_type, self.id, True)
+        except:
+            node = None
+        ports = node.meta["ports"] if node else {}
         if self.node_type == CLUSTER.Node.TYPE_FE:
             fe = db_mgr.get_fe(self.id)
             if fe:
@@ -892,6 +968,9 @@ class ListNode(object):
                 self.is_master = str(fe.is_master).lower()
                 self.last_heartbeat = fe.last_heartbeat
                 self.err_msg = fe.err_msg
+                self.query_port = fe.query_port
+                self.http_port = fe.http_port
+                self.edit_log_port = fe.edit_log_port
         elif self.node_type == CLUSTER.Node.TYPE_BE:
             self.backend_id = -1
             be = db_mgr.get_be(self.id)
@@ -901,6 +980,15 @@ class ListNode(object):
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
+                self.http_port = be.http_port
+                self.heartbeat_port = be.heartbeat_service_port
+        elif self.node_type == CLUSTER.Node.TYPE_MS or self.node_type == CLUSTER.Node.TYPE_RECYCLE:
+            if ports:
+                self.http_port = ports.get("brpc_listen_port", -1)
+        if node and node.meta.get("is_remote", False):
+            self.ip = node.get_ip()
+            self.container_id = "<remote>"
+            self.image = "<remote>"
 
 
 class GenConfCommand(Command):
@@ -929,12 +1017,12 @@ class GenConfCommand(Command):
 
     def run(self, args):
         base_conf = '''
-jdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://{fe_ip}:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-feSourceThriftAddress = "{fe_ip}:9020"
-feTargetThriftAddress = "{fe_ip}:9020"
+jdbcUrl = "jdbc:mysql://{fe_ip}:{query_port}/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://{fe_ip}:{query_port}/?useLocalSessionState=true&allowLoadLocalInfile=true"
+feSourceThriftAddress = "{fe_ip}:{rpc_port}"
+feTargetThriftAddress = "{fe_ip}:{rpc_port}"
 syncerAddress = "{fe_ip}:9190"
-feHttpAddress = "{fe_ip}:8030"
+feHttpAddress = "{fe_ip}:{http_port}"
 '''
 
         cloud_conf = '''
@@ -954,21 +1042,24 @@ cloudUniqueId= "{fe_cloud_unique_id}"
                 args.NAME, CLUSTER.LOCAL_DORIS_PATH))
             return
 
-        master_fe_ip = master_fe_ip_ep[:master_fe_ip_ep.find(':')]
+        db_mgr = database.get_db_mgr(args.NAME,
+                                     cluster.get_all_node_net_infos(), False)
         fe_ip = ""
-        if not args.connect_follow_fe:
-            fe_ip = master_fe_ip
-        else:
-            for fe in cluster.get_all_nodes(CLUSTER.Node.TYPE_FE):
-                if fe.get_ip() == master_fe_ip:
-                    continue
-                else:
-                    fe_ip = fe.get_ip()
-                    break
-            if not fe_ip:
-                raise Exception(
-                    "Not found follow fe, pls add a follow fe use command `up <your-cluster> --add-fe-num 1`"
-                )
+        rpc_port = 0
+        query_port = 0
+        http_port = 0
+        for fe in db_mgr.get_all_fe().values():
+            if not fe.alive:
+                continue
+            if fe.is_master == (not args.connect_follow_fe):
+                fe_ip = fe.ip
+                rpc_port = fe.rpc_port
+                query_port = fe.query_port
+                http_port = fe.http_port
+                break
+        if not fe_ip:
+            role = "follower" if args.connect_follow_fe else "master"
+            raise Exception(f"Not found an alive {role} fe")
 
         relative_custom_file_path = "regression-test/conf/regression-conf-custom.groovy"
         regression_conf_custom = os.path.join(args.DORIS_ROOT_PATH,
@@ -990,26 +1081,31 @@ cloudUniqueId= "{fe_cloud_unique_id}"
         with open(regression_conf_custom, "w") as f:
             # write auto gen config
             f.write(annotation_start)
-            f.write(base_conf.format(fe_ip=fe_ip))
+            f.write(
+                base_conf.format(fe_ip=fe_ip,
+                                 rpc_port=rpc_port,
+                                 query_port=query_port,
+                                 http_port=http_port))
             if cluster.is_cloud:
                 multi_cluster_bes = ",".join([
-                    "{}:{}:{}:{}:{}".format(be.get_ip(),
-                                            CLUSTER.BE_HEARTBEAT_PORT,
-                                            CLUSTER.BE_WEBSVR_PORT,
-                                            be.cloud_unique_id(),
-                                            CLUSTER.BE_BRPC_PORT)
+                    "{}:{}:{}:{}:{}".format(
+                        be.get_ip(),
+                        be.meta["ports"]["heartbeat_service_port"],
+                        be.meta["ports"]["webserver_port"],
+                        be.cloud_unique_id(), be.meta["ports"]["brpc_port"])
                     for be in cluster.get_all_nodes(CLUSTER.Node.TYPE_BE)
                 ])
+                master_fe = cluster.get_remote_fe_node(
+                ) if cluster.is_host_network() else cluster.get_node(
+                    CLUSTER.Node.TYPE_FE, 1)
                 f.write(
                     cloud_conf.format(
                         fe_ip=fe_ip,
                         ms_endpoint=cluster.get_meta_server_addr(),
                         recycle_endpoint=cluster.get_recycle_addr(),
                         multi_cluster_bes=multi_cluster_bes,
-                        fe_cloud_unique_id=cluster.get_node(
-                            CLUSTER.Node.TYPE_FE, 1).cloud_unique_id()))
+                        fe_cloud_unique_id=master_fe.cloud_unique_id()))
             f.write(annotation_end + "\n\n")
-            annotation_end_line_count = -1
 
             # write not-auto gen config
             in_annotation = False
@@ -1045,12 +1141,31 @@ class ListCommand(Command):
                             action=self._get_parser_bool_action(True),
                             help="Print more detail fields.")
 
+    def _hint_cluster_bad(self, cluster_name):
+        cluster_path = CLUSTER.get_cluster_path(cluster_name)
+        if not os.path.exists(cluster_path):
+            LOG.info(
+                utils.render_yellow(
+                    f"Not exits cluster directory in '{CLUSTER.LOCAL_DORIS_PATH}'"
+                ))
+        elif not os.path.exists(CLUSTER.Cluster._get_meta_file(cluster_name)):
+            LOG.error(
+                utils.render_red(
+                    f"Not exits cluster meta file in '{cluster_path}'"))
+        else:
+            try:
+                CLUSTER.Cluster.load(cluster_name)
+            except:
+                LOG.error(utils.render_red("meta file is bad or incompatible with current doris-compose.py. " \
+                    "Run command `down --clean` to destroy it then recreate a new one"))
+
     def run(self, args):
         COMPOSE_MISSING = "(missing)"
         COMPOSE_BAD = "(bad)"
         COMPOSE_GOOD = ""
 
         SERVICE_DEAD = "dead"
+        SERVICE_RUNNING = "running"
 
         class ComposeService(object):
 
@@ -1061,6 +1176,12 @@ class ListCommand(Command):
 
         def parse_cluster_compose_file(cluster_name):
             compose_file = CLUSTER.get_compose_file(cluster_name)
+            try:
+                cluster = CLUSTER.Cluster.load(cluster_name)
+                ip_for_host_mode = cluster.local_network_ip if cluster.is_host_network(
+                ) else ""
+            except:
+                ip_for_host_mode = ""
             if not os.path.exists(compose_file):
                 return COMPOSE_MISSING, {}
             try:
@@ -1073,7 +1194,7 @@ class ListCommand(Command):
                 return COMPOSE_GOOD, {
                     service:
                     ComposeService(
-                        service,
+                        service, ip_for_host_mode if ip_for_host_mode else
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])
                     for service, service_conf in services.items()
@@ -1108,7 +1229,7 @@ class ListCommand(Command):
         TYPE_COMPOSESERVICE = type(ComposeService("", "", ""))
         if not args.NAME:
             header = ("CLUSTER", "OWNER", "STATUS", "MASTER FE", "CLOUD",
-                      "CONFIG FILES")
+                      "NETWORK MODE", "CONFIG FILES")
             rows = []
             for name in sorted(clusters.keys()):
                 cluster_info = clusters[name]
@@ -1126,16 +1247,20 @@ class ListCommand(Command):
                 compose_file = CLUSTER.get_compose_file(name)
 
                 is_cloud = ""
+                network_mode = ""
                 try:
                     cluster = CLUSTER.Cluster.load(name)
                     is_cloud = "true" if cluster.is_cloud else "false"
+                    network_mode = "host" if cluster.is_host_network(
+                    ) else "bridge"
                 except:
                     pass
 
-                rows.append((name, owner, show_status,
-                             CLUSTER.get_master_fe_endpoint(name), is_cloud,
-                             "{}{}".format(compose_file,
-                                           cluster_info["status"])))
+                rows.append(
+                    (name, owner, show_status,
+                     CLUSTER.get_master_fe_endpoint(name), is_cloud,
+                     network_mode, "{}{}".format(compose_file,
+                                                 cluster_info["status"])))
             return self._print_table(header, rows)
 
         header = [
@@ -1157,8 +1282,15 @@ class ListCommand(Command):
             fe_ids = {}
             be_ids = {}
             services = clusters[cluster_name]["services"]
-            db_mgr = database.get_db_mgr(cluster_name, False)
+            cluster = None
+            try:
+                cluster = CLUSTER.Cluster.load(cluster_name)
+            except:
+                pass
 
+            db_mgr = database.get_db_mgr(
+                cluster_name,
+                cluster.get_all_node_net_infos() if cluster else [], False)
             nodes = []
             for service_name, container in services.items():
                 _, node_type, id = utils.parse_service_name(container.name)
@@ -1166,7 +1298,7 @@ class ListCommand(Command):
                 node.cluster_name = cluster_name
                 node.node_type = node_type
                 node.id = id
-                node.update_db_info(db_mgr)
+                node.update_db_info(cluster, db_mgr)
                 nodes.append(node)
 
                 if node_type == CLUSTER.Node.TYPE_FE:
@@ -1182,12 +1314,15 @@ class ListCommand(Command):
                     node.created = dateutil.parser.parse(
                         container.attrs.get("Created")).astimezone().strftime(
                             "%Y-%m-%d %H:%M:%S")
-                    node.ip = list(
-                        container.attrs["NetworkSettings"]
-                        ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
-                    node.image = ",".join(container.image.tags)
+                    if cluster and cluster.is_host_network():
+                        node.ip = cluster.local_network_ip
+                    else:
+                        node.ip = list(
+                            container.attrs["NetworkSettings"]["Networks"].
+                            values())[0]["IPAMConfig"]["IPv4Address"]
+                    node.image = container.attrs["Config"]["Image"]
                     if not node.image:
-                        node.image = container.attrs["Config"]["Image"]
+                        node.image = ",".join(container.image.tags)
                     node.container_id = container.short_id
                     node.status = container.status
                     if node.container_id and \
@@ -1203,8 +1338,8 @@ class ListCommand(Command):
                 node.cluster_name = cluster_name
                 node.node_type = CLUSTER.Node.TYPE_FE
                 node.id = id
-                node.status = SERVICE_DEAD
-                node.update_db_info(db_mgr)
+                node.status = SERVICE_RUNNING if fe.alive else SERVICE_DEAD
+                node.update_db_info(cluster, db_mgr)
                 nodes.append(node)
             for id, be in db_mgr.be_states.items():
                 if be_ids.get(id, False):
@@ -1213,8 +1348,8 @@ class ListCommand(Command):
                 node.cluster_name = cluster_name
                 node.node_type = CLUSTER.Node.TYPE_BE
                 node.id = id
-                node.status = SERVICE_DEAD
-                node.update_db_info(db_mgr)
+                node.status = SERVICE_RUNNING if be.alive else SERVICE_DEAD
+                node.update_db_info(cluster, db_mgr)
                 nodes.append(node)
 
             def get_node_seq(node):
@@ -1223,7 +1358,11 @@ class ListCommand(Command):
             for node in sorted(nodes, key=get_node_seq):
                 rows.append(node.info(args.detail))
 
-        return self._print_table(header, rows)
+        ret = self._print_table(header, rows)
+        if len(args.NAME) == 1 and len(rows) == 0:
+            self._hint_cluster_bad(args.NAME[0])
+
+        return ret
 
 
 class InfoCommand(Command):

@@ -265,7 +265,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-            LOG.info("begin tablets migration from be {} to be {}", pair.first, pair.second);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin tablets migration from be {} to be {}", pair.first, pair.second);
+            }
             migrateTablets(pair.first, pair.second);
         }
 
@@ -577,7 +579,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                             try {
                                 beId = ((CloudReplica) replica).hashReplicaToBe(cluster, true);
                             } catch (ComputeGroupException e) {
-                                LOG.warn("failed to hash replica to be {}", cluster, e);
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("failed to hash replica to be {}", cluster, e);
+                                }
                                 beId = -1;
                             }
                         }
@@ -1088,7 +1092,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 try {
                     beId = cloudReplica.getBackendId();
                 } catch (ComputeGroupException e) {
-                    LOG.warn("get backend failed cloudReplica {}", cloudReplica, e);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("get backend failed cloudReplica {}", cloudReplica, e);
+                    }
                     beId = -1;
                 }
                 LOG.error("get null db from replica, tabletId={}, partitionId={}, beId={}",
@@ -1118,8 +1124,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 table.readUnlock();
             }
 
-            LOG.info("cloud be migrate tablet {} from srcBe={} to dstBe={}, clusterId={}, clusterName={}",
-                    tablet.getId(), srcBe, dstBe, clusterId, clusterName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cloud be migrate tablet {} from srcBe={} to dstBe={}, clusterId={}, clusterName={}",
+                        tablet.getId(), srcBe, dstBe, clusterId, clusterName);
+            }
         }
         long oldSize = infos.size();
         infos = batchUpdateCloudReplicaInfoEditlogs(infos);

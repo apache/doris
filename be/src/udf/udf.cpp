@@ -26,11 +26,13 @@
 // Be careful what this includes since this needs to be linked into the UDF's
 // binary. For example, it would be unfortunate if they had a random dependency
 // on libhdfs.
+#include "common/cast_set.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const int MAX_WARNINGS = 1000;
 
@@ -127,7 +129,7 @@ doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
 }
 
 int FunctionContext::get_num_args() const {
-    return _arg_types.size();
+    return cast_set<int>(_arg_types.size());
 }
 
 const doris::TypeDescriptor& FunctionContext::get_return_type() const {
@@ -151,4 +153,5 @@ StringRef FunctionContext::create_temp_string_val(int64_t len) {
     return StringRef((uint8_t*)_string_result.c_str(), len);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,6 +30,7 @@ struct AggregateFunctiontest : public testing::Test {
     void execute(Block block, ColumnWithTypeAndName expected_column) const {
         execute_single(block, expected_column);
         execute_merge(block, expected_column);
+        execute_more(block, expected_column);
     }
 
     void create_agg(const std::string& name, bool result_nullable, DataTypes args_type) {
@@ -120,6 +121,140 @@ private:
                     ColumnHelper::column_equal(std::move(result_column), expected_column.column));
         }
     }
+
+    void execute_more(Block block, ColumnWithTypeAndName expected_column) const {
+        auto check_result = [&](vectorized::AggregateDataPtr place) {
+            MutableColumnPtr result_column = expected_column.column->clone_empty();
+            agg_fn->insert_result_info(place, result_column.get());
+            for (int i = 0; i < result_column->size(); i++) {
+                std::cout << expected_column.type->to_string(*result_column, i) << std::endl;
+            }
+
+            EXPECT_TRUE(
+                    ColumnHelper::column_equal(std::move(result_column), expected_column.column));
+        };
+
+        { // serialize_to_column deserialize_from_column
+            MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
+            {
+                Arena arena;
+                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+
+                agg_fn->create(place);
+                Defer defer([&]() { agg_fn->destroy(place); });
+
+                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                EXPECT_TRUE(st.ok()) << st.msg();
+                std::vector<AggregateDataPtr> places {place};
+                agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
+            }
+
+            {
+                Arena arena;
+                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+
+                agg_fn->create(place);
+                Defer defer([&]() { agg_fn->destroy(place); });
+                agg_fn->function()->deserialize_from_column(place, *serialize_column, &arena, 1);
+
+                check_result(place);
+            }
+        }
+
+        { // streaming_agg_serialize_to_column deserialize_and_merge_from_column_range
+            MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
+            Arena arena;
+            {
+                EXPECT_TRUE(agg_fn->streaming_agg_serialize_to_column(&block, serialize_column,
+                                                                      block.rows(), &arena));
+            }
+
+            {
+                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+
+                agg_fn->create(place);
+                Defer defer([&]() { agg_fn->destroy(place); });
+                agg_fn->function()->deserialize_and_merge_from_column_range(
+                        place, *serialize_column, 0, block.rows() - 1, &arena);
+
+                check_result(place);
+            }
+        }
+
+        { // deserialize_and_merge_vec
+            MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
+            Arena arena;
+            {
+                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+
+                agg_fn->create(place);
+                Defer defer([&]() { agg_fn->destroy(place); });
+
+                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                EXPECT_TRUE(st.ok()) << st.msg();
+                std::vector<AggregateDataPtr> places {place};
+                agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
+            }
+            {
+                auto* place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+                agg_fn->create(place1);
+                Defer defer([&]() { agg_fn->destroy(place1); });
+                std::vector<AggregateDataPtr> places {place1};
+
+                auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+                agg_fn->create(place2);
+                Defer defer2([&]() { agg_fn->destroy(place2); });
+
+                agg_fn->function()->deserialize_and_merge_vec(places.data(), 0, place2,
+                                                              serialize_column.get(), &arena, 1);
+
+                check_result(place1);
+                check_result(place2);
+            }
+        }
+
+        { // deserialize_and_merge_vec_selected
+            MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
+            Arena arena;
+            {
+                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+
+                agg_fn->create(place);
+                Defer defer([&]() { agg_fn->destroy(place); });
+
+                auto st = agg_fn->execute_single_add(&block, place, &arena);
+                EXPECT_TRUE(st.ok()) << st.msg();
+                std::vector<AggregateDataPtr> places {place};
+                agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
+            }
+            {
+                auto* place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+                agg_fn->create(place1);
+                Defer defer([&]() { agg_fn->destroy(place1); });
+                std::vector<AggregateDataPtr> places {place1};
+
+                auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                        arena.alloc(agg_fn->function()->size_of_data()));
+                agg_fn->create(place2);
+                Defer defer2([&]() { agg_fn->destroy(place2); });
+
+                agg_fn->function()->deserialize_and_merge_vec_selected(
+                        places.data(), 0, place2, serialize_column.get(), &arena, 1);
+
+                check_result(place1);
+                check_result(place2);
+            }
+        }
+    }
+
     ObjectPool pool;
     AggFnEvaluator* agg_fn;
 };

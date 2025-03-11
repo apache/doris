@@ -125,8 +125,7 @@ public:
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
 
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+    void remove_pipeline_context(std::pair<TUniqueId, int> key);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,

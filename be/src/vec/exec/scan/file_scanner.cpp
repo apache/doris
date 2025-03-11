@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/scan/file_scanner.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
@@ -70,7 +70,7 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
-#include "vec/exec/scan/vscan_node.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -91,13 +91,13 @@ class ShardedKVCache;
 namespace doris::vectorized {
 using namespace ErrorCode;
 
-VFileScanner::VFileScanner(
+FileScanner::FileScanner(
         RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
         std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
         ShardedKVCache* kv_cache,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id)
-        : VScanner(state, local_state, limit, profile),
+        : Scanner(state, local_state, limit, profile),
           _split_source(split_source),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
@@ -123,8 +123,8 @@ VFileScanner::VFileScanner(
     _is_load = (_input_tuple_desc != nullptr);
 }
 
-Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
+Status FileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    RETURN_IF_ERROR(Scanner::prepare(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
     _open_reader_timer =
@@ -187,7 +187,7 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
 }
 
 // check if the expr is a partition pruning expr
-bool VFileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
+bool FileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         auto* slot_ref = static_cast<VSlotRef*>(expr.get());
         return _partition_slot_index_map.find(slot_ref->slot_id()) !=
@@ -201,7 +201,7 @@ bool VFileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     });
 }
 
-void VFileScanner::_init_runtime_filter_partition_prune_ctxs() {
+void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
     _runtime_filter_partition_prune_ctxs.clear();
     for (auto& conjunct : _conjuncts) {
         auto impl = conjunct->root()->get_impl();
@@ -213,7 +213,7 @@ void VFileScanner::_init_runtime_filter_partition_prune_ctxs() {
     }
 }
 
-void VFileScanner::_init_runtime_filter_partition_prune_block() {
+void FileScanner::_init_runtime_filter_partition_prune_block() {
     // init block with empty column
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (!slot_desc->is_materialized()) {
@@ -226,7 +226,7 @@ void VFileScanner::_init_runtime_filter_partition_prune_block() {
     }
 }
 
-Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
+Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
     if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
@@ -293,7 +293,7 @@ Status VFileScanner::_process_runtime_filters_partition_prune(bool& can_filter_a
     return Status::OK();
 }
 
-Status VFileScanner::_process_conjuncts_for_dict_filter() {
+Status FileScanner::_process_conjuncts_for_dict_filter() {
     _slot_id_to_filter_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     for (auto& conjunct : _push_down_conjuncts) {
@@ -324,7 +324,7 @@ Status VFileScanner::_process_conjuncts_for_dict_filter() {
     return Status::OK();
 }
 
-Status VFileScanner::_process_late_arrival_conjuncts() {
+Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
         _push_down_conjuncts.clear();
         _push_down_conjuncts.resize(_conjuncts.size());
@@ -340,7 +340,7 @@ Status VFileScanner::_process_late_arrival_conjuncts() {
     return Status::OK();
 }
 
-void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
+void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     for (auto& child_expr : expr->children()) {
         if (child_expr->is_slot_ref()) {
             VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
@@ -350,9 +350,9 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     }
 }
 
-Status VFileScanner::open(RuntimeState* state) {
+Status FileScanner::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(VScanner::open(state));
+    RETURN_IF_ERROR(Scanner::open(state));
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
@@ -369,7 +369,7 @@ Status VFileScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+Status FileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     Status st = _get_block_wrapped(state, block, eof);
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
@@ -397,7 +397,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 // _fill_columns_from_path      -     -    -  -                 x                x      -
 // _fill_missing_columns        -     -    -  x                 -                x      -
 // _convert_to_output_block     -     -    -  -                 -                -      x
-Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
+Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
@@ -472,7 +472,7 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
  * Broker/stream load will cast any type as string type, and complex types will be casted wrong.
  * This is a temporary method, and will be replaced by tvf.
  */
-Status VFileScanner::_check_output_block_types() {
+Status FileScanner::_check_output_block_types() {
     if (_is_load) {
         TFileFormatType::type format_type = _params->format_type;
         if (format_type == TFileFormatType::FORMAT_PARQUET ||
@@ -489,7 +489,7 @@ Status VFileScanner::_check_output_block_types() {
     return Status::OK();
 }
 
-Status VFileScanner::_init_src_block(Block* block) {
+Status FileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
         return Status::OK();
@@ -547,7 +547,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     return Status::OK();
 }
 
-Status VFileScanner::_cast_to_input_block(Block* block) {
+Status FileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
@@ -581,7 +581,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     return Status::OK();
 }
 
-Status VFileScanner::_fill_columns_from_path(size_t rows) {
+Status FileScanner::_fill_columns_from_path(size_t rows) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
@@ -607,7 +607,7 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
     return Status::OK();
 }
 
-Status VFileScanner::_fill_missing_columns(size_t rows) {
+Status FileScanner::_fill_missing_columns(size_t rows) {
     if (_missing_cols.empty()) {
         return Status::OK();
     }
@@ -648,7 +648,7 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
     return Status::OK();
 }
 
-Status VFileScanner::_pre_filter_src_block() {
+Status FileScanner::_pre_filter_src_block() {
     if (!_is_load) {
         return Status::OK();
     }
@@ -663,7 +663,7 @@ Status VFileScanner::_pre_filter_src_block() {
     return Status::OK();
 }
 
-Status VFileScanner::_convert_to_output_block(Block* block) {
+Status FileScanner::_convert_to_output_block(Block* block) {
     if (!_is_load) {
         return Status::OK();
     }
@@ -795,7 +795,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     return Status::OK();
 }
 
-Status VFileScanner::_truncate_char_or_varchar_columns(Block* block) {
+Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
     // Truncate char columns or varchar columns if size is smaller than file columns
     // or not found in the file column schema.
     if (!_state->query_options().truncate_char_or_varchar_columns) {
@@ -828,7 +828,7 @@ Status VFileScanner::_truncate_char_or_varchar_columns(Block* block) {
 }
 
 // VARCHAR substring(VARCHAR str, INT pos[, INT len])
-void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
+void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
     auto int_type = std::make_shared<DataTypeInt32>();
     size_t num_columns_without_result = block->columns();
     const ColumnNullable* col_nullable =
@@ -854,7 +854,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
     Block::erase_useless_column(block, num_columns_without_result);
 }
 
-Status VFileScanner::_get_next_reader() {
+Status FileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
             _cur_reader->collect_profile_before_close();
@@ -1138,9 +1138,9 @@ Status VFileScanner::_get_next_reader() {
                                          _params->format_type);
         }
         COUNTER_UPDATE(_file_counter, 1);
-        // The VFileScanner for external table may try to open not exist files,
+        // The FileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for VFileScanner is not a fail case.
+        // So, NOT_FOUND for FileScanner is not a fail case.
         // Will remove this after file reader refactor.
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
@@ -1190,7 +1190,7 @@ Status VFileScanner::_get_next_reader() {
     return Status::OK();
 }
 
-Status VFileScanner::_generate_parititon_columns() {
+Status FileScanner::_generate_parititon_columns() {
     _partition_col_descs.clear();
     const TFileRangeDesc& range = _current_range;
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -1215,7 +1215,7 @@ Status VFileScanner::_generate_parititon_columns() {
     return Status::OK();
 }
 
-Status VFileScanner::_generate_missing_columns() {
+Status FileScanner::_generate_missing_columns() {
     _missing_col_descs.clear();
     if (!_missing_cols.empty()) {
         for (auto slot_desc : _real_tuple_desc->slots()) {
@@ -1237,7 +1237,7 @@ Status VFileScanner::_generate_missing_columns() {
     return Status::OK();
 }
 
-Status VFileScanner::_init_expr_ctxes() {
+Status FileScanner::_init_expr_ctxes() {
     std::map<SlotId, int> full_src_index_map;
     std::map<SlotId, SlotDescriptor*> full_src_slot_map;
     std::map<std::string, int> partition_name_to_key_index_map;
@@ -1349,7 +1349,7 @@ Status VFileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
-Status VFileScanner::close(RuntimeState* state) {
+Status FileScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
@@ -1358,19 +1358,19 @@ Status VFileScanner::close(RuntimeState* state) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
 
-    RETURN_IF_ERROR(VScanner::close(state));
+    RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
 
-void VFileScanner::try_stop() {
-    VScanner::try_stop();
+void FileScanner::try_stop() {
+    Scanner::try_stop();
     if (_io_ctx) {
         _io_ctx->should_stop = true;
     }
 }
 
-void VFileScanner::_collect_profile_before_close() {
-    VScanner::_collect_profile_before_close();
+void FileScanner::_collect_profile_before_close() {
+    Scanner::_collect_profile_before_close();
     if (config::enable_file_cache && _state->query_options().enable_file_cache &&
         _profile != nullptr) {
         io::FileCacheProfileReporter cache_profile(_profile);
