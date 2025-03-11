@@ -18,19 +18,13 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
-import org.apache.doris.qe.ResultReceiver;
-import org.apache.doris.qe.ResultReceiverConsumer;
-import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.FutureCallback;
-
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Tested;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -96,35 +90,15 @@ public class ResultReceiverConsumerTest {
                 result = eosBatch3;
             }
         };
-        {
+        for (int i = 0; i < 5; i++) {
             RowBatch batch = consumer.getNext(status);
             Assert.assertFalse(consumer.isEos());
             Assert.assertFalse(batch.isEos());
         }
-        {
-            RowBatch batch = consumer.getNext(status);
-            Assert.assertFalse(consumer.isEos());
-            Assert.assertFalse(batch.isEos());
-        }
-        {
-            RowBatch batch = consumer.getNext(status);
-            Assert.assertFalse(consumer.isEos());
-            Assert.assertFalse(batch.isEos());
-        }
-        {
-            RowBatch batch = consumer.getNext(status);
-            Assert.assertFalse(consumer.isEos());
-            Assert.assertFalse(batch.isEos());
-        }
-        {
-            RowBatch batch = consumer.getNext(status);
-            Assert.assertFalse(consumer.isEos());
-            Assert.assertFalse(batch.isEos());
-        }
-        {
-            RowBatch batch = consumer.getNext(status);
-            Assert.assertTrue(consumer.isEos());
-            Assert.assertTrue(batch.isEos());
-        }
+
+        RowBatch batch = consumer.getNext(status);
+        Assert.assertTrue(consumer.isEos());
+        Assert.assertTrue(batch.isEos());
+
     }
 }
