@@ -194,14 +194,6 @@ if [[ -z "${USE_LIBCPP}" ]]; then
     fi
 fi
 
-if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_MEM_TRACKER='ON'
-    else
-        USE_MEM_TRACKER='OFF'
-    fi
-fi
-
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
@@ -236,7 +228,6 @@ cd "${CMAKE_BUILD_DIR}"
     -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
-    -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
     -DUSE_JEMALLOC=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
