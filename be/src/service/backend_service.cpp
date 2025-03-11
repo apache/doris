@@ -88,8 +88,9 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-
 namespace {
+
+bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
 
 struct IngestBinlogArg {
     int64_t txn_id;
@@ -121,7 +122,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     std::vector<std::string> download_success_files;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files]() {
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time() / 1000000);
+        g_ingest_binlog_latency << watch.elapsed_time_microseconds();
+        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = total_download_bytes / ((double)elapsed_time_ms) / 1000;

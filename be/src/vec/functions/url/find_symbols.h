@@ -118,21 +118,22 @@ inline __m128i mm_is_in(__m128i bytes, const char* symbols, size_t num_chars) {
     return accumulator;
 }
 
-inline std::array<__m128i, 16u> mm_is_in_prepare(const char* symbols, size_t num_chars) {
-    std::array<__m128i, 16u> result {};
+using AlignedArray = std::array<std::aligned_storage_t<sizeof(__m128i), alignof(__m128i)>, 16>;
+inline AlignedArray mm_is_in_prepare(const char* symbols, size_t num_chars) {
+    AlignedArray result {};
 
     for (size_t i = 0; i < num_chars; ++i) {
-        result[i] = _mm_set1_epi8(symbols[i]);
+        reinterpret_cast<__m128i&>(result[i]) = _mm_set1_epi8(symbols[i]);
     }
 
     return result;
 }
 
-inline __m128i mm_is_in_execute(__m128i bytes, const std::array<__m128i, 16u>& needles) {
+inline __m128i mm_is_in_execute(__m128i bytes, const AlignedArray& needles) {
     __m128i accumulator = _mm_setzero_si128();
 
     for (const auto& needle : needles) {
-        __m128i eq = _mm_cmpeq_epi8(bytes, needle);
+        __m128i eq = _mm_cmpeq_epi8(bytes, reinterpret_cast<const __m128i&>(needle));
         accumulator = _mm_or_si128(accumulator, eq);
     }
 

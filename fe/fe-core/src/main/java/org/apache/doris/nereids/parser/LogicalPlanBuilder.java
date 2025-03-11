@@ -751,8 +751,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
-        return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                comment);
+        return new SimpleColumnDefinition(ctx.colName.getText(), comment);
     }
 
     /**
@@ -2815,9 +2814,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.INTEGER_VALUE() != null) {
-                defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+                if (ctx.SUBTRACT() == null) {
+                    defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+                } else {
+                    defaultValue = Optional.of(new DefaultValue("-" + ctx.INTEGER_VALUE().getText()));
+                }
             } else if (ctx.DECIMAL_VALUE() != null) {
-                defaultValue = Optional.of(new DefaultValue(ctx.DECIMAL_VALUE().getText()));
+                if (ctx.SUBTRACT() == null) {
+                    defaultValue = Optional.of(new DefaultValue(ctx.DECIMAL_VALUE().getText()));
+                } else {
+                    defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
+                }
             } else if (ctx.stringValue != null) {
                 defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
@@ -2969,6 +2976,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitPartitionValueDef(PartitionValueDefContext ctx) {
         if (ctx.INTEGER_VALUE() != null) {
+            if (ctx.SUBTRACT() != null) {
+                return Literal.of("-" + ctx.INTEGER_VALUE().getText());
+            }
             return Literal.of(ctx.INTEGER_VALUE().getText());
         } else if (ctx.STRING_LITERAL() != null) {
             return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
