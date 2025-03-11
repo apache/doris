@@ -737,6 +737,7 @@ supportedStatsStatement
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
         columns=identifierList? (WITH analyzeProperties)* propertyClause?       #analyzeTable
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
     ;
 
 unsupportedStatsStatement

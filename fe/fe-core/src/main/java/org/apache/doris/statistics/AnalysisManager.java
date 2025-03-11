@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -1309,6 +1310,19 @@ public class AnalysisManager implements Writable {
                 analysisTaskInfoMap.remove(analysisInfo.taskId);
             }
         }
+    }
+
+    public void dropAnalyzeJob(DropAnalyzeJobCommand analyzeJobCommand) throws DdlException {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobCommand.getJobId());
+        if (jobInfo == null) {
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobCommand.getJobId()));
+        }
+        checkPriv(jobInfo);
+        long jobId = analyzeJobCommand.getJobId();
+        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
+        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
+        replayDeleteAnalysisJob(analyzeDeletionLog);
+        removeAll(findTasks(jobId));
     }
 
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
