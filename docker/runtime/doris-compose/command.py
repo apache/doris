@@ -635,12 +635,10 @@ class UpCommand(Command):
 
             if cluster.remote_master_fe:
                 if is_new_cluster:
-                    if not cluster.is_cloud:
-                        with open(
-                                CLUSTER.get_master_fe_addr_path(cluster.name),
-                                "w") as f:
-                            f.write(cluster.remote_master_fe)
-                    else:
+                    with open(CLUSTER.get_master_fe_addr_path(cluster.name),
+                              "w") as f:
+                        f.write(cluster.remote_master_fe)
+                    if cluster.is_cloud:
                         cloud_config = "\n".join([
                             f"meta_service_endpoint = {cluster.get_meta_server_addr()}",
                             "deploy_mode = cloud",
