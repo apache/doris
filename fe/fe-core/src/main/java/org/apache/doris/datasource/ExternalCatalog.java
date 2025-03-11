@@ -65,6 +65,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -139,6 +140,9 @@ public abstract class ExternalCatalog
     // <db name, table name> to tableAutoAnalyzePolicy
     @SerializedName(value = "taap")
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -147,7 +151,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
@@ -1109,5 +1112,22 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalCatalog)) {
+            return false;
+        }
+        ExternalCatalog that = (ExternalCatalog) o;
+        return Objects.equal(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
     }
 }

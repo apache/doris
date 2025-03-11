@@ -386,6 +386,9 @@ public:
 
     std::priority_queue<HeapLimitCursor> limit_heap;
 
+    // Refresh the top limit heap with a new row
+    void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
+
 private:
     vectorized::MutableColumns _get_keys_hash_table();
 

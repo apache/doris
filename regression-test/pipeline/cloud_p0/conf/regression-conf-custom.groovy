@@ -81,3 +81,4 @@ enableKafkaTest=true
 enableTrinoConnectorTest = false
 
 s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"

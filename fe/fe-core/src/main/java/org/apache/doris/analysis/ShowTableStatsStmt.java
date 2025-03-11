@@ -341,4 +341,9 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         }
         return new ShowResultSet(getMetaData(), result);
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }

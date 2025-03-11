@@ -1178,6 +1178,17 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& 
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
+    DBUG_EXECUTE_IF("get_delete_bitmap_update_lock.inject_fail", {
+        auto p = dp->param("percent", 0.01);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                    "injection error when get get_delete_bitmap_update_lock, "
+                    "tablet_id={}, lock_id={}, initiator={}",
+                    tablet.tablet_id(), lock_id, initiator);
+        }
+    });
     VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
                << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
@@ -1219,23 +1230,24 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     return st;
 }
 
-Status CloudMetaMgr::remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
-                                                      int64_t initiator) {
-    VLOG_DEBUG << "remove_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
-               << ",lock_id:" << lock_id;
+void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id,
+                                                    int64_t initiator, int64_t tablet_id) {
+    LOG(INFO) << "remove_delete_bitmap_update_lock ,table_id: " << table_id
+              << ",lock_id:" << lock_id << ",initiator:" << initiator << ",tablet_id:" << tablet_id;
     RemoveDeleteBitmapUpdateLockRequest req;
     RemoveDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet.tablet_id());
+    req.set_table_id(table_id);
+    req.set_tablet_id(tablet_id);
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     auto st = retry_rpc("remove delete bitmap update lock", req, &res,
                         &MetaService_Stub::remove_delete_bitmap_update_lock);
     if (!st.ok()) {
-        LOG(WARNING) << "remove delete bitmap update lock fail,tablet_id=" << tablet.tablet_id()
-                     << " lock_id=" << lock_id << " st=" << st.to_string();
+        LOG(WARNING) << "remove delete bitmap update lock fail,table_id=" << table_id
+                     << ",tablet_id=" << tablet_id << ",lock_id=" << lock_id
+                     << ",st=" << st.to_string();
     }
-    return st;
 }
 
 Status CloudMetaMgr::remove_old_version_delete_bitmap(

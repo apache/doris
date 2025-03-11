@@ -220,7 +220,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
                 && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null
-                    || relation.getStats().getRowCount() > ctx.topn.getLimit() + ctx.topn.getOffset()) {
+                    || Math.max(relation.getStats().getRowCount(), 1) > ctx.topn.getLimit() + ctx.topn.getOffset()) {
                 topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
                 return true;
             }

@@ -23,17 +23,23 @@ import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class BinlogUtils {
-    public static Pair<TStatus, TBinlog> getBinlog(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
+    public static Pair<TStatus, List<TBinlog>> getBinlog(
+            TreeSet<TBinlog> binlogs, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);
         TBinlog firstBinlog = binlogs.first();
 
         // all commitSeq > commitSeq
         if (firstBinlog.getCommitSeq() > prevCommitSeq) {
             status.setStatusCode(TStatusCode.BINLOG_TOO_OLD_COMMIT_SEQ);
-            return Pair.of(status, firstBinlog);
+            List<TBinlog> array = new ArrayList<>();
+            array.add(firstBinlog);
+            return Pair.of(status, array);
         }
 
         // find first binlog whose commitSeq > commitSeq
@@ -46,16 +52,24 @@ public class BinlogUtils {
             status.setStatusCode(TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ);
             return Pair.of(status, null);
         } else {
-            return Pair.of(status, binlog);
+            numAcquired = Math.min(Math.max(numAcquired, 1), 255);
+            List<TBinlog> obtain = binlogs.tailSet(binlog)
+                    .stream()
+                    .limit(numAcquired)
+                    .collect(Collectors.toList());
+            return Pair.of(status, obtain);
         }
     }
 
-    public static Pair<TStatus, Long> getBinlogLag(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
+    public static Pair<TStatus, BinlogLagInfo> getBinlogLag(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         TBinlog firstBinlog = binlogs.first();
+        TBinlog lastBinlog = binlogs.last();
 
         if (firstBinlog.getCommitSeq() > prevCommitSeq) {
-            return Pair.of(status, Long.valueOf(binlogs.size()));
+            BinlogLagInfo lagInfo = new BinlogLagInfo(binlogs.size(), firstBinlog.getCommitSeq(),
+                    lastBinlog.getCommitSeq(), firstBinlog.getTimestamp(), lastBinlog.getTimestamp());
+            return Pair.of(status, lagInfo);
         }
 
         // find first binlog whose commitSeq > commitSeq
@@ -64,11 +78,20 @@ public class BinlogUtils {
         TBinlog binlog = binlogs.higher(guard);
 
         // all prevCommitSeq <= commitSeq
-        if (binlog == null) {
-            return Pair.of(status, 0L);
-        } else {
-            return Pair.of(status, Long.valueOf(binlogs.tailSet(binlog).size()));
+        long lag = 0;
+        long lastCommitSeq = 0;
+        long lastCommitTs = 0;
+        long firstCommitSeq = 0;
+        long firstCommitTs = 0;
+        if (binlog != null) {
+            lag = binlogs.tailSet(binlog).size();
+            firstCommitSeq = binlog.getCommitSeq();
+            firstCommitTs = binlog.getTimestamp();
+            lastCommitSeq = lastBinlog.getCommitSeq();
+            lastCommitTs = lastBinlog.getTimestamp();
         }
+        return Pair.of(status, new BinlogLagInfo(lag, firstCommitSeq, lastCommitSeq,
+                firstCommitTs, lastCommitTs));
     }
 
     public static TBinlog newDummyBinlog(long dbId, long tableId) {
@@ -78,6 +101,7 @@ public class BinlogUtils {
         dummy.setType(TBinlogType.DUMMY);
         dummy.setDbId(dbId);
         dummy.setBelong(tableId);
+        dummy.setTimestamp(System.currentTimeMillis());
         return dummy;
     }
 

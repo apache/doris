@@ -340,7 +340,6 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
             DCHECK(!tnode.agg_node.grouping_exprs.empty()) << "Streaming preaggs do grouping";
-            DCHECK(_limit == -1) << "Preaggs have no limits";
         }
     } else {
         _is_streaming_preagg = false;

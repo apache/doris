@@ -97,4 +97,31 @@ suite("test_set_operators", "query,p0,arrow_flight_sql") {
     order_qt_select_except """
         select col1, col1 from t1 except select col1, col1 from t2;
     """
+
+    sql """
+        DROP TABLE IF EXISTS a_table;
+    """
+    sql """
+        create table a_table (
+            k1 int null
+        )
+        duplicate key (k1)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """
+        DROP TABLE IF EXISTS b_table;
+    """
+    sql """
+    create table b_table (
+        k1 int null
+    )
+    duplicate key (k1)
+    distributed BY hash(k1) buckets 3
+    properties("replication_num" = "1");
+    """
+
+    sql "insert into a_table select 0;"
+    sql "insert into b_table select null;"
+    qt_test "select * from a_table intersect select * from b_table;"
 }

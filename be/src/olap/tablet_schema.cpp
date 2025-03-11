@@ -1399,11 +1399,11 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
                                                 const std::string& suffix_path) const {
+    const std::string escaped_suffix = escape_for_path_name(suffix_path);
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id &&
-                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
+                if (id == col_unique_id && _indexes[i].get_index_suffix() == escaped_suffix) {
                     return &(_indexes[i]);
                 }
             }

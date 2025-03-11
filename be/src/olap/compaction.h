@@ -41,6 +41,8 @@ struct RowsetWriterContext;
 class StorageEngine;
 class CloudStorageEngine;
 
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int64_t INVALID_COMPACTION_INITIATOR_ID = -100;
 // This class is a base class for compaction.
 // The entrance of this class is compact()
 // Any compaction should go through four procedures.
@@ -142,6 +144,8 @@ public:
 
     int64_t get_compaction_permits();
 
+    int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -176,12 +180,16 @@ public:
 
     Status execute_compact() override;
 
+    int64_t initiator() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
-    virtual void garbage_collection();
+    virtual Status garbage_collection();
 
     CloudStorageEngine& _engine;
+
+    std::string _uuid;
 
     int64_t _expiration = 0;
 

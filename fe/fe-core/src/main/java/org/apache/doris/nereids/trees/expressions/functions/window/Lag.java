@@ -21,7 +21,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -39,9 +41,11 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
 
     static {
         List<FunctionSignature> signatures = Lists.newArrayList();
-        trivialTypes.forEach(t ->
-                signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE, t))
-        );
+        trivialTypes.forEach(t -> {
+            signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE, t));
+            signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE));
+            signatures.add(FunctionSignature.ret(t).args(t));
+        });
         SIGNATURES = ImmutableList.copyOf(signatures);
     }
 
@@ -51,21 +55,21 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
         super("lag", child, offset, defaultValue);
     }
 
-    private Lag(List<Expression> children) {
-        super("lag", children);
+    public Lag(Expression child, Expression offset) {
+        this(child, offset, new NullLiteral(child.getDataType()));
+    }
+
+    public Lag(Expression child) {
+        this(child, new BigIntLiteral(1L), new NullLiteral(child.getDataType()));
     }
 
     public Expression getOffset() {
-        if (children().size() <= 1) {
-            throw new AnalysisException("Not set offset of Lead(): " + this.toSql());
-        }
+        Preconditions.checkArgument(children.size() == 3);
         return child(1);
     }
 
     public Expression getDefaultValue() {
-        if (children.size() <= 2) {
-            throw new AnalysisException("Not set default value of Lead(): " + this.toSql());
-        }
+        Preconditions.checkArgument(children.size() == 3);
         return child(2);
     }
 
@@ -80,7 +84,13 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
     @Override
     public Lag withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
-        return new Lag(children);
+        if (children.size() == 1) {
+            return new Lag(children.get(0));
+        } else if (children.size() == 2) {
+            return new Lag(children.get(0), children.get(1));
+        } else {
+            return new Lag(children.get(0), children.get(1), children.get(2));
+        }
     }
 
     @Override

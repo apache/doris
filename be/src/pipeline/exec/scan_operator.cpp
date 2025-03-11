@@ -505,9 +505,11 @@ bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VEx
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
-    // Variant slot cast could be eliminated
+    // only one level cast expr could push down for variant type
+    // check if expr is cast and it's children is slot
     if (slot->type().is_variant_type()) {
-        return true;
+        return expr->node_type() == TExprNodeType::CAST_EXPR &&
+               expr->children().at(0)->is_slot_ref();
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {

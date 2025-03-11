@@ -349,6 +349,7 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
         request.__set_token("group_commit"); // this is a fake, fe not check it now
         request.__set_max_filter_ratio(1.0);
         request.__set_strictMode(false);
+        request.__set_partial_update(false);
         // this is an internal interface, use admin to pass the auth check
         request.__set_user("admin");
         if (_exec_env->cluster_info()->backend_id != 0) {

@@ -90,7 +90,14 @@ suite("test_index_match_regexp", "nonConcurrent"){
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '.*tickets.*'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 'nonexistence'; """
 
+        sql """ set inverted_index_max_expansions = 1; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+        
+        sql """ set inverted_index_max_expansions = 50; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+
     } finally {
+        sql """ set inverted_index_max_expansions = 50; """
         GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

@@ -199,17 +199,11 @@ extPgPort = 5432
 extPgUser = "****"
 extPgPassword = "***********"
 
-// elasticsearch external test config for bigdata
-enableExternalEsTest = false
-extEsHost = "***********"
-extEsPort = 9200
-extEsUser = "*******"
-extEsPassword = "***********"
-
 // minio external test config
 enableExternalMinioTest = false
 extMinioHost = "***.**.**.**"
 extMinioPort = 9000
+extMinioDomain = "myminio.com"
 extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"

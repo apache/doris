@@ -298,24 +298,30 @@ public:
         if (!_read_column_names.empty()) {
             // can't use _child_readers[*_read_column_names.begin()]
             // because the operator[] of std::unordered_map is not const :(
-            return _child_readers.find(*_read_column_names.begin())->second->get_rep_level();
+            /*
+             * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
+             * to missing definition and repetition levels, when filling the null_map of the struct later, it is
+             * crucial to use the definition and repetition levels from the first read column,
+             * that is `_read_column_names.front()`.
+             */
+            return _child_readers.find(_read_column_names.front())->second->get_rep_level();
         }
         return _child_readers.begin()->second->get_rep_level();
     }
 
     const std::vector<level_t>& get_def_level() const override {
         if (!_read_column_names.empty()) {
-            return _child_readers.find(*_read_column_names.begin())->second->get_def_level();
+            return _child_readers.find(_read_column_names.front())->second->get_def_level();
         }
         return _child_readers.begin()->second->get_def_level();
     }
 
     Statistics statistics() override {
         Statistics st;
-        for (const auto& reader : _child_readers) {
-            // make sure the field is read
-            if (_read_column_names.find(reader.first) != _read_column_names.end()) {
-                Statistics cst = reader.second->statistics();
+        for (const auto& column_name : _read_column_names) {
+            auto reader = _child_readers.find(column_name);
+            if (reader != _child_readers.end()) {
+                Statistics cst = reader->second->statistics();
                 st.merge(cst);
             }
         }
@@ -332,7 +338,8 @@ public:
 
 private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
-    std::set<std::string> _read_column_names;
+    std::vector<std::string> _read_column_names;
+    //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
 
 }; // namespace doris::vectorized

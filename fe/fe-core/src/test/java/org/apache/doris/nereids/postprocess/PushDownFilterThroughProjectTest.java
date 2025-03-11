@@ -23,12 +23,15 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.PushDownFilterThroughProject;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -110,5 +113,43 @@ public class PushDownFilterThroughProjectTest {
         List<Expression> newFilterConjuncts =
                 ((PhysicalFilter<?>) newPlan.child(0).child(0)).getExpressions();
         Assertions.assertEquals(newFilterConjuncts.get(0).child(0), a);
+    }
+
+    @Test
+    public void testNotPushFilterWithNonfoldable(@Injectable LogicalProperties placeHolder,
+            @Injectable CascadesContext ctx) {
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.DUP_KEYS);
+        List<String> qualifier = new ArrayList<>();
+        qualifier.add("test");
+        List<Slot> t1Output = new ArrayList<>();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        t1Output.add(a);
+        t1Output.add(b);
+        t1Output.add(c);
+        LogicalProperties t1Properties = new LogicalProperties(() -> t1Output, () -> DataTrait.EMPTY_TRAIT);
+        PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1,
+                qualifier, 0L, Collections.emptyList(), Collections.emptyList(), null,
+                PreAggStatus.on(), ImmutableList.of(), Optional.empty(), t1Properties,
+                Optional.empty());
+        Alias x = new Alias(a, "x");
+        List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
+        PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);
+        Alias y = new Alias(
+                new Add(x.toSlot(), new Random(new BigIntLiteral(1L), new BigIntLiteral(10L))),
+                "y");
+        Alias z = new Alias(b, "z");
+        List<NamedExpression> projList2 = Lists.newArrayList(y, z, c);
+        PhysicalProject proj2 = new PhysicalProject(projList2, placeHolder, proj3);
+        Set<Expression> conjuncts = Sets.newHashSet();
+        conjuncts.add(new EqualTo(y.toSlot(), Literal.of(0)));
+        PhysicalFilter filter = new PhysicalFilter(conjuncts, proj2.getLogicalProperties(), proj2);
+
+        PushDownFilterThroughProject processor = new PushDownFilterThroughProject();
+        PhysicalPlan newPlan = (PhysicalPlan) filter.accept(processor, ctx);
+        Assertions.assertTrue(newPlan instanceof PhysicalFilter);
+        Assertions.assertTrue(newPlan.child(0) instanceof PhysicalProject);
+        Assertions.assertTrue(newPlan.child(0).child(0) instanceof PhysicalProject);
     }
 }

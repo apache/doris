@@ -98,7 +98,7 @@ DECLARE_mBool(save_load_error_log_to_s3);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
-DECLARE_Int32(delete_bitmap_lock_expiration_seconds);
+DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);

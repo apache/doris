@@ -277,7 +277,7 @@ static void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const s
     commit_txn(meta_service, db_id, txn_id, label);
 }
 
-static void add_tablet_stats(MetaServiceProxy* meta_service, std::string instance_id,
+static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instance_id,
                              int64_t table_id, int64_t index_id,
                              const std::vector<std::array<int64_t, 2>>& tablet_idxes) {
     std::unique_ptr<Transaction> txn;
@@ -293,6 +293,17 @@ static void add_tablet_stats(MetaServiceProxy* meta_service, std::string instanc
         stats.set_cumulative_compaction_cnt(20);
         stats.set_cumulative_point(30);
         txn->put(stats_key, stats.SerializeAsString());
+
+        doris::TabletMetaCloudPB tablet_pb;
+        tablet_pb.set_table_id(table_id);
+        tablet_pb.set_index_id(index_id);
+        tablet_pb.set_partition_id(partition_id);
+        tablet_pb.set_tablet_id(tablet_id);
+        tablet_pb.set_tablet_state(doris::TabletStatePB::PB_RUNNING);
+        auto tablet_meta_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        auto tablet_meta_val = tablet_pb.SerializeAsString();
+        txn->put(tablet_meta_key, tablet_meta_val);
     }
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
@@ -4659,7 +4670,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
     // [(partition_id, tablet_id)]
     std::vector<std::array<int64_t, 2>> tablet_idxes {{70001, 12345}, {80001, 3456}, {90001, 6789}};
 
-    add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+    add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
     GetDeleteBitmapUpdateLockResponse res;
     get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id, tablet_idxes,
@@ -4713,7 +4724,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         std::vector<std::array<int64_t, 2>> tablet_idxes {
                 {70001, 12345}, {80001, 3456}, {90001, 6789}};
 
-        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
@@ -4754,7 +4765,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         std::vector<std::array<int64_t, 2>> tablet_idxes {
                 {70001, 12345}, {80001, 3456}, {90001, 6789}};
 
-        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
@@ -4796,7 +4807,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         std::vector<std::array<int64_t, 2>> tablet_idxes {
                 {70001, 12345}, {80001, 3456}, {90001, 6789}};
 
-        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
@@ -4841,7 +4852,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
             tablet_idxes.push_back({partition_id, tablet_id});
         }
 
-        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
         GetDeleteBitmapUpdateLockResponse res;
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,

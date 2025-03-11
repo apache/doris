@@ -469,6 +469,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
+        dynamicPartitionProperty.clearStoragePolicy();
     }
 
     public List<String> getCopiedRowStoreColumns() {

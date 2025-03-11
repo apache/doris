@@ -39,7 +39,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
     if (options.date_olap_format) {
         tm time_tm;
@@ -58,6 +60,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -71,6 +76,9 @@ Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
 Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
@@ -166,7 +174,7 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const Nul
     for (size_t i = start; i < end; ++i) {
         char buf[64];
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
+        size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
@@ -236,6 +244,19 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
             v.cast_to_date();
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
+    } else if (arrow_array->type()->id() == arrow::Type::STRING) {
+        // to be compatible with old version, we use string type for date.
+        auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        for (size_t value_i = start; value_i < end; ++value_i) {
+            Int64 val = 0;
+            auto val_str = concrete_array->GetString(value_i);
+            ReadBuffer rb(val_str.data(), val_str.size());
+            read_datetime_text_impl(val, rb, ctz);
+            col_data.emplace_back(val);
+        }
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Unsupported Arrow Type: " + arrow_array->type()->name());
     }
 }
 

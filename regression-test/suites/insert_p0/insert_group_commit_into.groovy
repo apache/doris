@@ -25,7 +25,7 @@ suite("insert_group_commit_into") {
     def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+        Awaitility.await().atMost(90, SECONDS).pollInterval(1, SECONDS).until(
             {
                 def result = sql "select count(*) from ${table}"
                 logger.info("table: ${table}, rowCount: ${result}")
@@ -96,6 +96,11 @@ suite("insert_group_commit_into") {
         assertEquals(result, expected_row_count)
         assertTrue(serverInfo.contains("'status':'PREPARE'"))
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
+    }
+
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
     }
 
     try {

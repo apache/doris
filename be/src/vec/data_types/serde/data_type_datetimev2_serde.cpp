@@ -46,7 +46,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     UInt64 int_val =
             assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
                     row_num);
@@ -65,6 +67,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
         char* pos = val.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -77,6 +82,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
 Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     UInt64 val = 0;
     if (options.date_olap_format) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;

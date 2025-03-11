@@ -480,4 +480,16 @@ public abstract class JdbcClient {
     public String getTestQuery() {
         return "select 1";
     }
+
+    public String getJdbcDriverVersion() {
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            return conn.getMetaData().getDriverVersion();
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to get jdbc driver version", e);
+        } finally {
+            close(conn);
+        }
+    }
 }

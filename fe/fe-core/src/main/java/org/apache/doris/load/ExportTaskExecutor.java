@@ -34,6 +34,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TStatusCode;
@@ -199,7 +200,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
         exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
-        connectContext.setSessionVariable(exportJob.getSessionVariables());
+        connectContext.setSessionVariable(VariableMgr.cloneSessionVariable(exportJob.getSessionVariables()));
         // The rollback to the old optimizer is prohibited
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
         connectContext.setEnv(Env.getCurrentEnv());

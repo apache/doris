@@ -43,13 +43,14 @@ public class AddExistsPartitionTest extends TestWithFeService {
     public void testAddExistsPartition() throws Exception {
         DebugPointUtil.addDebugPoint("InternalCatalog.addPartition.noCheckExists", new DebugPoint());
         createDatabase("test");
-        createTable("CREATE TABLE test.tbl (k INT) DISTRIBUTED BY HASH(k) "
+        createTable("CREATE TABLE test.tbl (k INT) PARTITION BY LIST(`k`) ( PARTITION tbl values in ((1)) ) "
+                + "DISTRIBUTED BY HASH(k) "
                 + " BUCKETS 5 PROPERTIES ( \"replication_num\" = \"" + backendNum() + "\" )");
         List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds();
         Map<Long, Set<Long>> oldBackendTablets = Maps.newHashMap();
         for (long backendId : backendIds) {
             Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
-            Assertions.assertEquals(5,  tablets.size());
+            Assertions.assertEquals(5, tablets.size());
             oldBackendTablets.put(backendId, tablets);
         }
 
@@ -58,7 +59,7 @@ public class AddExistsPartitionTest extends TestWithFeService {
         Assertions.assertNotNull(getSqlStmtExecutor(addPartitionSql));
         for (long backendId : backendIds) {
             Set<Long> tablets = Sets.newHashSet(Env.getCurrentInvertedIndex().getTabletIdsByBackendId(backendId));
-            Assertions.assertEquals(5,  tablets.size());
+            Assertions.assertEquals(5, tablets.size());
             Assertions.assertEquals(oldBackendTablets.get(backendId), tablets);
         }
     }

@@ -143,6 +143,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -185,6 +186,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
@@ -223,6 +225,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6FromUInt128StringOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
@@ -432,6 +435,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
@@ -890,6 +894,11 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(charFunc, context);
     }
 
+    default R visitCutToFirstSignificantSubdomain(CutToFirstSignificantSubdomain cutToFirstSignificantSubdomain,
+            C context) {
+        return visitScalarFunction(cutToFirstSignificantSubdomain, context);
+    }
+
     default R visitEncodeAsSmallInt(EncodeAsSmallInt encode, C context) {
         return visitScalarFunction(encode, context);
     }
@@ -1170,6 +1179,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(findInSet, context);
     }
 
+    default R visitFirstSignificantSubdomain(FirstSignificantSubdomain firstSignificantSubdomain, C context) {
+        return visitScalarFunction(firstSignificantSubdomain, context);
+    }
+
     default R visitFloor(Floor floor, C context) {
         return visitScalarFunction(floor, context);
     }
@@ -1320,6 +1333,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
         return visitScalarFunction(ipv6StringToNumOrNull, context);
+    }
+
+    default R visitIpv6FromUInt128StringOrNull(Ipv6FromUInt128StringOrNull ipv6FromUInt128StringOrNull, C context) {
+        return visitScalarFunction(ipv6FromUInt128StringOrNull, context);
     }
 
     default R visitIsIpv4Compat(IsIpv4Compat isIpv4Compat, C context) {
@@ -2084,6 +2101,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitTokenize(Tokenize tokenize, C context) {
         return visitScalarFunction(tokenize, context);
+    }
+
+    default R visitTopLevelDomain(TopLevelDomain topLevelDomain, C context) {
+        return visitScalarFunction(topLevelDomain, context);
     }
 
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {
