@@ -1483,7 +1483,6 @@ struct TCreatePartitionRequest {
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
-    5: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1491,7 +1490,6 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
-    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1500,7 +1498,6 @@ struct TReplacePartitionRequest {
     2: optional i64 db_id
     3: optional i64 table_id
     4: optional list<i64> partition_ids // partition to replace.
-    5: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1508,7 +1505,6 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
-    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
