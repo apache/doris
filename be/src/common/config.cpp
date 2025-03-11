@@ -1083,6 +1083,7 @@ DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1243,6 +1244,9 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Ingest binlog with persistent connection
+DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");

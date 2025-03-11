@@ -60,6 +60,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -292,6 +294,10 @@ public class StatisticsUtil {
             case VARCHAR:
             case STRING:
                 return new StringLiteral(columnValue);
+            case IPV4:
+                return new org.apache.doris.analysis.IPv4Literal(columnValue);
+            case IPV6:
+                return new org.apache.doris.analysis.IPv6Literal(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -342,6 +348,12 @@ public class StatisticsUtil {
                 case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
+                case IPV4:
+                    IPv4Literal ipv4 = new IPv4Literal(columnValue);
+                    return ipv4.getDouble();
+                case IPV6:
+                    IPv6Literal ipv6 = new IPv6Literal(columnValue);
+                    return ipv6.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:

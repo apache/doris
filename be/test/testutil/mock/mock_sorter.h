@@ -15,30 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "vec/exec/scan/vscanner.h"
+#include "vec/common/sort/sorter.h"
 
 namespace doris::vectorized {
 
-class VScanner;
-class VSlotRef;
+///TODO: implement the Sorter interface
+struct MockSorter : public Sorter {
+    MockSorter() = default;
+    Status append_block(Block* block) override { return Status::OK(); }
 
-// We want to close scanner automatically, so using a delegate class
-// and call close method in the delegate class's dctor.
-class ScannerDelegate {
-public:
-    VScannerSPtr _scanner;
-    ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
-    ~ScannerDelegate() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_scanner->runtime_state()->query_mem_tracker());
-        Status st = _scanner->close(_scanner->runtime_state());
-        if (!st.ok()) {
-            LOG(WARNING) << "close scanner failed, st = " << st;
-        }
-        _scanner.reset();
+    Status prepare_for_read() override { return Status::OK(); }
+
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override {
+        *eos = true;
+        return Status::OK();
     }
-    ScannerDelegate(ScannerDelegate&&) = delete;
+
+    size_t data_size() const override { return 0; }
 };
 
 } // namespace doris::vectorized

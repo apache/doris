@@ -30,7 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewOlapScanner;
+class OlapScanner;
 }
 } // namespace doris
 
@@ -54,7 +54,7 @@ public:
     Status hold_tablets();
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::OlapScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -85,7 +85,7 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
 

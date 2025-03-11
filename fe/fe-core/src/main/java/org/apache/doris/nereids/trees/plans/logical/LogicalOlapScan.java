@@ -189,13 +189,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 groupExpression, logicalProperties);
         Preconditions.checkArgument(selectedPartitionIds != null,
                 "selectedPartitionIds can not be null");
-        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
+        this.selectedTabletIds = Utils.fastToImmutableList(selectedTabletIds);
         this.partitionPruned = partitionPruned;
         this.selectedIndexId = selectedIndexId <= 0 ? getTable().getBaseIndexId() : selectedIndexId;
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
-        this.manuallySpecifiedPartitions = ImmutableList.copyOf(specifiedPartitions);
-        this.manuallySpecifiedTabletIds = ImmutableList.copyOf(specifiedTabletIds);
+        this.manuallySpecifiedPartitions = Utils.fastToImmutableList(specifiedPartitions);
+        this.manuallySpecifiedTabletIds = Utils.fastToImmutableList(specifiedTabletIds);
 
         if (selectedPartitionIds.isEmpty()) {
             this.selectedPartitionIds = ImmutableList.of();

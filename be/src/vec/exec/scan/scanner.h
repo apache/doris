@@ -52,12 +52,12 @@ struct ScannerCounter {
     int64_t num_rows_unselected; // rows filtered by predicates
 };
 
-class VScanner {
+class Scanner {
 public:
-    VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
-             RuntimeProfile* profile);
+    Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+            RuntimeProfile* profile);
 
-    virtual ~VScanner() {
+    virtual ~Scanner() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
         _input_block.clear();
         _conjuncts.clear();
@@ -237,6 +237,6 @@ protected:
     bool _should_stop = false;
 };
 
-using VScannerSPtr = std::shared_ptr<VScanner>;
+using ScannerSPtr = std::shared_ptr<Scanner>;
 
 } // namespace doris::vectorized

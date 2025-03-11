@@ -40,8 +40,8 @@ template <typename T>
 void ColumnStr<T>::sanity_check() const {
 #ifndef NDEBUG
     sanity_check_simple();
-    auto count = offsets.size();
-    for (size_t i = 0; i < count; ++i) {
+    auto count = cast_set<int64_t>(offsets.size());
+    for (int64_t i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
@@ -53,10 +53,10 @@ void ColumnStr<T>::sanity_check() const {
 template <typename T>
 void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
-    auto count = offsets.size();
+    auto count = cast_set<int64_t>(offsets.size());
     if (chars.size() != offsets[count - 1]) {
-        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: ",
-                                              count, chars.size(), offsets[count - 1]));
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
     }
     if (offsets[-1] != 0) {
         throw Exception(Status::InternalError("wrong offsets[-1]: {}", offsets[-1]));
@@ -157,7 +157,15 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
-    sanity_check_simple();
+
+#ifndef NDEBUG
+    auto count = cast_set<int64_t>(offsets.size());
+    // offsets may overflow, so we make chars.size() as T to do same overflow check
+    if (offsets.back() != T(chars.size())) {
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
+    }
+#endif
 }
 
 template <typename T>
@@ -639,6 +647,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
+    sanity_check_simple();
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base =

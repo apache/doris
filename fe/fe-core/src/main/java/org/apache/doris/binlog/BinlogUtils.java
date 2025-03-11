@@ -68,7 +68,7 @@ public class BinlogUtils {
 
         if (firstBinlog.getCommitSeq() > prevCommitSeq) {
             BinlogLagInfo lagInfo = new BinlogLagInfo(binlogs.size(), firstBinlog.getCommitSeq(),
-                    firstBinlog.getTimestamp(), lastBinlog.getCommitSeq(), lastBinlog.getTimestamp());
+                    lastBinlog.getCommitSeq(), firstBinlog.getTimestamp(), lastBinlog.getTimestamp());
             return Pair.of(status, lagInfo);
         }
 
@@ -101,6 +101,7 @@ public class BinlogUtils {
         dummy.setType(TBinlogType.DUMMY);
         dummy.setDbId(dbId);
         dummy.setBelong(tableId);
+        dummy.setTimestamp(System.currentTimeMillis());
         return dummy;
     }
 

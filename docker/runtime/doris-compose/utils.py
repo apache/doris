@@ -285,10 +285,29 @@ def copy_image_directory(image, image_dir, local_dir):
         entrypoint="cp -r  {}  /opt/mount/".format(image_dir))
 
 
+def get_avail_port():
+    with contextlib.closing(socket.socket(socket.AF_INET,
+                                          socket.SOCK_STREAM)) as sock:
+        sock.bind(("", 0))
+        _, port = sock.getsockname()
+        return port
+
+
 def is_socket_avail(ip, port):
     with contextlib.closing(socket.socket(socket.AF_INET,
                                           socket.SOCK_STREAM)) as sock:
         return sock.connect_ex((ip, port)) == 0
+
+
+def get_local_ip():
+    with contextlib.closing(socket.socket(socket.AF_INET,
+                                          socket.SOCK_DGRAM)) as sock:
+        sock.settimeout(0)
+        try:
+            sock.connect(('10.255.255.255', 1))
+            return sock.getsockname()[0]
+        except Exception:
+            return '127.0.0.1'
 
 
 def enable_dir_with_rw_perm(dir):
