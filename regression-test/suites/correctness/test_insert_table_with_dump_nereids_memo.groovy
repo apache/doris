@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("qt_action", "test_insert_table_with_dump_nereids_memo") {
+suite("test_insert_table_with_dump_nereids_memo") {
 
     def testTable = "test_insert_table_with_dump_nereids_memo"
     // Clean up any existing table with the same name
