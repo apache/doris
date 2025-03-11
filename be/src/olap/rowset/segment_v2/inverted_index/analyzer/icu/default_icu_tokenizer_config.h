@@ -17,38 +17,28 @@
 
 #pragma once
 
-#include <unicode/umachine.h>
-#include <unicode/utext.h>
-
-#include <memory>
-#include <unordered_set>
-
-#include "ICUCommon.h"
+#include "icu_tokenizer_config.h"
 
 namespace doris::segment_v2 {
 
-class BreakIteratorWrapper {
+class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
 public:
-    BreakIteratorWrapper(icu::BreakIterator* rbbi);
-    ~BreakIteratorWrapper() = default;
+    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
+    ~DefaultICUTokenizerConfig() override = default;
 
-    void initialize();
-    int32_t current() { return rbbi_->current(); }
-    int32_t get_rule_status() const { return status_; }
-    int32_t next();
-    int32_t calc_status(int32_t current, int32_t next);
-    bool is_emoji(int32_t current, int32_t next);
-    void set_text(const UChar* text, int32_t start, int32_t length);
+    void initialize(const std::string& dictPath) override;
+    bool combine_cj() override { return cjk_as_words_; }
+    icu::BreakIterator* get_break_iterator(int32_t script) override;
 
 private:
-    static icu::UnicodeSet EMOJI_RK;
-    static icu::UnicodeSet EMOJI;
+    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
 
-    BreakIteratorPtr rbbi_;
-    const UChar* text_ = nullptr;
-    int32_t start_ = 0;
-    int32_t status_ = UBRK_WORD_NONE;
+    static BreakIteratorPtr cjk_break_iterator_;
+    static BreakIteratorPtr default_break_iterator_;
+    static BreakIteratorPtr myanmar_syllable_iterator_;
+
+    bool cjk_as_words_ = false;
+    bool myanmar_as_words_ = false;
 };
-using BreakIteratorWrapperPtr = std::unique_ptr<BreakIteratorWrapper>;
 
 } // namespace doris::segment_v2

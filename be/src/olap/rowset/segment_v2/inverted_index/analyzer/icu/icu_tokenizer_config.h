@@ -17,28 +17,21 @@
 
 #pragma once
 
-#include "ICUTokenizerConfig.h"
+#include "icu_common.h"
 
 namespace doris::segment_v2 {
 
-class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
+class ICUTokenizerConfig {
 public:
-    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
-    ~DefaultICUTokenizerConfig() override = default;
+    ICUTokenizerConfig() = default;
+    virtual ~ICUTokenizerConfig() = default;
 
-    void initialize(const std::string& dictPath) override;
-    bool combine_cj() override { return cjk_as_words_; }
-    icu::BreakIterator* get_break_iterator(int32_t script) override;
+    virtual void initialize(const std::string& dictPath) = 0;
+    virtual icu::BreakIterator* get_break_iterator(int32_t script) = 0;
+    virtual bool combine_cj() = 0;
 
-private:
-    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
-
-    static BreakIteratorPtr cjk_break_iterator_;
-    static BreakIteratorPtr default_break_iterator_;
-    static BreakIteratorPtr myanmar_syllable_iterator_;
-
-    bool cjk_as_words_ = false;
-    bool myanmar_as_words_ = false;
+    static const int32_t EMOJI_SEQUENCE_STATUS = 299;
 };
+using ICUTokenizerConfigPtr = std::shared_ptr<ICUTokenizerConfig>;
 
 } // namespace doris::segment_v2

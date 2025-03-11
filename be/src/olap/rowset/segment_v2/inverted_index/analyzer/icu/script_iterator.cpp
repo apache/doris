@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "ScriptIterator.h"
+#include "script_iterator.h"
 
 #include <unicode/unistr.h>
 
