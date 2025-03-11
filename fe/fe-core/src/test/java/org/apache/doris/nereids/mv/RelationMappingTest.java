@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.List;
@@ -102,7 +102,7 @@ public class RelationMappingTest {
         eachMap.put(5, 194);
         exceptedSet.add(eachMap);
 
-        Assert.assertEquals(exceptedSet, generatedMappedSet);
+        Assertions.assertEquals(exceptedSet, generatedMappedSet);
     }
 
     /**
@@ -136,7 +136,7 @@ public class RelationMappingTest {
         List<Pair<MappedRelation[], MappedRelation[]>> uniquePermutation = RelationMapping.getUniquePermutation(left,
                 right, 5);
 
-        Assert.assertEquals(5, uniquePermutation.size());
+        Assertions.assertEquals(5, uniquePermutation.size());
     }
 
     private Set<BiMap<Integer, Integer>> generateDirectPermutations(
