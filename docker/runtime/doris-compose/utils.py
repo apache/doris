@@ -305,7 +305,7 @@ def get_local_ip():
         sock.settimeout(0)
         # the ip no need reachable.
         # sometime connect to the external network '10.255.255.255' throw exception 'Permissions denied',
-        # then change to connect to the internal network '192.168.0.255'
+        # then change to connect to the local network '192.168.0.255'
         for ip in (('10.255.255.255'), ('192.168.0.255')):
             try:
                 sock.connect((ip, 1))
