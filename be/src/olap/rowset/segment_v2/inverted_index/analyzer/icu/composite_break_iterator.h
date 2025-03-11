@@ -18,47 +18,41 @@
 #pragma once
 
 #include <unicode/umachine.h>
+#include <unicode/unistr.h>
 #include <unicode/utext.h>
 
 #include <memory>
 #include <vector>
 
-#include "ICUCommon.h"
+#include "break_iterator_wrapper.h"
+#include "icu_common.h"
+#include "icu_tokenizer_config.h"
+#include "script_iterator.h"
 
 namespace doris::segment_v2 {
 
-class ScriptIterator {
+class CompositeBreakIterator {
 public:
-    ScriptIterator(bool combine_cj);
-    ~ScriptIterator() = default;
+    CompositeBreakIterator(const ICUTokenizerConfigPtr& config);
+    ~CompositeBreakIterator() = default;
 
     void initialize();
-
-    int32_t get_script_start() const { return script_start_; }
-    int32_t get_script_limit() const { return script_limit_; }
-    int32_t get_script_code() const { return script_code_; }
-
-    bool next();
+    int32_t next();
+    int32_t current();
+    int32_t get_rule_status();
+    int32_t get_script_code();
     void set_text(const UChar* text, int32_t start, int32_t length);
 
 private:
-    int32_t get_script(UChar32 codepoint) const;
-    static bool is_same_script(int32_t current_script, int32_t script, UChar32 codepoint);
-    static bool is_combining_mark(UChar32 codepoint);
-
-    static std::vector<int32_t> k_basic_latin;
+    BreakIteratorWrapper* get_break_iterator(int32_t scriptCode);
 
     const UChar* text_ = nullptr;
-    int32_t start_ = 0;
-    int32_t index_ = 0;
-    int32_t limit_ = 0;
 
-    int32_t script_start_ = 0;
-    int32_t script_limit_ = 0;
-    int32_t script_code_ = USCRIPT_INVALID_CODE;
-
-    bool combine_cj_ = false;
+    ICUTokenizerConfigPtr config_;
+    std::vector<BreakIteratorWrapperPtr> word_breakers_;
+    BreakIteratorWrapper* rbbi_ = nullptr;
+    ScriptIteratorPtr scriptIterator_;
 };
-using ScriptIteratorPtr = std::unique_ptr<ScriptIterator>;
+using CompositeBreakIteratorPtr = std::unique_ptr<CompositeBreakIterator>;
 
 } // namespace doris::segment_v2

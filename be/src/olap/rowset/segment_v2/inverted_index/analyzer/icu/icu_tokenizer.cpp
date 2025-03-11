@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "ICUTokenizer.h"
+#include "icu_tokenizer.h"
 
 #include <unicode/unistr.h>
 

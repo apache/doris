@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_analyzer.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/ICUAnalyzer.h"
 
 using namespace lucene::analysis;
 
@@ -48,7 +48,7 @@ protected:
             }
         } catch (CLuceneError& e) {
             std::cout << e.what() << std::endl;
-            throw;
+            throw e;
         }
     }
 };
