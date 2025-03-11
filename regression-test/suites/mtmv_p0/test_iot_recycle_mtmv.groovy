@@ -22,7 +22,7 @@ suite("test_iot_recycle_mtmv","mtmv") {
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
     String partitionName1 = "${suiteName}_p1"
-    String partitionName1 = "${suiteName}_p1"
+    String partitionName2 = "${suiteName}_p2"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
