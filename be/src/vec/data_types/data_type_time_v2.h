@@ -123,7 +123,9 @@ public:
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
     TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_DATETIMEV2);
+        auto desc = TypeDescriptor(TYPE_DATETIMEV2);
+        desc.scale = _scale;
+        return desc;
     }
 
     doris::FieldType get_storage_field_type() const override {

@@ -169,19 +169,31 @@ public abstract class ColumnType {
         return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
     }
 
+    /**
+     * Used for checking type length changing.
+     * Currently, type length is only meaningful for string types{@link Type#isStringType()},
+     * see {@link ScalarType#len}.
+     */
+    public static void checkForTypeLengthChange(Type src, Type dst) throws DdlException {
+        final int srcTypeLen = src.getLength();
+        final int dstTypeLen = dst.getLength();
+        if (srcTypeLen < 0 || dstTypeLen < 0) {
+            // type length is negative means that it is meaningless, just return
+            return;
+        }
+        if (srcTypeLen > dstTypeLen) {
+            throw new DdlException(
+                String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(), dst.toSql()));
+        }
+    }
+
     // This method defines the char type
     // to support the schema-change behavior of length growth.
     // return true if the checkType and other are both char-type otherwise return false,
     // which used in checkSupportSchemaChangeForComplexType
-    public static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
-        if ((checkType.getPrimitiveType() == PrimitiveType.VARCHAR && other.getPrimitiveType() == PrimitiveType.VARCHAR)
-                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
-                && other.getPrimitiveType() == PrimitiveType.VARCHAR)
-                || (checkType.getPrimitiveType() == PrimitiveType.CHAR
-                && other.getPrimitiveType() == PrimitiveType.CHAR)) {
-            if (checkType.getLength() > other.getLength()) {
-                throw new DdlException("Cannot shorten string length");
-            }
+    private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
+        if (checkType.isStringType() && other.isStringType()) {
+            checkForTypeLengthChange(checkType, other);
             return true;
         } else {
             // types equal can return true

@@ -317,6 +317,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column);
+    if (const auto* column_str = check_and_get_column<ColumnString>(column.get())) {
+        column_str->sanity_check();
+    }
 
     for (int i = 0; i < row_size; ++i) {
         // update current line

@@ -112,7 +112,7 @@ public:
     size_t _current_input_rows = 0;
     size_t _topn_filter_rows = 0;
     size_t _do_partition_topn_count = 0;
-    int _init_rows = 4096;
+    int64_t _init_rows = 4096;
     bool _is_first_sorter = false;
 
     std::unique_ptr<vectorized::SortCursorCmp> _previous_row;

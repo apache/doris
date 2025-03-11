@@ -41,6 +41,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <vec/exec/vjdbc_connector.h>
+#include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
 #include <exception>
@@ -89,7 +90,6 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "olap/wal/wal_manager.h"
-#include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -98,6 +98,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -109,12 +110,12 @@
 #include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
@@ -135,6 +136,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace google {
 namespace protobuf {
@@ -208,7 +210,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            "brpc_light"),
           _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
                                           ? config::brpc_arrow_flight_work_pool_threads
-                                          : std::max(512, CpuInfo::num_cores() * 16),
+                                          : std::max(512, CpuInfo::num_cores() * 2),
                                   config::brpc_arrow_flight_work_pool_max_queue_size != -1
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),
@@ -652,20 +654,36 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
-    auto* cntl = static_cast<brpc::Controller*>(controller);
-    auto* ctx = new GetResultBatchCtx(cntl, result, done);
-    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
+    TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
+    if (!st.ok()) {
+        LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+        return;
+    }
+    if (st = buffer->get_batch(ctx); !st.ok()) {
+        LOG(WARNING) << "fetch_data failed: " << st.to_string();
+    }
 }
 
 void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,
                                         const PFetchArrowDataRequest* request,
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
-    bool ret = _arrow_flight_work_pool.try_offer([this, controller, request, result, done]() {
+    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        auto* cntl = static_cast<brpc::Controller*>(controller);
-        auto* ctx = new GetArrowResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_arrow_data(request->finst_id(), ctx);
+        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
+        TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer);
+        if (!st.ok()) {
+            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+            return;
+        }
+        if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
+            LOG(WARNING) << "fetch_arrow_data failed: " << st.to_string();
+        }
     });
     if (!ret) {
         offer_failed(result, done, _arrow_flight_work_pool);
@@ -881,8 +899,15 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
-                UniqueId(request->finst_id()).to_thrift(), &schema);
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
+                UniqueId(request->finst_id()).to_thrift(), buffer);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = buffer->get_schema(&schema);
         if (!st.ok()) {
             LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());

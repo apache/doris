@@ -277,6 +277,10 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
+
+    if (_calc_delete_bitmap_token != nullptr) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -330,7 +334,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
             _context.tablet, rowset_ptr, segments, specified_rowsets,
-            _context.mow_context->delete_bitmap, _context.mow_context->max_version, nullptr));
+            _context.mow_context->delete_bitmap, _context.mow_context->max_version,
+            _calc_delete_bitmap_token.get()));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -347,6 +352,9 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
     if (_segcompaction_worker) {
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
+    }
+    if (_context.mow_context != nullptr) {
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
     }
     return Status::OK();
 }
@@ -801,6 +809,9 @@ Status BetaRowsetWriter::_close_file_writers() {
 }
 
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
+    if (_calc_delete_bitmap_token != nullptr) {
+        RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
+    }
     RETURN_IF_ERROR(_close_file_writers());
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),

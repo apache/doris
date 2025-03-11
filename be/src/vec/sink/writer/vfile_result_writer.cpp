@@ -39,12 +39,12 @@
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "pipeline/exec/result_sink_operator.h"
-#include "runtime/buffer_control_block.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
@@ -59,6 +59,7 @@
 #include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris::vectorized {
 
@@ -72,14 +73,14 @@ VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContext
 VFileResultWriter::VFileResultWriter(
         const pipeline::ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
         const TUniqueId fragment_instance_id, const VExprContextSPtrs& output_vexpr_ctxs,
-        std::shared_ptr<BufferControlBlock> sinker, Block* output_block, bool output_object_data,
+        std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block, bool output_object_data,
         const RowDescriptor& output_row_descriptor, std::shared_ptr<pipeline::Dependency> dep,
         std::shared_ptr<pipeline::Dependency> fin_dep)
         : AsyncResultWriter(output_vexpr_ctxs, dep, fin_dep),
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
-          _sinker(sinker),
+          _sinker(std::dynamic_pointer_cast<vectorized::MySQLResultBlockBuffer>(sinker)),
           _output_block(output_block),
           _output_row_descriptor(output_row_descriptor) {
     _output_object_data = output_object_data;
@@ -302,7 +303,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_string(formatted_write_speed.c_str(),
                            formatted_write_speed.length()); // WriteSpeedKB
 
-    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
+    auto result = std::make_shared<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
 
