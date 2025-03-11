@@ -187,18 +187,10 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     SCOPED_TIMER(_commit_txn_timer);
     RETURN_IF_ERROR(rowset_builder()->commit_txn());
 
-    Status final_status = Status::OK();
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
-        Status status = _request_slave_tablet_pull_rowset(node_info);
-        if (!status.ok()) {
-            LOG(WARNING) << "Failed to request slave tablet pull rowset. Node: " << node_info.host()
-                         << ", Error: " << status.msg();
-            if (final_status.ok()) {
-                final_status = status;
-            }
-        }
+        RETURN_IF_ERROR(_request_slave_tablet_pull_rowset(node_info));
     }
-    return final_status;
+    return Status::OK();
 }
 
 bool DeltaWriter::check_slave_replicas_done(
