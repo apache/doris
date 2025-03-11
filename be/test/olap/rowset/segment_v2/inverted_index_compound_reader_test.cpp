@@ -566,7 +566,6 @@ TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
 
     test_reader.close();
     _CLDELETE(entries);
-    free(file_name);
 }
 
 } // namespace doris::segment_v2
