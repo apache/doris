@@ -47,7 +47,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 public class DBBinlog {
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
@@ -233,36 +232,30 @@ public class DBBinlog {
     }
 
     // Get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions() {
+    public List<Pair<Long, Long>> getDroppedPartitions() {
         lock.readLock().lock();
         try {
-            return droppedPartitions.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedPartitions);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped tables of the db.
-    public List<Long> getDroppedTables() {
+    public List<Pair<Long, Long>> getDroppedTables() {
         lock.readLock().lock();
         try {
-            return droppedTables.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedTables);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes() {
+    public List<Pair<Long, Long>> getDroppedIndexes() {
         lock.readLock().lock();
         try {
-            return droppedIndexes.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedIndexes);
         } finally {
             lock.readLock().unlock();
         }
