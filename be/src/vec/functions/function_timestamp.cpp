@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -70,6 +71,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename DateType>
 struct StrToDate {
@@ -195,9 +197,9 @@ private:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             size_t r_str_size = roffsets[i] - roffsets[i - 1];
             const StringRef format_str = rewrite_specific_format(r_raw_str, r_str_size);
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
-                                                           format_str.size, context, res, null_map,
-                                                           i);
+            _execute_inner_loop<DateValueType, NativeType>(
+                    l_raw_str, cast_set<int>(l_str_size), format_str.data,
+                    cast_set<int>(format_str.size), context, res, null_map, i);
         }
     }
     template <typename ArgDateType,
@@ -210,18 +212,19 @@ private:
         size_t size = loffsets.size();
         res.resize(size);
         const StringRef format_str = rewrite_specific_format(rdata.data, rdata.size);
+        int format_str_size = cast_set<int>(format_str.size);
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            size_t l_str_size = loffsets[i] - loffsets[i - 1];
+            auto l_str_size = loffsets[i] - loffsets[i - 1];
 
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
-                                                           format_str.size, context, res, null_map,
-                                                           i);
+            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, cast_set<int>(l_str_size),
+                                                           format_str.data, format_str_size,
+                                                           context, res, null_map, i);
         }
     }
     template <typename DateValueType, typename NativeType>
-    static void _execute_inner_loop(const char* l_raw_str, size_t l_str_size, const char* r_raw_str,
-                                    size_t r_str_size, FunctionContext* context,
+    static void _execute_inner_loop(const char* l_raw_str, int l_str_size, const char* r_raw_str,
+                                    int r_str_size, FunctionContext* context,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map,
                                     size_t index) {
         auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
@@ -373,7 +376,7 @@ private:
         // l checked outside
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             VecDateTimeValue ts_value = VecDateTimeValue();
-            ts_value.unchecked_set_time(l, 1, 1, 0, 0, 0);
+            ts_value.unchecked_set_time(l, 1U, 1U, 0U, 0U, 0U);
 
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
@@ -383,7 +386,8 @@ private:
             }
             res_val.cast_to_date();
         } else {
-            res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
+            // caller has checked range of l
+            res_val.unchecked_set_time(cast_set<uint16_t, int, false>(l), 1U, 1U, 0U, 0U, 0U, 0U);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
                 null_map[index] = 1;
@@ -577,7 +581,7 @@ struct UnixTimeStampImpl {
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
         col_result->resize(1);
-        col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
+        col_result->get_data()[0] = static_cast<int32>(context->state()->timestamp_ms() / 1000);
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
         block.replace_by_position(result, std::move(col_const));
         return Status::OK();
@@ -713,7 +717,8 @@ struct UnixTimeStampStrImpl {
             StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
             DateV2Value<DateTimeV2ValueType> ts_value;
-            if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
+            if (!ts_value.from_date_format_str(fmt.data, cast_set<int>(fmt.size), source.data,
+                                               cast_set<int>(source.size))) {
                 null_map_data[i] = true;
                 continue;
             }
@@ -916,7 +921,7 @@ struct LastDayImpl {
                 null_map[i] = 1;
                 continue;
             }
-            int day = get_last_month_day(ts_value.year(), ts_value.month());
+            auto day = get_last_month_day(ts_value.year(), ts_value.month());
             // day is definitely legal
             if constexpr (date_cast::IsV1<DateType>()) {
                 ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
@@ -941,7 +946,7 @@ struct LastDayImpl {
             const auto& cur_data = data_col[i];
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             DCHECK(ts_value.is_valid_date());
-            int day = get_last_month_day(ts_value.year(), ts_value.month());
+            auto day = get_last_month_day(ts_value.year(), ts_value.month());
             ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
 
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
@@ -954,7 +959,7 @@ struct LastDayImpl {
         }
     }
 
-    static int get_last_month_day(int year, int month) {
+    static uint8 get_last_month_day(int year, int month) {
         bool is_leap_year = doris::is_leap(year);
         if (month == 2) {
             return is_leap_year ? 29 : 28;
