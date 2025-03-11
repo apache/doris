@@ -81,7 +81,7 @@ public class ShowBackupCommand extends ShowCommand {
     private ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.STRING));
         }
         return builder.build();
     }

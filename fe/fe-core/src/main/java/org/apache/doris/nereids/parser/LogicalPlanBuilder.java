@@ -4967,8 +4967,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String dbName = null;
         Expression wildWhere = null;
         if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0);
+            dbName = ctx.database.getText();
         }
         if (ctx.wildWhere() != null) {
             wildWhere = getWildWhere(ctx.wildWhere());
