@@ -964,10 +964,11 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(
-                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        }
+        // call DorisCallOnce.call without check if _inverted_index_file_reader is nullptr
+        // to avoid data race during parallel method calls
+        RETURN_IF_ERROR(
+                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
+        // after DorisCallOnce.call, _inverted_index_file_reader is guaranteed to be not nullptr
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
                                                             read_options, iter));
         return Status::OK();
