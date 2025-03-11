@@ -187,10 +187,18 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     SCOPED_TIMER(_commit_txn_timer);
     RETURN_IF_ERROR(rowset_builder()->commit_txn());
 
+    Status final_status = Status::OK();
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
-        _request_slave_tablet_pull_rowset(node_info);
+        Status status = _request_slave_tablet_pull_rowset(node_info);
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to request slave tablet pull rowset. Node: " << node_info.host()
+                         << ", Error: " << status.msg();
+            if (final_status.ok()) {
+                final_status = status;
+            }
+        }
     }
-    return Status::OK();
+    return final_status;
 }
 
 bool DeltaWriter::check_slave_replicas_done(
@@ -250,7 +258,7 @@ Status safe_get_file_size(const std::string& file_path, int64_t* file_size) {
     }
 }
 
-void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) {
+Status DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) {
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     node_info.host(), node_info.async_internal_port());
@@ -259,7 +267,8 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                         "slave host="
                      << node_info.host() << ", port=" << node_info.async_internal_port()
                      << ", tablet_id=" << _req.tablet_id << ", txn_id=" << _req.txn_id;
-        return;
+
+        return Status(ErrorCode::INTERNAL_ERROR, "Failed to get RPC stub");
     }
 
     _engine.txn_manager()->add_txn_tablet_delta_writer(_req.txn_id, _req.tablet_id, this);
@@ -302,10 +311,8 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
         int64_t segment_size = 0;
         Status status = safe_get_file_size(seg_path, &segment_size);
-        if (!status.ok()) {
-            LOG(ERROR) << "Failed to get segment file size: " << seg_path
-                       << ", error: " << status.msg();
-            continue;
+        if (!status.ok() && status.is<ErrorCode::NOT_FOUND>()) {
+            return status;
         }
         request->mutable_segments_size()->insert({segment_id, segment_size});
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
@@ -318,10 +325,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                                     index_path_prefix, index_meta.first, index_meta.second);
                     int64_t size = 0;
                     Status status = safe_get_file_size(inverted_index_file, &size);
-                    if (!status.ok()) {
-                        LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
-                                   << ", error: " << status.msg();
-                        continue;
+                    if (!status.ok() && status.is<ErrorCode::NOT_FOUND>()) {
+                        LOG(ERROR) << "Failed to get index file size: " << inverted_index_file;
+                        return status;
                     }
                     PTabletWriteSlaveRequest::IndexSize index_size;
                     index_size.set_indexid(index_meta.first);
@@ -339,10 +345,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
                 int64_t size = 0;
                 Status status = safe_get_file_size(inverted_index_file, &size);
-                if (!status.ok()) {
-                    LOG(ERROR) << "Failed to get index file size: " << inverted_index_file
-                               << ", error: " << status.msg();
-                    continue;
+                if (!status.ok() && status.is<ErrorCode::NOT_FOUND>()) {
+                    LOG(ERROR) << "Failed to get index file size: " << inverted_index_file;
+                    return status;
                 }
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
@@ -384,6 +389,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
         _unfinished_slave_node.erase(node_info.id());
     }
+    return Status::OK();
 }
 
 void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed) {
