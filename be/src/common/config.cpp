@@ -729,6 +729,8 @@ DEFINE_mInt32(es_http_timeout_ms, "5000");
 // TODO(cmy): use different config to set different client cache if necessary.
 DEFINE_Int32(max_client_cache_size_per_host, "10");
 
+DEFINE_Int32(max_master_fe_client_cache_size, "10");
+
 // Dir to save files downloaded by SmallFileMgr
 DEFINE_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 // path gc
@@ -1306,6 +1308,8 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
+
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
@@ -1450,6 +1454,8 @@ DEFINE_mInt32(compaction_num_per_round, "1");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -772,6 +772,8 @@ DECLARE_mInt32(es_http_timeout_ms);
 // TODO(cmy): use different config to set different client cache if necessary.
 DECLARE_Int32(max_client_cache_size_per_host);
 
+DECLARE_Int32(max_master_fe_client_cache_size);
+
 // Dir to save files downloaded by SmallFileMgr
 DECLARE_String(small_file_dir);
 // path gc
@@ -1382,6 +1384,8 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
 
+DECLARE_mBool(force_azure_blob_global_endpoint);
+
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
 DECLARE_mInt64(s3_get_token_per_second);
@@ -1523,6 +1527,8 @@ DECLARE_mInt32(compaction_num_per_round);
 DECLARE_mInt32(check_tablet_delete_bitmap_interval_seconds);
 DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
+
+DECLARE_mBool(enable_mow_verbose_log);
 
 #ifdef BE_TEST
 // test s3

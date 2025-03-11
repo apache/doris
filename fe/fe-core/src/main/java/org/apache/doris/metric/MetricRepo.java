@@ -137,6 +137,11 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_LANTENCY;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_COUNT;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME;
+    public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT;
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
     public static AutoMappedMetric<LongCounterMetric> THRIFT_COUNTER_RPC_ALL;
@@ -535,6 +540,21 @@ public final class MetricRepo {
         COUNTER_ROUTINE_LOAD_ERROR_ROWS = new LongCounterMetric("routine_load_error_rows", MetricUnit.ROWS,
                 "total error rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
+        COUNTER_ROUTINE_LOAD_GET_META_LANTENCY = new LongCounterMetric("routine_load_get_meta_latency",
+                MetricUnit.MILLISECONDS, "get meta lantency of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_GET_META_LANTENCY);
+        COUNTER_ROUTINE_LOAD_GET_META_COUNT = new LongCounterMetric("routine_load_get_meta_count", MetricUnit.NOUNIT,
+                "get meta count of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_GET_META_COUNT);
+        COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT = new LongCounterMetric("routine_load_get_meta_fail_count",
+                MetricUnit.NOUNIT, "get meta fail count of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT);
+        COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME = new LongCounterMetric("routine_load_task_execute_time",
+                MetricUnit.MILLISECONDS, "task execute time of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME);
+        COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT = new LongCounterMetric("routine_load_task_execute_count",
+                MetricUnit.MILLISECONDS, "task execute count of routine load");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT);
 
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
