@@ -129,6 +129,7 @@ private:
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     std::vector<bool> _result_column_nullable_flags;
+    std::vector<bool> _result_column_could_resize;
 
     using vectorized_get_next = bool (AnalyticSinkLocalState::*)(int64_t, int64_t);
     struct executor {
