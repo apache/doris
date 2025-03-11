@@ -44,6 +44,7 @@ import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -107,6 +108,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -1345,6 +1347,36 @@ public class EditLog {
         }
     }
 
+    // NOTICE: No guarantee atomicity of entries
+    private <T extends Writable> void logEdit(List<Pair<Short, T>> entries) throws IOException {
+        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
+        JournalBatch batch = new JournalBatch(itemNum);
+        long batchCount = 0;
+        for (Pair<Short, T> entry : entries) {
+            if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
+                    || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
+                journal.write(batch);
+                batch = new JournalBatch(itemNum);
+
+                // take a rest
+                batchCount++;
+                if (batchCount >= Config.batch_edit_log_continuous_count_for_rest
+                        && Config.batch_edit_log_rest_time_ms > 0) {
+                    batchCount = 0;
+                    try {
+                        Thread.sleep(Config.batch_edit_log_rest_time_ms);
+                    } catch (InterruptedException e) {
+                        LOG.warn("sleep failed", e);
+                    }
+                }
+            }
+            batch.addJournal(entry.first, entry.second);
+        }
+        if (!batch.getJournalEntities().isEmpty()) {
+            journal.write(batch);
+        }
+    }
+
     /**
      * Write an operation to the edit log. Do not sync to persistent store yet.
      */
@@ -1743,6 +1775,50 @@ public class EditLog {
 
     public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {
         logEdit(OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC, info);
+    }
+
+    public void logRestoreAndColocateAddTable(RestoreJob job, List<ColocatePersistInfo> infos) {
+        long start = System.currentTimeMillis();
+
+        List<Pair<Short, Writable>> list = new ArrayList<>();
+        list.add(Pair.of(OperationType.OP_RESTORE_JOB, job));
+
+        for (ColocatePersistInfo info : infos) {
+            list.add(Pair.of(OperationType.OP_COLOCATE_ADD_TABLE, info));
+        }
+
+        try {
+            logEdit(list);
+        } catch (Exception e) {
+            LOG.warn("failed to log ColocateAddTable", e);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log ColocateAddTable {} . cost: {} ms", infos.size(),
+                    (System.currentTimeMillis() - start));
+        }
+    }
+
+    public void logRestoreAndColocateRemoveTable(RestoreJob job, List<ColocatePersistInfo> infos) {
+        long start = System.currentTimeMillis();
+
+        List<Pair<Short, Writable>> list = new ArrayList<>();
+        list.add(Pair.of(OperationType.OP_RESTORE_JOB, job));
+
+        for (ColocatePersistInfo info : infos) {
+            list.add(Pair.of(OperationType.OP_COLOCATE_REMOVE_TABLE, info));
+        }
+
+        try {
+            logEdit(list);
+        } catch (Exception e) {
+            LOG.warn("failed to log ColocateRemoveTable", e);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log ColocateRemoveTable {} . cost: {} ms", infos.size(),
+                    (System.currentTimeMillis() - start));
+        }
     }
 
     public void logColocateAddTable(ColocatePersistInfo info) {
