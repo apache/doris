@@ -702,6 +702,9 @@ public class StringArithmetic {
                 return new NullLiteral(first.getDataType());
             }
         }
+        if (!first.getValue().contains(chr.getValue())) {
+            return new NullLiteral(first.getDataType());
+        }
         String separator = chr.getValue();
         String[] parts;
         if (number.getValue() < 0) {
