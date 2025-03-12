@@ -48,6 +48,8 @@ class Arena;
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
+    using ColumnType = ColumnDecimal<T>;
+    using FieldType = T;
 
 public:
     static constexpr PrimitiveType get_primitive_type() {
@@ -68,13 +70,12 @@ public:
         }
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_primitive_type __builtin_unreachable");
-        __builtin_unreachable();
     }
 
-    DataTypeDecimalSerDe(int scale_, int precision_, int nesting_level = 1)
+    DataTypeDecimalSerDe(int precision_, int scale_, int nesting_level = 1)
             : DataTypeSerDe(nesting_level),
-              scale(scale_),
               precision(precision_),
+              scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
@@ -128,8 +129,8 @@ private:
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
 
-    int scale;
     int precision;
+    int scale;
     const typename T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };

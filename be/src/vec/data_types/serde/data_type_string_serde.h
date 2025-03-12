@@ -66,6 +66,8 @@ inline void escape_string(const char* src, size_t& len, char escape_char) {
 
 template <typename ColumnType>
 class DataTypeStringSerDeBase : public DataTypeSerDe {
+    using ColumnStrType = ColumnType;
+
 public:
     DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 

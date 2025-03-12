@@ -48,7 +48,9 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
     const T& a = data[n];
     const T& b = other.data[m];
 
-    if (scale == other.scale) return a > b ? 1 : (a < b ? -1 : 0);
+    if (scale == other.scale) {
+        return a > b ? 1 : (a < b ? -1 : 0);
+    }
     return decimal_less<T>(b, a, other.scale, scale)
                    ? 1
                    : (decimal_less<T>(a, b, scale, other.scale) ? -1 : 0);
@@ -231,7 +233,7 @@ void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
     }
 #endif
 
-    permutation(reverse, limit, res);
+    // permutation(reverse, limit, res);
 }
 
 template <typename T>
@@ -241,7 +243,6 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Size of permutation ({}) is less than required ({})", perm.size(),
                                limit);
-        __builtin_unreachable();
     }
 
     auto res = this->create(size, scale);
@@ -465,8 +466,7 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data()[row_id];
-            int res = 0;
-            res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
             if (res * direction < 0) {
                 filter[row_id] = 1;
                 cmp_res[row_id] = 1;

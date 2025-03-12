@@ -155,8 +155,8 @@ private:
             using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
             const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
-            shift.a = result_type->scale_factor_for(*decimal0, false).value;
-            shift.b = result_type->scale_factor_for(*decimal1, false).value;
+            shift.a = result_type->scale_factor_for(*decimal0).value;
+            shift.b = result_type->scale_factor_for(*decimal1).value;
         } else if (decimal0) {
             shift.b = decimal0->get_scale_multiplier().value;
         } else if (decimal1) {
