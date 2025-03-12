@@ -100,7 +100,6 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -223,7 +222,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long max = dateMaxLiteral.getValue();
                     builder.setMaxValue(max);
                     builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (DateTimeException | AnalysisException e) {
+                } catch (AnalysisException e) {
                     convertSuccess = false;
                 }
             }
