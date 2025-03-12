@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/base_tablet.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
@@ -264,6 +265,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
     } else {
+        if (rowset->num_segments() > 1 &&
+            !delete_bitmap->has_calculated_for_multi_segments(rowset->rowset_id())) {
+            // delete bitmap cache missed, should re-calculate delete bitmaps between segments
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+            RETURN_IF_ERROR(
+                    tablet->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
+        }
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
         update_delete_bitmap_time_us = MonotonicMicros() - t3;
