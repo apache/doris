@@ -360,13 +360,6 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
     auto block = std::make_shared<Block>();
     {
         std::string col_name = "map_nesting_array";
-        TypeDescriptor type_desc_1(TYPE_MAP);
-        TypeDescriptor type_desc_2(TYPE_ARRAY);
-        TypeDescriptor type_desc_3(TYPE_ARRAY);
-        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
-        type_desc_3.add_sub_type(TYPE_INT, "age", true);
-        type_desc_1.add_sub_type(type_desc_2, "array1", true);
-        type_desc_1.add_sub_type(type_desc_3, "array2", true);
         DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr dt1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(f1));
@@ -401,16 +394,6 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
     }
     {
         std::string col_name = "map_nesting_struct";
-        TypeDescriptor type_desc_1(TYPE_MAP);
-        TypeDescriptor type_desc_2(TYPE_STRUCT);
-        TypeDescriptor type_desc_3(TYPE_STRUCT);
-        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
-        type_desc_2.add_sub_type(TYPE_LARGEINT, "age", true);
-        type_desc_2.add_sub_type(TYPE_BOOLEAN, "is", true);
-        type_desc_3.add_sub_type(TYPE_STRING, "name2", true);
-        type_desc_1.add_sub_type(type_desc_2, "struct1", true);
-        type_desc_1.add_sub_type(type_desc_3, "struct2", true);
-
         DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
         DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
@@ -449,16 +432,6 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
     }
     {
         std::string col_name = "map_nesting_map";
-        TypeDescriptor type_desc_1(TYPE_MAP);
-        TypeDescriptor type_desc_2(TYPE_MAP);
-        TypeDescriptor type_desc_3(TYPE_MAP);
-        type_desc_2.add_sub_type(TYPE_INT, "map_age", true);
-        type_desc_2.add_sub_type(TYPE_STRING, "map_name", true);
-        type_desc_3.add_sub_type(TYPE_LARGEINT, "score", true);
-        type_desc_3.add_sub_type(TYPE_BOOLEAN, "is", true);
-        type_desc_1.add_sub_type(type_desc_2, "map1", true);
-        type_desc_1.add_sub_type(type_desc_3, "map2", true);
-
         DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());

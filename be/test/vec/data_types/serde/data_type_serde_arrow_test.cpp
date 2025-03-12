@@ -433,9 +433,6 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::string col_name = "map_null_key";
-    TypeDescriptor type_desc(TYPE_MAP);
-    type_desc.add_sub_type(TYPE_STRING, true);
-    type_desc.add_sub_type(TYPE_INT, true);
     auto block = std::make_shared<Block>();
     {
         DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());

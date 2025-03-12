@@ -337,19 +337,6 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
     auto block = std::make_shared<Block>();
     {
         std::string col_name = "struct_nesting_array_map_struct";
-        TypeDescriptor type_desc_1(TYPE_STRUCT);
-        TypeDescriptor type_desc_2(TYPE_ARRAY);
-        TypeDescriptor type_desc_3(TYPE_MAP);
-        TypeDescriptor type_desc_4(TYPE_STRUCT);
-        type_desc_2.add_sub_type(TYPE_STRING, "array_name", true);
-        type_desc_3.add_sub_type(TYPE_INT, "map_age", true);
-        type_desc_3.add_sub_type(TYPE_STRING, "map_name", true);
-        type_desc_4.add_sub_type(TYPE_STRING, "struct_name", true);
-        type_desc_4.add_sub_type(TYPE_LARGEINT, "struct_age", true);
-        type_desc_4.add_sub_type(TYPE_BOOLEAN, "struct_is", true);
-        type_desc_1.add_sub_type(type_desc_2, "array", true);
-        type_desc_1.add_sub_type(type_desc_3, "map", true);
-        type_desc_1.add_sub_type(type_desc_4, "struct", true);
         DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
