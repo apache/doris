@@ -180,6 +180,21 @@ public:
         const char* nested_string_wrapper;
         int wrapper_len;
 
+        /**
+         * mysql_collection_delim is used to separate elements in collection, such as array, map, struct
+         * It is used to write to mysql.
+         */
+        std::string mysql_collection_delim = ", ";
+
+        /**
+         * is_bool_value_num is used to display bool value in collection, such as array, map, struct
+         * eg, if set to true, the array<true> will be:
+         *      [1]
+         *     if set to false, the array<true> will be:
+         *      [true]
+         */
+        bool is_bool_value_num = true;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
