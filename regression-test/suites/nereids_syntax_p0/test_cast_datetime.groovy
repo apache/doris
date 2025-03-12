@@ -52,8 +52,14 @@ suite("test_cast_datetime") {
     qt_4 "select '' > date '2019-06-01'"
     qt_5 "select '' > date_sub('2019-06-01', -10)"
     qt_7 "select '' > cast('2019-06-01 00:00:00' as datetime)"
-    qt_8 "select date_add('', 10)"
-    qt_9 "select date_add('2020', 10)"
-    qt_10 "select date_add('08-09', 10)"
-    qt_12 "select date_add('abcd', 10)"
+
+    def dates = [
+        '', '2020', '08-09', 'abcd', '2020-15-20', '2020-10-32', '2021-02-29', '99999-10-10', '10-30', '10-30 10:10:10', '2020-01 00:00:00'
+    ]
+    for (def s : dates) {
+        test {
+            sql "select date_add('${s}', 10)"
+            result([[null]])
+        }
+    }
 }
