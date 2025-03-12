@@ -18,7 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
+import org.apache.thrift.TException;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.FutureCallback;
@@ -27,6 +29,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 
@@ -41,8 +44,8 @@ public class ResultReceiverConsumerTest {
 
     @Test
     public void testEosHandling() throws Exception {
-        List<ResultReceiver> receivers = Lists.newArrayList(receiver1, receiver2, receiver3);
-        ResultReceiverConsumer consumer = new ResultReceiverConsumer(receivers, System.currentTimeMillis() + 3600);
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(
+                Lists.newArrayList(receiver1, receiver2, receiver3), System.currentTimeMillis() + 3600);
         Status status = new Status();
 
         RowBatch normalBatch1 = new RowBatch();
@@ -100,5 +103,72 @@ public class ResultReceiverConsumerTest {
         Assert.assertTrue(consumer.isEos());
         Assert.assertTrue(batch.isEos());
 
+    }
+
+    @Test
+    public void testGetNextExceptionHandling() throws Exception {
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(
+                Lists.newArrayList(receiver1, receiver2, receiver3), System.currentTimeMillis() + 3600);
+        Status status = new Status();
+
+        RowBatch normalBatch1 = new RowBatch();
+        normalBatch1.setEos(false);
+
+        new Expectations() {
+            {
+                receiver1.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
+                result = new Delegate() {
+                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
+                        callback.onSuccess(null);
+                    }
+                };
+                receiver2.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
+                result = new Delegate() {
+                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
+                        callback.onSuccess(null);
+                    }
+                };
+                receiver3.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
+                result = new Delegate() {
+                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
+                        callback.onSuccess(null);
+                    }
+                };
+
+                receiver1.getNext((Status) any);
+                result = normalBatch1;
+
+                receiver2.getNext((Status) any);
+                result = new TException("Network error");
+            }
+        };
+        RowBatch batch = consumer.getNext(status);
+        Assert.assertFalse(batch.isEos());
+        Assertions.assertThrows(TException.class, () -> consumer.getNext(status));
+    }
+
+    @Test
+    public void testCreateFutureExceptionHandling() throws Exception {
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(
+                Lists.newArrayList(receiver1, receiver2, receiver3), System.currentTimeMillis() + 3600);
+        Status status = new Status();
+
+        new Expectations() {
+            {
+                receiver1.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
+                result = new Delegate() {
+                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) {
+                        callback.onSuccess(null);
+                    }
+                };
+                receiver2.createFuture((FutureCallback<InternalService.PFetchDataResult>) any);
+                result = new Delegate() {
+                    void delegate(FutureCallback<InternalService.PFetchDataResult> callback) throws UserException {
+                        throw new UserException("User error");
+                    }
+                };
+            }
+        };
+        Assertions.assertThrows(UserException.class, () -> consumer.getNext(status));
     }
 }
