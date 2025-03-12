@@ -46,7 +46,6 @@ public class ProjectWithDistinctToAggregate extends OneAnalysisRuleFactory {
         return RuleType.PROJECT_WITH_DISTINCT_TO_AGGREGATE.build(
             logicalProject()
                 .when(LogicalProject::isDistinct)
-                .whenNot(project -> project.getProjects().stream().anyMatch(this::hasAggregateFunction))
                 .then(project -> new LogicalAggregate<>(project.getProjects(), false, project.child()))
         );
     }
