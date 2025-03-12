@@ -164,6 +164,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -848,5 +851,17 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {
+        return visitCommand(transactionBeginCommand, context);
+    }
+
+    default R visitTransactionCommitCommand(TransactionCommitCommand transactionCommitCommand, C context) {
+        return visitCommand(transactionCommitCommand, context);
+    }
+
+    default R visitTransactionRollbackCommand(TransactionRollbackCommand transactionRollbackCommand, C context) {
+        return visitCommand(transactionRollbackCommand, context);
     }
 }
