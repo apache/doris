@@ -31,8 +31,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
-import java.util.List;
-
 public class ResultReceiverConsumerTest {
 
     @Injectable
