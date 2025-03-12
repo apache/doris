@@ -206,8 +206,7 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
         current_row_start = std::min(current_row_start, current_row_end);
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
                               current_row_end);
-        int64_t pos = _current_row_position + _have_removed_rows -
-                      _input_block_first_row_positions[_output_block_index];
+        int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
