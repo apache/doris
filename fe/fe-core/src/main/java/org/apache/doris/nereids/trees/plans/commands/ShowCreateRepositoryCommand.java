@@ -63,6 +63,11 @@ public class ShowCreateRepositoryCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
         List<List<String>> rows = Lists.newArrayList();
@@ -71,7 +76,7 @@ public class ShowCreateRepositoryCommand extends ShowCommand {
             throw new AnalysisException("repository not exist.");
         }
         rows.add(Lists.newArrayList(repoName, repo.getCreateStatement()));
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
