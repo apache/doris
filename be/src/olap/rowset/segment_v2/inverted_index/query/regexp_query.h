@@ -36,6 +36,7 @@ public:
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     int32_t _max_expansions = 50;
     DisjunctionQuery _query;
