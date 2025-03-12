@@ -496,6 +496,7 @@ TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
                         _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length),
                                   buffer, buffer_size);
                     }
+                    _CLDELETE(entry);
                 }
                 EXPECT_TRUE(_ram_dir->fileExists(file)) << "File should exist after copy";
 
