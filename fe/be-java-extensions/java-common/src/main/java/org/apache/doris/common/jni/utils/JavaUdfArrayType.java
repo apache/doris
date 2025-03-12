@@ -21,15 +21,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TPrimitiveType;
 
-public class ArrayType extends JavaUdfDataType {
+public class JavaUdfArrayType extends JavaUdfDataType {
     private Type itemType;
 
-    public ArrayType(String description, TPrimitiveType thriftType, int len) {
+    public JavaUdfArrayType(String description, TPrimitiveType thriftType, int len) {
         super(description, thriftType, len);
         this.itemType = null;
     }
 
-    public ArrayType(Type itemType) {
+    public JavaUdfArrayType(Type itemType) {
         super("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
         this.itemType = itemType;
     }

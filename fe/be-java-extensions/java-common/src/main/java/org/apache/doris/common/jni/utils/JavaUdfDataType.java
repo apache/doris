@@ -57,9 +57,9 @@ public class JavaUdfDataType {
 
     public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
     public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
-    public static final JavaUdfDataType ARRAY_TYPE = new ArrayType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
-    public static final JavaUdfDataType MAP_TYPE = new MapType("MAP_TYPE", TPrimitiveType.MAP, 0);
-    public static final JavaUdfDataType STRUCT_TYPE = new StructType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
+    public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfArrayType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
+    public static final JavaUdfDataType MAP_TYPE = new JavaUdfMapType("MAP_TYPE", TPrimitiveType.MAP, 0);
+    public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfStructType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
 
     private static final Map<TPrimitiveType, JavaUdfDataType> javaUdfDataTypeMap = new HashMap<>();
 

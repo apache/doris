@@ -22,15 +22,15 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import java.util.ArrayList;
 
-public class StructType extends JavaUdfDataType {
+public class JavaUdfStructType extends JavaUdfDataType {
     private ArrayList<StructField> fields;
 
-    public StructType(String description, TPrimitiveType thriftType, int len) {
+    public JavaUdfStructType(String description, TPrimitiveType thriftType, int len) {
         super(description, thriftType, len);
         this.fields = new ArrayList<>();
     }
 
-    public StructType(ArrayList<StructField> fields) {
+    public JavaUdfStructType(ArrayList<StructField> fields) {
         super("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
         this.fields = fields;
     }

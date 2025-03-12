@@ -20,20 +20,26 @@ package org.apache.doris.common.jni.utils;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TPrimitiveType;
 
-public class MapType extends JavaUdfDataType {
+public class JavaUdfMapType extends JavaUdfDataType {
     private Type keyType;
     private Type valueType;
+    private int keyScale;
+    private int valueScale;
 
-    public MapType(String description, TPrimitiveType thriftType, int len) {
+    public JavaUdfMapType(String description, TPrimitiveType thriftType, int len) {
         super(description, thriftType, len);
         this.keyType = null;
         this.valueType = null;
+        this.keyScale = 0;
+        this.valueScale = 0;
     }
 
-    public MapType(Type keyType, Type valueType) {
+    public JavaUdfMapType(Type keyType, Type valueType) {
         super("MAP_TYPE", TPrimitiveType.MAP, 0);
         this.keyType = keyType;
         this.valueType = valueType;
+        this.keyScale = 0;
+        this.valueScale = 0;
     }
 
     @Override
@@ -56,5 +62,21 @@ public class MapType extends JavaUdfDataType {
 
     public void setValueType(Type type) {
         this.valueType = type;
+    }
+
+    public void setKeyScale(int scale) {
+        this.keyScale = scale;
+    }
+
+    public void setValueScale(int scale) {
+        this.valueScale = scale;
+    }
+
+    public int getKeyScale() {
+        return keyScale;
+    }
+
+    public int getValueScale() {
+        return valueScale;
     }
 }
