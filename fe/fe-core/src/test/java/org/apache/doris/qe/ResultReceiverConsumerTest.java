@@ -20,13 +20,13 @@ package org.apache.doris.qe;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
-import org.apache.thrift.TException;
 
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.FutureCallback;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Injectable;
+import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
