@@ -337,6 +337,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid timeout format, {}", e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("Timeout value out of range, {}", e.what());
         }
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
