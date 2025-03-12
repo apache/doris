@@ -464,7 +464,6 @@ class Node(object):
 
         if self.cluster.is_host_network():
             content["network_mode"] = "host"
-            content["ports"] = self.docker_ports()
         else:
             content["hostname"] = self.get_name()
             content["networks"] = {
