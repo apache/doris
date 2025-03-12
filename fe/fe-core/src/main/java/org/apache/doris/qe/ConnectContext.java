@@ -1196,7 +1196,7 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(int connId, long nowMs) {
+        public List<String> toRow(int connId, long nowMs, Optional<String> timeZone) {
             List<String> row = Lists.newArrayList();
             if (connId == connectionId) {
                 row.add("Yes");
@@ -1206,7 +1206,11 @@ public class ConnectContext {
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getRemoteHostPortString());
-            row.add(TimeUtils.longToTimeString(loginTime));
+            if (timeZone.isPresent()) {
+                row.add(TimeUtils.longToTimeStringWithTimeZone(loginTime, timeZone.get()));
+            } else {
+                row.add(TimeUtils.longToTimeString(loginTime));
+            }
             row.add(defaultCatalog);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
