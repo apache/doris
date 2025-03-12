@@ -215,7 +215,7 @@ TEST(HLLSerdeTest, SerdeArrowTest) {
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);
     EXPECT_EQ(record_batch->column(0)->ToString(), "[\n  00,\n  01017B00000000000000\n]");
-    
+
     // TODO, support `DataTypeHLLSerDe::read_column_from_arrow`
     // CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     // CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
