@@ -32,7 +32,6 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
@@ -135,7 +134,7 @@ public class NereidsSqlCacheManager {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
                 return;
-            default: {}
+            default: { }
         }
 
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
@@ -161,7 +160,7 @@ public class NereidsSqlCacheManager {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
                 return;
-            default: {}
+            default: { }
         }
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
@@ -198,7 +197,7 @@ public class NereidsSqlCacheManager {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
                 return Optional.empty();
-            default: {}
+            default: { }
         }
         String key = generateCacheKey(connectContext, normalizeSql(sql.trim()));
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);

@@ -401,7 +401,7 @@ public abstract class ConnectProcessor {
             case COM_STMT_EXECUTE:
             case COM_STMT_PREPARE:
                 return null;
-            default: {}
+            default: { }
         }
 
         try {
