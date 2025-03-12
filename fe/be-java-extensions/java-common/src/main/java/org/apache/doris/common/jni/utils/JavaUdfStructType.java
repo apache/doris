@@ -30,6 +30,11 @@ public class JavaUdfStructType extends JavaUdfDataType {
         this.fields = new ArrayList<>();
     }
 
+    public JavaUdfStructType(JavaUdfStructType other) {
+        super(other);
+        this.fields = other.fields;
+    }
+
     public JavaUdfStructType(ArrayList<StructField> fields) {
         super("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
         this.fields = fields;

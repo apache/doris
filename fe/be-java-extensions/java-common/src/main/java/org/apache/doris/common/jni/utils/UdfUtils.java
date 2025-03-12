@@ -126,7 +126,7 @@ public class UdfUtils {
             result.setScale(((ScalarType) retType).getScalarScale());
         } else if (retType.isArrayType()) {
             ArrayType arrType = (ArrayType) retType;
-            ((JavaUdfArrayType) result).setItemType(arrType.getItemType());
+            result = new JavaUdfArrayType(arrType.getItemType());
             if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
                 result.setPrecision(arrType.getItemType().getPrecision());
                 result.setScale(((ScalarType) arrType.getItemType()).getScalarScale());
@@ -135,9 +135,8 @@ public class UdfUtils {
             MapType mapType = (MapType) retType;
             Type keyType = mapType.getKeyType();
             Type valuType = mapType.getValueType();
+            result = new JavaUdfMapType(keyType, valuType);
             JavaUdfMapType udfMapType = ((JavaUdfMapType) result);
-            udfMapType.setKeyType(keyType);
-            udfMapType.setValueType(valuType);
             if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
                 udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
             }
@@ -146,7 +145,7 @@ public class UdfUtils {
             }
         } else if (retType.isStructType()) {
             StructType structType = (StructType) retType;
-            ((JavaUdfStructType) result).setFields(structType.getFields());
+            result = new JavaUdfStructType(structType.getFields());
         }
         return Pair.of(res.length != 0, result);
     }
@@ -177,7 +176,7 @@ public class UdfUtils {
                 inputArgTypes[i].setScale(((ScalarType) parameterTypes[finalI]).getScalarScale());
             } else if (parameterTypes[finalI].isArrayType()) {
                 ArrayType arrType = (ArrayType) parameterTypes[finalI];
-                ((JavaUdfArrayType) inputArgTypes[i]).setItemType(arrType.getItemType());
+                inputArgTypes[i] = new JavaUdfArrayType(arrType.getItemType());
                 if (arrType.getItemType().isDatetimeV2() || arrType.getItemType().isDecimalV3()) {
                     inputArgTypes[i].setPrecision(arrType.getItemType().getPrecision());
                     inputArgTypes[i].setScale(((ScalarType) arrType.getItemType()).getScalarScale());
@@ -186,9 +185,8 @@ public class UdfUtils {
                 MapType mapType = (MapType) parameterTypes[finalI];
                 Type keyType = mapType.getKeyType();
                 Type valuType = mapType.getValueType();
+                inputArgTypes[i] = new JavaUdfMapType(keyType, valuType);
                 JavaUdfMapType udfMapType = ((JavaUdfMapType) inputArgTypes[i]);
-                udfMapType.setKeyType(keyType);
-                udfMapType.setValueType(valuType);
                 if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
                     udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
                 }
@@ -198,7 +196,7 @@ public class UdfUtils {
             } else if (parameterTypes[finalI].isStructType()) {
                 StructType structType = (StructType) parameterTypes[finalI];
                 ArrayList<StructField> fields = structType.getFields();
-                ((JavaUdfStructType) inputArgTypes[i]).setFields(fields);
+                inputArgTypes[i] = new JavaUdfStructType(fields);
             } else if (parameterTypes[finalI].isIP()) {
                 if (parameterTypes[finalI].isIPv4()) {
                     inputArgTypes[i] = new JavaUdfDataType(JavaUdfDataType.IPV4);

@@ -34,6 +34,14 @@ public class JavaUdfMapType extends JavaUdfDataType {
         this.valueScale = 0;
     }
 
+    public JavaUdfMapType(JavaUdfMapType mapType) {
+        super(mapType);
+        this.keyType = mapType.keyType;
+        this.valueType = mapType.valueType;
+        this.keyScale = mapType.keyScale;
+        this.valueScale = mapType.valueScale;
+    }
+
     public JavaUdfMapType(Type keyType, Type valueType) {
         super("MAP_TYPE", TPrimitiveType.MAP, 0);
         this.keyType = keyType;

@@ -29,6 +29,11 @@ public class JavaUdfArrayType extends JavaUdfDataType {
         this.itemType = null;
     }
 
+    public JavaUdfArrayType(JavaUdfArrayType other) {
+        super(other);
+        this.itemType = other.itemType;
+    }
+
     public JavaUdfArrayType(Type itemType) {
         super("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
         this.itemType = itemType;
