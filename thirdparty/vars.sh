@@ -526,6 +526,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# datasketches
+DATASKETCHES_DOWNLOAD="https://github.com/apache/datasketches-cpp/archive/refs/tags/5.2.0.tar.gz"
+DATASKETCHES_NAME="datasketches-cpp-5.2.0.tar.gz"
+DATASKETCHES_SOURCE="datasketches-cpp-5.2.0"
+DATASKETCHES_MD5SUM="f6d606295cac2bdd6231ee0e8cf00313"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -604,6 +610,7 @@ export TP_ARCHIVES=(
     'AZURE'
     'DRAGONBOX'
     'ICU'
+    'DATASKETCHES'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

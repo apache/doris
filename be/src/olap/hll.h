@@ -210,16 +210,6 @@ public:
     // Return max size of serialized binary
     size_t max_serialized_size() const;
 
-    size_t memory_consumed() const {
-        size_t size = sizeof(*this);
-        if (_type == HLL_DATA_EXPLICIT) {
-            size += _hash_set.size() * sizeof(uint64_t);
-        } else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL) {
-            size += HLL_REGISTERS_COUNT;
-        }
-        return size;
-    }
-
     // Input slice should has enough capacity for serialize, which
     // can be get through max_serialized_size(). If insufficient buffer
     // is given, this will cause process crash.
