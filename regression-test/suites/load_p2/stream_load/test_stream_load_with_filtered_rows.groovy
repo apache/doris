@@ -68,6 +68,24 @@ suite("test_stream_load_with_filtered_rows", "p2") {
                 assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
             }
         }
+
+        streamLoad {
+            table "${tableName}"
+            set 'column_separator', '|'
+            file """${getS3Url()}/regression/load_p2/stream_load/test_stream_load_with_dbgen_progress.json"""
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(result.contains("ErrorURL"))
+                assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
+            }
+        }
+
     } finally {
         //sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     }
