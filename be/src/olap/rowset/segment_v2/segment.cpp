@@ -709,7 +709,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
 }
 
 Status Segment::new_default_iterator(const TabletColumn& tablet_column,
-                                   std::unique_ptr<ColumnIterator>* iter) {
+                                     std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
                 "invalid nonexistent column without default value. column_uid={}, column_name={}, "
