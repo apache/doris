@@ -635,6 +635,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    // need to update least_common_type when pop_back a column from the last
+    least_common_type = sz > 0 ? LeastCommonType {data_types[sz - 1]}
+                               : LeastCommonType {std::make_shared<DataTypeNothing>()};
     num_of_defaults_in_prefix -= n;
 }
 
