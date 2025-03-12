@@ -39,8 +39,8 @@ void PhrasePrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
             std::wstring ws = StringUtil::string_to_wstring(query_info.terms[i]);
             terms[i].emplace_back(ws);
         } else {
-            PrefixQuery::get_prefix_terms(_searcher->getReader(), query_info.field_name,
-                                          query_info.terms[i], terms[i], _max_expansions);
+            _prefix_query.get_prefix_terms(_searcher->getReader(), query_info.field_name,
+                                           query_info.terms[i], terms[i], _max_expansions);
             if (terms[i].empty()) {
                 std::wstring ws = StringUtil::string_to_wstring(query_info.terms[i]);
                 terms[i].emplace_back(ws);
