@@ -299,13 +299,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
                 "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
-                "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
-                "rows new added({}), num rows deleted({}), total rows({})",
+                "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
+                "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
                 _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
                 _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
-                _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
-                rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
-                rowset_writer()->num_rows());
+                _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
+                rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
+                rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
         return Status::OK();
     }
 

@@ -344,6 +344,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
               << ", cur max_version: " << _context.mow_context->max_version
               << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
               << _context.tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count()
+              << ", delete_bitmap_cardinality: "
+              << _context.tablet->tablet_meta()->delete_bitmap().cardinality()
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
