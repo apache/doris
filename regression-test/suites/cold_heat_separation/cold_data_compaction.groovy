@@ -126,6 +126,10 @@ suite("test_cold_data_compaction") {
         return filesAfterCompaction.size() == 2
     })
 
+    if ("true" == v) {
+        set_be_param("disable_auto_compaction", "true")
+    }
+
     sql "drop table t_recycle_in_s3 force"
     retryUntilTimeout(3600, {
         def filesAfterDrop = getS3Client().listObjects(
