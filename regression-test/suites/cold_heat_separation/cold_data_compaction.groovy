@@ -112,6 +112,10 @@ suite("test_cold_data_compaction") {
 
     // trigger cold data compaction
     sql """alter table t_recycle_in_s3 set ("disable_auto_compaction" = "false")"""
+    def v = get_be_param("disable_auto_compaction").values().toArray()[0].toString()
+    if ("true" == v) {
+        set_be_param("disable_auto_compaction", "false")
+    }
 
     // wait until compaction finish
     retryUntilTimeout(3600, {
