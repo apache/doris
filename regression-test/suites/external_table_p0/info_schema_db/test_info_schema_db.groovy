@@ -47,6 +47,7 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
     qt_sql04 "show views"
     qt_sql05 "show views like '%view'"
     qt_sql06 "show views where table_name = '${view}'"
+    sql "drop view innerdb.innertbl_view"
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
