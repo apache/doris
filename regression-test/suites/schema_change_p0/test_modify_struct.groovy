@@ -340,7 +340,7 @@ suite ("test_modify_struct") {
 
     } finally {
         for (String tb : tableNames) {
-            //try_sql("DROP TABLE IF EXISTS ${tb}")
+            try_sql("DROP TABLE IF EXISTS ${tb}")
         }
     }
 
