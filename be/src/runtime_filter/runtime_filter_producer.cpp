@@ -51,9 +51,9 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         // two case we need do local merge:
         // 1. has remote target
         // 2. has local target and has global consumer (means target scan has local shuffle)
-        if (_has_local_target && _state->global_runtime_filter_mgr()
-                                         ->get_consume_filters(_wrapper->filter_id())
-                                         .empty()) {
+        if (!_has_remote_target && _state->global_runtime_filter_mgr()
+                                           ->get_consume_filters(_wrapper->filter_id())
+                                           .empty()) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
@@ -63,16 +63,16 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         std::lock_guard l(context->mtx);
         RETURN_IF_ERROR(context->merger->merge_from(this));
         if (context->merger->ready()) {
-            if (_has_local_target) {
-                RETURN_IF_ERROR(_send_to_local_targets(context->merger.get(), true));
-            } else {
+            if (_has_remote_target) {
                 RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
+            } else {
+                RETURN_IF_ERROR(_send_to_local_targets(context->merger.get(), true));
             }
         }
         return Status::OK();
     };
 
-    if (_has_local_target) {
+    if (!_has_remote_target) {
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
         RETURN_IF_ERROR(do_merge());
@@ -157,14 +157,14 @@ Status RuntimeFilterProducer::send_size(
     // two case we need do local merge:
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
-    if (!_has_local_target ||
+    if (_has_remote_target ||
         !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
         LocalMergeContext* merger_context = nullptr;
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _wrapper->filter_id(), &merger_context));
         std::lock_guard l(merger_context->mtx);
         if (merger_context->merger->add_rf_size(local_filter_size)) {
-            if (_has_local_target) {
+            if (!_has_remote_target) {
                 for (auto filter : merger_context->producers) {
                     filter->set_synced_size(merger_context->merger->get_received_sum_size());
                 }
@@ -176,7 +176,7 @@ Status RuntimeFilterProducer::send_size(
             return Status::OK();
         }
 
-    } else if (_has_local_target) {
+    } else if (!_has_remote_target) {
         set_synced_size(local_filter_size);
         return Status::OK();
     }

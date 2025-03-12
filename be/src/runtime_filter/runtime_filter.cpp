@@ -100,7 +100,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
     params.enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
                                            options->enable_fixed_len_to_uint32_v2;
     if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
-        if (!_has_local_target) {
+        if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
         if (!build_ctx->root()->type().is_bitmap_type()) {
@@ -126,7 +126,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 
 std::string RuntimeFilter::_debug_string() const {
     return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
-                       _has_local_target ? "LOCAL" : "GLOBAL");
+                       _has_remote_target ? "GLOBAL" : "LOCAL");
 }
 
 } // namespace doris

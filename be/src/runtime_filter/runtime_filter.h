@@ -40,7 +40,7 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    bool has_local_target() const { return _has_local_target; }
+    bool has_remote_target() const { return _has_remote_target; }
 
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
@@ -85,9 +85,9 @@ public:
 protected:
     RuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : _state(state),
-              _has_local_target(desc->has_local_targets),
+              _has_remote_target(desc->has_remote_targets),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
-        DCHECK_NE(desc->has_remote_targets, _has_local_target);
+        DCHECK_NE(desc->has_remote_targets, desc->has_local_targets);
         DCHECK_NE(state, nullptr);
     }
 
@@ -118,8 +118,8 @@ protected:
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
-    // will apply to local node
-    bool _has_local_target;
+    // will apply to remote node
+    bool _has_remote_target;
 
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;

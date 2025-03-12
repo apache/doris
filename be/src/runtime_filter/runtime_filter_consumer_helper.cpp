@@ -67,12 +67,12 @@ void RuntimeFilterConsumerHelper::_init_dependency(
         dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(id, node_id, name,
                                                                               _consumers[i].get());
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
-        if (_consumers[i]->has_local_target()) {
-            local_dependencies.emplace_back(dependencies[i]);
-        } else {
+        if (_consumers[i]->has_remote_target()) {
             // The gloabl runtime filter timer need set local runtime filter dependencies.
             // start to wait before the local runtime filter ready
             runtime_filter_timers[i]->set_local_runtime_filter_dependencies(local_dependencies);
+        } else {
+            local_dependencies.emplace_back(dependencies[i]);
         }
     }
 

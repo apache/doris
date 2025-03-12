@@ -499,6 +499,7 @@ public:
         _desc.__set_is_broadcast_join(false);
         _desc.__set_has_local_targets(true);
         _desc.__set_has_remote_targets(false);
+        _desc.__set_null_aware(false);
         _desc.__set_type(TRuntimeFilterType::IN_OR_BLOOM);
     }
 
