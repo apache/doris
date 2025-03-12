@@ -88,6 +88,10 @@ private:
     void _execute_for_function(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
     void _insert_result_info(int64_t start, int64_t end);
+    int64_t current_pos_in_block() {
+        return _current_row_position + _have_removed_rows -
+               _input_block_first_row_positions[_output_block_index];
+    }
     void _output_current_block(vectorized::Block* block);
     void _reset_state_for_next_partition();
     void _refresh_buffer_and_dependency_state(vectorized::Block* block);

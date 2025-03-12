@@ -225,8 +225,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         // going on calculate, add up data, no need to reset state
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _current_row_position, _current_row_position + 1);
-        int64_t pos = _current_row_position + _have_removed_rows -
-                      _input_block_first_row_positions[_output_block_index];
+        int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
@@ -252,8 +251,7 @@ bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
     // should not exceed block batch size
     current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_rows);
     auto real_deal_with_width = current_window_frame_width - previous_window_frame_width;
-    int64_t pos = _current_row_position + _have_removed_rows -
-                  _input_block_first_row_positions[_output_block_index];
+    int64_t pos = current_pos_in_block();
     _insert_result_info(pos, pos + real_deal_with_width);
     _current_row_position += real_deal_with_width;
     return _current_row_position - current_block_base_pos >= batch_rows;
@@ -271,8 +269,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
         auto current_window_frame_width = _order_by_pose.end - current_block_base_pos;
         current_window_frame_width = std::min<int64_t>(current_window_frame_width, batch_rows);
         auto real_deal_with_width = current_window_frame_width - previous_window_frame_width;
-        int64_t pos = _current_row_position + _have_removed_rows -
-                      _input_block_first_row_positions[_output_block_index];
+        int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + real_deal_with_width);
         _current_row_position += real_deal_with_width;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
@@ -303,8 +300,7 @@ bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t batch_rows,
         }
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _order_by_pose.start, _order_by_pose.end);
-        int64_t pos = _current_row_position + _have_removed_rows -
-                      _input_block_first_row_positions[_output_block_index];
+        int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
