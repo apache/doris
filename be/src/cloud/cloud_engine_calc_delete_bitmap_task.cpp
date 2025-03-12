@@ -270,8 +270,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             // delete bitmap cache missed, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
-            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
-                                                                        segments, delete_bitmap));
+            RETURN_IF_ERROR(
+                    tablet->calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
         }
         status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
                                                    txn_expiration);
