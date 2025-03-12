@@ -56,7 +56,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**JoinSkewSalt*/
+/**
+ * LogicalJoin(type:inner, t1.a=t2.a, hint:skew(t1.a(1,2)))
+ *   +--LogicalOlapScan(t1)
+ *   +--LogicalOlapScan(t2)
+ * ->
+ * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
+ *   |--LogicalProject (t1.a, CASE WHEN t1.a IS NULL THEN random(0, 999) WHEN t1.a IN (1, 2) THEN random(0, 999) ELSE 0 END AS r1))
+ *   | +--LogicalOlapScan(t1)
+ *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, 0, explodeNumber) as r2)
+ *     +--LogicalJoin (type=right_outer_join, t2.a=skewValue)
+ *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
+ *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
+ *       +--LogicalOlapScan(t2)
+ * */
 public class JoinSkewSalt extends OneRewriteRuleFactory {
     @Override
     public Rule build() {

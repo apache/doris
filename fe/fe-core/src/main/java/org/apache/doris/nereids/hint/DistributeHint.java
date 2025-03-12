@@ -51,6 +51,10 @@ public class DistributeHint extends Hint {
         this.skewValues = skewValues;
     }
 
+    public DistributeHint withSkewExpr(Expression expr) {
+        return new DistributeHint(distributeType, expr, skewValues);
+    }
+
     public void setSuccessInLeading(boolean successInLeading) {
         isSuccessInLeading = successInLeading;
     }
@@ -95,6 +99,21 @@ public class DistributeHint extends Hint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return this.distributeType == ((DistributeHint) o).distributeType;
+        if (this.distributeType != ((DistributeHint) o).distributeType) {
+            return false;
+        }
+        if (skewExpr == null && ((DistributeHint) o).skewExpr != null) {
+            return false;
+        }
+        if (skewExpr != null && !skewExpr.equals(((DistributeHint) o).skewExpr)) {
+            return false;
+        }
+        if (skewValues == null && ((DistributeHint) o).skewValues != null) {
+            return false;
+        }
+        if (skewValues != null && !skewValues.equals(((DistributeHint) o).skewValues)) {
+            return false;
+        }
+        return true;
     }
 }
