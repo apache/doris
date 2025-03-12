@@ -44,9 +44,9 @@ public class UtilTest {
         rootCause.addSuppressed(new Exception("Suppressed message"));
         rootCause.addSuppressed(new Exception("Suppressed message2"));
         Assertions.assertEquals(
-                "java.lang.Exception: Root cause message "
-                            + "With suppressed[0]:Suppressed message"
-                            + "With suppressed[1]:Suppressed message2",
+                "java.lang.Exception: Root cause message"
+                            + " With suppressed[0]:Suppressed message"
+                            + " With suppressed[1]:Suppressed message2",
                 Util.getRootCauseWithSuppressedMessage(rootCause));
     }
 
