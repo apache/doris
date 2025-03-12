@@ -870,9 +870,6 @@ public class AnalysisManager implements Writable {
 
     public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
-        if (tableStats == null) {
-            return;
-        }
         Set<String> cols = dropStatsCommand.getColumnNames();
         PartitionNames partitionNames = dropStatsCommand.getOpPartitionNames();
         long catalogId = dropStatsCommand.getCatalogId();
@@ -1037,7 +1034,7 @@ public class AnalysisManager implements Writable {
                                      TableStatsMeta tableStats, PartitionNames partitionNames) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
-        if (columns == null) {
+        if (columns == null || columns.isEmpty()) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
