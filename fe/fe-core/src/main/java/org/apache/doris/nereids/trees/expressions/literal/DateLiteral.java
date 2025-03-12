@@ -341,7 +341,7 @@ public class DateLiteral extends Literal {
             // if Year is not present, throw exception
             if (!dateTime.isSupported(ChronoField.YEAR)) {
                 return Result.err(
-                        () -> new DateTimeException("date/datetime literal [" + originalString + "] is invalid")
+                        () -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid")
                 );
             }
 
