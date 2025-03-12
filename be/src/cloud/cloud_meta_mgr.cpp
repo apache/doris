@@ -711,6 +711,10 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
             // we should replace it with the rowset's real version
             DCHECK(rs_meta.start_version() == rs_meta.end_version());
             int64_t rowset_version = rs_meta.start_version();
+            LOG_INFO(
+                    "[xxx sync_delete_bitmap_by_cache] tablet={}, txn_id={}, version={}, "
+                    "cardinality={}",
+                    tablet->tablet_id(), txn_id, rowset_version, tmp_delete_bitmap->cardinality());
             for (const auto& [delete_bitmap_key, bitmap_value] : tmp_delete_bitmap->delete_bitmap) {
                 // skip sentinel mark, which is used for delete bitmap correctness check
                 if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
