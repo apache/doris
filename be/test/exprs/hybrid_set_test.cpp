@@ -62,6 +62,118 @@ TEST_F(HybridSetTest, bool) {
     EXPECT_TRUE(set->find(&a));
 }
 
+#define TEST_NUMERIC(primitive_type)                                               \
+    do {                                                                           \
+        using NumericType = PrimitiveTypeTraits<primitive_type>::CppType;          \
+        std::unique_ptr<HybridSetBase> set(create_set(primitive_type, false));     \
+        NumericType min = type_limit<NumericType>::min();                          \
+        NumericType max = type_limit<NumericType>::max();                          \
+        NumericType mid = NumericType(NumericType(min + max) / NumericType(2));    \
+        EXPECT_NE(min, mid);                                                       \
+        EXPECT_NE(max, mid);                                                       \
+        EXPECT_FALSE(set->find(&min));                                             \
+        set->insert(&min);                                                         \
+        EXPECT_FALSE(set->find(&max));                                             \
+        set->insert(&max);                                                         \
+        EXPECT_FALSE(set->find(&mid));                                             \
+        set->insert(&mid);                                                         \
+        EXPECT_EQ(3, set->size());                                                 \
+                                                                                   \
+        HybridSetBase::IteratorBase* base = set->begin();                          \
+                                                                                   \
+        while (base->has_next()) {                                                 \
+            base->next();                                                          \
+        }                                                                          \
+                                                                                   \
+        EXPECT_TRUE(set->find(&min));                                              \
+        EXPECT_TRUE(set->find(&max));                                              \
+        EXPECT_TRUE(set->find(&mid));                                              \
+                                                                                   \
+        std::unique_ptr<HybridSetBase> set2(create_set<3>(primitive_type, false)); \
+        set2->insert(&min);                                                        \
+        set2->insert(&max);                                                        \
+        set2->insert(&mid);                                                        \
+        EXPECT_EQ(3, set2->size());                                                \
+                                                                                   \
+        base = set->begin();                                                       \
+                                                                                   \
+        while (base->has_next()) {                                                 \
+            base->next();                                                          \
+        }                                                                          \
+                                                                                   \
+        EXPECT_TRUE(set2->find(&min));                                             \
+        EXPECT_TRUE(set2->find(&max));                                             \
+        EXPECT_TRUE(set2->find(&mid));                                             \
+    } while (0)
+
+TEST_F(HybridSetTest, Numeric) {
+    TEST_NUMERIC(PrimitiveType::TYPE_TINYINT);
+    TEST_NUMERIC(PrimitiveType::TYPE_SMALLINT);
+    TEST_NUMERIC(PrimitiveType::TYPE_INT);
+    TEST_NUMERIC(PrimitiveType::TYPE_BIGINT);
+    TEST_NUMERIC(PrimitiveType::TYPE_LARGEINT);
+    TEST_NUMERIC(PrimitiveType::TYPE_FLOAT);
+    TEST_NUMERIC(PrimitiveType::TYPE_DOUBLE);
+    TEST_NUMERIC(PrimitiveType::TYPE_IPV4);
+    TEST_NUMERIC(PrimitiveType::TYPE_IPV6);
+    TEST_NUMERIC(PrimitiveType::TYPE_DECIMAL256);
+    TEST_NUMERIC(PrimitiveType::TYPE_DECIMALV2);
+    TEST_NUMERIC(PrimitiveType::TYPE_DECIMAL32);
+    TEST_NUMERIC(PrimitiveType::TYPE_DECIMAL64);
+    TEST_NUMERIC(PrimitiveType::TYPE_DECIMAL128I);
+}
+
+#define TEST_DATE(primitive_type)                                                  \
+    do {                                                                           \
+        using NumericType = PrimitiveTypeTraits<primitive_type>::CppType;          \
+        std::unique_ptr<HybridSetBase> set(create_set(primitive_type, false));     \
+        NumericType min = type_limit<NumericType>::min();                          \
+        NumericType max = type_limit<NumericType>::max();                          \
+        NumericType def = NumericType {};                                          \
+        EXPECT_NE(min, def);                                                       \
+        EXPECT_NE(max, def);                                                       \
+        EXPECT_FALSE(set->find(&min));                                             \
+        set->insert(&min);                                                         \
+        EXPECT_FALSE(set->find(&max));                                             \
+        set->insert(&max);                                                         \
+        EXPECT_FALSE(set->find(&def));                                             \
+        set->insert(&def);                                                         \
+        EXPECT_EQ(3, set->size());                                                 \
+                                                                                   \
+        HybridSetBase::IteratorBase* base = set->begin();                          \
+                                                                                   \
+        while (base->has_next()) {                                                 \
+            base->next();                                                          \
+        }                                                                          \
+                                                                                   \
+        EXPECT_TRUE(set->find(&min));                                              \
+        EXPECT_TRUE(set->find(&max));                                              \
+        EXPECT_TRUE(set->find(&def));                                              \
+                                                                                   \
+        std::unique_ptr<HybridSetBase> set2(create_set<3>(primitive_type, false)); \
+        set2->insert(&min);                                                        \
+        set2->insert(&max);                                                        \
+        set2->insert(&def);                                                        \
+        EXPECT_EQ(3, set2->size());                                                \
+                                                                                   \
+        base = set2->begin();                                                      \
+                                                                                   \
+        while (base->has_next()) {                                                 \
+            base->next();                                                          \
+        }                                                                          \
+                                                                                   \
+        EXPECT_TRUE(set2->find(&min));                                             \
+        EXPECT_TRUE(set2->find(&max));                                             \
+        EXPECT_TRUE(set2->find(&def));                                             \
+    } while (0)
+
+TEST_F(HybridSetTest, Date) {
+    TEST_DATE(PrimitiveType::TYPE_DATE);
+    TEST_DATE(PrimitiveType::TYPE_DATEV2);
+    TEST_DATE(PrimitiveType::TYPE_DATETIME);
+    TEST_DATE(PrimitiveType::TYPE_DATETIMEV2);
+}
+
 TEST_F(HybridSetTest, tinyint) {
     std::unique_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_TINYINT, false));
     int8_t a = 0;

@@ -35,6 +35,62 @@ protected:
     void TearDown() override {}
 };
 
+template <PrimitiveType primitive_type>
+void test_numeric() {
+    using NumericType = PrimitiveTypeTraits<primitive_type>::CppType;
+    using ColumnType = PrimitiveTypeTraits<primitive_type>::ColumnType;
+    auto mix_func = std::make_unique<MinMaxNumFunc<NumericType>>(true);
+    NumericType min = type_limit<NumericType>::min();
+    NumericType max = type_limit<NumericType>::max();
+    NumericType def {};
+    if constexpr (std::is_same_v<NumericType, VecDateTimeValue>) {
+        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+    } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateV2ValueType>>) {
+        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+    } else if constexpr (std::is_same_v<NumericType, DateV2Value<DateTimeV2ValueType>>) {
+        def.from_date_str("2010-01-01", strlen("2010-01-01"));
+    }
+
+    vectorized::MutableColumnPtr column;
+    if constexpr (vectorized::IsDecimalNumber<NumericType> ||
+                  std::is_same_v<NumericType, DecimalV2Value>) {
+        column = ColumnType::create(0, 8);
+    } else {
+        column = ColumnType::create();
+    }
+    column->reserve(3);
+    column->insert_data(reinterpret_cast<const char*>(&min), sizeof(NumericType));
+    column->insert_data(reinterpret_cast<const char*>(&max), sizeof(NumericType));
+    column->insert_data(reinterpret_cast<const char*>(&def), sizeof(NumericType));
+    ASSERT_EQ(column->size(), 3);
+
+    mix_func->insert_fixed_len(column->clone(), 0);
+    EXPECT_EQ(min, *(NumericType*)mix_func->get_min());
+    EXPECT_EQ(max, *(NumericType*)mix_func->get_max());
+}
+
+TEST_F(MinmaxPredicateTest, Numeric) {
+    test_numeric<PrimitiveType::TYPE_TINYINT>();
+    test_numeric<PrimitiveType::TYPE_SMALLINT>();
+    test_numeric<PrimitiveType::TYPE_INT>();
+    test_numeric<PrimitiveType::TYPE_BIGINT>();
+    test_numeric<PrimitiveType::TYPE_LARGEINT>();
+    test_numeric<PrimitiveType::TYPE_FLOAT>();
+    test_numeric<PrimitiveType::TYPE_DOUBLE>();
+    test_numeric<PrimitiveType::TYPE_IPV4>();
+    test_numeric<PrimitiveType::TYPE_IPV6>();
+    test_numeric<PrimitiveType::TYPE_DECIMAL256>();
+    test_numeric<PrimitiveType::TYPE_DECIMALV2>();
+    test_numeric<PrimitiveType::TYPE_DECIMAL32>();
+    test_numeric<PrimitiveType::TYPE_DECIMAL64>();
+    test_numeric<PrimitiveType::TYPE_DECIMAL128I>();
+
+    test_numeric<PrimitiveType::TYPE_DATE>();
+    test_numeric<PrimitiveType::TYPE_DATEV2>();
+    test_numeric<PrimitiveType::TYPE_DATETIME>();
+    test_numeric<PrimitiveType::TYPE_DATETIMEV2>();
+}
+
 TEST_F(MinmaxPredicateTest, InsertFixedLen) {
     auto column = vectorized::ColumnHelper::create_column<vectorized::DataTypeInt32>(
             {1, 2, 3, 4, 5, 6, 7, 8});
