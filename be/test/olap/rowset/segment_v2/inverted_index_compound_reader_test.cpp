@@ -317,6 +317,8 @@ TEST_F(DorisCompoundReaderTest, CloneCompoundReader) {
 
     original_reader.close();
     cloned_reader.close();
+    _CLDELETE(entries);
+    _CLDELETE(cloned_entries);
 }
 
 TEST_F(DorisCompoundReaderTest, ErrorHandling) {
@@ -496,6 +498,7 @@ TEST_F(DorisCompoundReaderTest, FileCopyCorrectness) {
                         _copyFile(entry->file_name.c_str(), static_cast<int32_t>(entry->length),
                                   buffer, buffer_size);
                     }
+                    free(aid);
                     _CLDELETE(entry);
                 }
                 EXPECT_TRUE(_ram_dir->fileExists(file)) << "File should exist after copy";
