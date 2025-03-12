@@ -163,7 +163,7 @@ Status SchemaScanner::get_next_block_internal(vectorized::Block* block, bool* eo
     return Status::OK();
 }
 
-Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
+Status SchemaScanner::init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
     }
@@ -172,6 +172,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     }
 
     _param = param;
+    _timezone_obj = state->timezone_obj();
     _is_init = true;
 
     if (_param->profile) {
