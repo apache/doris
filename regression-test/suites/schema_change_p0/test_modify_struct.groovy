@@ -206,7 +206,7 @@ suite ("test_modify_struct") {
                 waitUntilSchemaChangeDone.call(tableName, "")
             },reduceErrMsg)
             // 3.7 add sub-column + shorten sub-varchar-column
-            def shortenErrMsg="errCode = 2, detailMessage = Cannot change"
+            def shortenErrMsg="errCode = 2, detailMessage = Shorten type length is prohibited"
             expectExceptionLike({
                 sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(10), col1:INT, col2:DECIMAL(10,2), col3:DATETIME> ${defaultValue} """
                 waitUntilSchemaChangeDone.call(tableName, "")
@@ -252,10 +252,10 @@ suite ("test_modify_struct") {
         // desc for c_s_1
         String[][] res = sql """ desc ${tableNames[2]} """
         logger.info(res[4][1])
-        assertEquals(res[4][1].toLowerCase(),"struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime>")
+        assertEquals(res[4][1].toLowerCase(),"struct<col:varchar(30),col1:int,col2:decimal(10,2)>")
 
         test {
-            sql """ alter table ${tableNames[2]} modify column c_s_1 struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime> REPLACE """
+            sql """ alter table ${tableNames[2]} modify column c_s_1 struct<col:varchar(30),col1:int,col2:decimal(10,2)> REPLACE """
             exception "Can not change aggregation type"
         }
 
@@ -271,11 +271,11 @@ suite ("test_modify_struct") {
             logger.info(descRes[3][1])
             assertEquals(descRes[3][1].toLowerCase(),"text")
             logger.info(descRes[4][1])
-            assertEquals(descRes[4][1].toLowerCase(),"struct<col:varchar(10),col1:int,col2:decimal(10,2),col3:datetime>")
+            assertEquals(descRes[4][1].toLowerCase(),"struct<col:varchar(30),col1:int,col2:decimal(10,2)>")
             // 1. insert more data
-            sql """ insert into ${table_name} values (18, 81.18, named_struct('col','amory8','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory8', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
-            sql """ insert into ${table_name} values (19, 91.19, named_struct('col','amory9','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory9', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
-            sql """ insert into ${table_name} values (20, 10.01, named_struct('col','amory10','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory10', named_struct('col','amoryComit', 'col1', 1, 'col2', 1.1, 'col3', '2025-04-21 10:10:00')) """
+            sql """ insert into ${table_name} values (18, 81.18, named_struct('col','amory8','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory8', named_struct('col','amoryMoreMore30Better', 'col1', 1, 'col2', 1.1)) """
+            sql """ insert into ${table_name} values (19, 91.19, named_struct('col','amory9','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory9', named_struct('col','amoryMoreMore30Better', 'col1', 1, 'col2', 1.1)) """
+            sql """ insert into ${table_name} values (20, 10.01, named_struct('col','amory10','col1', 1, 'col2', 1.1, 'col3', '2021-01-01 00:00:00', 'col4', ['a', 'b'], 'col5', {1:'a', 2:'b'}, 'col6', {1, 'a'}, 'col11', 2, 'col12', 2.1, 'col13', '2021-01-01 00:00:00', 'col14', ['a', 'b'], 'col15', {1:'a', 2:'b'}, 'col16', {1, 'a'}), 'amory10', named_struct('col','amoryMoreMore30Better', 'col1', 1, 'col2', 1.1)) """
             sql """ insert into ${table_name} 
                                                     values 
                                                       (
@@ -292,8 +292,8 @@ suite ("test_modify_struct") {
                                                         ), 
                                                         'amory11', 
                                                         named_struct(
-                                                          'col', 'amoryComit', 'col1', 1, 
-                                                          'col2', 1.1, 'col3', '2025-04-21 10:10:00'
+                                                          'col', 'amoryMoreMore30Better', 'col1', 1,
+                                                          'col2', 1.1
                                                         )
                                                       ), 
                                                       (22, 12.21, null, null, null), 
@@ -307,12 +307,12 @@ suite ("test_modify_struct") {
                                                       "", 
                                                       named_struct(
                                                           'col', null, 'col1', null, 'col2', 
-                                                          null, 'col3', null
+                                                          null
                                                       )), 
                                                       (24, 14.41, null, "amory14",
                                                       named_struct(
-                                                          'col', 'amoryComit', 'col1', null, 'col2', 
-                                                          null, 'col3', '2025-04-21 10:10:00'
+                                                          'col', 'amoryMoreMore30Better', 'col1', null, 'col2',
+                                                          null
                                                       )) """
             // 2. check insert res
             qt_sql_after6 """ select * from ${table_name} order by c0; """
@@ -340,7 +340,7 @@ suite ("test_modify_struct") {
 
     } finally {
         for (String tb : tableNames) {
-            try_sql("DROP TABLE IF EXISTS ${tb}")
+            //try_sql("DROP TABLE IF EXISTS ${tb}")
         }
     }
 

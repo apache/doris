@@ -54,7 +54,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // create database db1
         createDatabase("test");
 
-        //create tables
+        // create tables
         String createAggTblStmtStr = "CREATE TABLE IF NOT EXISTS test.sc_agg (\n" + "user_id LARGEINT NOT NULL,\n"
                 + "date DATE NOT NULL,\n" + "city VARCHAR(20),\n" + "age SMALLINT,\n" + "sex TINYINT,\n"
                 + "last_visit_date DATETIME REPLACE DEFAULT '1970-01-01 00:00:00',\n" + "cost BIGINT SUM DEFAULT '0',\n"
@@ -95,15 +95,15 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
     }
 
-    private void executeAlterAndVerify(String alterStmt, OlapTable tbl, String expectedStruct, int expectSchemaVersion)
-            throws Exception {
+    private void executeAlterAndVerify(String alterStmt, OlapTable tbl, String expectedStruct, int expectSchemaVersion,
+            String columnName) throws Exception {
         AlterTableStmt stmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmt);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(stmt);
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
 
         tbl.readLock();
         try {
-            Column column = tbl.getColumn("c_s");
+            Column column = tbl.getColumn(columnName);
             Assertions.assertTrue(column.getType().toSql().toLowerCase().contains(expectedStruct.toLowerCase()),
                     "Actual struct: " + column.getType().toSql());
             // then check schema version increase
@@ -148,22 +148,49 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     private void testAddSingleSubColumn(OlapTable tbl, String tableName, String defaultValue) throws Exception {
         String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), col1:INT> "
                 + defaultValue;
-        executeAlterAndVerify(alterStmt, tbl, "STRUCT<col:varchar(10),col1:int>", 2);
+        executeAlterAndVerify(alterStmt, tbl, "STRUCT<col:varchar(10),col1:int>", 3, "c_s");
+    }
+
+    private void testAddNestedStructSubColumn(OlapTable tbl, String tableName, String defaultValue) throws Exception {
+        // origin c_s_s : struct<s1:struct<a:int>, s2:struct<a:array<struct<a:int>>>>
+        // case1. add s1 sub-column : struct<s1:struct<a:int, b:double>, s2:struct<a:array<struct<a:int>>>>
+        // case2. add s2 sub-column : struct<s1:struct<a:int,b:double>, s2:struct<a:array<struct<a:int>>, b:double>>
+        // case3. add s2.a sub-column : struct<s1:struct<a:int,b:double>,s2:struct<a:array<struct<a:int,b:double>>,b:double>>
+        // case4. add multiple sub-columns : struct<s1:struct<a:int,b:double,c:varchar(10)>,s2:struct<a:array<struct<a:int,b:double,c:varchar(10)>>,b:double,c:varchar(10)>,c:varchar(10)>
+        String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s_s "
+                + "struct<s1:struct<a:int,b:double>,s2:struct<a:array<struct<a:int>>>> " + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<s1:struct<a:int,b:double>,s2:struct<a:array<struct<a:int>>>>", 4, "c_s_s");
+        alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s_s "
+                + "struct<s1:struct<a:int,b:double>, s2:struct<a:array<struct<a:int>>,b:double>> " + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<s1:struct<a:int,b:double>,s2:struct<a:array<struct<a:int>>,b:double>>", 5, "c_s_s");
+        alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s_s "
+                + "struct<s1:struct<a:int,b:double>, s2:struct<a:array<struct<a:int, b:double>>,b:double>> "
+                + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<s1:struct<a:int,b:double>,s2:struct<a:array<struct<a:int,b:double>>,b:double>>", 6, "c_s_s");
+        alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s_s "
+                + "struct<s1:struct<a:int,b:double,c:varchar(10)>,s2:struct<a:array<struct<a:int,b:double,c:varchar(10)>>,b:double,c:varchar(10)>,c:varchar(10)> "
+                + defaultValue;
+        executeAlterAndVerify(alterStmt, tbl,
+                "struct<s1:struct<a:int,b:double,c:varchar(10)>,s2:struct<a:array<struct<a:int,b:double,c:varchar(10)>>,b:double,c:varchar(10)>,c:varchar(10)>",
+                7, "c_s_s");
     }
 
     private void testAddMultipleSubColumns(OlapTable tbl, String tableName, String defaultValue) throws Exception {
         String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), "
                 + "col1:INT, col2:DECIMAL(10,2), col3:DATETIME> " + defaultValue;
         executeAlterAndVerify(alterStmt, tbl,
-                "struct<col:varchar(10),col1:int,col2:decimalv3(10,2),col3:datetimev2(0)>", 3);
+                "struct<col:varchar(10),col1:int,col2:decimalv3(10,2),col3:datetimev2(0)>", 8, "c_s");
     }
 
     private void testLengthenVarcharSubColumn(OlapTable tbl, String tableName, String defaultValue) throws Exception {
-        String alterStmt = "ALTER TABLE test." + tableName +
-                " MODIFY COLUMN c_s STRUCT<col:VARCHAR(30),col1:int,col2:decimal(10,2),col3:datetime,col4:string> "
+        String alterStmt = "ALTER TABLE test." + tableName
+                + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(30),col1:int,col2:decimal(10,2),col3:datetime,col4:string> "
                 + defaultValue;
         executeAlterAndVerify(alterStmt, tbl,
-                "struct<col:varchar(30),col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:text>", 4);
+                "struct<col:varchar(30),col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:text>", 9, "c_s");
     }
 
     // ------------------------- Negative Test Case -------------------------
@@ -228,7 +255,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
             OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
             // add struct column
-            String addValColStmtStr = "alter table test."+ tableName + " add column c_s struct<col:varchar(10)> "
+            String addValColStmtStr = "alter table test." + tableName + " add column c_s struct<col:varchar(10)> "
                     + defaultVal;
             AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
             Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
@@ -237,9 +264,23 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // check alter job, do not create job
             Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
             waitAlterJobDone(alterJobs);
+            // add struct column
+            // support nested struct can also be support add sub-column
+            addValColStmtStr = "alter table test." + tableName
+                    + " add column c_s_s struct<s1:struct<a:int>, s2:struct<a:array<struct<a:int>>>> "
+                    + defaultVal;
+            addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
+            // check alter job
+            jobSize++;
+            // check alter job, do not create job
+            alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+            waitAlterJobDone(alterJobs);
+
 
             // 正向测试
             testAddSingleSubColumn(tbl, tableName, defaultVal);
+            testAddNestedStructSubColumn(tbl, tableName, defaultVal);
             testAddMultipleSubColumns(tbl, tableName, defaultVal);
             testLengthenVarcharSubColumn(tbl, tableName, defaultVal);
 

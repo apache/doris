@@ -184,7 +184,8 @@ public abstract class ColumnType {
         }
         if (srcTypeLen > dstTypeLen) {
             throw new DdlException(
-                String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(), dst.toSql()));
+                    String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(),
+                            dst.toSql()));
         }
     }
 
@@ -218,13 +219,27 @@ public abstract class ColumnType {
             HashSet<String> thisStructNames = new HashSet<>();
             for (; i < thisStructType.getFields().size(); i++) {
                 // do not support struct same position field name/type change
-                if (!thisStructType.getFields().get(i).equals(otherStructType.getFields().get(i))) {
-                    if (thisStructType.getFields().get(i).getType().isStringType()
-                            && otherStructType.getFields().get(i).getType().isStringType()) {
-                        // check length growth later in checkSupportSchemaChangeForCharType
-                        continue;
-                    } else {
-                        throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+                StructField thisField = thisStructType.getFields().get(i);
+                StructField otherField = otherStructType.getFields().get(i);
+                if (!thisField.equals(otherField)) {
+                    // name and type are changed will throw exception
+                    if (!thisField.getName().equals(otherField.getName())) {
+                        throw new DdlException("Cannot change name in struct" + thisField.getName() + " to "
+                                + otherField.getName());
+                    }
+                    if (!thisField.getType().equals(otherField.getType())) {
+                        if (thisField.getType().isStringType() && otherField.getType().isStringType()) {
+                            // check string type
+                            // check length growth later in checkSupportSchemaChangeForCharType
+                            checkSupportSchemaChangeForCharType(thisStructType.getFields().get(i).getType(),
+                                    otherStructType.getFields().get(i).getType());
+                        } else if (thisField.getType().isComplexType() && otherField.getType().isComplexType()) {
+                            // check complex type recursively
+                            checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
+                                    otherStructType.getFields().get(i).getType(), true);
+                        } else {
+                            throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+                        }
                     }
                 }
                 checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
