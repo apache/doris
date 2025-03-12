@@ -251,7 +251,7 @@ public class HudiUtilsTest {
 
         Thread[] threads = new Thread[threadCount];
         Exception[] threadExceptions = new Exception[threadCount];
-        
+
         // Create a map to store expected results for each date format
         final java.util.Map<String, String> expectedResults = new java.util.HashMap<>();
         for (String dateFormat : dateFormats) {
@@ -266,11 +266,11 @@ public class HudiUtilsTest {
                         // Each thread cycles through all date formats
                         String dateFormat = dateFormats[j % dateFormats.length];
                         String result = HudiUtils.formatQueryInstant(dateFormat);
-                        
+
                         // Verify the result matches the expected value for this date format
                         String expected = expectedResults.get(dateFormat);
-                        Assert.assertEquals("Thread " + threadId + " iteration " + j + 
-                                " got incorrect result for format " + dateFormat, 
+                        Assert.assertEquals("Thread " + threadId + " iteration " + j
+                                        + " got incorrect result for format " + dateFormat,
                                 expected, result);
                     }
                 } catch (Exception e) {
