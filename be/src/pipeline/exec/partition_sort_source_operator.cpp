@@ -89,14 +89,13 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     bool current_eos = false;
     auto& sorters = local_state._shared_state->partition_sorts;
     auto sorter_size = sorters.size();
-    if (local_state._sort_idx < sorter_size && sorters[local_state._sort_idx]->prepared_finish()) {
+    if (local_state._sort_idx < sorter_size) {
         RETURN_IF_ERROR(
                 sorters[local_state._sort_idx]->get_next(state, output_block, &current_eos));
         COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, output_block->rows());
     }
     if (current_eos) {
         // current sort have eos, so get next idx
-        sorters[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
         std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
         if (local_state._sort_idx < sorter_size &&
