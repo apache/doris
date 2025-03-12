@@ -413,26 +413,12 @@ struct TransformerYear {
 };
 
 template <typename FromType, typename ToType>
-struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-                       NullMap& null_map) {
-        TransformerYear<FromType, ToType, ToYearImpl>::vector(vec_from, vec_to, null_map);
-    }
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
-        TransformerYear<FromType, ToType, ToYearImpl>::vector(vec_from, vec_to);
-    }
-};
+struct Transformer<FromType, ToType, ToYearImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearImpl> {};
 
 template <typename FromType, typename ToType>
-struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>> {
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-                       NullMap& null_map) {
-        TransformerYear<FromType, ToType, ToYearOfWeekImpl>::vector(vec_from, vec_to, null_map);
-    }
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
-        TransformerYear<FromType, ToType, ToYearOfWeekImpl>::vector(vec_from, vec_to);
-    }
-};
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {
