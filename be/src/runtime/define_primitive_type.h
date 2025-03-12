@@ -72,5 +72,5 @@ enum PrimitiveType : PrimitiveNative {
 };
 
 constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
-constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = INVALID_TYPE_END;
+constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = INVALID_TYPE_END - 1;
 } // namespace doris
