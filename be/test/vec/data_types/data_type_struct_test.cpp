@@ -371,14 +371,14 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
 
         // nested Map
         Array k1, k2, v1, v2;
-        k1.push_back(Field("map"));
-        k1.push_back(Null());
-        k2.push_back(Field("clever map"));
-        k2.push_back(Field("hello map"));
-        v1.push_back(1);
-        v1.push_back(2);
-        v2.push_back(11);
-        v2.push_back(22);
+        k1.push_back(1);
+        k1.push_back(2);
+        k2.push_back(11);
+        k2.push_back(22);
+        v1.push_back(Field("map"));
+        v1.push_back(Null());
+        v2.push_back(Field("clever map"));
+        v2.push_back(Field("hello map"));
 
         Map m1, m2;
         m1.push_back(k1);

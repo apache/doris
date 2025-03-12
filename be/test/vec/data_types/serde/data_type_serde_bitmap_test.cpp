@@ -22,6 +22,8 @@
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/serde/data_type_bitmap_serde.h"
 
+// TODO readColumnFromPb, readColumnFromMysql
+
 namespace doris::vectorized {
 
 TEST(BitmapSerdeTest, writeColumnToMysql) {
