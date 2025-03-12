@@ -81,6 +81,9 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         if (delete_bitmap != nullptr) {
             *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
         }
+        // to avoid to skip calculating
+        **publish_status = PublishStatus::INIT;
+
         return Status::OK();
     }
     return st;

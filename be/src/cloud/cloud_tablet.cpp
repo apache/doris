@@ -732,6 +732,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
         auto retry = dp->param<bool>("retry", false);
+        auto sleep_sec = dp->param<int>("sleep", 0);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
         if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
                     "injected DELETE_BITMAP_LOCK_ERROR");
