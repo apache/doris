@@ -450,44 +450,60 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
     {
         std::string col_name = "map_nesting_map";
         TypeDescriptor type_desc_1(TYPE_MAP);
-        TypeDescriptor type_desc_2(TYPE_STRUCT);
-        TypeDescriptor type_desc_3(TYPE_STRUCT);
-        type_desc_2.add_sub_type(TYPE_STRING, "name", true);
-        type_desc_2.add_sub_type(TYPE_LARGEINT, "age", true);
-        type_desc_2.add_sub_type(TYPE_BOOLEAN, "is", true);
-        type_desc_3.add_sub_type(TYPE_STRING, "name2", true);
-        type_desc_1.add_sub_type(type_desc_2, "struct1", true);
-        type_desc_1.add_sub_type(type_desc_3, "struct2", true);
+        TypeDescriptor type_desc_2(TYPE_MAP);
+        TypeDescriptor type_desc_3(TYPE_MAP);
+        type_desc_2.add_sub_type(TYPE_INT, "map_age", true);
+        type_desc_2.add_sub_type(TYPE_STRING, "map_name", true);
+        type_desc_3.add_sub_type(TYPE_LARGEINT, "score", true);
+        type_desc_3.add_sub_type(TYPE_BOOLEAN, "is", true);
+        type_desc_1.add_sub_type(type_desc_2, "map1", true);
+        type_desc_1.add_sub_type(type_desc_3, "map2", true);
 
-        DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-        DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
-        DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
-        DataTypePtr f4 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-        DataTypePtr dt1 = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f1, f2, f3}));
-        DataTypePtr dt2 = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {f4}));
+        DataTypePtr f1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+        DataTypePtr f2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr f3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+        DataTypePtr f4 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+        DataTypePtr dt1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(f1, f2));
+        DataTypePtr dt2 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(f3, f4));
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
-        Tuple t1, t2, t3, t4;
-        t1.push_back(Field("clever"));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
-        t3.push_back(Field("cute"));
-        t4.push_back("null");
+        Array k1, k2, k3, k4, v1, v2, v3, v4;
+        k1.push_back(1);
+        k1.push_back(2);
+        k2.push_back(11);
+        k2.push_back(22);
+        v1.push_back(Field("map"));
+        v1.push_back(Null());
+        v2.push_back(Field("clever map"));
+        v2.push_back(Field("hello map"));
+        k3.push_back(__int128_t(37));
+        k3.push_back(__int128_t(26));
+        k4.push_back(__int128_t(1111));
+        k4.push_back(__int128_t(432535423));
+        v3.push_back(true);
+        v3.push_back(false);
+        v4.push_back(false);
+        v4.push_back(true);
 
-        Array k1, v1;
-        k1.push_back(t1);
-        k1.push_back(t2);
-        v1.push_back(t3);
-        v1.push_back(t4);
+        Map m11, m12, m21, m22;
+        m11.push_back(k1);
+        m11.push_back(v1);
+        m12.push_back(k2);
+        m12.push_back(v2);
+        m21.push_back(k3);
+        m21.push_back(v3);
+        m22.push_back(k4);
+        m22.push_back(v4);
+
+        Array kk1, vv1;
+        kk1.push_back(m11);
+        kk1.push_back(m12);
+        vv1.push_back(m21);
+        vv1.push_back(m22);
 
         Map m1;
-        m1.push_back(k1);
-        m1.push_back(v1);
+        m1.push_back(kk1);
+        m1.push_back(vv1);
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
