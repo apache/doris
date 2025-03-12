@@ -136,8 +136,8 @@ public class UdfUtils {
             Type keyType = mapType.getKeyType();
             Type valuType = mapType.getValueType();
             JavaUdfMapType udfMapType = ((JavaUdfMapType) result);
-            udfMapType.setKeyType(mapType.getKeyType());
-            udfMapType.setValueType(mapType.getValueType());
+            udfMapType.setKeyType(keyType);
+            udfMapType.setValueType(valuType);
             if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
                 udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
             }
@@ -187,8 +187,8 @@ public class UdfUtils {
                 Type keyType = mapType.getKeyType();
                 Type valuType = mapType.getValueType();
                 JavaUdfMapType udfMapType = ((JavaUdfMapType) inputArgTypes[i]);
-                udfMapType.setKeyType(mapType.getKeyType());
-                udfMapType.setValueType(mapType.getValueType());
+                udfMapType.setKeyType(keyType);
+                udfMapType.setValueType(valuType);
                 if (keyType.isDatetimeV2() || keyType.isDecimalV3()) {
                     udfMapType.setKeyScale(((ScalarType) keyType).getScalarScale());
                 }
