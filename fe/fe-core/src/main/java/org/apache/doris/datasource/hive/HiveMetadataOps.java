@@ -151,6 +151,16 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             }
         }
         try {
+            if (force) {
+                // try to drop all tables in the database
+                List<String> tables = listTableNames(dbName);
+                for (String table : tables) {
+                    dropTableImpl(dbName, table, true);
+                }
+                if (!tables.isEmpty()) {
+                    LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, tables.size());
+                }
+            }
             client.dropDatabase(dbName);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
