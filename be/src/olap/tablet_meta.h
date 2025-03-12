@@ -557,6 +557,8 @@ public:
 
     bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
 
+    void remove_rowset_cache_version(const RowsetId& rowset_id);
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
@@ -588,8 +590,12 @@ public:
     };
 
 private:
+    DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
+
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    mutable std::shared_mutex _rowset_cache_version_lock;
+    mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
     // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
     std::map<std::string,
              std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
