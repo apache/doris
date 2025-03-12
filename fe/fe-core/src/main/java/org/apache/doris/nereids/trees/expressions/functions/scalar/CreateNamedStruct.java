@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -39,7 +40,7 @@ import java.util.Set;
  * ScalarFunction 'named_struct'.
  */
 public class CreateNamedStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements ExplicitlyCastableSignature, ComputeSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
@@ -85,6 +86,11 @@ public class CreateNamedStruct extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCreateNamedStruct(this, context);
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        return signature;
     }
 
     @Override
