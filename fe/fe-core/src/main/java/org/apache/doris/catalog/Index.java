@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
@@ -50,7 +51,7 @@ import java.util.Set;
  * Internal representation of index, including index type, name, columns and comments.
  * This class will be used in olap table
  */
-public class Index implements Writable {
+public class Index implements Writable, GsonPostProcessable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
@@ -210,6 +211,13 @@ public class Index implements Writable {
     }
 
     @Override
+    public void gsonPostProcess() throws IOException {
+        if (columnUniqueIds == null) {
+            columnUniqueIds = Lists.newArrayList();
+        }
+    }
+
+    @Override
     public int hashCode() {
         return 31 * (indexName.hashCode() + columns.hashCode() + indexType.hashCode());
     }
@@ -260,7 +268,9 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
-        tIndex.setColumnUniqueIds(columnUniqueIds);
+        if (columnUniqueIds != null) {
+            tIndex.setColumnUniqueIds(columnUniqueIds);
+        }
         return tIndex;
     }
 
@@ -268,10 +278,12 @@ public class Index implements Writable {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        for (Integer columnUniqueId : columnUniqueIds) {
-            Column column = columnMap.get(columnUniqueId);
-            if (column != null) {
-                builder.addColUniqueId(column.getUniqueId());
+        if (columnUniqueIds != null) {
+            for (Integer columnUniqueId : columnUniqueIds) {
+                Column column = columnMap.get(columnUniqueId);
+                if (column != null) {
+                    builder.addColUniqueId(column.getUniqueId());
+                }
             }
         }
 

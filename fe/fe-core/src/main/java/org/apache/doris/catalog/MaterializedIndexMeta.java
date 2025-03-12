@@ -401,6 +401,18 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         });
     }
 
+    public void initIndexColumnUniqueId() {
+        this.schema.forEach(column -> {
+            this.indexes.forEach(index -> {
+                index.getColumns().forEach(col -> {
+                    if (col.equalsIgnoreCase(column.getName())) {
+                        index.getColumnUniqueIds().add(column.getUniqueId());
+                    }
+                });
+            });
+        });
+    }
+
     public void initColumnNameMap() {
         // case insensitive
         nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
