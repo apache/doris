@@ -27,6 +27,7 @@ add_library(Geo STATIC
     geo_common.cpp
     wkt_parse.cpp
     wkb_parse.cpp
+    kml_parse.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
     geo_tobinary.cpp

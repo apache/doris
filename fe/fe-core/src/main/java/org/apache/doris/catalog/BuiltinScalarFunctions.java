@@ -404,6 +404,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromKML;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -903,6 +904,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StGeometryfromtext.class, "st_geometryfromtext"),
             scalar(StGeometryFromWKB.class, "st_geometryfromwkb"),
             scalar(StGeomfromtext.class, "st_geomfromtext"),
+            scalar(StGeomFromKML.class, "st_geomfromkml"),
             scalar(StGeomFromWKB.class, "st_geomfromwkb"),
             scalar(StLinefromtext.class, "st_linefromtext"),
             scalar(StLinestringfromtext.class, "st_linestringfromtext"),
