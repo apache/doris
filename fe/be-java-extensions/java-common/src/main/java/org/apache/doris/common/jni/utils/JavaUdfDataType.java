@@ -113,9 +113,7 @@ public class JavaUdfDataType {
 
     @Override
     public String toString() {
-        StringBuilder res = new StringBuilder();
-        res.append(description);
-        return res.toString();
+        return description;
     }
 
     public int getLen() {
