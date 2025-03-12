@@ -80,10 +80,22 @@ public class ExternalMetaCacheMgr {
      * For fileCache, the refresh operation will still use commonRefreshExecutor to trigger refresh.
      * And fileListingExecutor will be used to list file.
      */
-    private ExecutorService rowCountRefreshExecutor;
-    private ExecutorService commonRefreshExecutor;
-    private ExecutorService fileListingExecutor;
-    private ExecutorService scheduleExecutor;
+    private static ExecutorService rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.max_external_cache_loader_thread_pool_size,
+            Config.max_external_cache_loader_thread_pool_size * 1000,
+            "RowCountRefreshExecutor", 0, true);
+    private static ExecutorService commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.max_external_cache_loader_thread_pool_size,
+            Config.max_external_cache_loader_thread_pool_size * 10000,
+            "CommonRefreshExecutor", 10, true);
+    private static ExecutorService fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.max_external_cache_loader_thread_pool_size,
+            Config.max_external_cache_loader_thread_pool_size * 1000,
+            "FileListingExecutor", 10, true);
+    private static ExecutorService scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.max_external_cache_loader_thread_pool_size,
+            Config.max_external_cache_loader_thread_pool_size * 1000,
+            "scheduleExecutor", 10, true);
 
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
@@ -100,28 +112,6 @@ public class ExternalMetaCacheMgr {
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
-        rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 1000,
-                "RowCountRefreshExecutor", 0, true);
-
-        commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 10000,
-                "CommonRefreshExecutor", 10, true);
-
-        // The queue size should be large enough,
-        // because there may be thousands of partitions being queried at the same time.
-        fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 1000,
-                "FileListingExecutor", 10, true);
-
-        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
-                Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 1000,
-                "scheduleExecutor", 10, true);
-
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
