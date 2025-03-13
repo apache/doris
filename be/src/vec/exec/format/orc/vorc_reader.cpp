@@ -313,6 +313,7 @@ Status OrcReader::_create_file_reader() {
 
 Status OrcReader::init_reader(
         const std::vector<std::string>* column_names,
+        const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
@@ -320,6 +321,7 @@ Status OrcReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         const bool hive_use_column_names) {
     _column_names = column_names;
+    _missing_column_names_set.insert(missing_column_names.begin(), missing_column_names.end());
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
@@ -363,14 +365,20 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
-                                                std::vector<uint64_t>* col_attributes,
-                                                std::string attribute) {
+                                                std::vector<int32_t>* col_attributes,
+                                                std::string attribute, bool& exist_attribute) {
     RETURN_IF_ERROR(_create_file_reader());
-    const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
+    exist_attribute = true;
+    const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
+
+        if (!root_type.getSubtype(i)->hasAttributeKey(attribute)) {
+            exist_attribute = false;
+            return Status::OK();
+        }
         col_attributes->emplace_back(
-                std::stol(root_type.getSubtype(i)->getAttributeValue(attribute)));
+                std::stoi(root_type.getSubtype(i)->getAttributeValue(attribute)));
     }
     return Status::OK();
 }
@@ -388,6 +396,11 @@ Status OrcReader::_init_read_columns() {
                                _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         const auto& col_name = (*_column_names)[i];
+        if (_missing_column_names_set.contains(col_name)) {
+            _missing_cols.emplace_back(col_name);
+            continue;
+        }
+
         if (_is_hive1_orc_or_use_idx) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
