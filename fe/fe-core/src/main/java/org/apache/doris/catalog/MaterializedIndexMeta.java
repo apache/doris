@@ -406,7 +406,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             this.indexes.forEach(index -> {
                 index.getColumns().forEach(col -> {
                     if (col.equalsIgnoreCase(column.getName())) {
-                        index.getColumnUniqueIds().add(column.getUniqueId());
+                        // Check if this column ID is already added to avoid duplicates
+                        if (!index.getColumnUniqueIds().contains(column.getUniqueId())) {
+                            index.getColumnUniqueIds().add(column.getUniqueId());
+                        }
                     }
                 });
             });
