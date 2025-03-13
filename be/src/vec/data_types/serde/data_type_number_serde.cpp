@@ -130,23 +130,20 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val = 0;
         if (!read_float_text_fast_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_same_v<T, uint8_t>) {
         // Note: here we should handle the bool type
         T val = 0;
         if (!try_read_bool_text(val, rb)) {
-            return Status::InvalidArgument("parse boolean fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_integral<T>::value) {
         T val = 0;
         if (!read_int_text_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else {
