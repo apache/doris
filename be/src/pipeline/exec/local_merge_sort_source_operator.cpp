@@ -68,7 +68,7 @@ Status LocalMergeSortLocalState::build_merger(RuntimeState* state) {
     }
     _merger = std::make_unique<vectorized::VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
                                                              p._nulls_first, state->batch_size(),
-                                                             p._limit, p._offset, profile());
+                                                             p._limit, p._offset, custom_profile());
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (auto sorter : p._sorters) {
         vectorized::BlockSupplier block_supplier = [sorter, state](vectorized::Block* block,
