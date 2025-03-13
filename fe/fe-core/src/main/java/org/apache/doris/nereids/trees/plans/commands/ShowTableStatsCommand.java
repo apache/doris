@@ -143,7 +143,7 @@ public class ShowTableStatsCommand extends ShowCommand {
         assert tableNameInfo != null;
         tableNameInfo.analyze(ctx);
         if (partitionNamesInfo != null) {
-            partitionNamesInfo.validate(ctx);
+            partitionNamesInfo.validate();
         }
         if (columnNames != null && !columnNames.isEmpty() && partitionNamesInfo == null) {
             ErrorReport.reportAnalysisException(String.format("Must specify partitions when columns are specified."));
