@@ -83,6 +83,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -251,9 +252,12 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
-        List<ColumnDefinition> derivedColumns = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
+        List<ColumnDefinition> derivedColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
                 mtmv.getMvPartitionInfo().getPartitionCol(),
                 mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
+        List<Column> derivedColumns = derivedColumnsDefinition.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
         List<Column> currentColumns = mtmv.getFullSchema();
         if (derivedColumns.size() != currentColumns.size()) {
             throw new JobException("column length not equals, please check columns of base table if changed");
