@@ -151,10 +151,11 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
     tablet_schema->init_from_pb(in.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
+    std::unordered_map<RowsetId, RowsetId> rowset_id_mapping;
     for (auto&& rowset_meta_pb : in.rs_metas()) {
         RowsetMetaPB* new_rowset_meta_pb = out->add_rs_metas();
         RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, rowset_meta_pb, tablet_id, target_tablet,
-                                            storage_resource, tablet_schema, file_mapping));
+                                            storage_resource, tablet_schema, file_mapping, rowset_id_mapping));
         Version rowset_version = {rowset_meta_pb.start_version(), rowset_meta_pb.end_version()};
         rs_version_map[rowset_version] = new_rowset_meta_pb;
     }
@@ -167,7 +168,30 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
         }
         RowsetMetaPB* new_rowset_meta_pb = out->add_stale_rs_metas();
         RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, stale_rowset_pb, tablet_id, target_tablet,
-                                            storage_resource, tablet_schema, file_mapping));
+                                            storage_resource, tablet_schema, file_mapping, rowset_id_mapping));
+    }
+
+    if (!rowset_id_mapping.empty() && in.has_delete_bitmap()) {
+        const auto& old_del_bitmap_pb = in.delete_bitmap();
+        DeleteBitmapPB* new_del_bitmap_pb = out->mutable_delete_bitmap();
+        const int rst_ids_size = old_del_bitmap_pb.rowset_ids_size();
+        if (rst_ids_size > 0) {
+            new_del_bitmap_pb->mutable_rowset_ids()->Reserve(rst_ids_size);
+        }
+        LOG(INFO) << "convert delete bitmap rowset_ids. [rowset_ids_size=" << rst_ids_size << "]";
+        for (size_t i = 0; i < rst_ids_size; ++i) {
+            RowsetId rst_id;
+            rst_id.init(old_del_bitmap_pb.rowset_ids(i));
+            auto it = rowset_id_mapping.find(rst_id);
+            // It should not happen, if we can't convert some rowid in delete bitmap, the
+            // data might be inconsist.
+            CHECK(it != rowset_id_mapping.end())
+                    << "can't find rowset_id " << rst_id.to_string() << " in convert_rowset_ids";
+            new_del_bitmap_pb->set_rowset_ids(i, it->second.to_string());
+            LOG(INFO) << "convert delete bitmap rowset_id. [rowset_id=" << new_del_bitmap_pb->rowset_ids(i) << "]";
+            LOG(INFO) << "convert delete bitmap rowset_id. [version=" << new_del_bitmap_pb->versions(i) << "]";
+            LOG(INFO) << "convert delete bitmap rowset_id. [segment_id=" << new_del_bitmap_pb->segment_ids(i) << "]";
+        }
     }
     return Status::OK();
 }
@@ -175,7 +199,8 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
 Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta_pb,
                                              int64_t target_tablet_id, CloudTabletSPtr& target_tablet,
                                              StorageResource& storage_resource, TabletSchemaSPtr tablet_schema,
-                                             std::unordered_map<std::string, std::string>& file_mapping) {
+                                             std::unordered_map<std::string, std::string>& file_mapping,
+                                             std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping) {
     RowsetId dst_rs_id = _engine.next_rowset_id();
     RowsetWriterContext context;
     context.rowset_id = dst_rs_id;
@@ -211,6 +236,7 @@ Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, c
     } else {
         src_rs_id.init(source_meta_pb.rowset_id_v2());
     }
+    rowset_id_mapping[src_rs_id] = dst_rs_id;
 
     for (int i = 0; i < source_meta_pb.num_segments(); ++i) {
         std::string src_segment_file = fmt::format("{}_{}.dat", src_rs_id.to_string(), i);
