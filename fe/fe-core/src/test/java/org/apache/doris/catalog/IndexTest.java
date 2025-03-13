@@ -139,7 +139,7 @@ public class IndexTest {
         Assert.assertTrue(index2.getColumnUniqueIds().isEmpty());
 
         // Initialize column unique IDs
-        indexMeta.initIndexColumnUniqueId();
+        indexMeta.makeSureIndexColumnUniqueIdInitialized();
 
         // Verify columnUniqueIds is populated correctly
         Assert.assertEquals(1, index1.getColumnUniqueIds().size());
@@ -181,7 +181,7 @@ public class IndexTest {
         Assert.assertTrue(index2.getColumnUniqueIds().isEmpty());
 
         // Initialize column unique IDs at table level
-        table.initIndexColumnUniqueId();
+        table.makeSureIndexColumnUniqueIdInitialized();
 
         // Verify columnUniqueIds is populated correctly
         Assert.assertEquals(1, index1.getColumnUniqueIds().size());

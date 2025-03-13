@@ -401,7 +401,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         });
     }
 
-    public void initIndexColumnUniqueId() {
+    public void makeSureIndexColumnUniqueIdInitialized() {
         this.schema.forEach(column -> {
             this.indexes.forEach(index -> {
                 index.getColumns().forEach(col -> {

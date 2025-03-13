@@ -1767,7 +1767,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 beforeCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable);
             }
             // init column unique id for indexes
-            olapTable.initIndexColumnUniqueId();
+            olapTable.makeSureIndexColumnUniqueIdInitialized();
             Partition partition = createPartitionWithIndices(db.getId(), olapTable,
                     partitionId, partitionName, indexIdToMeta,
                     distributionInfo, dataProperty, singlePartitionDesc.getReplicaAlloc(),
@@ -3614,7 +3614,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long oldPartitionId = entry.getValue();
                 long newPartitionId = oldToNewPartitionId.get(oldPartitionId);
                 // init column unique id for indexes
-                copiedTbl.initIndexColumnUniqueId();
+                copiedTbl.makeSureIndexColumnUniqueIdInitialized();
                 Partition newPartition = createPartitionWithIndices(db.getId(), copiedTbl,
                         newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToMeta(), partitionsDistributionInfo.get(oldPartitionId),
