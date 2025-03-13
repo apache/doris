@@ -97,10 +97,10 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const Nul
     const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr();
         // 60 = '0000-03-01'.daynr(), daynr is 32-bit date data as number of days since UNIX epoch.
         // Arrow has a bug, when it is less than '0000-03-01', serialized time is one day larger than the actual time.
-        daynr = daynr >= 60 ? daynr - date_threshold : daynr - date_threshold - 1;
+        auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr() -
+                     date_threshold;
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
