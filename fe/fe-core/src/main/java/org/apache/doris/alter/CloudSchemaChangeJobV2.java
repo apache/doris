@@ -52,6 +52,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -251,6 +252,13 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 long originIndexId = indexIdMap.get(shadowIdxId);
                 KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
                 List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
+                Map<Index, List<Integer>> indexListMap = null;
+                if (tabletIndexes != null) {
+                    indexListMap = new HashMap<>();
+                    for (Index idx : tabletIndexes) {
+                        indexListMap.put(idx, tbl.getIndexColumnIds(idx.getColumns()));
+                    }
+                }
 
                 Cloud.CreateTabletsRequest.Builder requestBuilder =
                         Cloud.CreateTabletsRequest.newBuilder();
@@ -261,7 +269,7 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             partitionId, shadowTablet,
                                             tbl.getPartitionInfo().getTabletType(partitionId),
                                             shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                            bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
+                                            bfFpp, indexListMap, shadowSchema, tbl.getDataSortInfo(),
                                             tbl.getCompressionType(),
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),

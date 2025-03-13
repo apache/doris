@@ -75,6 +75,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -158,6 +159,10 @@ public class CloudInternalCatalog extends InternalCatalog {
             } else {
                 indexes = Lists.newArrayList();
             }
+            Map<Index, List<Integer>> indexListMap = new HashMap<>();
+            for (Index idx : indexes) {
+                indexListMap.put(idx, tbl.getIndexColumnIds(idx.getColumns()));
+            }
             List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
                 // only base and shadow index need cluster key unique column ids
@@ -169,7 +174,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
-                        bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
+                        bfColumns, tbl.getBfFpp(), indexListMap, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), storagePolicy, isInMemory, false, tbl.getName(), tbl.getTTLSeconds(),
                         tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -205,7 +210,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public OlapFile.TabletMetaCloudPB.Builder createTabletMetaBuilder(long tableId, long indexId,
             long partitionId, Tablet tablet, TTabletType tabletType, int schemaHash, KeysType keysType,
-            short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
+            short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, Map<Index, List<Integer>> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
@@ -320,7 +325,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setSortColNum(dataSortInfo.getColNum());
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
-            schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
+            schemaBuilder.addColumn(column.toPb(bfColumns, (List<Index>) indexes.keySet()));
         }
 
         Map<Integer, Column> columnMap = Maps.newHashMap();
@@ -328,9 +333,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             columnMap.put(column.getUniqueId(), column);
         }
         if (indexes != null) {
-            for (int i = 0; i < indexes.size(); i++) {
-                Index index = indexes.get(i);
-                schemaBuilder.addIndex(index.toPb(columnMap, tableId));
+            for (Map.Entry<Index, List<Integer>> index : indexes.entrySet()) {
+                Index idx = index.getKey();
+                schemaBuilder.addIndex(idx.toPb(columnMap, index.getValue()));
             }
         }
 

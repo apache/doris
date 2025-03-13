@@ -238,11 +238,6 @@ public class Index implements Writable {
         return sb.toString();
     }
 
-    private List<Integer> getIndexColumnUniqueIds(long tableId) {
-        OlapTable olapTable = (OlapTable) Env.getCurrentInternalCatalog().getTableByTableId(tableId);
-        return olapTable.getIndexColumnIds(columns);
-    }
-
     public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
@@ -256,12 +251,12 @@ public class Index implements Writable {
         return tIndex;
     }
 
-    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, long tableId) {
+    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, List<Integer> indexColumnUniqueIds) {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
 
-        for (Integer columnUniqueId : getIndexColumnUniqueIds(tableId)) {
+        for (Integer columnUniqueId : indexColumnUniqueIds) {
             Column column = columnMap.get(columnUniqueId);
             if (column != null) {
                 builder.addColUniqueId(column.getUniqueId());
