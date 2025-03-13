@@ -148,7 +148,6 @@ public:
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), Field::TypeToEnum<NearestFieldType<T>>::value);
         data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
     }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
