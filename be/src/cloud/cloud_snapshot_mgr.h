@@ -56,7 +56,8 @@ private:
     Status _create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta,
                                int64_t target_tablet_id, CloudTabletSPtr& target_tablet,
                                StorageResource& storage_resource, TabletSchemaSPtr tablet_schema,
-                               std::unordered_map<std::string, std::string>& file_mapping);
+                               std::unordered_map<std::string, std::string>& file_mapping,
+                               std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping);
 
 private:
     CloudStorageEngine &_engine;
