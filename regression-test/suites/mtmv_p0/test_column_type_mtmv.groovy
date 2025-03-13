@@ -49,6 +49,7 @@ suite("test_column_type_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_normal "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
     sql """alter table ${tableName} modify column class_id bigint;"""
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_after_schema_change "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
     sql """
          REFRESH MATERIALIZED VIEW ${mvName} auto;
