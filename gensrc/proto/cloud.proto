@@ -514,6 +514,7 @@ message TabletCompactionJobPB {
         CUMULATIVE = 2;
         EMPTY_CUMULATIVE = 3; // just update cumulative point
         FULL = 4;
+        STOP_TOKEN = 5; // fail existing compactions and deny newly incomming compactions
     }
     // IP and port of the node which initiates this job
     optional string initiator = 1; // prepare
