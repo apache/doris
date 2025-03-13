@@ -17,18 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.GrantStmt;
-import org.apache.doris.analysis.TablePattern;
-import org.apache.doris.analysis.UserDesc;
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.AccessPrivilege;
-import org.apache.doris.catalog.AccessPrivilegeWithCols;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
@@ -43,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.MockUsers;
 import org.apache.doris.utframe.TestWithFeService;
 
