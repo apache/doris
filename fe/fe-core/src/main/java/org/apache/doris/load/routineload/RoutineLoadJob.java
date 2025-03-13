@@ -511,6 +511,14 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public ErrorReason getPauseReason() {
+        return pauseReason;
+    }
+
+    public RoutineLoadStatistic getRoutineLoadStatistic() {
+        return jobStatistic;
+    }
+
     public String getDbFullName() throws MetaNotFoundException {
         return Env.getCurrentInternalCatalog().getDbOrMetaException(dbId).getFullName();
     }
@@ -961,6 +969,14 @@ public abstract class RoutineLoadJob
         } catch (UserException e) {
             LOG.error("should not happen", e);
         }
+    }
+
+    public Long totalProgress() {
+        return 0L;
+    }
+
+    public Long totalLag() {
+        return 0L;
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
