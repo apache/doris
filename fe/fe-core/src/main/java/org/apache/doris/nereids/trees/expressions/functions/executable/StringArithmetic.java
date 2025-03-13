@@ -84,7 +84,7 @@ public class StringArithmetic {
         if (stringLength == 0) {
             return "";
         }
-        int leftIndex = 0;
+        long leftIndex = 0;
         if (second < (- stringLength)) {
             return "";
         } else if (second < 0) {
@@ -94,7 +94,7 @@ public class StringArithmetic {
         } else {
             return "";
         }
-        int rightIndex = 0;
+        long rightIndex = 0;
         if (third <= 0) {
             return "";
         } else if ((third + leftIndex) > stringLength) {
@@ -102,7 +102,8 @@ public class StringArithmetic {
         } else {
             rightIndex = third + leftIndex;
         }
-        return first.substring(leftIndex, rightIndex);
+        // left index and right index are in integer range because of definition, so we can safely cast it to int
+        return first.substring((int) leftIndex, (int) rightIndex);
     }
 
     /**
