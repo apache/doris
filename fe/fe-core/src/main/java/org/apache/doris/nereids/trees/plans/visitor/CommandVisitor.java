@@ -141,6 +141,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionComm
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
@@ -515,6 +516,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowSmallFilesCommand(ShowSmallFilesCommand showSmallFilesCommand, C context) {
         return visitCommand(showSmallFilesCommand, context);
+    }
+
+    default R visitShowSnapshotCommand(ShowSnapshotCommand showSnapshotCommand, C context) {
+        return visitCommand(showSnapshotCommand, context);
     }
 
     default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
