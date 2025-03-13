@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -267,6 +268,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateTableCommand(CreateTableCommand createTableCommand, C context) {
         return visitCommand(createTableCommand, context);
+    }
+
+    default R visitCreateOutlineCommand(CreateOutlineCommand createOutlineCommand, C context) {
+        return visitCommand(createOutlineCommand, context);
     }
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
