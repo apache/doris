@@ -90,7 +90,11 @@ public class DateTimeV2Type extends DateLikeType {
     public static DateTimeV2Type forTypeFromString(String s) {
         int scale = MAX_SCALE;
         if (DateTimeChecker.isValidDateTime(s)) {
-            scale = DateTimeLiteral.determineScale(s);
+            try {
+                scale = DateTimeLiteral.determineScale(s);
+            } catch (Exception e) {
+                // let be to process it
+            }
         }
         if (scale > MAX_SCALE) {
             scale = MAX_SCALE;
