@@ -965,6 +965,7 @@ public:
     }
 
     uint16_t year() const { return date_v2_value_.year_; }
+    uint16_t year_of_week() const;
     uint8_t month() const { return date_v2_value_.month_; }
     int quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
     int week() const { return week(mysql_week_mode(0)); } //00-53
