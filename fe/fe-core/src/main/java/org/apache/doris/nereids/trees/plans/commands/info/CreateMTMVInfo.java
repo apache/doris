@@ -117,7 +117,7 @@ public class CreateMTMVInfo {
     private final LogicalPlan logicalQuery;
     private String querySql;
     private final MTMVRefreshInfo refreshInfo;
-    private final List<ColumnDefinition> columns = Lists.newArrayList();
+    private List<ColumnDefinition> columns;
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final MTMVPartitionDefinition mvPartitionDefinition;
     private PartitionDesc partitionDesc;
@@ -292,7 +292,9 @@ public class CreateMTMVInfo {
             getRelation(baseTables, ctx);
             this.mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             this.partitionDesc = generatePartitionDesc(ctx);
-            getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
+            columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
+                    distribution == null ? Sets.newHashSet() : Sets.newHashSet(distribution.getCols()),
+                    simpleColumnDefinitions, properties);
             analyzeKeys();
         }
     }
@@ -410,90 +412,6 @@ public class CreateMTMVInfo {
                             + "when create materialized view if you know the property real meaning entirely",
                     functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
-    }
-
-    private void getColumns(Plan plan, ConnectContext ctx, String partitionCol, DistributionDescriptor distribution) {
-        List<Slot> slots = plan.getOutput();
-        if (slots.isEmpty()) {
-            throw new AnalysisException("table should contain at least one column");
-        }
-        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
-            throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
-        }
-        Set<String> colNames = Sets.newHashSet();
-        for (int i = 0; i < slots.size(); i++) {
-            String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
-                    : simpleColumnDefinitions.get(i).getName();
-            try {
-                FeNameFormat.checkColumnName(colName);
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage(), e);
-            }
-            if (colNames.contains(colName)) {
-                throw new AnalysisException("repeat cols:" + colName);
-            } else {
-                colNames.add(colName);
-            }
-            DataType dataType = getDataType(slots.get(i), i, ctx, partitionCol, distribution);
-            // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
-            columns.add(new ColumnDefinition(
-                    colName,
-                    dataType,
-                    false,
-                    slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
-                    slots.get(i).nullable(),
-                    Optional.empty(),
-                    CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
-                            : simpleColumnDefinitions.get(i).getComment()));
-        }
-        // add a hidden column as row store
-        if (properties != null) {
-            try {
-                boolean storeRowColumn =
-                        PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
-                if (storeRowColumn) {
-                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
-                }
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        }
-    }
-
-    private DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
-            DistributionDescriptor distribution) {
-        DataType dataType = s.getDataType().conversion();
-        if (i == 0 && dataType.isStringType()) {
-            dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
-        } else {
-            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                    NullType.class, TinyIntType.INSTANCE);
-            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                    DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
-            if (s.isColumnFromTable()) {
-                if ((!((SlotReference) s).getTable().isPresent()
-                        || !((SlotReference) s).getTable().get().isManagedTable())) {
-                    if (s.getName().equals(partitionCol) || (distribution != null && distribution.inDistributionColumns(
-                            s.getName()))) {
-                        // String type can not be used in partition/distributed column
-                        // so we replace it to varchar
-                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
-                    } else {
-                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                                CharacterType.class, StringType.INSTANCE);
-                    }
-                }
-            } else {
-                if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
-                }
-            }
-        }
-        return dataType;
     }
 
     /**

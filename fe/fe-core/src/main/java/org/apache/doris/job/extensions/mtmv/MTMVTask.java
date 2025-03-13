@@ -52,6 +52,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -194,6 +195,8 @@ public class MTMVTask extends AbstractTask {
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
+                // check if column type has changed
+                checkColumnTypeIfChange(mtmv, ctx);
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                     MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
                     if (!relatedTable.isValidRelatedTable()) {
@@ -243,6 +246,23 @@ public class MTMVTask extends AbstractTask {
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
+            }
+        }
+    }
+
+    private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
+        List<ColumnDefinition> derivedColumns = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
+                mtmv.getMvPartitionInfo().getPartitionCol(),
+                mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
+        List<Column> currentColumns = mtmv.getColumns();
+        if (derivedColumns.size() != currentColumns.size()) {
+            throw new JobException("column length not equals, please check columns of base table if changed");
+        }
+        for (int i = 0; i < currentColumns.size(); i++) {
+            if (!currentColumns.get(i).getDataType().equals(derivedColumns.get(i).getType())) {
+                throw new JobException(
+                        "column type not equals, please check columns of base table if changed, columnName: "
+                                + currentColumns.get(i).getName());
             }
         }
     }

@@ -148,4 +148,8 @@ public class DistributionDescriptor {
         }
         return stringBuilder.toString();
     }
+
+    public List<String> getCols() {
+        return cols;
+    }
 }
