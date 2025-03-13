@@ -1862,6 +1862,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         return;
     }
 
+    bool is_not_first_sub_txn = (request->has_txn_id() && request->txn_id() != request->lock_id());
     bool unlock = request->has_unlock() ? request->unlock() : false;
     if (!unlock) {
         // 1. Check whether the lock expires
@@ -1875,8 +1876,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             return;
         }
         // 2. Process pending delete bitmap
-        if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
-            return;
+
+        // if this is a txn load and is not the first sub txn, we should not remove
+        // the pending delete bitmaps written by previous sub txns
+        if (!is_not_first_sub_txn) {
+            if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
+                return;
+            }
         }
     }
 
@@ -1889,6 +1895,30 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         meta_delete_bitmap_key(key_info, &key);
         delete_bitmap_keys.add_delete_bitmap_keys(key);
     }
+
+    PendingDeleteBitmapPB previous_pending_info;
+    if (is_not_first_sub_txn) {
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+        std::string pending_val;
+        auto err = txn->get(pending_key, &pending_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
+               << " tablet_id=" << tablet_id << " key=" << hex(pending_key) << " err=" << err;
+            msg = ss.str();
+            code = cast_as<ErrCategory::READ>(err);
+            return;
+        }
+
+        if (err == TxnErrorCode::TXN_OK) {
+            // pending delete bitmaps of previous sub txns
+            if (!previous_pending_info.ParseFromString(pending_val)) [[unlikely]] {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse PendingDeleteBitmapPB";
+                return;
+            }
+        }
+    }
+
     // no need to record pending key for compaction or schema change,
     // because delete bitmap will attach to new rowset, just delete new rowset if failed
     // lock_id > 0 : load
@@ -1897,10 +1927,23 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     // lock_id = -3 : compaction update delete bitmap without lock
     if (request->lock_id() > 0) {
         std::string pending_val;
-        if (!delete_bitmap_keys.SerializeToString(&pending_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = "failed to serialize pending delete bitmap";
-            return;
+        if (is_not_first_sub_txn) {
+            // put current delete bitmap keys and previous sub txns' into tablet's pending delete bitmap KV
+            PendingDeleteBitmapPB total_pending_info {std::move(previous_pending_info)};
+            auto* cur_pending_keys = delete_bitmap_keys.mutable_delete_bitmap_keys();
+            total_pending_info.mutable_delete_bitmap_keys()->Add(cur_pending_keys->begin(),
+                                                                 cur_pending_keys->end());
+            if (!total_pending_info.SerializeToString(&pending_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize pending delete bitmap";
+                return;
+            }
+        } else {
+            if (!delete_bitmap_keys.SerializeToString(&pending_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                msg = "failed to serialize pending delete bitmap";
+                return;
+            }
         }
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
         txn->put(pending_key, pending_val);

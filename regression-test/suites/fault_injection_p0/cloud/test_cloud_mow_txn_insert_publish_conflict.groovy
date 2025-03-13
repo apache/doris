@@ -46,7 +46,7 @@ suite("test_cloud_mow_txn_insert_publish_conflict", "nonConcurrent") {
             "enable_unique_key_merge_on_write" = "true",
             "disable_auto_compaction" = "true",
             "replication_num" = "1"); """
-    sql "insert into ${table2} values(1,888,888);"
+    sql "insert into ${table2} values(1,888,888),(4,888,888);"
 
 
     def table3 = "test_cloud_mow_txn_insert_publish_conflict_3"
@@ -66,7 +66,7 @@ suite("test_cloud_mow_txn_insert_publish_conflict", "nonConcurrent") {
 
     sql "insert into ${table1} values(1,1,1);"
     sql "insert into ${table1} values(2,2,2);"
-    sql "insert into ${table1} values(3,3,3);"
+    sql "insert into ${table1} values(3,3,3),(4,4,4);"
     sql "sync;"
     order_qt_sql "select * from ${table1};"
 
@@ -84,8 +84,8 @@ suite("test_cloud_mow_txn_insert_publish_conflict", "nonConcurrent") {
 
         def t2 = Thread.start {
             sql "begin;"
-            sql "insert into ${table1} select * from ${table3};"
-            sql "insert into ${table1} select * from ${table2};"
+            sql "insert into ${table1} select * from ${table3};" // (1,999,999),(2,999,999)
+            sql "insert into ${table1} select * from ${table2};" // (1,888,888)
             sql "commit"
         }
 
@@ -97,7 +97,7 @@ suite("test_cloud_mow_txn_insert_publish_conflict", "nonConcurrent") {
         t1.join()
         t2.join()
 
-        Thread.sleep(1000)
+        Thread.sleep(2000)
 
         // force it read delete bitmaps from MS rather than BE's cache(delete bitmap in BE's cache is correct)
         GetDebugPoint().enableDebugPointForAllBEs("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss")
