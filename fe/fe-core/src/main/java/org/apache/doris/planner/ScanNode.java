@@ -38,6 +38,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
@@ -716,13 +717,27 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     // Create a single scan range locations for the given backend policy.
     // Used for those scan nodes which do not require data location.
-    public static TScanRangeLocations createSingleScanRangeLocations(FederationBackendPolicy backendPolicy) {
+    public static TScanRangeLocations createSingleScanRangeLocations(FederationBackendPolicy backendPolicy)
+            throws UserException {
         TScanRangeLocations scanRangeLocation = new TScanRangeLocations();
         scanRangeLocation.setScanRange(new TScanRange());
         TScanRangeLocation location = new TScanRangeLocation();
-        Backend be = backendPolicy.getNextBe();
-        location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
-        location.setBackendId(be.getId());
+        Backend chosenBackend = null;
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().forceSingleExternalScanBeId > 0) {
+            long forcedBeId = ctx.getSessionVariable().forceSingleExternalScanBeId;
+            Backend forcedBackend = Env.getCurrentSystemInfo().getBackend(forcedBeId);
+            if (forcedBackend != null && forcedBackend.isAlive()) {
+                chosenBackend = forcedBackend;
+            } else {
+                throw new UserException("Forced backend `" + forcedBeId + "` does not exist or is not alive");
+            }
+        }
+        if (chosenBackend == null) {
+            chosenBackend = backendPolicy.getNextBe();
+        }
+        location.setServer(new TNetworkAddress(chosenBackend.getHost(), chosenBackend.getBePort()));
+        location.setBackendId(chosenBackend.getId());
         scanRangeLocation.addToLocations(location);
         return scanRangeLocation;
     }
