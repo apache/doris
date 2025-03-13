@@ -156,7 +156,7 @@ public:
 TEST_F(DataTypeDecimalTest, MetaInfoTest) {
     auto tmp_dt = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                                                1, 0);
-    TypeDescriptor type_descriptor = {PrimitiveType::TYPE_DECIMAL32};
+    TypeDescriptor type_descriptor = TypeDescriptor::create_decimalv3_type(1, 0);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_DECIMAL32);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
@@ -269,31 +269,36 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
 TEST_F(DataTypeDecimalTest, get_type_as_type_descriptor) {
     {
         auto desc = dt_decimal32_1.get_type_as_type_descriptor();
-        EXPECT_EQ(desc, TypeDescriptor(PrimitiveType::TYPE_DECIMAL32));
+        EXPECT_EQ(desc, TypeDescriptor::create_decimalv3_type(dt_decimal32_1.get_precision(),
+                                                              dt_decimal32_1.get_scale()));
         EXPECT_EQ(desc.precision, dt_decimal32_1.get_precision());
         EXPECT_EQ(desc.scale, dt_decimal32_1.get_scale());
     }
     {
         auto desc = dt_decimal64_1.get_type_as_type_descriptor();
-        EXPECT_EQ(desc, TypeDescriptor(PrimitiveType::TYPE_DECIMAL64));
+        EXPECT_EQ(desc, TypeDescriptor::create_decimalv3_type(dt_decimal64_1.get_precision(),
+                                                              dt_decimal64_1.get_scale()));
         EXPECT_EQ(desc.precision, dt_decimal64_1.get_precision());
         EXPECT_EQ(desc.scale, dt_decimal64_1.get_scale());
     }
     {
         auto desc = dt_decimal128v2.get_type_as_type_descriptor();
-        EXPECT_EQ(desc, TypeDescriptor(PrimitiveType::TYPE_DECIMALV2));
+        EXPECT_EQ(desc, TypeDescriptor::create_decimalv2_type(dt_decimal128v2.get_precision(),
+                                                              dt_decimal128v2.get_scale()));
         EXPECT_EQ(desc.precision, dt_decimal128v2.get_precision());
         EXPECT_EQ(desc.scale, dt_decimal128v2.get_scale());
     }
     {
         auto desc = dt_decimal128v3_1.get_type_as_type_descriptor();
-        EXPECT_EQ(desc, TypeDescriptor(PrimitiveType::TYPE_DECIMAL128I));
+        EXPECT_EQ(desc, TypeDescriptor::create_decimalv3_type(dt_decimal128v3_1.get_precision(),
+                                                              dt_decimal128v3_1.get_scale()));
         EXPECT_EQ(desc.precision, dt_decimal128v3_1.get_precision());
         EXPECT_EQ(desc.scale, dt_decimal128v3_1.get_scale());
     }
     {
         auto desc = dt_decimal256_1.get_type_as_type_descriptor();
-        EXPECT_EQ(desc, TypeDescriptor(PrimitiveType::TYPE_DECIMAL256));
+        EXPECT_EQ(desc, TypeDescriptor::create_decimalv3_type(dt_decimal256_1.get_precision(),
+                                                              dt_decimal256_1.get_scale()));
         EXPECT_EQ(desc.precision, dt_decimal256_1.get_precision());
         EXPECT_EQ(desc.scale, dt_decimal256_1.get_scale());
     }
