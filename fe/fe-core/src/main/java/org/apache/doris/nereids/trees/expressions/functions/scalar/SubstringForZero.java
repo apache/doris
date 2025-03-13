@@ -38,7 +38,7 @@ import java.util.Optional;
 /**
  * ScalarFunction 'substring_hive'. For compatibility with Hive.
  */
-public class SubstringHive extends ScalarFunction
+public class SubstringForZero extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -52,15 +52,15 @@ public class SubstringHive extends ScalarFunction
     /**
      * constructor with 2 arguments.
      */
-    public SubstringHive(Expression arg0, Expression arg1) {
-        super("substring_hive", arg0, arg1, Literal.of(Integer.MAX_VALUE));
+    public SubstringForZero(Expression arg0, Expression arg1) {
+        super("substring_for_zero", arg0, arg1, Literal.of(Integer.MAX_VALUE));
     }
 
     /**
      * constructor with 3 arguments.
      */
-    public SubstringHive(Expression arg0, Expression arg1, Expression arg2) {
-        super("substring_hive", arg0, arg1, arg2);
+    public SubstringForZero(Expression arg0, Expression arg1, Expression arg2) {
+        super("substring_for_zero", arg0, arg1, arg2);
     }
 
     @Override
@@ -91,13 +91,13 @@ public class SubstringHive extends ScalarFunction
      * withChildren.
      */
     @Override
-    public SubstringHive withChildren(List<Expression> children) {
+    public SubstringForZero withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2
                 || children.size() == 3);
         if (children.size() == 2) {
-            return new SubstringHive(children.get(0), children.get(1));
+            return new SubstringForZero(children.get(0), children.get(1));
         } else {
-            return new SubstringHive(children.get(0), children.get(1), children.get(2));
+            return new SubstringForZero(children.get(0), children.get(1), children.get(2));
         }
     }
 
@@ -108,6 +108,6 @@ public class SubstringHive extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitSubstringHive(this, context);
+        return visitor.visitSubstringForZero(this, context);
     }
 }

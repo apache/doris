@@ -163,9 +163,9 @@ struct StringOP {
     }
 };
 
-template <bool is_hive = false>
+template <bool is_for_zero = false>
 struct SubstringUtil {
-    static constexpr auto name = "substring" + (is_hive ? "_hive" : "");
+    static constexpr auto name = "substring" + (is_for_zero ? "_for_zero" : "");
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
@@ -626,10 +626,10 @@ private:
     }
 };
 
-template <typename Impl, bool is_hive = false>
+template <typename Impl>
 class FunctionSubstring : public IFunction {
 public:
-    static constexpr auto name = SubstringUtil::name;
+    static constexpr auto name = Impl::name;
     String get_name() const override { return name; }
     static FunctionPtr create() { return std::make_shared<FunctionSubstring<Impl>>(); }
 
@@ -649,7 +649,9 @@ public:
     }
 };
 
+template <bool is_for_zero = false>
 struct Substr3Impl {
+    static constexpr auto name = SubstringUtil<is_for_zero>::name;
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
                 std::make_shared<DataTypeInt32>()};
@@ -658,12 +660,14 @@ struct Substr3Impl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
+        SubstringUtil<is_for_zero>::substring_execute(block, arguments, result, input_rows_count);
         return Status::OK();
     }
 };
 
+template <bool is_for_zero = false>
 struct Substr2Impl {
+    static constexpr auto name = SubstringUtil<is_for_zero>::name;
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
     }
@@ -692,7 +696,8 @@ struct Substr2Impl {
         block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<is_for_zero>::substring_execute(block, temp_arguments, result,
+                                                      input_rows_count);
         return Status::OK();
     }
 };
