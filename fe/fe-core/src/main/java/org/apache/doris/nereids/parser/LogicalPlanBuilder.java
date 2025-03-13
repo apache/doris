@@ -5984,13 +5984,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
                 return new ShowTableCommand(dbName, ctlName, isVerbose,
-                        stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null);
+                        stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null, PlanType.SHOW_TABLES);
             } else {
                 return new ShowTableCommand(dbName, ctlName, isVerbose, null,
-                        getOriginSql(ctx.wildWhere()));
+                        getOriginSql(ctx.wildWhere()), PlanType.SHOW_TABLES);
             }
         }
-        return new ShowTableCommand(dbName, ctlName, isVerbose);
+        return new ShowTableCommand(dbName, ctlName, isVerbose, PlanType.SHOW_TABLES);
+    }
+
+    @Override
+    public LogicalPlan visitShowViews(DorisParser.ShowViewsContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        boolean isVerbose = ctx.FULL() != null;
+
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowTableCommand(dbName, ctlName, isVerbose,
+                    stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null, PlanType.SHOW_VIEWS);
+            } else {
+                return new ShowTableCommand(dbName, ctlName, isVerbose, null,
+                    getOriginSql(ctx.wildWhere()), PlanType.SHOW_VIEWS);
+            }
+        }
+        return new ShowTableCommand(dbName, ctlName, isVerbose, PlanType.SHOW_VIEWS);
     }
 
     @Override

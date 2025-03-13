@@ -64,18 +64,18 @@ public class ShowTableCommand extends ShowCommand {
     private String catalog;
     private final boolean isVerbose;
     private final String likePattern;
-    private final String whereClause;
+    private String whereClause;
 
-    public ShowTableCommand(String db, String catalog, boolean isVerbose) {
-        this(db, catalog, isVerbose, null, null);
+    public ShowTableCommand(String db, String catalog, boolean isVerbose, PlanType planType) {
+        this(db, catalog, isVerbose, null, null, planType);
     }
 
     /**
      * ShowTableCommand
      */
     public ShowTableCommand(String db, String catalog, boolean isVerbose,
-            String likePattern, String whereClause) {
-        super(PlanType.SHOW_TABLES);
+            String likePattern, String whereClause, PlanType planType) {
+        super(planType);
         this.catalog = catalog;
         this.db = db;
         this.isVerbose = isVerbose;
@@ -125,6 +125,10 @@ public class ShowTableCommand extends ShowCommand {
 
         TableNameInfo fullTblName = new TableNameInfo(catalog, InfoSchemaDb.DATABASE_NAME, "tables");
 
+        if (type.equals(PlanType.SHOW_VIEWS)) {
+            whereClause = whereClause + " and `ENGINE` = '" + TableIf.TableType.VIEW.toEngineName() + "'";
+        }
+
         // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
         // This also applies to the internal catalog.
         LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName,
@@ -148,6 +152,9 @@ public class ShowTableCommand extends ShowCommand {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
         for (TableIf tbl : dbIf.getTables()) {
+            if (type.equals(PlanType.SHOW_VIEWS) && !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName())) {
+                continue;
+            }
             if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
                 continue;
             }
