@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * ScalarFunction 'substring_hive'. For compatibility with Hive.
+ * ScalarFunction 'substring_for_zero'. For compatibility with Hive.
  */
 public class SubstringForZero extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
