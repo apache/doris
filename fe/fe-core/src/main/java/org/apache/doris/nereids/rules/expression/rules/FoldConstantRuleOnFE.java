@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -451,8 +452,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
         } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+            String dateStr = ((StringLikeLiteral) child).getStringValue();
+            if (!DateTimeChecker.isValidDateTime(dateStr)) {
+                return cast;
+            }
             try {
-                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
+                return ((DateLikeType) dataType).fromString(dateStr);
             } catch (Exception t) {
                 return cast;
             }
