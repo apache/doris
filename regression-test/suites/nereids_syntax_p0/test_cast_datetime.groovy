@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.sql.Date
+import java.time.LocalDateTime
+
 suite("test_cast_datetime") {
 
     sql "drop table if exists casttbl"
@@ -61,5 +64,31 @@ suite("test_cast_datetime") {
             sql "select date_add('${s}', 10)"
             result([[null]])
         }
+    }
+
+    test {
+        sql "SELECT MonthName('abcd-ef-gh')"
+        result([[null]])
+    }
+
+    test {
+        sql "select cast('123.123' as date)"
+        result([[Date.valueOf('2012-03-12')]])
+    }
+
+    test {
+        sql "select cast('123.123' as datetime)"
+        result([[LocalDateTime.parse('2012-03-12T03:00:00')]])
+    }
+
+    test {
+        sql "select cast('123.123.123' as datetime)"
+        //check checker('2012-03-12T03:12:03')
+        result([[LocalDateTime.parse('2012-03-12T03:12:03')]])
+    }
+
+    test {
+        sql "SELECT DATEADD(DAY, 1, '2025年06月20日')"
+        result([[LocalDateTime.parse('2025-06-21T00:00:00')]])
     }
 }
