@@ -103,7 +103,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (!alterInvertedIndexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : alterInvertedIndexes) {
-                tIndexes.add(index.toThrift());
+                tIndexes.add(index.toThrift(tableId));
             }
             req.setAlterInvertedIndexes(tIndexes);
         }
@@ -111,7 +111,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (existIndexes != null) {
             List<TOlapTableIndex> indexDesc = new ArrayList<TOlapTableIndex>();
             for (Index index : existIndexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(tableId);
                 indexDesc.add(tIndex);
             }
             req.setIndexesDesc(indexDesc);

@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
@@ -51,7 +50,7 @@ import java.util.Set;
  * Internal representation of index, including index type, name, columns and comments.
  * This class will be used in olap table
  */
-public class Index implements Writable, GsonPostProcessable {
+public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
@@ -66,19 +65,15 @@ public class Index implements Writable, GsonPostProcessable {
     private Map<String, String> properties;
     @SerializedName(value = "ct", alternate = {"comment"})
     private String comment;
-    @SerializedName(value = "cui", alternate = {"columnUniqueIds"})
-    private List<Integer> columnUniqueIds;
 
     public Index(long indexId, String indexName, List<String> columns,
-            IndexDef.IndexType indexType, Map<String, String> properties, String comment,
-            List<Integer> columnUniqueIds) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
         this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
-        this.columnUniqueIds = columnUniqueIds == null ? Lists.newArrayList() : Lists.newArrayList(columnUniqueIds);
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
@@ -102,7 +97,6 @@ public class Index implements Writable, GsonPostProcessable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
-        this.columnUniqueIds = null;
     }
 
     public long getIndexId() {
@@ -192,14 +186,6 @@ public class Index implements Writable, GsonPostProcessable {
         this.comment = comment;
     }
 
-    public List<Integer> getColumnUniqueIds() {
-        return columnUniqueIds;
-    }
-
-    public void setColumnUniqueIds(List<Integer> columnUniqueIds) {
-        this.columnUniqueIds = columnUniqueIds;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -211,20 +197,13 @@ public class Index implements Writable, GsonPostProcessable {
     }
 
     @Override
-    public void gsonPostProcess() throws IOException {
-        if (columnUniqueIds == null) {
-            columnUniqueIds = Lists.newArrayList();
-        }
-    }
-
-    @Override
     public int hashCode() {
         return 31 * (indexName.hashCode() + columns.hashCode() + indexType.hashCode());
     }
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                indexType, new HashMap<>(properties), comment, columnUniqueIds);
+                indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -259,7 +238,12 @@ public class Index implements Writable, GsonPostProcessable {
         return sb.toString();
     }
 
-    public TOlapTableIndex toThrift() {
+    private List<Integer> getIndexColumnUniqueIds(long tableId) {
+        OlapTable olapTable = (OlapTable) Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+        return olapTable.getIndexColumnIds(columns);
+    }
+
+    public TOlapTableIndex toThrift(long tableId) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
@@ -268,22 +252,19 @@ public class Index implements Writable, GsonPostProcessable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
-        if (columnUniqueIds != null) {
-            tIndex.setColumnUniqueIds(columnUniqueIds);
-        }
+        tIndex.setColumnUniqueIds(getIndexColumnUniqueIds(tableId));
         return tIndex;
     }
 
-    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap) {
+    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, long tableId) {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        if (columnUniqueIds != null) {
-            for (Integer columnUniqueId : columnUniqueIds) {
-                Column column = columnMap.get(columnUniqueId);
-                if (column != null) {
-                    builder.addColUniqueId(column.getUniqueId());
-                }
+
+        for (Integer columnUniqueId : getIndexColumnUniqueIds(tableId)) {
+            Column column = columnMap.get(columnUniqueId);
+            if (column != null) {
+                builder.addColUniqueId(column.getUniqueId());
             }
         }
 

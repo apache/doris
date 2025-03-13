@@ -3042,11 +3042,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
-    // for older version index without column unique id
-    public void makeSureIndexColumnUniqueIdInitialized() {
-        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
-            indexMeta.makeSureIndexColumnUniqueIdInitialized();
+    public List<Integer> getIndexColumnIds(List<String> columnNames) {
+        List<Integer> columnUniqueIds = new ArrayList<>();
+        for (Column column : getBaseSchema()) {
+            for (String columnName : columnNames) {
+                if (column.getName().equalsIgnoreCase(columnName)) {
+                    columnUniqueIds.add(column.getUniqueId());
+                }
+            }
         }
+        return columnUniqueIds;
     }
 
     public Set<Long> getPartitionKeys() {

@@ -1560,7 +1560,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         for (Index index : olapTable.getIndexes()) {
-            TOlapTableIndex tIndex = index.toThrift();
+            TOlapTableIndex tIndex = index.toThrift(olapTable.getId());
             indexDesc.add(tIndex);
         }
 

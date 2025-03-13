@@ -330,7 +330,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (indexes != null) {
             for (int i = 0; i < indexes.size(); i++) {
                 Index index = indexes.get(i);
-                schemaBuilder.addIndex(index.toPb(columnMap));
+                schemaBuilder.addIndex(index.toPb(columnMap, tableId));
             }
         }
 

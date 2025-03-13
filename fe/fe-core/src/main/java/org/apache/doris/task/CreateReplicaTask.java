@@ -351,7 +351,7 @@ public class CreateReplicaTask extends AgentTask {
             } else {
                 tIndexes = new ArrayList<>();
                 for (Index index : indexes) {
-                    tIndexes.add(index.toThrift());
+                    tIndexes.add(index.toThrift(tableId));
                 }
             }
             tSchema.setIndexes(tIndexes);
