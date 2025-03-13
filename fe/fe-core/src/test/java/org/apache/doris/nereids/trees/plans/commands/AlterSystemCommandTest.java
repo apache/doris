@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.MockUsers;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -55,24 +56,6 @@ import java.util.List;
 import java.util.Map;
 
 public class AlterSystemCommandTest extends TestWithFeService {
-    private final UserIdentity userWithNoAllPriv = new UserIdentity("user_no_all_priv", "%");
-
-    @Override
-    protected void runBeforeAll() throws Exception {
-        TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze();
-
-        userWithNoAllPriv.analyze();
-        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(userWithNoAllPriv));
-        Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        GrantStmt grantStmt = new GrantStmt(userWithNoAllPriv, null, tablePattern, ImmutableList.of());
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
-    }
-
-    private void changeUser(UserIdentity user) {
-        ConnectContext.get().setCurrentUserIdentity(user);
-    }
-
     @Test
     void testValidate() throws UserException {
         List<String> hostPorts = ImmutableList.of("127.0.0.1:9050", "127.0.0.1:19050");
@@ -86,6 +69,7 @@ public class AlterSystemCommandTest extends TestWithFeService {
                 new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
         Assertions.assertDoesNotThrow(() -> addBackend.validate(connectContext));
 
+        // test addBackend with wrong port
         AlterSystemCommand addBackend2 = new AlterSystemCommand(
                 new AddBackendOp(hostPortsErr, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
         Assertions.assertThrows(AnalysisException.class, () -> addBackend2.validate(connectContext),
@@ -152,6 +136,7 @@ public class AlterSystemCommandTest extends TestWithFeService {
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
         Assertions.assertDoesNotThrow(() -> modifyBackendHostName.validate(connectContext));
 
+        // test modifyBackendHostName with wrong hostname
         AlterSystemCommand modifyBackendHostName2 = new AlterSystemCommand(
                 new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), "localhost2",
                         ModifyFrontendOrBackendHostNameOp.ModifyOpType.Backend),
@@ -166,8 +151,8 @@ public class AlterSystemCommandTest extends TestWithFeService {
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
         Assertions.assertDoesNotThrow(() -> modifyFrontendHostName.validate(connectContext));
 
-        changeUser(userWithNoAllPriv);
-        // test addBackend
+        // test addBackend with no privilege
+        MockUsers.changeUser(MockUsers.getUserWithNoAllPrivilege());
         AlterSystemCommand addBackend0 = new AlterSystemCommand(
                 new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
         Assertions.assertThrows(AnalysisException.class, () -> addBackend0.validate(connectContext),
