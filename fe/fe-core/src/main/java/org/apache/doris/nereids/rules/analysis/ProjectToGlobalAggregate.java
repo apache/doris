@@ -128,6 +128,8 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                     // stay in agg, and eliminate by `ELIMINATE_GROUP_BY_CONSTANT`
                     topAggOutput.add(selectItem);
                 } else {
+                    // `FillUpMissingSlots` not support find complex expr in aggregate,
+                    // so we should push down into the bottom project
                     hasComplexExpr = true;
                     topAggOutput.add(selectItem.toSlot());
                     bottomProjectOutput.add(selectItem);
