@@ -453,8 +453,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
             try {
                 return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
-            } catch (AnalysisException t) {
-                return new NullLiteral(dataType);
+            } catch (Exception t) {
+                return cast;
             }
         }
         try {
