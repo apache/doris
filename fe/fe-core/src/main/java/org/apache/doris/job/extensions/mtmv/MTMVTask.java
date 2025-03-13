@@ -263,7 +263,7 @@ public class MTMVTask extends AbstractTask {
             throw new JobException("column length not equals, please check columns of base table if changed");
         }
         for (int i = 0; i < currentColumns.size(); i++) {
-            if (!currentColumns.get(i).getDataType().equals(derivedColumns.get(i).getType())) {
+            if (!currentColumns.get(i).getType().equals(derivedColumns.get(i).getType())) {
                 throw new JobException(
                         "column type not equals, please check columns of base table if changed, columnName: "
                                 + currentColumns.get(i).getName());
