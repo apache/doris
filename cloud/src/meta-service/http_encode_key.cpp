@@ -85,7 +85,7 @@ struct KeyInfoSetter {
 // clang-format on
 
 template <typename Message>
-static auto parse_json(const std::string& json) {
+static std::shared_ptr<Message> parse_json(const std::string& json) {
     static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
     auto ret = std::make_shared<Message>();
     auto st = google::protobuf::util::JsonStringToMessage(json, ret.get());
@@ -196,10 +196,12 @@ static std::string parse_tablet_stats(const ValueBuf& buf) {
 }
 
 // See keys.h to get all types of key, e.g: MetaRowsetKeyInfo
-// key_type -> {{param1, param2 ...}, key_encoding_func, value_parsing_func, json_parsing_func}
-// where params are the input for key_encoding_func
+// key_type -> {{param_name1, param_name2 ...}, key_encoding_func, serialized_pb_to_json_parsing_func, json_to_proto_parsing_func}
+// where param names are the input for key_encoding_func
 // clang-format off
+//                        key_type
 static std::unordered_map<std::string_view,
+                                     // params                      key_encoding_func                        serialized_pb_to_json_parsing_func           json_to_proto_parsing_func
                           std::tuple<std::vector<std::string_view>, std::function<std::string(param_type&)>, std::function<std::string(const ValueBuf&)>, std::function<std::shared_ptr<google::protobuf::Message>(const std::string&)>>> param_set {
     {"InstanceKey",                {{"instance_id"},                                                 [](param_type& p) { return instance_key(KeyInfoSetter<InstanceKeyInfo>{p}.get());                                      }, parse<InstanceInfoPB>           , parse_json<InstanceInfoPB>}},
     {"TxnLabelKey",                {{"instance_id", "db_id", "label"},                               [](param_type& p) { return txn_label_key(KeyInfoSetter<TxnLabelKeyInfo>{p}.get());                                     }, parse_txn_label                 , parse_json<TxnLabelPB>}},
@@ -228,10 +230,11 @@ static std::unordered_map<std::string_view,
     {"MetaPendingDeleteBitmap",    {{"instance_id", "tablet_id"},                                    [](param_type& p) { return meta_pending_delete_bitmap_key(KeyInfoSetter<MetaPendingDeleteBitmapInfo>{p}.get());        }, parse<PendingDeleteBitmapPB>    , parse_json<PendingDeleteBitmapPB>}},
     {"RLJobProgressKey",           {{"instance_id", "db_id", "job_id"},                              [](param_type& p) { return rl_job_progress_key_info(KeyInfoSetter<RLJobProgressKeyInfo>{p}.get());                     }, parse<RoutineLoadProgressPB>    , parse_json<RoutineLoadProgressPB>}},
     {"StorageVaultKey",            {{"instance_id", "vault_id"},                                     [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get());                             }, parse<StorageVaultPB>           , parse_json<StorageVaultPB>}},
-    {"MetaSchemaPBDictionaryKey",  {{"instance_id", "index_id"},                                     [](param_type& p) { return meta_schema_pb_dictionary_key(KeyInfoSetter<MetaSchemaPBDictionaryInfo>{p}.get());          }, parse<MetaSchemaPBDictionaryKey>, parse_json<MetaSchemaPBDictionary>}},
+    {"MetaSchemaPBDictionaryKey",  {{"instance_id", "index_id"},                                     [](param_type& p) { return meta_schema_pb_dictionary_key(KeyInfoSetter<MetaSchemaPBDictionaryInfo>{p}.get());          }, parse<SchemaCloudDictionary>    , parse_json<SchemaCloudDictionary>}},
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key();                                                         }, parse<ServiceRegistryPB>        , parse_json<ServiceRegistryPB>}},
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key();                                                         }, parse<RamUserPB>                , parse_json<RamUserPB>}},
-    {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key();                                              }, parse<EncryptionKeyInfoPB>      , parse_json<EncryptionKeyInfoPB>}};
+    {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key();                                              }, parse<EncryptionKeyInfoPB>      , parse_json<EncryptionKeyInfoPB>}},
+};
 // clang-format on
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {
@@ -352,30 +355,23 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
                                            (key_type.empty() ? "(empty)" : key_type)));
     }
     auto& json_parsing_function = std::get<3>(it->second);
-    std::shared_ptr<google::protobuf::Message> pb = json_parsing_function(body);
-    if (pb == nullptr) {
+    std::shared_ptr<google::protobuf::Message> pb_to_save = json_parsing_function(body);
+    if (pb_to_save == nullptr) {
         LOG(WARNING) << "invalid input json value for key_type=" << key_type;
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "invalid input json value");
+        return http_json_reply(
+                MetaServiceCode::INVALID_ARGUMENT,
+                fmt::format("invalid input json value, cannot parse json to pb, key_type={}",
+                            key_type));
     }
 
-    // StatsTabletKey is special, is has a series of keys
-    // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple
+    LOG(INFO) << "parsed pb to save key_type=" << key_type << " key=" << hex(key)
+              << " pb_to_save=" << proto_to_json(*pb_to_save);
+
+    // ATTN:
+    // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
+    // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
     ValueBuf value;
-    if (key_type == "StatsTabletKey") { 
-        std::string begin_key {key};
-        std::string end_key = key + "\xff";
-        std::unique_ptr<RangeGetIterator> it;
-        bool more = false;
-        do {
-            err = txn->get(begin_key, end_key, &it, true);
-            if (err != TxnErrorCode::TXN_OK) break;
-            begin_key = it->next_begin_key();
-            more = it->more();
-            value.iters.push_back(std::move(it));
-        } while (more);
-    } else {
-        err = cloud::get(txn.get(), key, &value, true);
-    }
+    err = cloud::get(txn.get(), key, &value, true);
 
     bool kv_found = true;
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -387,23 +383,55 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
 
     auto concat = [](const std::vector<std::string>& keys) {
-        std::stringstream s; for (auto&i : keys) s << hex(i) << " "; return s.str();
+        std::stringstream s;
+        for (auto& i : keys) s << hex(i) << ", ";
+        return s.str();
     };
-    LOG(INFO) << "set value, " << value.keys().size() << " keys=[" << concat(value.keys()) << "]";
+    LOG(INFO) << "set value, key_type=" << key_type << " " << value.keys().size() << " keys=["
+              << concat(value.keys()) << "]";
 
-    std::string original_value;
+    std::string original_value_json;
     if (kv_found) {
-        auto& value_parsing_function = std::get<2>(it->second);
-        original_value = value_parsing_function(value);
-        if (original_value.empty()) [[unlikely]] {
+        auto& serialized_value_to_json_parsing_function = std::get<2>(it->second);
+        original_value_json = serialized_value_to_json_parsing_function(value);
+        if (original_value_json.empty()) [[unlikely]] {
             LOG(WARNING) << "failed to parse value, key=" << hex(key)
-                << " val=" << hex(value.value());
+                         << " val=" << hex(value.value());
+            return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
+                                   fmt::format("failed to parse value, key={}", hex(key)));
         } else {
-            LOG(WARNING) << "";
+            LOG(INFO) << "original_value_json=" << original_value_json;
         }
     }
+    std::string serialized_value_to_save = pb_to_save->SerializeAsString();
+    if (serialized_value_to_save.empty()) {
+        LOG(WARNING) << "failed to serialize, key=" << hex(key);
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR,
+                               fmt::format("failed to serialize, key={}", hex(key)));
+    }
+    // we need to remove the original KVs, it may be a range of keys
+    // and the number of final keys may be less than the initial number of keys
+    if (kv_found) value.remove(txn.get());
 
-    return http_text_reply(MetaServiceCode::OK, "", original_value);
+    // TODO(gavin): use cloud::put() to deal with split-multi-kv and special keys
+    // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
+    // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
+    txn->put(key, serialized_value_to_save);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << "failed to commit txn when set value, err=" << err << " key=" << hex(key);
+        LOG(WARNING) << ss.str();
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, ss.str());
+    }
+    LOG(WARNING) << "set_value saved, key=" << hex(key);
+
+    std::stringstream final_json;
+    final_json << "original_value_hex=" << hex(value.value()) << "\n"
+               << "key_hex=" << hex(key) << "\n"
+               << "original_value_json=" << original_value_json << "\n";
+
+    return http_text_reply(MetaServiceCode::OK, "", final_json.str());
 }
 
 HttpResponse process_http_encode_key(const brpc::URI& uri) {

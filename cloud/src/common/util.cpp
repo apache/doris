@@ -264,7 +264,8 @@ std::vector<std::string> ValueBuf::keys() const {
     for (auto&& it : iters) {
         it->reset();
         while (it->has_next()) {
-            ret.push_back({it->next().first.data(), it->next().first.size()});
+            auto [k, _] = it->next();
+            ret.push_back({k.data(), k.size()});
         }
     }
     return ret;
