@@ -327,6 +327,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
@@ -492,7 +493,8 @@ import java.util.List;
 /**
  * Builtin scalar functions.
  * <p>
- * Note: Please ensure that this class only has some lists and no procedural code.
+ * Note: Please ensure that this class only has some lists and no procedural
+ * code.
  * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
@@ -819,6 +821,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash332.class, "murmur_hash3_32"),
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(Negative.class, "negative"),
+            scalar(NextDay.class, "next_day"),
             scalar(NonNullable.class, "non_nullable"),
             scalar(NormalCdf.class, "normal_cdf"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
@@ -989,5 +992,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }
