@@ -18,9 +18,6 @@
  */
 
 suite("select_distinct") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
     multi_sql """
         SET enable_nereids_planner=true;
         SET enable_fallback_to_original_planner=false;
