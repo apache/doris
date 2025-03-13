@@ -34,7 +34,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 /* Copied From
- * https://github.com/apache/hudi/blob/master/hudi-common/src/main/java/org/apache/hudi/common/util/collection/DiskMap.java
+ * https://github.com/apache/hudi/blob/release-0.15.0/hudi-common/src/main/java/org/apache/hudi/common/util/collection/DiskMap.java
  * Doris Modification.
  * Use Static cleaner class to avoid circular references in shutdown hooks
  */
