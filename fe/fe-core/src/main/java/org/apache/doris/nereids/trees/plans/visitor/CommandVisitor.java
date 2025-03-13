@@ -156,6 +156,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -855,6 +856,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropExpiredStatsCommand(DropExpiredStatsCommand dropExpiredStatsCommand, C context) {
         return visitCommand(dropExpiredStatsCommand, context);
+    }
+
+    default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
+        return visitCommand(showTabletIdCommand, context);
     }
 
     default R visitAlterTableStatsCommand(AlterTableStatsCommand alterTableStatsCommand, C context) {
