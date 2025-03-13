@@ -209,7 +209,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
                               const InputTypeSet& output_types);
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
-                              const InputDataSet& output_set);
+                              const InputDataSet& output_set, bool test_get_value_func = false);
 
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}

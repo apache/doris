@@ -475,7 +475,7 @@ Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDa
 }
 
 Block* process_table_function(TableFunction* fn, Block* input_block,
-                              const InputTypeSet& output_types) {
+                              const InputTypeSet& output_types, bool test_get_value_func) {
     // pasrse output data types
     ut_type::UTDataTypeDescs descs;
     if (!parse_ut_data_type(output_types, descs)) {
@@ -509,8 +509,12 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         }
 
         do {
-            fn->get_same_many_values(column, 1);
-            fn->forward();
+            if (test_batch_func) {
+                fn->get_value(column, 10);
+            } else {
+                fn->get_same_many_values(column, 1);
+                fn->forward();
+            }
         } while (!fn->eos());
     }
 
@@ -521,7 +525,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
-                              const InputDataSet& output_set) {
+                              const InputDataSet& output_set, const bool test_get_value_func) {
     std::unique_ptr<Block> input_block(create_block_from_inputset(input_types, input_set));
     EXPECT_TRUE(input_block != nullptr);
 
@@ -530,7 +534,7 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
     EXPECT_TRUE(expect_output_block != nullptr);
 
     std::unique_ptr<Block> real_output_block(
-            process_table_function(fn, input_block.get(), output_types));
+            process_table_function(fn, input_block.get(), output_types, test_get_value_func));
     EXPECT_TRUE(real_output_block != nullptr);
 
     // compare real_output_block with expect_output_block
