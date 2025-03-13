@@ -720,7 +720,6 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
-    _file_cache_open_fd_cache.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _cache_manager destory
