@@ -52,6 +52,19 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                         })
                 ))
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
+                        // select distinct
+                        logicalSort(
+                                logicalAggregate(logicalProject()).when(agg ->
+                                        agg.getGroupByExpressions().equals(agg.getOutputExpressions())
+                                                && agg.getGroupByExpressions().equals(agg.child().getOutput())
+                                )
+                        ).then(sort -> {
+                            LogicalProject<Plan> project = sort.child().child();
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(project.getProjects());
+                            return replaceSortExpression(sort, sMap);
+                        })
+                ))
+                .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalAggregate()).then(sort -> {
                             LogicalAggregate<Plan> aggregate = sort.child();
                             Map<Expression, Slot> sMap = buildOutputAliasMap(aggregate.getOutputExpressions());

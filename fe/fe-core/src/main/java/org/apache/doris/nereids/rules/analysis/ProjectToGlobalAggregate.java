@@ -17,12 +17,21 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * ProjectToGlobalAggregate.
@@ -44,16 +53,78 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
            logicalProject().then(project -> {
-               boolean needGlobalAggregate = project.getProjects()
-                       .stream()
-                       .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
-
-               if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
-               } else {
-                   return project;
-               }
+               project = distinctConstantsToLimit1(project);
+               Plan result = projectToAggregate(project);
+               return distinctToAggregate(result, project);
            })
         );
+    }
+
+    // select distinct 1,2,3 from tbl
+    //               ↓
+    // select 1,2,3 from (select 1, 2, 3 from tbl limit 1) as tmp
+    private static LogicalProject<Plan> distinctConstantsToLimit1(LogicalProject<Plan> project) {
+        if (!project.isDistinct()) {
+            return project;
+        }
+
+        boolean allSelectItemAreConstants = true;
+        for (NamedExpression selectItem : project.getProjects()) {
+            if (!selectItem.isConstant()) {
+                allSelectItemAreConstants = false;
+                break;
+            }
+        }
+
+        if (allSelectItemAreConstants) {
+            return new LogicalProject<>(
+                    project.getProjects(),
+                    new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, project.child())
+            );
+        }
+        return project;
+    }
+
+    // select avg(xxx) from tbl
+    //         ↓
+    // LogicalAggregate(groupBy=[], output=[avg(xxx)])
+    private static Plan projectToAggregate(LogicalProject<Plan> project) {
+        // contains aggregate functions, like sum, avg ?
+        for (NamedExpression selectItem : project.getProjects()) {
+            if (selectItem.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null)) {
+                return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
+            }
+        }
+        return project;
+    }
+
+    private static Plan distinctToAggregate(Plan result, LogicalProject<Plan> originProject) {
+        if (!originProject.isDistinct()) {
+            return result;
+        }
+        if (result instanceof LogicalProject) {
+            // remove distinct: select distinct fun(xxx) as c1 from tbl
+            //
+            // LogicalProject(distinct=true, output=[fun(xxx) as c1])
+            //                  ↓
+            // LogicalAggregate(groupBy=[c1], output=[c1])
+            //                  |
+            //   LogicalProject(output=[fun(xxx) as c1])
+            LogicalProject<?> project = (LogicalProject<?>) result;
+            LogicalProject<Plan> removeDistinct
+                    = new LogicalProject<>(project.getProjects(), project.child());
+            List<Slot> projectOutputs = project.getOutput();
+            return new LogicalAggregate(projectOutputs, projectOutputs, removeDistinct);
+        } else if (result instanceof LogicalAggregate) {
+            // remove distinct: select distinct avg(xxx) as c1 from tbl
+            //
+            // LogicalProject(distinct=true, output=[avg(xxx) as c1])
+            //                  ↓
+            //  LogicalAggregate(output=[avg(xxx) as c1])
+            return result;
+        } else {
+            // never reach
+            throw new AnalysisException("Unsupported");
+        }
     }
 }

@@ -35,6 +35,11 @@ suite("select_distinct") {
     }
 
     test {
+        sql "select distinct value+1 from (select 100 value, 1 id union all select 100, 2)a order by value+1"
+        result([[101L]])
+    }
+
+    test {
         sql "select distinct 1, 2, 3 from test_distinct_window"
         result([[1, 2, 3]])
     }
