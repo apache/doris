@@ -347,6 +347,9 @@ public class BDBEnvironment {
         while (true) {
             try {
                 names = replicatedEnvironment.getDatabaseNames();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("names: {}", names);
+                }
                 break;
             } catch (InsufficientLogException e) {
                 throw e;
@@ -376,13 +379,16 @@ public class BDBEnvironment {
                     ret.add(Long.parseLong(name));
                 } else {
                     if (LOG.isDebugEnabled()) {
-                        // LOG.debug("get database names, skipped {}", name);
+                        LOG.debug("get database names, skipped {}", name);
                     }
                 }
             }
         }
 
         Collections.sort(ret);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ret:{}", ret);
+        }
         return ret;
     }
 

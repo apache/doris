@@ -396,13 +396,22 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     private long getMaxJournalIdInternal(boolean checkTxnMatched) {
         long ret = -1;
         if (bdbEnvironment == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("bdbEnvironment is null");
+            }
             return ret;
         }
         List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("dbNames is null");
+            }
             return ret;
         }
         if (dbNames.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("dbNames is empty");
+            }
             return ret;
         }
 
@@ -644,6 +653,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     @Override
     public List<Long> getDatabaseNames() {
         if (bdbEnvironment == null) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("bdbEnvironment is null");
+            }
             return null;
         }
 

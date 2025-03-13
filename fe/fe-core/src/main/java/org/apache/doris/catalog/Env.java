@@ -3039,6 +3039,10 @@ public class Env {
             newToJournalId = getMaxJournalId();
         }
         if (newToJournalId <= replayedJournalId.get()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("toJournalId({}), newToJournalId({}) <= replayedJournalId({})",
+                        toJournalId, newToJournalId, replayedJournalId);
+            }
             return false;
         }
 
@@ -3055,6 +3059,9 @@ public class Env {
             long entityStartTime = System.currentTimeMillis();
             Pair<Long, JournalEntity> kv = cursor.next();
             if (kv == null) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("break");
+                }
                 break;
             }
             Long logId = kv.first;
@@ -3071,6 +3078,9 @@ public class Env {
                     }
                     continue;
                 } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("break");
+                    }
                     break;
                 }
             }
