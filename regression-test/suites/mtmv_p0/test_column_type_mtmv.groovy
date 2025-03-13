@@ -26,7 +26,7 @@ suite("test_column_type_mtmv","mtmv") {
 
     sql """
         CREATE TABLE ${tableName} (
-          `user_id` int NOT NULL COMMENT "\"用户id\"",
+          `user_id` int NOT NULL,
           class_id int,
           `age` int NULL
         ) ENGINE=OLAP
