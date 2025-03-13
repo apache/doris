@@ -425,7 +425,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringHive;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringForZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
@@ -493,7 +493,8 @@ import java.util.List;
 /**
  * Builtin scalar functions.
  * <p>
- * Note: Please ensure that this class only has some lists and no procedural code.
+ * Note: Please ensure that this class only has some lists and no procedural
+ * code.
  * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
@@ -922,7 +923,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
-            scalar(SubstringHive.class, "substr_hive","substr_hive"),
+            scalar(SubstringForZero.class, "substr_for_zero", "substr_for_zero"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),
@@ -991,5 +992,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
     // Note: Do not add any code here!
-    private BuiltinScalarFunctions() {}
+    private BuiltinScalarFunctions() {
+    }
 }
