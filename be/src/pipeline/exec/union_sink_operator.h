@@ -51,13 +51,19 @@ private:
     RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
-class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
+class UnionSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<UnionSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
     UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                        const TPlanNode& tnode, const DescriptorTbl& descs);
+#ifdef BE_TEST
+    UnionSinkOperatorX(int child_size, int cur_child_id, int first_materialized_child_idx)
+            : _first_materialized_child_idx(first_materialized_child_idx),
+              _cur_child_id(cur_child_id),
+              _child_size(child_size) {}
+#endif
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -93,6 +99,8 @@ public:
     }
 
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
+
+    MOCK_FUNCTION const RowDescriptor& row_descriptor() { return _row_descriptor; }
 
 private:
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.

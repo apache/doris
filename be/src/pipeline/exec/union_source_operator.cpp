@@ -74,7 +74,7 @@ Status UnionSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 Status UnionSourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
     for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, row_descriptor()));
     }
     for (const auto& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
@@ -127,7 +127,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(_row_descriptor.num_materialized_slots());
+        output_block->clear_column_data(row_descriptor().num_materialized_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, eos);
@@ -143,7 +143,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
 
     auto& const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mutable_block =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
+            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
     for (; const_expr_list_idx < _const_expr_lists.size() &&
            mutable_block.rows() < state->batch_size();
          ++const_expr_list_idx) {

@@ -74,7 +74,7 @@ Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, row_descriptor()));
     return Status::OK();
 }
 
@@ -119,7 +119,7 @@ Status UnionSinkOperatorX::materialize_child_block(RuntimeState* state,
     if (input_block->rows() > 0) {
         vectorized::MutableBlock mutable_block =
                 vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                           _row_descriptor);
+                                                                           row_descriptor());
         vectorized::ColumnsWithTypeAndName colunms;
         const auto& child_exprs = local_state._child_expr;
         for (const auto& child_expr : child_exprs) {
