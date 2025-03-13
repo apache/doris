@@ -18,6 +18,7 @@
 #include "partition_sort_source_operator.h"
 
 #include "pipeline/exec/operator.h"
+#include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -98,6 +99,16 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
         // current sort have eos, so get next idx
         local_state._sort_idx++;
         std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+        if (local_state._shared_state->sink_sorter_idx <=
+            local_state._shared_state->source_sorter_idx) {
+            std::string msg =
+                    " sink idx: " + std::to_string(local_state._shared_state->sink_sorter_idx) +
+                    " source idx: " + std::to_string(local_state._shared_state->source_sorter_idx) +
+                    " sorter_size: " + std::to_string(sorter_size) +
+                    " query_id: " + print_id(state->query_id());
+            DCHECK(false) << msg;
+        }
+        local_state._shared_state->source_sorter_idx++;
         if (local_state._sort_idx < sorter_size &&
             !sorters[local_state._sort_idx]->prepared_finish()) {
             local_state._dependency->block();
