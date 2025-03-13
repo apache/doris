@@ -134,7 +134,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count = channels.size();
         _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+                                  fmt::format("TabletSinkHashPartitioner({})", _partition_count));
         _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
                 _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
@@ -161,7 +161,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+                                  fmt::format("ScaleWriterPartitioner({})", _partition_count));
     }
 
     return Status::OK();
@@ -191,7 +191,7 @@ void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
     std::lock_guard<std::mutex> lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
-        LOG(WARNING) << "query: " << print_id(_state->query_id())
+        LOG(WARNING) << "Query: " << print_id(_state->query_id())
                      << ", on_channel_finished on already finished channel: " << channel_id;
         return;
     } else {
@@ -280,7 +280,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
-          _enable_local_merge_sort(state->enable_local_merge_sort()),
           _dest_is_merge(sink.__isset.is_merge && sink.is_merge),
           _fragment_instance_ids(fragment_instance_ids) {
 #ifndef BE_TEST
@@ -313,8 +312,8 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
+Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::prepare(state));
     _state = state;
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
@@ -365,6 +364,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
+    if (local_state.low_memory_mode()) {
+        set_low_memory_mode(state);
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
@@ -389,6 +392,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
             {
                 bool serialized = false;
+                int64_t old_block_mem_bytes = local_state._serializer.mem_usage();
+                Defer update_mem([&]() {
+                    COUNTER_UPDATE(local_state.memory_used_counter(),
+                                   local_state._serializer.mem_usage() - old_block_mem_bytes);
+                });
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
                         block, block_holder->get_block(), local_state._rpc_channels_num,
                         &serialized, eos));
@@ -425,7 +433,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         }
                         idx++;
                     }
-                    if (moved) {
+                    if (moved || state->low_memory_mode()) {
                         local_state._serializer.reset_block();
                     } else {
                         cur_block.clear_column_data();
@@ -491,8 +499,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
     Status final_st = Status::OK();
     if (eos) {
+        int64_t block_mem_bytes = local_state._serializer.mem_usage();
+        COUNTER_UPDATE(local_state.memory_used_counter(), -block_mem_bytes);
         local_state._serializer.reset_block();
         for (auto& channel : local_state.channels) {
+            COUNTER_UPDATE(local_state.memory_used_counter(), -channel->mem_usage());
             Status st = channel->close(state);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
@@ -512,13 +523,14 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_sink_buffer) {
-        fmt::format_to(
-                debug_string_buffer,
-                ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
-                "{}, queue dep: {}), _reach_limit: {}, working channels: {} , each queue size: {}",
-                _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
-                _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(), _reach_limit.load(),
-                _working_channels_count.load(), _sink_buffer->debug_each_instance_queue_size());
+        fmt::format_to(debug_string_buffer,
+                       ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
+                       "{}, queue dep: {}), _reach_limit: {}, working channels: {}, total "
+                       "channels: {}, remote channels: {}, each queue size: {}",
+                       _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,
+                       _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(),
+                       _reach_limit.load(), _working_channels_count.load(), channels.size(),
+                       _rpc_channels_num, _sink_buffer->debug_each_instance_queue_size());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -551,26 +563,13 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return Base::close(state, exec_status);
 }
 
-DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
-        // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
-        // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
-            sort_source && sort_source->use_local_merge()) {
-            // Sort the data local
-            return ExchangeType::LOCAL_MERGE_SORT;
-        }
-    }
-    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
-}
-
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
         const std::vector<InstanceLoId>& sender_ins_ids) {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    auto sink_buffer =
-            std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state(), sender_ins_ids);
+    auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, _node_id, state(),
+                                                            sender_ins_ids);
     for (const auto& _dest : _dests) {
         sink_buffer->construct_request(_dest.fragment_instance_id);
     }

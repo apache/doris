@@ -195,12 +195,26 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    DataDistribution required_data_distribution() const override;
     bool is_serial_operator() const override { return true; }
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+        if (local_state._sink_buffer) {
+            local_state._sink_buffer->set_low_memory_mode();
+        }
+        if (local_state._broadcast_pb_mem_limiter) {
+            local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
+        }
+        local_state._serializer.set_low_memory_mode(state);
+
+        for (auto& channel : local_state.channels) {
+            channel->set_low_memory_mode(state);
+        }
+    }
 
     // For a normal shuffle scenario, if the concurrency is n,
     // there can be up to n * n RPCs in the current fragment.
@@ -262,7 +276,6 @@ private:
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
     size_t _data_processed = 0;
     int _writer_count = 1;
-    const bool _enable_local_merge_sort;
     // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
     // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
     const bool _dest_is_merge;

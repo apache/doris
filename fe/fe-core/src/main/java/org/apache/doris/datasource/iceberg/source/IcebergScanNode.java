@@ -153,12 +153,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     private void setIcebergParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
+        if (tableLevelPushDownCount) {
+            tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
+        }
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
-        if (tableLevelPushDownCount) {
-            fileDesc.setRowCount(icebergSplit.getTableLevelRowCount());
-        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -336,6 +336,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 } else {
                     pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
+                setPushDownCount(countFromSnapshot);
                 assignCountToSplits(pushDownCountSplits, countFromSnapshot);
                 return pushDownCountSplits;
             }
@@ -474,11 +475,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         super.toThrift(planNode);
-    }
-
-    @Override
-    public long getPushDownCount() {
-        return getCountFromSnapshot();
     }
 
     @Override

@@ -89,7 +89,7 @@ class DeltaWriterV2Map;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<uint32_t> row_idxes;
+    DorisVector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;

@@ -1,0 +1,35 @@
+# Parses Myanmar text, with syllable as token. 
+
+$Consonant            = [:Indic_Syllabic_Category = Consonant:];
+$ConsonantPlaceholder = [:Indic_Syllabic_Category = Consonant_Placeholder:];
+$VowelIndependent     = [:Indic_Syllabic_Category = Vowel_Independent:];
+$Virama               = [:Indic_Syllabic_Category = Invisible_Stacker:];
+$Asat                 = [:Indic_Syllabic_Category = Pure_Killer:];
+# for our purposes, $Cons means 'base'
+$Cons = $Consonant | $ConsonantPlaceholder | $VowelIndependent;
+$WordJoin = [:Line_Break=Word_Joiner:]; 
+
+#
+# default numerical definitions
+#
+$Extend       = [\p{Word_Break = Extend}];
+$Format       = [\p{Word_Break = Format}];
+$MidNumLet    = [\p{Word_Break = MidNumLet}];
+$MidNum       = [\p{Word_Break = MidNum}];
+$Numeric      = [\p{Word_Break = Numeric}];
+$ExtendNumLet = [\p{Word_Break = ExtendNumLet}];                                                          
+$MidNumLetEx    = $MidNumLet    ($Extend |  $Format)*;
+$MidNumEx       = $MidNum       ($Extend |  $Format)*;
+$NumericEx      = $Numeric      ($Extend |  $Format)*;
+$ExtendNumLetEx = $ExtendNumLet ($Extend |  $Format)*;
+
+$ConsEx = $Cons ($Extend | $Format)*;
+$AsatEx = $Cons $Asat ($Virama $ConsEx)? ($Extend | $Format)*;
+$MyanmarSyllableEx = $ConsEx ($Virama $ConsEx)? ($AsatEx)*;
+$MyanmarJoinedSyllableEx = $MyanmarSyllableEx ($WordJoin $MyanmarSyllableEx)*;
+
+!!forward;
+$MyanmarJoinedSyllableEx {200};
+
+# default numeric rules
+$NumericEx $ExtendNumLetEx? (($MidNumEx | $MidNumLetEx)? $NumericEx $ExtendNumLetEx?)*  {100};

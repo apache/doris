@@ -26,12 +26,13 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/types.h"
 #include "util/slice.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema {
     std::string name;
     // the referenced parquet schema element
@@ -131,11 +132,12 @@ public:
 
     std::string debug_string() const;
 
-    int32_t size() const { return _fields.size(); }
+    int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
     bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
 
     const doris::Slice get_column_name_from_field_id(uint64_t id) const;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

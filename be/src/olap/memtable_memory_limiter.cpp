@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "olap/memtable.h"
 #include "olap/memtable_writer.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -110,7 +111,32 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush() {
+void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPtr wg) {
+    // It means some query is pending on here to flush memtable and to continue running.
+    // So that should wait here.
+    // Wait at most 3s, because this code is not aware cancel flag. If the load task is cancelled
+    // Should releae memory quickly.
+    using namespace std::chrono_literals;
+    int32_t max_sleep_times = 30;
+    int32_t sleep_times = max_sleep_times;
+    MonotonicStopWatch timer;
+    timer.start();
+    while (wg != nullptr && wg->enable_write_buffer_limit() && wg->exceed_write_buffer_limit() &&
+           sleep_times > 0) {
+        std::this_thread::sleep_for(100ms);
+        --sleep_times;
+    }
+    if (sleep_times < max_sleep_times) {
+        timer.stop();
+        VLOG_DEBUG << "handle_workload_group_memtable_flush waited "
+                   << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                   << ", wg: " << wg->debug_string();
+    }
+    // Check process memory again.
+    _handle_memtable_flush(wg);
+}
+
+void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     if (!_soft_limit_reached() || _load_usage_low()) {
@@ -133,30 +159,72 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         if (need_flush > 0) {
             auto limit = _hard_limit_reached() ? Limit::HARD : Limit::SOFT;
             LOG(INFO) << "reached memtable memory " << (limit == Limit::HARD ? "hard" : "soft")
-                      << ", " << GlobalMemoryArbitrator::process_memory_used_details_str()
+                      << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
+                      << GlobalMemoryArbitrator::sys_mem_available_details_str()
                       << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
                       << ", memtable writers num: " << _writers.size()
                       << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
                       << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
-                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
-            _flush_active_memtables(need_flush);
+                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+                      << ", wg: " << (wg ? wg->debug_string() : "null");
+            if (VLOG_DEBUG_IS_ON) {
+                auto log_str = doris::ProcessProfile::instance()
+                                       ->memory_profile()
+                                       ->process_memory_detail_str();
+                LOG_LONG_STRING(INFO, log_str);
+            }
+            _flush_active_memtables(0, need_flush);
         }
     } while (_hard_limit_reached() && !_load_usage_low());
     g_memtable_memory_limit_waiting_threads << -1;
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
     g_memtable_memory_limit_latency_ms << time_ms;
-    LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
+    LOG(INFO) << "waited " << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+              << " for memtable memory limit"
+              << ", " << GlobalMemoryArbitrator::process_memory_used_details_str() << ", "
+              << GlobalMemoryArbitrator::sys_mem_available_details_str()
+              << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+              << ", memtable writers num: " << _writers.size()
+              << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+              << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
+              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+              << ", wg: " << (wg ? wg->debug_string() : "null.");
 }
 
-void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
+int64_t MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush) {
+    std::unique_lock<std::mutex> l(_lock);
+    return _flush_active_memtables(wg_id, need_flush);
+}
+
+void MemTableMemoryLimiter::get_workload_group_memtable_usage(uint64_t wg_id, int64_t* active_bytes,
+                                                              int64_t* queue_bytes,
+                                                              int64_t* flush_bytes) {
+    std::unique_lock<std::mutex> l(_lock);
+    *active_bytes = 0;
+    *queue_bytes = 0;
+    *flush_bytes = 0;
+    for (auto it = _writers.begin(); it != _writers.end(); ++it) {
+        if (auto writer = it->lock()) {
+            // If wg id is specified, but wg id not match, then not need flush
+            if (writer->workload_group_id() != wg_id) {
+                continue;
+            }
+            *active_bytes += writer->active_memtable_mem_consumption();
+            *queue_bytes += writer->mem_consumption(MemType::WRITE_FINISHED);
+            *flush_bytes += writer->mem_consumption(MemType::FLUSH);
+        }
+    }
+}
+
+int64_t MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need_flush) {
     if (need_flush <= 0) {
-        return;
+        return 0;
     }
 
     _refresh_mem_tracker();
     if (_active_writers.size() == 0) {
-        return;
+        return 0;
     }
 
     using WriterMem = std::pair<std::weak_ptr<MemTableWriter>, int64_t>;
@@ -181,6 +249,10 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
         if (w == nullptr) {
             continue;
         }
+        // If wg id is specified, but wg id not match, then not need flush
+        if (wg_id != 0 && w->workload_group_id() != wg_id) {
+            continue;
+        }
         int64_t mem = w->active_memtable_mem_consumption();
         if (mem < sort_mem * 0.9) {
             // if the memtable writer just got flushed, don't flush it again
@@ -200,6 +272,7 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
     }
     LOG(INFO) << "flushed " << num_flushed << " out of " << _active_writers.size()
               << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
+    return mem_flushed;
 }
 
 void MemTableMemoryLimiter::refresh_mem_tracker() {
@@ -222,12 +295,17 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
-    LOG(INFO) << ss.str() << ", " << GlobalMemoryArbitrator::process_memory_used_details_str()
+    LOG(INFO) << ss.str()
               << ", load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
               << ", memtable writers num: " << _writers.size()
               << ", active: " << PrettyPrinter::print_bytes(_active_mem_usage)
               << ", queue: " << PrettyPrinter::print_bytes(_queue_mem_usage)
               << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage);
+    if (VLOG_DEBUG_IS_ON) {
+        auto log_str =
+                doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str();
+        LOG_LONG_STRING(INFO, log_str);
+    }
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {
@@ -243,8 +321,12 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
             if (active_usage > 0) {
                 _active_writers.push_back(writer);
             }
-            _flush_mem_usage += writer->mem_consumption(MemType::FLUSH);
-            _queue_mem_usage += writer->mem_consumption(MemType::WRITE_FINISHED);
+
+            auto flush_usage = writer->mem_consumption(MemType::FLUSH);
+            _flush_mem_usage += flush_usage;
+
+            auto write_usage = writer->mem_consumption(MemType::WRITE_FINISHED);
+            _queue_mem_usage += write_usage;
             ++it;
         } else {
             *it = std::move(_writers.back());

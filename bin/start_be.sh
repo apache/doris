@@ -384,7 +384,7 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-# check java version and choose correct JAVA_OPTS_FOR_JDK_17
+# check java version and choose correct JAVA_OPTS
 java_version="$(
     set -e
     jdk_version "${JAVA_HOME}/bin/java"
@@ -412,7 +412,7 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     fi
 
     if [[ -n "${JAVA_OPTS_FOR_JDK_17}" ]] && ! echo "${JAVA_OPTS_FOR_JDK_17}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
-        export JAVA_OPTS_FOR_JDK_17="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
+        export JAVA_OPTS="${JAVA_OPTS_FOR_JDK_17} ${max_fd_limit}"
     fi
 fi
 

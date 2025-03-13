@@ -541,7 +541,7 @@ public class BinlogManager {
     }
 
     // get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions(long dbId) {
+    public List<Pair<Long, Long>> getDroppedPartitions(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -555,7 +555,7 @@ public class BinlogManager {
     }
 
     // get the dropped tables of the db.
-    public List<Long> getDroppedTables(long dbId) {
+    public List<Pair<Long, Long>> getDroppedTables(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -569,7 +569,7 @@ public class BinlogManager {
     }
 
     // get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes(long dbId) {
+    public List<Pair<Long, Long>> getDroppedIndexes(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);

@@ -38,8 +38,8 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
-    //sql """ use @regression_cluster_name1 """
-    sql """ use @compute_cluster """
+    sql """ use @regression_cluster_name1 """
+    // sql """ use @compute_cluster """
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="150") """
     String[][] backends = sql """ show backends """
     String backendId;

@@ -86,7 +86,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
 }
 
 Status MemTableWriter::write(const vectorized::Block* block,
-                             const std::vector<uint32_t>& row_idxs) {
+                             const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -116,7 +116,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     //    thus preventing potential crashes
     if (!st.ok()) [[unlikely]] {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        _mem_table.reset();
+        _reset_mem_table();
         return st;
     }
 
@@ -152,9 +152,10 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    // Two calling paths:
+    // Three calling paths:
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
+    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
     SCOPED_SWITCH_RESOURCE_CONTEXT(_resource_ctx);
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
@@ -166,11 +167,6 @@ Status MemTableWriter::flush_async() {
 
     if (_is_cancelled) {
         return _cancel_status;
-    }
-
-    // _mem_table may be null after write failure triggers reset
-    if (_mem_table == nullptr) {
-        return Status::OK();
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "

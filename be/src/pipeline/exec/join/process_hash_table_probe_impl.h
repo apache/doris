@@ -455,7 +455,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
 
 template <int JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Block* output_block,
-                                                                  std::vector<uint8_t>& visited,
+                                                                  DorisVector<uint8_t>& visited,
                                                                   bool has_null_in_build_side) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();

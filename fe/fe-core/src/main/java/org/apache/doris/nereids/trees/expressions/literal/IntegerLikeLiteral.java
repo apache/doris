@@ -41,7 +41,7 @@ public abstract class IntegerLikeLiteral extends NumericLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return new BigDecimal(getLongValue());
     }
 

@@ -735,6 +735,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    // need to update least_common_type when pop_back a column from the last
+    least_common_type = sz > 0 ? LeastCommonType {data_types[sz - 1]}
+                               : LeastCommonType {std::make_shared<DataTypeNothing>()};
     num_of_defaults_in_prefix -= n;
 }
 
@@ -1271,7 +1274,7 @@ bool ColumnObject::is_finalized() const {
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
-    if (result_column->is_column_array() && !result_column->is_nullable()) {
+    if (is_column<vectorized::ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();

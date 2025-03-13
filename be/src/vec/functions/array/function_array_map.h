@@ -178,7 +178,7 @@ private:
     static bool _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionDatas datas,
                                   std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         for (auto data : datas) {
-            if (!check_column<ColumnType>(*data.nested_col)) {
+            if (!is_column<ColumnType>(*data.nested_col)) {
                 return false;
             }
         }

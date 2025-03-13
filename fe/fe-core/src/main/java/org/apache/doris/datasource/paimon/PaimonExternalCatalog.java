@@ -40,6 +40,7 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.partition.Partition;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -134,6 +135,24 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + dbName + "." + tblName + ", because " + e.getMessage(), e);
+        }
+    }
+
+    public List<Partition> getPaimonPartitions(String dbName, String tblName) {
+        makeSureInitialized();
+        try {
+            return hadoopAuthenticator.doAs(() -> {
+                List<Partition> partitions = new ArrayList<>();
+                try {
+                    partitions = catalog.listPartitions(Identifier.create(dbName, tblName));
+                } catch (Catalog.TableNotExistException e) {
+                    LOG.warn("TableNotExistException", e);
+                }
+                return partitions;
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to get Paimon table partitions:" + getName() + "."
+                + dbName + "." + tblName + ", because " + e.getMessage(), e);
         }
     }
 

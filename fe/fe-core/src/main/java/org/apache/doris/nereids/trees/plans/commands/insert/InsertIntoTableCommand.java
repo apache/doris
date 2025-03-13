@@ -44,8 +44,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -87,7 +89,7 @@ import java.util.function.Supplier;
  * InsertIntoTableCommand(Query())
  * ExplainCommand(Query())
  */
-public class InsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
+public class InsertIntoTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
@@ -503,6 +505,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return originLogicalQuery.anyMatch(node -> node instanceof TVFRelation);
     }
 
     /**

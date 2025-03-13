@@ -121,7 +121,7 @@ public class HiveMetadataOpsTest {
             distributionDesc = new HashDistributionDesc(10, buckets);
         }
         List<String> colsName = cols.stream().map(Column::getName).collect(Collectors.toList());
-        CreateTableStmt stmt = new CreateTableStmt(true, false,
+        CreateTableStmt stmt = new CreateTableStmt(true, false, false,
                 tableName,
                 cols, null,
                 "hive",

@@ -27,11 +27,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <numeric>
 #include <string>
 #include <string_view>
 
 #include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
@@ -533,9 +535,27 @@ int InstanceRecycler::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
+        std::string recycler_storage_vault_white_list = accumulate(
+                config::recycler_storage_vault_white_list.begin(),
+                config::recycler_storage_vault_white_list.end(), std::string(),
+                [](std::string a, std::string b) { return a + (a.empty() ? "" : ",") + b; });
+        LOG_INFO("config::recycler_storage_vault_white_list")
+                .tag("", recycler_storage_vault_white_list);
+        if (!config::recycler_storage_vault_white_list.empty()) {
+            if (auto it = std::find(config::recycler_storage_vault_white_list.begin(),
+                                    config::recycler_storage_vault_white_list.end(), vault.name());
+                it == config::recycler_storage_vault_white_list.end()) {
+                LOG_WARNING(
+                        "failed to init accessor for vault because this vault is not in "
+                        "config::recycler_storage_vault_white_list. ")
+                        .tag(" vault name:", vault.name())
+                        .tag(" config::recycler_storage_vault_white_list:",
+                             recycler_storage_vault_white_list);
+                continue;
+            }
+        }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-
         if (vault.has_hdfs_info()) {
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
@@ -558,17 +578,17 @@ int InstanceRecycler::init_storage_vault_accessors() {
             }
 
             std::shared_ptr<S3Accessor> accessor;
-            int ret = S3Accessor::create(std::move(*s3_conf), &accessor);
+            int ret = S3Accessor::create(*s3_conf, &accessor);
             if (ret != 0) {
                 LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
                              << " resource_id=" << vault.id() << " name=" << vault.name()
                              << " ret=" << ret
-                             << " s3_vault=" << vault.obj_info().ShortDebugString();
+                             << " s3_vault=" << encryt_sk(vault.obj_info().ShortDebugString());
                 continue;
             }
             LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
                       << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
-                      << " s3_vault=" << vault.obj_info().ShortDebugString();
+                      << " s3_vault=" << encryt_sk(vault.obj_info().ShortDebugString());
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
