@@ -182,6 +182,7 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
+    HttpMethod _method = GET;
 };
 
 } // namespace doris
