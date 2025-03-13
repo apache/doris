@@ -377,7 +377,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskEmpty) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
 
@@ -414,7 +414,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
                                 _helper.runtime_state.get(), spilling_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_probe",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -463,7 +463,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write test data
@@ -521,7 +521,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskCanceled)
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write test data
@@ -669,7 +669,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskEmpty) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
@@ -706,7 +706,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     // Write some test data to spill stream
@@ -772,7 +772,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskError) {
                                 _helper.runtime_state.get(), spilled_stream,
                                 print_id(_helper.runtime_state->query_id()), "hash_build",
                                 probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                                std::numeric_limits<size_t>::max(), local_state->custom_profile())
+                                std::numeric_limits<size_t>::max(), local_state->operator_profile())
                         .ok());
 
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
@@ -1070,14 +1070,14 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullWithDiskRecovery) {
             _helper.runtime_state.get(), spilled_stream,
             print_id(_helper.runtime_state->query_id()), "hash_probe_spilled",
             probe_operator->node_id(), std::numeric_limits<int32_t>::max(),
-            std::numeric_limits<size_t>::max(), local_state->custom_profile());
+            std::numeric_limits<size_t>::max(), local_state->operator_profile());
 
     ASSERT_TRUE(st) << "Register spill stream failed: " << st.to_string();
     st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             _helper.runtime_state.get(), spilling_stream,
             print_id(_helper.runtime_state->query_id()), "hash_probe", probe_operator->node_id(),
             std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-            local_state->custom_profile());
+            local_state->operator_profile());
 
     ASSERT_TRUE(st) << "Register spill stream failed: " << st.to_string();
 
