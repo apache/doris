@@ -1532,6 +1532,9 @@ DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
+DEFINE_mBool(enable_segment_partial_column_cache, "true");
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

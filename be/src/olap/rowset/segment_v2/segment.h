@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
@@ -71,8 +72,35 @@ class Segment;
 class InvertedIndexIterator;
 class IndexFileReader;
 class IndexIterator;
+class ColumnReaderCache;
 
+// Key: pair of column uid and variant path (empty for normal column)
+using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInDataRef>;
 using SegmentSharedPtr = std::shared_ptr<Segment>;
+
+// This node holds the cached ColumnReader and its key.
+struct CacheNode {
+    ColumnReaderCacheKey key; // key: (column uid, column path)
+    std::shared_ptr<ColumnReader> reader;
+    std::chrono::steady_clock::time_point last_access; // optional if needed
+};
+
+class ColumnReaderCache {
+public:
+    // Lookup function remains similar
+    std::shared_ptr<ColumnReader> lookup(const ColumnReaderCacheKey& key);
+    // Insert and create column reader if not exists
+    Status insert(const ColumnReaderCacheKey& key, const ColumnReaderOptions& opts,
+                  const ColumnMetaPB& column_meta, const io::FileReaderSPtr& file_reader,
+                  size_t num_rows, std::shared_ptr<ColumnReader>* column_reader);
+
+private:
+    std::mutex _cache_mutex;
+    // Doubly-linked list to maintain LRU order
+    std::list<CacheNode> _lru_list;
+    // Map from key to list iterator for O(1) access
+    std::unordered_map<ColumnReaderCacheKey, std::list<CacheNode>::iterator> _cache_map;
+};
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -94,7 +122,7 @@ public:
         return file_cache_key(_rowset_id.to_string(), _segment_id);
     }
 
-    ~Segment();
+    ~Segment() override;
 
     int64_t get_metadata_size() const override;
     void update_metadata_size();
@@ -118,9 +146,6 @@ public:
     Status new_column_iterator_with_path(const TabletColumn& tablet_column,
                                          std::unique_ptr<ColumnIterator>* iter,
                                          const StorageReadOptions* opt);
-
-    Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
-                               std::unique_ptr<ColumnIterator>* iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                      const StorageReadOptions& read_options,
@@ -234,13 +259,18 @@ private:
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapReaderStatistics* stats);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
-    ColumnReader* _get_column_reader(const TabletColumn& col);
+    Status _get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
+                              OlapReaderStatistics* stats);
+    Status _get_column_reader(vectorized::PathInDataRef relative_path, uint32_t unique_id,
+                              std::shared_ptr<ColumnReader>* column_reader,
+                              OlapReaderStatistics* stats);
 
     // Get Iterator which will read variant root column and extract with paths and types info
     Status _new_iterator_with_variant_root(const TabletColumn& tablet_column,
                                            std::unique_ptr<ColumnIterator>* iter,
                                            const SubcolumnColumnReaders::Node* root,
-                                           vectorized::DataTypePtr target_type_hint);
+                                           vectorized::DataTypePtr target_type_hint,
+                                           OlapReaderStatistics* stats);
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
@@ -253,6 +283,7 @@ private:
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 
     friend class SegmentIterator;
+    friend class HierarchicalDataReader;
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
@@ -275,7 +306,7 @@ private:
     // ColumnReader for each column in TabletSchema. If ColumnReader is nullptr,
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
-    std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
+    std::map<int32_t, std::shared_ptr<ColumnReader>> _column_readers;
 
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type
@@ -289,6 +320,8 @@ private:
     // each sprase column's path and types info
     // map column unique id --> it's sparse sub column readers
     std::map<int32_t, SubcolumnColumnReaders> _sparse_column_tree;
+
+    ColumnReaderCache _column_reader_cache;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
@@ -310,6 +343,7 @@ private:
     // inverted index file reader
     std::shared_ptr<IndexFileReader> _index_file_reader;
     DorisCallOnce<Status> _index_file_reader_open;
+    std::unordered_map<int32_t, size_t> _column_uid_to_footer_ordinal;
 
     InvertedIndexFileInfo _idx_file_info;
 

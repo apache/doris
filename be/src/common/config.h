@@ -1602,6 +1602,8 @@ DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
+DECLARE_mBool(enable_segment_partial_column_cache);
+DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 #ifdef BE_TEST
 // test s3
