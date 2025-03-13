@@ -20,8 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -111,10 +113,35 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
             //                  |
             //   LogicalProject(output=[fun(xxx) as c1])
             LogicalProject<?> project = (LogicalProject<?>) result;
-            LogicalProject<Plan> removeDistinct
-                    = new LogicalProject<>(project.getProjects(), project.child());
-            List<Slot> projectOutputs = project.getOutput();
-            return new LogicalAggregate(projectOutputs, projectOutputs, removeDistinct);
+
+            ImmutableList.Builder<NamedExpression> bottomProjectOutput
+                    = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+            ImmutableList.Builder<NamedExpression> topAggOutput
+                    = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+
+            boolean hasComplexExpr = false;
+            for (NamedExpression selectItem : project.getProjects()) {
+                if (selectItem.isSlot()) {
+                    topAggOutput.add(selectItem);
+                    bottomProjectOutput.add(selectItem);
+                } else if (isAliasLiteral(selectItem)) {
+                    // stay in agg, and eliminate by `ELIMINATE_GROUP_BY_CONSTANT`
+                    topAggOutput.add(selectItem);
+                } else {
+                    hasComplexExpr = true;
+                    topAggOutput.add(selectItem.toSlot());
+                    bottomProjectOutput.add(selectItem);
+                }
+            }
+
+            if (!hasComplexExpr) {
+                List<Slot> projects = (List) project.getProjects();
+                return new LogicalAggregate(projects, projects, project.child());
+            }
+
+            LogicalProject<?> removeDistinct = new LogicalProject<>(bottomProjectOutput.build(), project.child());
+            ImmutableList<NamedExpression> aggOutput = topAggOutput.build();
+            return new LogicalAggregate(aggOutput, aggOutput, removeDistinct);
         } else if (result instanceof LogicalAggregate) {
             // remove distinct: select distinct avg(xxx) as c1 from tbl
             //
@@ -126,5 +153,9 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
             // never reach
             throw new AnalysisException("Unsupported");
         }
+    }
+
+    private static boolean isAliasLiteral(NamedExpression selectItem) {
+        return selectItem instanceof Alias && selectItem.child(0) instanceof Literal;
     }
 }
