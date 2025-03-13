@@ -175,7 +175,9 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
+           (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
 }
 
 void Segment::update_metadata_size() {
@@ -185,7 +187,7 @@ void Segment::update_metadata_size() {
 }
 
 Status Segment::_open() {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = std::make_shared<SegmentFooterPB>();
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
 
     _pk_index_meta.reset(
@@ -613,7 +615,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     return _create_column_readers_once_call.call([&] {
-        std::shared_ptr<SegmentFooterPB> footer_pb_shared = std::make_shared<SegmentFooterPB>();
+        std::shared_ptr<SegmentFooterPB> footer_pb_shared;
         RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
         return _create_column_readers(*footer_pb_shared);
     });
