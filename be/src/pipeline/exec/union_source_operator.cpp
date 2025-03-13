@@ -99,15 +99,19 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         // the eos check of union operator is complex, need check all logical if you want modify
         // could ref this PR: https://github.com/apache/doris/pull/29677
         // have executing const expr, queue have no data anymore, and child could be closed
-        if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-            *eos = true;
+        if (_child_size == 0) {
+            // If _child_size == 0, eos = true will only be returned when all constant expressions are executed
+            *eos = !local_state._need_read_for_const_expr;
         } else if (has_data(state)) {
+            // data queue still has data, return eos = false
             *eos = false;
         } else if (local_state._shared_state->data_queue.is_all_finish()) {
             // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
             // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
             *eos = !has_data(state);
         } else {
+            // At this point, the data queue has no data, but the sink is not all finished, return eos = false
+            // (this situation may be because the source consumes too fast)
             *eos = false;
         }
     }};

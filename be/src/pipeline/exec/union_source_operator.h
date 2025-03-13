@@ -57,6 +57,26 @@ private:
     DependencySPtr _only_const_dependency = nullptr;
 };
 
+/*
+There are two cases for union node: one is only constant expressions, and the other is having other child nodes besides constant expressions.
+Unlike other union operators, the union node only merges data without deduplication.
+
+|   0:VUNION(66)                                                                                                           |
+|      constant exprs:                                                                                                     |
+|          1 | 2 | 3 | 4                                                                                                   |
+|          5 | 6 | 7 | 8                                                                                                   |
+|      tuple ids: 0                                                                                                        | 
+
+|   4:VUNION(179)                                                                                                           |
+|   |  constant exprs:                                                                                                      |
+|   |      1 | 2 | 3 | 4                                                                                                    |
+|   |      5 | 6 | 7 | 8                                                                                                    |
+|   |  child exprs:                                                                                                         |
+|   |      k1[#0] | k2[#1] | k3[#2] | k4[#3]                                                                                |
+|   |      k1[#4] | k2[#5] | k3[#6] | k4[#7]                                                                                |
+|   |  tuple ids: 2                                                                                                         |
+*/
+
 class UnionSourceOperatorX MOCK_REMOVE(final) : public OperatorX<UnionSourceLocalState> {
 public:
     using Base = OperatorX<UnionSourceLocalState>;
@@ -102,6 +122,7 @@ private:
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
+        // For constant expressions, only one instance will execute the expression
         auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&
                local_state._const_expr_list_idx < _const_expr_lists.size();
