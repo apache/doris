@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
@@ -59,10 +60,13 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     @Override
     protected void runBeforeEach() throws Exception {
         connectContext.setDatabase("test");
+        Config.enable_java_udf = true;
     }
 
     @Test
     public void testSimpleAliasFunction() throws Exception {
+        // alias udf should not check java_udf
+        Config.enable_java_udf = false;
         createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
         createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
 
