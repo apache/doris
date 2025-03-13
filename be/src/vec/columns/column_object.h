@@ -359,12 +359,6 @@ public:
     /// Finalizes all subcolumns.
     void finalize() override;
 
-    // just for join build speed up, change the interface in the future
-    ColumnPtr convert_column_if_overflow() override {
-        finalize();
-        return this->get_ptr();
-    }
-
     bool is_finalized() const;
 
     MutableColumnPtr clone_finalized() const {

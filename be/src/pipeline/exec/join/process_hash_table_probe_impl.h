@@ -122,9 +122,11 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
     auto& probe_block = _parent->_probe_block;
     for (int i = 0; i < output_slot_flags.size(); ++i) {
         if (output_slot_flags[i]) {
-            auto column =
-                    const_cast<vectorized::IColumn*>(probe_block.get_by_position(i).column.get())
-                            ->convert_column_if_overflow();
+            if (auto& p = _parent->parent()->cast<HashJoinProbeOperatorX>();
+                p.need_finalize_variant_column()) {
+                std::move(*probe_block.get_by_position(i).column).mutate()->finalize();
+            }
+            auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, _probe_indexs[0], size);
             } else {
