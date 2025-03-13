@@ -99,28 +99,28 @@ public class ExternalMetaCacheMgr {
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
-    public ExternalMetaCacheMgr() {
+    public ExternalMetaCacheMgr(boolean registerMetric) {
         rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "RowCountRefreshExecutor", 0, true);
+                "RowCountRefreshExecutor", 0, registerMetric);
 
         commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 10000,
-                "CommonRefreshExecutor", 10, true);
+                "CommonRefreshExecutor", 10, registerMetric);
 
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.
         fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "FileListingExecutor", 10, true);
+                "FileListingExecutor", 10, registerMetric);
 
         scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "scheduleExecutor", 10, true);
+                "scheduleExecutor", 10, registerMetric);
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
