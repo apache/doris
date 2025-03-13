@@ -66,6 +66,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast_type_to_either.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -78,6 +79,7 @@
 #endif
 
 #include <fmt/format.h>
+#include <fmt/printf.h>
 
 #include <cstdint>
 #include <string>
@@ -4895,6 +4897,122 @@ private:
             res_col.insert_data(text.data(), text.size());
         }
         return Status::OK();
+    }
+};
+
+// printf(format_str, arg1, arg2, ...) -> String
+// Returns a string formatted according to the format string and arguments.
+class FunctionPrintf : public IFunction {
+public:
+    static constexpr auto name = "printf";
+
+    static FunctionPtr create() { return std::make_shared<FunctionPrintf>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        size_t num_element = arguments.size();
+        Columns cols(num_element);
+        auto cols_const = std::make_unique_for_overwrite<bool[]>(num_element);
+        for (size_t i = 0; i < num_element; ++i) {
+            std::tie(cols[i], cols_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        // First arg is format string, so it should be string type
+        auto format_str_type = block.get_by_position(arguments[0]).type;
+        if (format_str_type->get_type_id() != TypeIndex::String) {
+            return Status::InvalidArgument(
+                    "The first argument of function {} must be string, but {} was found.", name,
+                    format_str_type->get_name());
+        }
+        const auto& format_str_column = *assert_cast<const ColumnString*>(cols[0].get());
+
+        auto result_col = ColumnString::create();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto format_str = format_str_column.get_data_at(index_check_const(i, cols_const[0]))
+                                      .to_string_view();
+            // Store the format arguments
+            fmt::dynamic_format_arg_store<fmt::printf_context> store;
+            for (int j = 1; j < num_element; ++j) {
+                auto type = block.get_by_position(arguments[j]).type;
+                RETURN_IF_ERROR(cehck_format_type(type));
+                auto data = cols[j]->get_data_at(index_check_const(i, cols_const[j]));
+                handle_format_arg(data, type, store);
+            }
+            // Format the string
+            try {
+                auto formatted = fmt::vsprintf(format_str, store);
+                result_col->insert_data(formatted.data(), formatted.size());
+            } catch (const fmt::format_error& e) {
+                return Status::InvalidArgument("Function {} failed to format string: {}, error: {}",
+                                               name, format_str, e.what());
+            }
+        }
+        block.replace_by_position(result, std::move(result_col));
+        return Status::OK();
+    }
+
+private:
+    static Status cehck_format_type(const DataTypePtr& type) {
+        switch (type->get_type_id()) {
+        case TypeIndex::Int64:
+        case TypeIndex::Int32:
+        case TypeIndex::Int16:
+        case TypeIndex::Int8:
+        case TypeIndex::Float64:
+        case TypeIndex::Float32:
+        case TypeIndex::String:
+            return Status::OK();
+        default:
+            return Status::InvalidArgument("Function {} does not support printf type: {}", name,
+                                           type->get_name());
+        }
+    }
+
+    static void handle_format_arg(const StringRef& data, const DataTypePtr& type,
+                                  fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+        switch (type->get_type_id()) {
+        case TypeIndex::Int64:
+            store.push_back(get_value_from_data<int64_t>(data));
+            break;
+        case TypeIndex::Int32:
+            store.push_back(get_value_from_data<int32_t>(data));
+            break;
+        case TypeIndex::Int16:
+            store.push_back(get_value_from_data<int16_t>(data));
+            break;
+        case TypeIndex::Int8:
+            store.push_back(get_value_from_data<int8_t>(data));
+            break;
+        case TypeIndex::Float64:
+            store.push_back(get_value_from_data<double>(data));
+            break;
+        case TypeIndex::Float32:
+            store.push_back(get_value_from_data<float>(data));
+            break;
+        case TypeIndex::String:
+            store.push_back(data.to_string());
+            break;
+        default:
+            __builtin_unreachable();
+        }
+    }
+
+    template <typename T>
+    static T get_value_from_data(const StringRef& data) {
+        T value;
+        DCHECK(sizeof(value) == data.size);
+        memcpy(&value, data.data, sizeof(value));
+        return value;
     }
 };
 
