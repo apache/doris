@@ -1453,6 +1453,9 @@ DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
+DEFINE_mBool(enable_segment_partial_column_cache, "true");
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
