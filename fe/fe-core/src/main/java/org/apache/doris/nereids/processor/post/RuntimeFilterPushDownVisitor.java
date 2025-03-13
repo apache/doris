@@ -182,7 +182,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
         for (Plan child : plan.children()) {
-            pushed |= child.accept(this, ctx);
+            if (child.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+                pushed |= child.accept(this, ctx);
+            }
         }
         return pushed;
     }
@@ -233,6 +235,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         boolean pushed = false;
 
         if (ctx.builderNode instanceof PhysicalHashJoin) {
@@ -307,6 +312,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     @Override
     public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
+        if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         if (ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
@@ -380,6 +388,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalSetOperation(PhysicalSetOperation setOperation, PushDownContext ctx) {
+        if (!setOperation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         boolean pushedDown = false;
         int projIndex = -1;
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(ctx.probeExpr);
@@ -425,6 +436,10 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PushDownContext ctx) {
+        if (!window.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+
         Set<SlotReference> commonPartitionKeys = window.getCommonPartitionKeyFromWindowExpressions();
         if (commonPartitionKeys.containsAll(ctx.probeExpr.getInputSlots())) {
             return window.child().accept(this, ctx);
