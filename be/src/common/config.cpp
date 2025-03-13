@@ -1457,6 +1457,10 @@ DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
