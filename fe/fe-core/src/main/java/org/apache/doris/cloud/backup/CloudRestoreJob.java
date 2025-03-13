@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -58,6 +59,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.DownloadTask;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -501,10 +503,17 @@ public class CloudRestoreJob extends RestoreJob {
                                 localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                 localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
                                 localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                localTbl.getEnableMowLightDelete(), null,
+                                localTbl.getEnableMowLightDelete(),
+                                localTbl.getInvertedIndexFileStorageFormat(),
                                 localTbl.rowStorePageSize(),
                                 localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                 localTbl.storagePageSize(), false));
+                    // In cloud mode all storage medium will be saved to HDD.
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
+                    Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
+                    Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
+                            restoreTablet.getReplicaByBackendId(-1));
                 } catch (Exception e) {
                     String errMsg = String.format("create tablet meta builder failed, errMsg:%s, local table:%d, "
                             + "restore partition=%d, restore index=%d, restore tablet=%d", e.getMessage(),
