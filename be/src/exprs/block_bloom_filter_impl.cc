@@ -132,7 +132,7 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
     for (int i = 0; i < 2; ++i) {
         __m128i new_bucket_sse = _mm_load_si128(reinterpret_cast<__m128i*>(new_bucket + 4 * i));
         __m128i* existing_bucket =
-                reinterpret_cast<__m128i*>(&DCHECK_NOTNULL(_directory)[bucket_idx][4 * i]);
+                reinterpret_cast<__m128i*>(&DORIS_CHECK_NOTNULL(_directory)[bucket_idx][4 * i]);
         *existing_bucket = _mm_or_si128(*existing_bucket, new_bucket_sse);
     }
 }
@@ -163,7 +163,7 @@ bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t has
     uint32_t masks[kBucketWords];
     make_find_mask(hash, masks);
     for (int i = 0; i < kBucketWords; ++i) {
-        if ((DCHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
+        if ((DORIS_CHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
             return false;
         }
     }

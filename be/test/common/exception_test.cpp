@@ -53,4 +53,23 @@ TEST_F(ExceptionTest, NestedError) {
     }
 }
 
+TEST_F(ExceptionTest, DorisCheckCrash) {
+#ifndef NDEBUG
+    ASSERT_DEATH({ DORIS_CHECK(1 == 2); }, "Check failed: 1 == 2 ");
+#endif
+}
+
+TEST_F(ExceptionTest, ComparionMarcoCrash) {
+#ifndef NDEBUG
+    ASSERT_DEATH({ DORIS_CHECK_GT(1, 2); }, "Check failed: 1 > 2 ");
+#endif
+}
+
+TEST_F(ExceptionTest, NotNullCrash) {
+#ifndef NDEBUG
+    int* ptr = nullptr;
+    ASSERT_DEATH({ DORIS_CHECK_NOTNULL(ptr); }, "Check failed: .* must be not null");
+#endif
+}
+
 } // namespace doris

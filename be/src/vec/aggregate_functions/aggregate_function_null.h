@@ -76,7 +76,7 @@ public:
                                     const DataTypes& arguments)
             : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
-        DCHECK(nested_function_ != nullptr);
+        DORIS_CHECK(nested_function_ != nullptr);
         if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
         } else {
