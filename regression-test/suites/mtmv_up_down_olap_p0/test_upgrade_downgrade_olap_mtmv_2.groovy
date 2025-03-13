@@ -69,7 +69,7 @@ suite("test_upgrade_downgrade_olap_mtmv_2","p0,mtmv,restart_fe") {
         mv_rewrite_success(sql2, dropMtmvName2)
     }
 
-    connect('root', context.config.jdbcPassword, master_ip) {
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, dropMtmvName2)
     }
