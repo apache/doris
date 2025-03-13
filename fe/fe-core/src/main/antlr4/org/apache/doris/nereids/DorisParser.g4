@@ -334,6 +334,7 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
+    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
@@ -398,7 +399,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
