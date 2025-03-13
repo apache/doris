@@ -29,7 +29,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /*
  * This task is used for alter table process, such as rollup and schema change
@@ -41,15 +40,15 @@ public class AlterInvertedIndexTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(AlterInvertedIndexTask.class);
     private long tabletId;
     private int schemaHash;
-    private Map<Index, List<Integer>> alterInvertedIndexes;
+    private List<Index> alterInvertedIndexes;
     private List<Column> schemaColumns;
-    private Map<Index, List<Integer>> existIndexes;
+    private List<Index> existIndexes;
     private boolean isDropOp = false;
     private long jobId;
 
     public AlterInvertedIndexTask(long backendId, long dbId, long tableId,
             long partitionId, long indexId, long tabletId, int schemaHash,
-            Map<Index, List<Integer>> existIndexes, Map<Index, List<Integer>> alterInvertedIndexes,
+            List<Index> existIndexes, List<Index> alterInvertedIndexes,
             List<Column> schemaColumns, boolean isDropOp, long taskSignature,
             long jobId) {
         super(null, backendId, TTaskType.ALTER_INVERTED_INDEX, dbId, tableId,
@@ -71,7 +70,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         return schemaHash;
     }
 
-    public Map<Index, List<Integer>> getAlterInvertedIndexes() {
+    public List<Index> getAlterInvertedIndexes() {
         return alterInvertedIndexes;
     }
 
@@ -83,7 +82,7 @@ public class AlterInvertedIndexTask extends AgentTask {
             sb.append("ADD");
         }
         sb.append(" (");
-        for (Index alterIndex : alterInvertedIndexes.keySet()) {
+        for (Index alterIndex : alterInvertedIndexes) {
             sb.append(alterIndex.getIndexId());
             sb.append(": ");
             sb.append(alterIndex.toString());
@@ -103,16 +102,16 @@ public class AlterInvertedIndexTask extends AgentTask {
 
         if (!alterInvertedIndexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
-            for (Map.Entry<Index, List<Integer>> index : alterInvertedIndexes.entrySet()) {
-                tIndexes.add(index.getKey().toThrift(index.getValue()));
+            for (Index index : alterInvertedIndexes) {
+                tIndexes.add(index.toThrift(index.getColumnUniqueIds(schemaColumns)));
             }
             req.setAlterInvertedIndexes(tIndexes);
         }
 
         if (existIndexes != null) {
             List<TOlapTableIndex> indexDesc = new ArrayList<TOlapTableIndex>();
-            for (Map.Entry<Index, List<Integer>> index : existIndexes.entrySet()) {
-                TOlapTableIndex tIndex = index.getKey().toThrift(index.getValue());
+            for (Index index : existIndexes) {
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(schemaColumns));
                 indexDesc.add(tIndex);
             }
             req.setIndexesDesc(indexDesc);

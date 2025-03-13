@@ -55,9 +55,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 
 public class IndexChangeJob implements Writable {
@@ -320,14 +318,6 @@ public class IndexChangeJob implements Writable {
             int originSchemaHash = olapTable.getSchemaHashByIndexId(originIndexId);
             Partition partition = olapTable.getPartition(partitionId);
             MaterializedIndex origIdx = partition.getIndex(originIndexId);
-            Map<Index, List<Integer>> existIndexToColumnUniqueIds = new HashMap<>();
-            Map<Index, List<Integer>> alterIndexToColumnUniqueIds = new HashMap<>();
-            for (Index idx : olapTable.getIndexes()) {
-                existIndexToColumnUniqueIds.put(idx, olapTable.getIndexColumnIds(idx.getColumns()));
-            }
-            for (Index idx : alterInvertedIndexes) {
-                alterIndexToColumnUniqueIds.put(idx, olapTable.getIndexColumnIds(idx.getColumns()));
-            }
             for (Tablet originTablet : origIdx.getTablets()) {
                 long taskSignature = Env.getCurrentEnv().getNextId();
                 long originTabletId = originTablet.getId();
@@ -342,8 +332,8 @@ public class IndexChangeJob implements Writable {
                     AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
                             originReplica.getBackendIdWithoutException(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
-                            originSchemaHash, existIndexToColumnUniqueIds,
-                            alterIndexToColumnUniqueIds, originSchemaColumns,
+                            originSchemaHash, olapTable.getIndexes(),
+                            alterInvertedIndexes, originSchemaColumns,
                             isDropOp, taskSignature, jobId);
                     invertedIndexBatchTask.addTask(alterInvertedIndexTask);
                 }

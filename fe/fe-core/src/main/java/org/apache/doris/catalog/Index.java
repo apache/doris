@@ -238,6 +238,18 @@ public class Index implements Writable {
         return sb.toString();
     }
 
+    public List<Integer> getColumnUniqueIds(List<Column> schema) {
+        List<Integer> columnUniqueIds = new ArrayList<>();
+        for (String columnName : columns) {
+            for (Column column : schema) {
+                if (columnName.equalsIgnoreCase(column.getName())) {
+                    columnUniqueIds.add(column.getUniqueId());
+                }
+            }
+        }
+        return columnUniqueIds;
+    }
+
     public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
