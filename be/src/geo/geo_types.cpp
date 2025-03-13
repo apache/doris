@@ -671,7 +671,6 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
-        //
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
         if (intersect_lines.empty()) {
