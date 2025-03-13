@@ -94,7 +94,7 @@ public class CloudReplica extends Replica {
     }
 
     private boolean isColocated() {
-        return Env.getCurrentColocateIndex().isColocateTable(tableId);
+        return Env.getCurrentColocateIndex().isColocateTableNoLock(tableId);
     }
 
     public long getColocatedBeId(String clusterId) throws ComputeGroupException {
@@ -130,7 +130,7 @@ public class CloudReplica extends Replica {
                 ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
         }
 
-        GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
+        GroupId groupId = Env.getCurrentColocateIndex().getGroupNoLock(tableId);
         HashCode hashCode = Hashing.murmur3_128().hashLong(groupId.grpId);
         if (availableBes.size() != bes.size()) {
             // some be is dead recently, still hash tablets on all backends.

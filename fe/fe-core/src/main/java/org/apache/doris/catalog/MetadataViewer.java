@@ -90,7 +90,8 @@ public class MetadataViewer {
                             List<String> row = Lists.newArrayList();
 
                             ReplicaStatus status = ReplicaStatus.OK;
-                            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+                            long beId = replica.getBackendIdWithoutException();
+                            Backend be = infoService.getBackend(beId);
                             if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
@@ -109,7 +110,7 @@ public class MetadataViewer {
 
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
-                            row.add(String.valueOf(replica.getBackendIdWithoutException()));
+                            row.add(String.valueOf(beId));
                             row.add(String.valueOf(replica.getVersion()));
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
@@ -197,7 +198,8 @@ public class MetadataViewer {
                             List<String> row = Lists.newArrayList();
 
                             ReplicaStatus status = ReplicaStatus.OK;
-                            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
+                            long beId = replica.getBackendIdWithoutException();
+                            Backend be = infoService.getBackend(beId);
                             if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
@@ -216,7 +218,7 @@ public class MetadataViewer {
 
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
-                            row.add(String.valueOf(replica.getBackendIdWithoutException()));
+                            row.add(String.valueOf(beId));
                             row.add(String.valueOf(replica.getVersion()));
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
@@ -338,13 +340,14 @@ public class MetadataViewer {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (!countMap.containsKey(replica.getBackendIdWithoutException())) {
+                            long beId = replica.getBackendIdWithoutException();
+                            if (!countMap.containsKey(beId)) {
                                 continue;
                             }
-                            countMap.put(replica.getBackendIdWithoutException(),
-                                    countMap.get(replica.getBackendIdWithoutException()) + 1);
-                            sizeMap.put(replica.getBackendIdWithoutException(),
-                                    sizeMap.get(replica.getBackendIdWithoutException()) + replica.getDataSize());
+                            countMap.put(beId,
+                                    countMap.get(beId) + 1);
+                            sizeMap.put(beId,
+                                    sizeMap.get(beId) + replica.getDataSize());
                             totalReplicaNum++;
                             totalReplicaSize += replica.getDataSize();
                         }
