@@ -110,7 +110,7 @@ protected:
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
     // column id to name map. Collect from FE slot descriptor.
-    std::unordered_map<uint64_t, std::string> _col_id_name_map;
+    std::unordered_map<int32_t, std::string> _col_id_name_map;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;

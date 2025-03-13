@@ -20,11 +20,23 @@ package org.apache.doris.datasource.hudi;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.util.InternalSchemaCache;
+import org.apache.hudi.internal.schema.InternalSchema;
+
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
 
     private List<String> colTypes;
+
+    private Map<Long, Long> commitInstantToSchemaVersion = new ConcurrentHashMap<>();
+    // commitInstantTime => schema version id.
+
+    private Map<Long, InternalSchema> internalSchemaCache = new ConcurrentHashMap<>();
+    // schema version id => hudi internal schema.
 
     public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
         super(schema, partitionColumns);
@@ -37,4 +49,20 @@ public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
     public void setColTypes(List<String> colTypes) {
         this.colTypes = colTypes;
     }
+
+    private Long getCommitInstantToSchemaVersion(Long commitInstant, HoodieTableMetaClient hudiClient) {
+        return commitInstantToSchemaVersion.computeIfAbsent(
+                commitInstant,
+                k -> {
+                    InternalSchema fileSchema = InternalSchemaCache.getInternalSchemaByVersionId(k, hudiClient);
+                    internalSchemaCache.putIfAbsent(fileSchema.schemaId(), fileSchema);
+                    return fileSchema.schemaId();
+                }
+        );
+    }
+
+    public InternalSchema getCommitInstantInternalSchema(Long commitInstant, HoodieTableMetaClient hudiClient) {
+        return internalSchemaCache.get(getCommitInstantToSchemaVersion(commitInstant, hudiClient));
+    }
+
 }

@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -58,9 +57,9 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -801,10 +800,9 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static Schema getHudiTableSchema(HMSExternalTable table) {
+    public static InternalSchema getHudiTableSchema(HMSExternalTable table) {
         HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
-        Schema hudiSchema;
 
         // Here, the timestamp should be reloaded again.
         // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
@@ -815,13 +813,11 @@ public class HiveMetaStoreClientHelper {
         metaClient.reloadActiveTimeline();
 
         try {
-            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
+            return schemaUtil.getTableInternalSchemaFromCommitMetadata().get();
         } catch (Exception e) {
             throw new RuntimeException("Cannot get hudi table schema.", e);
         }
-        return hudiSchema;
     }
-
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login

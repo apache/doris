@@ -31,7 +31,6 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -61,6 +60,9 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.InternalSchemaBuilder;
+import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,10 +71,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
@@ -212,6 +216,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override
@@ -262,6 +267,7 @@ public class HudiScanNode extends HiveScanNode {
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
         fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
+        fileDesc.setSchemaId(hudiSplit.getSchemaId()); //for schema change. (native reader)
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -319,6 +325,18 @@ public class HudiScanNode extends HiveScanNode {
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
+    private Map<Integer, String> getSchemaInfo(InternalSchema internalSchema) {
+        // todo: opt
+        Types.RecordType record = internalSchema.getRecord();
+        Map<Integer, String> recordMap =  record.fields().isEmpty()
+                ? Collections.emptyMap()
+                : InternalSchemaBuilder.getBuilder().buildIdToName(record);
+
+        Map<Integer, String> ans = new HashMap<>();
+        recordMap.forEach((k, v) -> ans.put(k, v.toLowerCase()));
+        return ans;
+    }
+
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
 
         String partitionName;
@@ -333,11 +351,28 @@ public class HudiScanNode extends HiveScanNode {
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
                 noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
+
+                ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .getSchemaCache(hmsTable.getCatalog());
+                Optional<SchemaCacheValue> schemaCacheValue = cache
+                        .getSchemaValue(hmsTable.getDbName(), hmsTable.getName());
+                HudiSchemaCacheValue hudiSchemaCacheValue = (HudiSchemaCacheValue) schemaCacheValue.get();
+                long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(baseFile.getFileName()));
+                InternalSchema internalSchema = hudiSchemaCacheValue
+                        .getCommitInstantInternalSchema(commitInstantTime, hudiClient);
+
+                params.history_schema_info.computeIfAbsent(
+                        internalSchema.schemaId(),
+                        k -> getSchemaInfo(internalSchema));
+
                 long fileSize = baseFile.getFileSize();
                 // Need add hdfs host to location
                 LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                splits.add(new FileSplit(locationPath, 0, fileSize, fileSize, 0,
-                        new String[0], partition.getPartitionValues()));
+                HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
+                        new String[0], partition.getPartitionValues());
+                hudiSplit.setTableFormatType(TableFormatType.HUDI);
+                hudiSplit.setSchemaId(internalSchema.schemaId());
+                splits.add(hudiSplit);
             });
         } else {
             fsView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant)
