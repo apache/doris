@@ -17,6 +17,7 @@
 
 #include "pipeline/exec/union_source_operator.h"
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -55,31 +56,29 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-Status UnionSourceLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
-
-    auto& p = _parent->cast<Parent>();
-    // Const exprs materialized by this node. These exprs don't refer to any children.
-    // Only materialized by the first fragment instance to avoid duplication.
-    if (state->per_fragment_instance_idx() == 0) {
-        auto clone_expr_list = [&](vectorized::VExprContextSPtrs& cur_expr_list,
-                                   vectorized::VExprContextSPtrs& other_expr_list) {
-            cur_expr_list.resize(other_expr_list.size());
-            for (int i = 0; i < cur_expr_list.size(); i++) {
-                RETURN_IF_ERROR(other_expr_list[i]->clone(state, cur_expr_list[i]));
-            }
-            return Status::OK();
-        };
-        _const_expr_lists.resize(p._const_expr_lists.size());
-        for (int i = 0; i < _const_expr_lists.size(); i++) {
-            auto& _const_expr_list = _const_expr_lists[i];
-            auto& other_expr_list = p._const_expr_lists[i];
-            RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
-        }
+Status UnionSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(Base::init(tnode, state));
+    for (const auto& texprs : tnode.union_node.const_expr_lists) {
+        vectorized::VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
+        _const_expr_lists.push_back(ctxs);
     }
+    if (!std::ranges::all_of(_const_expr_lists, [&](const auto& exprs) {
+            return exprs.size() == _const_expr_lists.front().size();
+        })) {
+        return Status::InternalError("Const expr lists size not match");
+    }
+    return Status::OK();
+}
 
+Status UnionSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::prepare(state));
+    for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
+    }
+    for (const auto& exprs : _const_expr_lists) {
+        RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
+    }
     return Status::OK();
 }
 
@@ -102,12 +101,12 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         // have executing const expr, queue have no data anymore, and child could be closed
         if (_child_size == 0 && !local_state._need_read_for_const_expr) {
             *eos = true;
-        } else if (_has_data(state)) {
+        } else if (has_data(state)) {
             *eos = false;
         } else if (local_state._shared_state->data_queue.is_all_finish()) {
             // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
             // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
-            *eos = !_has_data(state);
+            *eos = !has_data(state);
         } else {
             *eos = false;
         }
@@ -137,49 +136,25 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
 
 Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
-    auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
+    auto& local_state = get_local_state(state);
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
 
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
-    auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    vectorized::MutableBlock mblock =
+    auto& const_expr_list_idx = local_state._const_expr_list_idx;
+    vectorized::MutableBlock mutable_block =
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
-         ++_const_expr_list_idx) {
+    for (; const_expr_list_idx < _const_expr_lists.size() &&
+           mutable_block.rows() < state->batch_size();
+         ++const_expr_list_idx) {
         vectorized::Block tmp_block;
-        tmp_block.insert({vectorized::ColumnUInt8::create(1),
-                          std::make_shared<vectorized::DataTypeUInt8>(), ""});
-        int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
-        if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {
-            return Status::InternalError(
-                    "[UnionNode]const expr at {}'s count({}) not matched({} expected)",
-                    _const_expr_list_idx, const_expr_lists_size, _const_expr_lists[0].size());
+        vectorized::ColumnsWithTypeAndName colunms;
+        for (auto& expr : _const_expr_lists[const_expr_list_idx]) {
+            int result_column_id = -1;
+            RETURN_IF_ERROR(expr->execute(&tmp_block, &result_column_id));
+            colunms.emplace_back(tmp_block.get_by_position(result_column_id));
         }
-
-        std::vector<int> result_list(const_expr_lists_size);
-        for (size_t i = 0; i < const_expr_lists_size; ++i) {
-            RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
-                                                                                &result_list[i]));
-        }
-        tmp_block.erase_not_in(result_list);
-        if (tmp_block.columns() != mblock.columns()) {
-            return Status::InternalError(
-                    "[UnionNode]columns count of const expr block not matched ({} vs {})",
-                    tmp_block.columns(), mblock.columns());
-        }
-        if (tmp_block.rows() > 0) {
-            RETURN_IF_ERROR(mblock.merge(tmp_block));
-            tmp_block.clear();
-        }
-    }
-
-    // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
-    // the const expr will be in output expr cause the union node return a empty block. so here we
-    // need add one row to make sure the union node exec const expr return at least one row
-    if (block->rows() == 0) {
-        block->insert({vectorized::ColumnUInt8::create(1),
-                       std::make_shared<vectorized::DataTypeUInt8>(), ""});
+        RETURN_IF_ERROR(mutable_block.merge(vectorized::Block {colunms}));
     }
     return Status::OK();
 }
