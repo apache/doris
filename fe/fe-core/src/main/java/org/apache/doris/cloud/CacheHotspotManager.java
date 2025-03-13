@@ -542,9 +542,6 @@ public class CacheHotspotManager extends MasterDaemon {
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
                 Long partitionSize = partition.getDataSize(true);
-                if ((warmUpTotalFileCache + partitionSize) > totalFileCache) {
-                    break;
-                }
                 warmUpTotalFileCache += partitionSize;
                 warmUpPartitions.add(partition);
             }
