@@ -101,8 +101,7 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
     }
 
     private static boolean isSelectDistinct(LogicalAggregate<? extends Plan> agg) {
-        return ExpressionUtils.allMatch(agg.getGroupByExpressions(), Slot.class::isInstance)
-                && agg.getGroupByExpressions().equals(agg.getOutputExpressions())
+        return agg.getGroupByExpressions().equals(agg.getOutputExpressions())
                 && agg.getGroupByExpressions().equals(agg.child().getOutput());
     }
 
