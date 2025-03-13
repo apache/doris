@@ -136,6 +136,9 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _agg_functions[i]->data_type()->is_nullable();
         _result_column_could_resize[i] =
                 _agg_functions[i]->function()->result_column_could_resize();
+        if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->function()->get_name())) {
+            _streaming_mode = false;
+        }
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -808,9 +811,8 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
             _input_block_first_row_positions[_removed_block_index + block_num];
 
     if (_streaming_mode) {
-        if (_have_removed_rows + _current_row_position -
-                    _input_block_first_row_positions[_output_block_index] <=
-            unused_rows_pos) {
+        auto idx = _output_block_index - 1;
+        if (idx < 0 || _input_block_first_row_positions[idx] <= unused_rows_pos) {
             return;
         }
     } else {
