@@ -366,12 +366,22 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         msg = "pb serialization error";
         return;
     }
+    TabletJobInfoPB new_tablet_job_pb {job_pb};
+    std::string new_tablet_job_val;
+    new_tablet_job_pb.clear_compaction();
+    new_tablet_job_pb.SerializeToString(&new_tablet_job_val);
+    if (new_tablet_job_val.empty()) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "pb serialization error";
+        return;
+    }
+
     INSTANCE_LOG(INFO) << "schema_change job to save job=" << proto_to_json(schema_change);
     txn->put(job_key, job_val);
     auto new_tablet_job_key =
             job_tablet_key({instance_id, new_tablet_idx.table_id(), new_tablet_idx.index_id(),
                             new_tablet_idx.partition_id(), new_tablet_id});
-    txn->put(new_tablet_job_key, job_val);
+    txn->put(new_tablet_job_key, new_tablet_job_val);
     response->set_alter_version(job_pb.schema_change().alter_version());
     need_commit = true;
 }
