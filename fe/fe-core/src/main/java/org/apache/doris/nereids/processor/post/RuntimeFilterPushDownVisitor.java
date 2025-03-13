@@ -335,6 +335,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, PushDownContext ctx) {
+        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
         // project ( A+1 as x)
         // probeExpr: abs(x) => abs(A+1)
         PushDownContext ctxProjectProbeExpr = ctx;
