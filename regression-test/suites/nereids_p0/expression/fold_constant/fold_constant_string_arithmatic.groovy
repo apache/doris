@@ -663,6 +663,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select substr('abcdef',3,-1)")
     testFoldConst("select substr('',3,-1)")
     testFoldConst("select substr('abcdef',3,10)")
+    testFoldConst("select substr('abcdef',-3)")
+    testFoldConst("select substr('abcdef',3)")
+    testFoldConst("select substr('',3)")
 
     // substring
     testFoldConst("select substring('1', 1, 1)")
@@ -689,6 +692,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select substring('Hello World', 1, 5)")
     testFoldConst("select substring('', 1, 5)")
     testFoldConst("select substring('Hello World', 1, 50)")
+    testFoldConst("select substring('abcdef',-3)")
+    testFoldConst("select substring('abcdef',3)")
+    testFoldConst("select substring('',3)")
 
     // substring_index
     testFoldConst("select substring_index('a,b,c', ',', 2)")
