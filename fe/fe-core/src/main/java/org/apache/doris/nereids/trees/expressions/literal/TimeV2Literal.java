@@ -45,7 +45,7 @@ public class TimeV2Literal extends Literal {
         this(TimeV2Type.of(0), s);
     }
 
-    protected TimeV2Literal(TimeV2Type dataType, String s) {
+    public TimeV2Literal(TimeV2Type dataType, String s) {
         super(dataType);
         init(s);
     }
@@ -181,9 +181,8 @@ public class TimeV2Literal extends Literal {
     }
 
     protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second
-                || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
-                || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
+        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
+                || microsecond > 999999 || microsecond < 0;
     }
 
     public int getHour() {

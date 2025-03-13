@@ -40,7 +40,7 @@ public class TimeV2Literal extends LiteralExpr {
      * C'tor forcing type, e.g., due to implicit cast
      */
     // for restore
-    private TimeV2Literal() {
+    public TimeV2Literal() {
         this.type = Type.TIMEV2;
         this.hour = 0;
         this.minute = 0;
@@ -244,9 +244,8 @@ public class TimeV2Literal extends LiteralExpr {
     }
 
     protected static boolean checkRange(int hour, int minute, int second, int microsecond) {
-        return hour > PART_MAX.hour || minute > PART_MAX.minute || second > PART_MAX.second
-                || microsecond > PART_MAX.microsecond || hour < PART_MIN.hour || minute < PART_MIN.minute
-                || second < PART_MIN.second || microsecond < PART_MIN.microsecond;
+        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
+                || microsecond > 999999 || microsecond < 0;
     }
 
     public int getHour() {
