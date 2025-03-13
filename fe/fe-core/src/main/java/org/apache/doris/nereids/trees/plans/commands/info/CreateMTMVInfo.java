@@ -280,7 +280,8 @@ public class CreateMTMVInfo {
             this.mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             this.partitionDesc = generatePartitionDesc(ctx);
             columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
-                    distribution == null ? Sets.newHashSet() : Sets.newHashSet(distribution.getCols()),
+                    (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
+                            : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
             analyzeKeys();
         }
