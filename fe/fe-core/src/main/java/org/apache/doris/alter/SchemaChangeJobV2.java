@@ -287,6 +287,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
 
                     List<Index> tabletIndexes = originIndexId == tbl.getBaseIndexId() ? indexes : null;
+                    Map<Index, List<Integer>> indexListMap = null;
+                    if (tabletIndexes != null) {
+                        indexListMap = new HashMap<>();
+                        for (Index idx : tabletIndexes) {
+                            indexListMap.put(idx, tbl.getIndexColumnIds(idx.getColumns()));
+                        }
+                    }
 
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
@@ -300,7 +307,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowReplicaId, shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
-                                    shadowSchema, bfColumns, bfFpp, countDownLatch, tabletIndexes,
+                                    shadowSchema, bfColumns, bfFpp, countDownLatch, indexListMap,
                                     tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     null,

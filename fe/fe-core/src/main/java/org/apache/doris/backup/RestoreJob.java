@@ -1342,6 +1342,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
+            Map<Index, List<Integer>> indexListMap = null;
+            if (indexes != null) {
+                indexListMap = new HashMap<>();
+                for (Index idx : indexes) {
+                    indexListMap.put(idx, localTbl.getIndexColumnIds(idx.getColumns()));
+                }
+            }
             List<Integer> clusterKeyUids = null;
             if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
                 clusterKeyUids = OlapTable.getClusterKeyUids(indexMeta.getSchema());
@@ -1363,7 +1370,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             indexMeta.getKeysType(), TStorageType.COLUMN,
                             storageMedium,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
-                            indexes,
+                            indexListMap,
                             localTbl.isInMemory(),
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,

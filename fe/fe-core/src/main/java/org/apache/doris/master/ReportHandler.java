@@ -949,6 +949,13 @@ public class ReportHandler extends Daemon {
                                     double bfFpp = olapTable.getBfFpp();
                                     List<Index> indexes = indexId == olapTable.getBaseIndexId()
                                                             ? olapTable.getCopiedIndexes() : null;
+                                    Map<Index, List<Integer>> indexListMap = null;
+                                    if (indexes != null) {
+                                        indexListMap = new HashMap<>();
+                                        for (Index idx : indexes) {
+                                            indexListMap.put(idx, olapTable.getIndexColumnIds(idx.getColumns()));
+                                        }
+                                    }
                                     List<String> rowStoreColumns =
                                                 olapTable.getTableProperty().getCopiedRowStoreColumns();
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
@@ -958,7 +965,7 @@ public class ReportHandler extends Daemon {
                                             indexMeta.getKeysType(),
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, indexMeta.getSchema(), bfColumns, bfFpp, null,
-                                            indexes,
+                                            indexListMap,
                                             olapTable.isInMemory(),
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
                                             null,

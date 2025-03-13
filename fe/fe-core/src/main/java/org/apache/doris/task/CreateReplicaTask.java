@@ -75,7 +75,8 @@ public class CreateReplicaTask extends AgentTask {
     private double bfFpp;
 
     // indexes
-    private List<Index> indexes;
+    // index -> index column unique ids
+    private Map<Index, List<Integer>> indexes;
 
     private boolean isInMemory;
 
@@ -137,7 +138,7 @@ public class CreateReplicaTask extends AgentTask {
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
-                             List<Index> indexes,
+                             Map<Index, List<Integer>> indexes,
                              boolean isInMemory,
                              TTabletType tabletType,
                              DataSortInfo dataSortInfo,
@@ -343,15 +344,15 @@ public class CreateReplicaTask extends AgentTask {
                 LOG.debug("cluster key uids={}, table_id={}, tablet_id={}", clusterKeyUids, tableId, tabletId);
             }
         }
-        if (CollectionUtils.isNotEmpty(indexes)) {
+        if (indexes != null && !indexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = null;
-            Object value = objectPool.get(indexes);
+            Object value = objectPool.get(indexes.keySet());
             if (value != null) {
                 tIndexes = (List<TOlapTableIndex>) value;
             } else {
                 tIndexes = new ArrayList<>();
-                for (Index index : indexes) {
-                    tIndexes.add(index.toThrift(tableId));
+                for (Map.Entry<Index, List<Integer>> index : indexes.entrySet()) {
+                    tIndexes.add(index.getKey().toThrift(index.getValue()));
                 }
             }
             tSchema.setIndexes(tIndexes);

@@ -243,7 +243,7 @@ public class Index implements Writable {
         return olapTable.getIndexColumnIds(columns);
     }
 
-    public TOlapTableIndex toThrift(long tableId) {
+    public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
@@ -252,7 +252,7 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
-        tIndex.setColumnUniqueIds(getIndexColumnUniqueIds(tableId));
+        tIndex.setColumnUniqueIds(indexColumnUniqueIds);
         return tIndex;
     }
 
