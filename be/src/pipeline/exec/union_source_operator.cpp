@@ -148,6 +148,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
            mutable_block.rows() < state->batch_size();
          ++const_expr_list_idx) {
         vectorized::Block tmp_block;
+        // When we execute a constant expression, we need one row of data because the expr may use the block's rows for some judgments
+        tmp_block.insert({vectorized::ColumnUInt8::create(1),
+                          std::make_shared<vectorized::DataTypeUInt8>(), ""});
         vectorized::ColumnsWithTypeAndName colunms;
         for (auto& expr : _const_expr_lists[const_expr_list_idx]) {
             int result_column_id = -1;
@@ -155,6 +158,15 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
             colunms.emplace_back(tmp_block.get_by_position(result_column_id));
         }
         RETURN_IF_ERROR(mutable_block.merge(vectorized::Block {colunms}));
+    }
+
+    // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
+    // the const expr will be in output expr cause the union node return a empty block. so here we
+    // need add one row to make sure the union node exec const expr return at least one row
+    /// TODO: maybe we can remove this
+    if (block->rows() == 0) {
+        block->insert({vectorized::ColumnUInt8::create(1),
+                       std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
     return Status::OK();
 }
