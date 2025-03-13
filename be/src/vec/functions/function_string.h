@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <fmt/core.h>
+#include <fmt/printf.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -66,6 +66,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast_type_to_either.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -4566,7 +4567,7 @@ class FunctionPrintf : public IFunction {
 public:
     static constexpr auto name = "printf";
 
-    static FunctionPtr create() { return std::make_shared<FunctionFormat>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionPrintf>(); }
 
     String get_name() const override { return name; }
 
@@ -4617,7 +4618,7 @@ public:
         std::vector<ColumnPtr> argument_columns(argument_size);
         auto result_column = ColumnString::create();
 
-        // maybe most user is format(const, column), so only handle this case const column
+        // maybe most user is printf(const, column), so only handle this case const column
         if (argument_size == 2) {
             std::vector<uint8_t> is_consts(argument_size);
             std::tie(argument_columns[0], is_consts[0]) =
@@ -4653,15 +4654,15 @@ public:
             try {
                 if constexpr (std::is_same_v<ColVecData, ColumnString>) {
                     auto value = value_column.get_data_at(index_check_const(i, is_consts[1]));
-                    res = fmt::format(format, value);
+                    res = fmt::sprintf(format, value);
                 } else {
                     auto value = value_column.get_data()[i];
-                    res = fmt::format(format, value);
+                    res = fmt::sprintf(format, value);
                 }
             } catch (const std::exception& e) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
-                        "Invalid Input argument \"{}\" of function format, error: {}", format,
+                        "Invalid Input argument \"{}\" of function printf, error: {}", format,
                         e.what());
             }
             result_data_column->insert_data(res.data(), res.length());
@@ -4695,7 +4696,7 @@ public:
             } catch (const std::exception& e) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
-                        "Invalid Input argument \"{}\" of function format, error: {}", format,
+                        "Invalid Input argument \"{}\" of function printf, error: {}", format,
                         e.what());
             }
             result_data_column->insert_data(res.data(), res.length());
