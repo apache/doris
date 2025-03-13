@@ -196,7 +196,8 @@ TEST_F(TableFunctionTest, vexplode_two_param) {
         InputDataSet output_set = {{{CellSet {std::string("one"), std::string("1")}}},
                                    {{CellSet {std::string("two"), std::string("2")}}},
                                    {{CellSet {std::string("three"), std::string("3")}}}};
-        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
     }
 
     // explode(null, Array<String>)
@@ -212,7 +213,8 @@ TEST_F(TableFunctionTest, vexplode_two_param) {
                                    {{CellSet {Null(), std::string("two")}}},
                                    {{CellSet {Null(), std::string("three")}}}};
 
-        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
     }
 
     // explode(Array<Null>, Array<String>)
@@ -229,7 +231,8 @@ TEST_F(TableFunctionTest, vexplode_two_param) {
                                    {{CellSet {std::string("two"), Null()}}},
                                    {{CellSet {std::string("three"), std::string("3")}}}};
 
-        check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, false);
+        check_vec_table_function(&explode, input_types, input_set, output_types, output_set, true);
     }
 }
 
