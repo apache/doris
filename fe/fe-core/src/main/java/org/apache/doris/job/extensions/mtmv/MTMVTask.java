@@ -254,7 +254,7 @@ public class MTMVTask extends AbstractTask {
         List<ColumnDefinition> derivedColumns = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
                 mtmv.getMvPartitionInfo().getPartitionCol(),
                 mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
-        List<Column> currentColumns = mtmv.getColumns();
+        List<Column> currentColumns = mtmv.getFullSchema();
         if (derivedColumns.size() != currentColumns.size()) {
             throw new JobException("column length not equals, please check columns of base table if changed");
         }
