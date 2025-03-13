@@ -162,8 +162,9 @@ struct StringOP {
     }
 };
 
+template <bool is_hive = false>
 struct SubstringUtil {
-    static constexpr auto name = "substring";
+    static constexpr auto name = "substring" + (is_hive ? "_hive" : "");
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
@@ -220,7 +221,7 @@ private:
         PMR::vector<size_t> index {&pool};
 
         if constexpr (is_const) {
-            if (start[0] == 0 || len[0] <= 0) {
+            if ((!is_hive && start[0] == 0) || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -237,9 +238,15 @@ private:
             int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
             // return empty string if start > src.length
             // Here, start_value is compared against the length of the character.
-            if (start_value > char_len || str_size == 0 || start_value == 0 || len_value <= 0) {
+            if (start_value > char_len || str_size == 0 || (!is_hive && start_value == 0) ||
+                len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
+            }
+
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            if (is_hive && start_value == 0) {
+                start_value = 1;
             }
 
             size_t byte_pos = 0;
@@ -287,7 +294,7 @@ private:
         res_offsets.resize(size);
 
         if constexpr (is_const) {
-            if (start[0] == 0 || len[0] <= 0) {
+            if ((!is_hive && start[0] == 0) || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -304,6 +311,11 @@ private:
 
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
+
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            if (is_hive && start_value == 0) {
+                start_value = 1;
+            }
 
             if (start_value > str_size || start_value < -str_size || str_size == 0 ||
                 len_value <= 0) {
@@ -613,7 +625,7 @@ private:
     }
 };
 
-template <typename Impl>
+template <typename Impl, bool is_hive = false>
 class FunctionSubstring : public IFunction {
 public:
     static constexpr auto name = SubstringUtil::name;

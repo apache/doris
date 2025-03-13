@@ -423,6 +423,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringHive;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
@@ -2064,6 +2065,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSubstring(Substring substring, C context) {
         return visitScalarFunction(substring, context);
+    }
+
+    default R visitSubstringHive(SubstringHive substringHive, C context) {
+        return visitScalarFunction(substringHive, context);
     }
 
     default R visitSubstringIndex(SubstringIndex substringIndex, C context) {

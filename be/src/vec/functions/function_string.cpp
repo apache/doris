@@ -1197,6 +1197,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
+    factory.register_function<FunctionSubstring<Substr3Impl, true>>();
+    factory.register_function<FunctionSubstring<Substr2Impl, true>>();
     factory.register_function<FunctionLeft>();
     factory.register_function<FunctionRight>();
     factory.register_function<FunctionNullOrEmpty>();
@@ -1243,6 +1245,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
+    factory.register_alias(SubstringUtil<true>::name, "substr_hive");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
     factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
