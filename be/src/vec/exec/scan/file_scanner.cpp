@@ -1274,6 +1274,8 @@ Status FileScanner::_init_expr_ctxes() {
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
             if (it->second->col_unique_id() >= 0) {
+                // Iceberg field unique ID starts from 1, Paimon/Hudi field unique ID starts from 0.
+                // For other data sources, all columns are set to -1.
                 _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
             }
         } else {

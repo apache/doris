@@ -48,10 +48,12 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -155,9 +157,15 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
-    Map<Long, String> getSchemaInfo(Long schemaId) {
+    private Map<Long, String> getSchemaInfo(Long schemaId) {
         PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
-        return table.getPaimonSchemaCacheValue(schemaId).getColumnIdToName();
+        TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
+        Map<Long, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
+        for (DataField dataField : tableSchema.fields()) {
+            columnIdToName.put((long) dataField.id(), dataField.name().toLowerCase());
+        }
+
+        return columnIdToName;
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {

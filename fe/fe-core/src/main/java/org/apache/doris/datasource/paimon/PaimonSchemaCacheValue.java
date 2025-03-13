@@ -21,11 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.types.DataField;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class PaimonSchemaCacheValue extends SchemaCacheValue {
 
@@ -34,17 +31,10 @@ public class PaimonSchemaCacheValue extends SchemaCacheValue {
     private TableSchema tableSchema;
     // Caching TableSchema can reduce the reading of schema files and json parsing.
 
-    private Map<Long, String> columnIdToName;
-
     public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns, TableSchema tableSchema) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.tableSchema = tableSchema;
-
-        columnIdToName = new HashMap<>(tableSchema.fields().size());
-        for (DataField dataField : tableSchema.fields()) {
-            columnIdToName.put((long) dataField.id(), dataField.name().toLowerCase());
-        }
     }
 
     public List<Column> getPartitionColumns() {
@@ -53,9 +43,5 @@ public class PaimonSchemaCacheValue extends SchemaCacheValue {
 
     public TableSchema getTableSchema() {
         return tableSchema;
-    }
-
-    public Map<Long, String> getColumnIdToName() {
-        return columnIdToName;
     }
 }
