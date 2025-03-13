@@ -925,4 +925,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public double getMaxFilterRatio() {
         return maxFilterRatio;
     }
+
+    @Override
+    public Long totalProgress() {
+        return ((KafkaProgress) progress).totalProgress();
+    }
+
+    @Override
+    public Long totalLag() {
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        return partitionIdToOffsetLag.values().stream()
+                .filter(lag -> lag >= 0)
+                .mapToLong(v -> v)
+                .sum();
+    }
 }
