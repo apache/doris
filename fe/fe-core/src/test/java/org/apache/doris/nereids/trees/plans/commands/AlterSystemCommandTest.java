@@ -17,7 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import com.google.common.collect.Lists;
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateUserStmt;
+import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserDesc;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
@@ -31,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -42,8 +55,26 @@ import java.util.List;
 import java.util.Map;
 
 public class AlterSystemCommandTest extends TestWithFeService {
+    private final UserIdentity userWithNoAllPriv = new UserIdentity("user_no_all_priv", "%");
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        TablePattern tablePattern = new TablePattern("*", "*", "*");
+        tablePattern.analyze();
+
+        userWithNoAllPriv.analyze();
+        CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(userWithNoAllPriv));
+        Env.getCurrentEnv().getAuth().createUser(createUserStmt);
+        GrantStmt grantStmt = new GrantStmt(userWithNoAllPriv, null, tablePattern, ImmutableList.of());
+        Env.getCurrentEnv().getAuth().grant(grantStmt);
+    }
+
+    private void changeUser(UserIdentity user) {
+        ConnectContext.get().setCurrentUserIdentity(user);
+    }
+
     @Test
-    void testValidate() {
+    void testValidate() throws UserException {
         List<String> hostPorts = ImmutableList.of("127.0.0.1:9050", "127.0.0.1:19050");
         List<String> hostPortsErr = ImmutableList.of("127.0.0.1:89050", "355.0.0.1:19050");
         Map<String, String> properties = new HashMap<>();
@@ -125,7 +156,8 @@ public class AlterSystemCommandTest extends TestWithFeService {
                 new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), "localhost2",
                         ModifyFrontendOrBackendHostNameOp.ModifyOpType.Backend),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
-        Assertions.assertDoesNotThrow(() -> modifyBackendHostName2.validate(connectContext));
+        Assertions.assertThrows(AnalysisException.class, () -> modifyBackendHostName2.validate(connectContext),
+                "Unknown hostname:  localhost2: Name or service not known");
 
         // test modifyFrontendHostName
         AlterSystemCommand modifyFrontendHostName = new AlterSystemCommand(
@@ -133,6 +165,14 @@ public class AlterSystemCommandTest extends TestWithFeService {
                         ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
         Assertions.assertDoesNotThrow(() -> modifyFrontendHostName.validate(connectContext));
+
+        changeUser(userWithNoAllPriv);
+        // test addBackend
+        AlterSystemCommand addBackend0 = new AlterSystemCommand(
+                new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
+        Assertions.assertThrows(AnalysisException.class, () -> addBackend0.validate(connectContext),
+                "Access denied; you need (at least one of) the (NODE) privilege(s) for this operation");
+
     }
 }
 
