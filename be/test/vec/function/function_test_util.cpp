@@ -509,7 +509,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         }
 
         do {
-            if (test_batch_func) {
+            if (test_get_value_func) {
                 fn->get_value(column, 10);
             } else {
                 fn->get_same_many_values(column, 1);
