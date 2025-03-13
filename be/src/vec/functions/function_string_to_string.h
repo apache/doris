@@ -20,8 +20,12 @@
 
 #pragma once
 
+#include <memory>
+
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
@@ -42,14 +46,18 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!is_string_or_fixed_string(arguments[0])) {
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        if (!is_string_or_fixed_string(arguments[0].type)) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type {} of argument of function {}",
-                                   arguments[0]->get_name(), get_name());
+                                   arguments[0].type->get_name(), get_name());
         }
 
-        return arguments[0];
+        return arguments[0].type;
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
     }
 
     DataTypes get_variadic_argument_types_impl() const override {

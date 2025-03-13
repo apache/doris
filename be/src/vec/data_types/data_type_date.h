@@ -55,7 +55,7 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATE;
     }
-    const char* get_family_name() const override { return "DateTime"; }
+    const char* get_family_name() const override { return "Date"; }
     std::string do_get_name() const override { return "Date"; }
 
     bool equals(const IDataType& rhs) const override;
