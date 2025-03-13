@@ -240,10 +240,12 @@ public class Index implements Writable {
 
     public List<Integer> getColumnUniqueIds(List<Column> schema) {
         List<Integer> columnUniqueIds = new ArrayList<>();
-        for (String columnName : columns) {
-            for (Column column : schema) {
-                if (columnName.equalsIgnoreCase(column.getName())) {
-                    columnUniqueIds.add(column.getUniqueId());
+        if (columns != null) {
+            for (String columnName : columns) {
+                for (Column column : schema) {
+                    if (columnName.equalsIgnoreCase(column.getName())) {
+                        columnUniqueIds.add(column.getUniqueId());
+                    }
                 }
             }
         }
