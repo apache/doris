@@ -54,11 +54,11 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
-           logicalProject().then(project -> {
-               project = distinctConstantsToLimit1(project);
-               Plan result = projectToAggregate(project);
-               return distinctToAggregate(result, project);
-           })
+            logicalProject().then(project -> {
+                project = distinctConstantsToLimit1(project);
+                Plan result = projectToAggregate(project);
+                return distinctToAggregate(result, project);
+            })
         );
     }
 
