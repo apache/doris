@@ -123,6 +123,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinutesDiff>();
     factory.register_function<FunctionSecondsDiff>();
 
+    factory.register_function<FunctionNextDay>();
+
     factory.register_function<FunctionToYearWeekTwoArgs>();
     factory.register_function<FunctionToWeekTwoArgs>();
 
