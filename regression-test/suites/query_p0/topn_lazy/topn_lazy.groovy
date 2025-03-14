@@ -99,4 +99,65 @@ suite("topn_lazy") {
                     """
         multiContains("VMaterializeNode", 1)
     }
+    
+    qt_test_lazy1 """select * from date order by d_date limit 10;"""
+
+    qt_test_lazy2 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason FROM date ORDER BY d_date LIMIT 10;"""
+
+    // Add new test cases for LEFT JOIN with different column orders
+    sql """ DROP TABLE IF EXISTS users """
+    sql """ CREATE TABLE users (
+        user_id INT,
+        user_name VARCHAR(50)
+    ) DISTRIBUTED BY HASH(user_id) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    ); """
+
+    sql """ DROP TABLE IF EXISTS orders """
+    sql """ CREATE TABLE orders (
+        order_id INT,
+        user_id INT,
+        order_amount DECIMAL(10,2)
+    ) DISTRIBUTED BY HASH(user_id) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    ); """
+
+    sql """ INSERT INTO users VALUES 
+        (1, 'Alice'),
+        (2, 'Bob'),
+        (3, 'Charlie'),
+        (4, 'David'),
+        (5, 'Eve'); """
+
+    sql """ INSERT INTO orders VALUES 
+        (101, 1, 100.50),
+        (102, 2, 200.75),
+        (103, 3, 150.00); """
+
+    // Test case 1: Original column order
+    qt_test_lazy3 """
+        SELECT u.user_id, u.user_name, o.order_id, o.order_amount 
+        FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
+        ORDER BY u.user_id LIMIT 5;
+    """
+
+    // Test case 2: Different column order
+    qt_test_lazy4 """
+        SELECT o.order_amount, u.user_name, o.order_id, u.user_id 
+        FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
+        ORDER BY u.user_id LIMIT 5;
+    """
+
+    // Test case 3: Another column order variation
+    qt_test_lazy5 """
+        SELECT u.user_name, o.order_id, u.user_id, o.order_amount 
+        FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
+        ORDER BY u.user_id LIMIT 5;
+    """
+
+    // Cleanup tables
+    sql """ DROP TABLE IF EXISTS users """
+    sql """ DROP TABLE IF EXISTS orders """
 }
