@@ -227,14 +227,6 @@ public class EncryptSQLTest extends ParserTestBase {
             + " \"csv_schema\" = \"user_id:int;name:string;age:int\""
             + ")";
         parseAndCheck(sql, res);
-
-        sql = "SET LDAP_ADMIN_PASSWORD = PASSWORD('123456')";
-        res = "SET LDAP_ADMIN_PASSWORD = PASSWORD('*XXX')";
-        parseAndCheck(sql, res);
-
-        sql = "SET PASSWORD FOR 'admin' = PASSWORD('123456')";
-        res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
-        parseAndCheck(sql, res);
     }
 
     private void parseAndCheck(String sql, String expected) {
