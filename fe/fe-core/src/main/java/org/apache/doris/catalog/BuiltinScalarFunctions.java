@@ -689,7 +689,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(If.class, "if"),
             scalar(Ignore.class, "ignore"),
             scalar(Initcap.class, "initcap"),
-            scalar(InnerProduct.class, "inner_product"),
+            scalar(InnerProduct.class, "inner_product", "array_dot_product"),
             scalar(Instr.class, "instr"),
             scalar(InttoUuid.class, "int_to_uuid"),
             scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
