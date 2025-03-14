@@ -59,7 +59,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     private boolean partitionColumnSampleTooManyRows = false;
     private boolean scanFullTable = false;
     private static final long MAXIMUM_SAMPLE_ROWS = 1_000_000_000;
-    private static final int PARTITION_COUNT_TO_SAMPLE = 5;
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -336,7 +335,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 MaterializedIndex materializedIndex = p.getIndex(indexId);
                 pickedTabletIds.addAll(materializedIndex.getTabletIdsInOrder());
             }
-            if (pickedRows >= MAXIMUM_SAMPLE_ROWS || pickedPartitionCount > PARTITION_COUNT_TO_SAMPLE) {
+            if (pickedRows >= StatisticsUtil.getPartitionSampleRowCount()
+                    || pickedPartitionCount >= StatisticsUtil.getPartitionSampleCount()) {
                 break;
             }
         }
