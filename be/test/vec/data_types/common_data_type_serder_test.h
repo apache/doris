@@ -412,7 +412,6 @@ public:
 
     static void compare_two_blocks(const std::shared_ptr<Block>& frist_block,
                                    const std::shared_ptr<Block>& second_block) {
-        EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
         for (size_t i = 0; i < frist_block->columns(); ++i) {
             EXPECT_EQ(frist_block->get_by_position(i).type, second_block->get_by_position(i).type);
             auto& col = frist_block->get_by_position(i).column;
@@ -430,6 +429,7 @@ public:
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
+        EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
     }
 
     // assert rapidjson format
