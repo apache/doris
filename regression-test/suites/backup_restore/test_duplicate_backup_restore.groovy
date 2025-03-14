@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_duplicate_backup_restore", "backup_restore") {
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String suiteName = "test_duplicate_backup_restore"
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "duplicate_backup_restore_db"
     String tableName = "test_duplicate_backup_restore_table"
 
