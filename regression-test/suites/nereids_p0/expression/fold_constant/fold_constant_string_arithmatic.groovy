@@ -50,6 +50,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select append_trailing_char_if_absent('こんにちは', '!')")
     testFoldConst("select append_trailing_char_if_absent('\n\t', '\n')")
     testFoldConst("select append_trailing_char_if_absent('こんにちは', 'ちは')")
+    testFoldConst("select append_trailing_char_if_absent('中文', '文')")
+    testFoldConst("select append_trailing_char_if_absent('中', '文')")
+    testFoldConst("select append_trailing_char_if_absent('', '文')")
     
     // ascii
     testFoldConst("select ascii('!')")

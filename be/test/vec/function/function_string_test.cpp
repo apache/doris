@@ -878,6 +878,9 @@ TEST(function_string_test, function_append_trailing_char_if_absent_test) {
                         {{std::string("ABC"), Null()}, Null()},
                         {{Null(), std::string("ABC")}, Null()},
                         {{std::string(""), Null()}, Null()},
+                        {{std::string("中文"), std::string("文")}, std::string("中文")},
+                        {{std::string("中"), std::string("文")}, std::string("中文")},
+                        {{std::string(""), std::string("文")}, std::string("文")},
                         {{Null(), std::string("")}, Null()}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
