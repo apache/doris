@@ -231,7 +231,7 @@ int64_t BaseDeltaWriter::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
 }
 
-Status _safe_get_file_size(const std::string& file_path, int64_t* file_size) {
+Status DeltaWriter::_safe_get_file_size(const std::string& file_path, int64_t* file_size) {
     CHECK(file_size != nullptr) << "Null output parameter in safe_get_file_size";
 
     try {

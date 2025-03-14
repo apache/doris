@@ -144,7 +144,7 @@ public:
 private:
     void _init_profile(RuntimeProfile* profile) override;
 
-    int64_t safe_get_filesize(const std::string& file_path);
+    Status _safe_get_file_size(const std::string& file_path, int64_t* file_size);
 
     Status _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
 
