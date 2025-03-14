@@ -48,6 +48,8 @@ import java.util.Map;
 
 public class AlterSystemCommandTest {
     @Mocked
+    private Env env;
+    @Mocked
     private ConnectContext connectContext;
     @Mocked
     private AccessControllerManager accessControllerManager;
@@ -60,7 +62,11 @@ public class AlterSystemCommandTest {
     void testValidateNormal() {
         new Expectations() {
             {
-                Env.getCurrentEnv().getAccessManager();
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
 
@@ -161,7 +167,11 @@ public class AlterSystemCommandTest {
     void testValidateNoPrivilege() {
         new Expectations() {
             {
-                Env.getCurrentEnv().getAccessManager();
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
 
