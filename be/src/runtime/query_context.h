@@ -327,8 +327,6 @@ public:
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
-    std::vector<TUniqueId> fragment_instance_ids;
-
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
