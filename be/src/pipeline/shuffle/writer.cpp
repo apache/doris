@@ -17,6 +17,7 @@
 
 #include "writer.h"
 
+#include "common/logging.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "vec/core/block.h"
 
@@ -31,29 +32,32 @@ void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, St
 
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
                      vectorized::Block* block, bool eos) const {
-    bool already_sent = false;
-    {
-        SCOPED_TIMER(local_state->split_block_hash_compute_timer());
-        RETURN_IF_ERROR(
-                local_state->partitioner()->do_partitioning(state, block, eos, &already_sent));
-    }
-    if (already_sent) {
-        // The same block may be sent twice by TabletSinkHashPartitioner. To get the correct
-        // result, we should not send any rows the last time.
-        return Status::OK();
-    }
     auto rows = block->rows();
     {
+        SCOPED_TIMER(local_state->split_block_hash_compute_timer());
+        RETURN_IF_ERROR(local_state->partitioner()->do_partitioning(state, block));
+    }
+    {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
-        const auto& channel_filed = local_state->partitioner()->get_channel_ids();
+        const auto channel_filed = local_state->partitioner()->get_channel_ids();
+        const std::vector<bool> skipped =
+                local_state->partitioner()->get_skipped(cast_set<int>(rows));
+
+        // must before do _channel_add_rows() with `eos == true`
+        // must after visit local_state->partitioner() because send_last_batched_block() will change it stats.
+        if (eos) { // send the last batched block(if has)
+            // send_last_batched_block use `eos` as `false`.
+            RETURN_IF_ERROR(local_state->partitioner()->send_last_batched_block(state));
+        }
+
         if (channel_filed.len == sizeof(uint32_t)) {
-            RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->channels.size(),
-                                              channel_filed.get<uint32_t>(), rows, block, eos));
+            RETURN_IF_ERROR(
+                    _channel_add_rows(state, local_state->channels, local_state->channels.size(),
+                                      channel_filed.get<uint32_t>(), rows, block, skipped, eos));
         } else {
-            RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->channels.size(),
-                                              channel_filed.get<int64_t>(), rows, block, eos));
+            RETURN_IF_ERROR(
+                    _channel_add_rows(state, local_state->channels, local_state->channels.size(),
+                                      channel_filed.get<int64_t>(), rows, block, skipped, eos));
         }
     }
     return Status::OK();
@@ -64,27 +68,44 @@ Status Writer::_channel_add_rows(RuntimeState* state,
                                  std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                                  size_t partition_count,
                                  const ChannelIdType* __restrict channel_ids, size_t rows,
-                                 vectorized::Block* block, bool eos) const {
+                                 vectorized::Block* block, const std::vector<bool> skipped,
+                                 bool eos) const {
     std::vector<uint32_t> partition_rows_histogram;
-    auto row_idx = vectorized::PODArray<uint32_t>(rows);
-    {
+
+    size_t effective_rows = 0;
+    effective_rows = 0;
+    for (size_t i = 0; i < rows; ++i) {
+        if (!skipped[i]) {
+            effective_rows++;
+        }
+    }
+    auto row_idx = vectorized::PODArray<uint32_t>(effective_rows);
+    { // row index will skip all skipped rows.
         partition_rows_histogram.assign(partition_count + 2, 0);
         for (size_t i = 0; i < rows; ++i) {
-            partition_rows_histogram[channel_ids[i] + 1]++;
+            if (!skipped[i]) {
+                partition_rows_histogram[channel_ids[i] + 1]++;
+            }
         }
         for (size_t i = 1; i <= partition_count + 1; ++i) {
             partition_rows_histogram[i] += partition_rows_histogram[i - 1];
         }
         for (int32_t i = cast_set<int32_t>(rows) - 1; i >= 0; --i) {
-            row_idx[partition_rows_histogram[channel_ids[i] + 1] - 1] = i;
-            partition_rows_histogram[channel_ids[i] + 1]--;
+            if (!skipped[i]) {
+                row_idx[partition_rows_histogram[channel_ids[i] + 1] - 1] = i;
+                partition_rows_histogram[channel_ids[i] + 1]--;
+            }
         }
     }
+    VLOG_DEBUG << fmt::format("skipped: {}\nrow_idx: {}", fmt::join(skipped, ","),
+                              fmt::join(row_idx, ","));
     Status status = Status::OK();
     for (size_t i = 0; i < partition_count; ++i) {
         uint32_t start = partition_rows_histogram[i + 1];
         uint32_t size = partition_rows_histogram[i + 2] - start;
         if (!channels[i]->is_receiver_eof() && size > 0) {
+            VLOG_DEBUG << fmt::format("partition {} of {}, block:\n{}\n, start: {}, size: {}", i,
+                                      partition_count, block->dump_data(), start, size);
             status = channels[i]->add_rows(block, row_idx.data(), start, size, false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
@@ -92,6 +113,8 @@ Status Writer::_channel_add_rows(RuntimeState* state,
     if (eos) {
         for (int i = 0; i < partition_count; ++i) {
             if (!channels[i]->is_receiver_eof()) {
+                VLOG_DEBUG << fmt::format("EOS partition {} of {}, block:\n{}", i, partition_count,
+                                          block->dump_data());
                 status = channels[i]->add_rows(block, row_idx.data(), 0, 0, true);
                 HANDLE_CHANNEL_STATUS(state, channels[i], status);
             }

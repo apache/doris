@@ -17,6 +17,8 @@
 
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
+#include <memory>
+
 #include "pipeline/exec/operator.h"
 
 namespace doris::vectorized {
@@ -82,8 +84,10 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block, bool eos,
-                                                  bool* already_sent) const {
+Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
+    // check if we need send batching block first
+    RETURN_IF_ERROR(_send_new_partition_batch(state));
+
     _hash_vals.resize(block->rows());
     if (block->empty()) {
         return Status::OK();
@@ -95,20 +99,15 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            number_input_rows));
-    if (_row_distribution.batching_rows() > 0) {
-        SCOPED_TIMER(_local_state->send_new_partition_timer());
-        RETURN_IF_ERROR(_send_new_partition_batch(state, block, eos));
-        *already_sent = true;
-    } else {
-        const auto& row_ids = _row_part_tablet_ids[0].row_ids;
-        const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
-        for (int idx = 0; idx < row_ids.size(); ++idx) {
-            const auto& row = row_ids[idx];
-            const auto& tablet_id_hash =
-                    HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(HashValType), 0);
-            _hash_vals[row] = tablet_id_hash % _partition_count;
-        }
+            number_input_rows, _row_distribution.consume_reentry_flag()));
+    _skipped = _row_distribution.get_skipped();
+    const auto& row_ids = _row_part_tablet_ids[0].row_ids;
+    const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
+    for (int idx = 0; idx < row_ids.size(); ++idx) {
+        const auto& row = row_ids[idx];
+        const auto& tablet_id_hash =
+                HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(HashValType), 0);
+        _hash_vals[row] = tablet_id_hash % _partition_count;
     }
 
     return Status::OK();
@@ -120,9 +119,9 @@ ChannelField TabletSinkHashPartitioner::get_channel_ids() const {
 
 Status TabletSinkHashPartitioner::clone(RuntimeState* state,
                                         std::unique_ptr<PartitionerBase>& partitioner) {
-    partitioner.reset(new TabletSinkHashPartitioner(_partition_count, _txn_id, _tablet_sink_schema,
-                                                    _tablet_sink_partition, _tablet_sink_location,
-                                                    _tablet_sink_tuple_id, _local_state));
+    partitioner = std::make_unique<TabletSinkHashPartitioner>(
+            _partition_count, _txn_id, _tablet_sink_schema, _tablet_sink_partition,
+            _tablet_sink_location, _tablet_sink_tuple_id, _local_state);
     return Status::OK();
 }
 
@@ -139,17 +138,29 @@ Status TabletSinkHashPartitioner::close(RuntimeState* state) {
     return Status::OK();
 }
 
-Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state,
-                                                            vectorized::Block* input_block,
-                                                            bool eos) const {
-    RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
-    auto& p = _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>();
-    // Recovery back
-    _row_distribution.clear_batching_stats();
-    _row_distribution._batching_block->clear_column_data();
-    _row_distribution._deal_batched = false;
-    RETURN_IF_ERROR(p.sink(state, input_block, eos));
+Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state) const {
+    if (_row_distribution.need_deal_batching()) {
+        SCOPED_TIMER(_local_state->send_new_partition_timer());
+        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+        auto& p = _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>();
+
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+        _row_distribution.clear_batching_stats();
+        VLOG_DEBUG << "sinking batched block:\n" << tmp_block.dump_data();
+        _row_distribution.store_reentry_flag();
+        RETURN_IF_ERROR(p.sink(state, &tmp_block, false));
+        // finished. recovery back
+        _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
+        _row_distribution._batching_block->clear_column_data();
+        _row_distribution._deal_batched = false;
+    }
     return Status::OK();
+}
+
+Status TabletSinkHashPartitioner::send_last_batched_block(RuntimeState* state) const {
+    _row_distribution._deal_batched = true;
+    VLOG_DEBUG << "send last batched block!";
+    return _send_new_partition_batch(state);
 }
 
 } // namespace doris::vectorized
