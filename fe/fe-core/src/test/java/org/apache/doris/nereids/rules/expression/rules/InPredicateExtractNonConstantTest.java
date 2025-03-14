@@ -43,5 +43,14 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                         logicalFilter().when(f -> f.getPredicate().toString().equals(
                                 "OR[id#0 IN (10, 20, 30, 300),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
                 )));
+
+        sql = "select * from T1 where id + random(1, 10) in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "(id#0 + random(1, 10)) IN (score#1, (score#1 + 10), (score#1 + score#1), 10, 20, 30, 300)"
+                        )));
     }
 }
