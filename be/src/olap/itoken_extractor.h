@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /// Interface for string parsers.
 struct ITokenExtractor {
@@ -59,8 +60,9 @@ public:
         size_t token_len = 0;
 
         while (cur < length && static_cast<const Derived*>(this)->next_in_string(
-                                       data, length, &cur, &token_start, &token_len))
-            bloom_filter.add_bytes(data + token_start, token_len);
+                                       data, length, &cur, &token_start, &token_len)) {
+            bloom_filter.add_bytes(data + token_start, uint32_t(token_len));
+        }
     }
 
     bool string_like_to_bloom_filter(const char* data, size_t length,
@@ -70,7 +72,7 @@ public:
         std::string token;
         while (cur < length &&
                static_cast<const Derived*>(this)->next_in_string_like(data, length, &cur, token)) {
-            bloom_filter.add_bytes(token.data(), token.size());
+            bloom_filter.add_bytes(token.data(), uint32_t(token.size()));
             added = true;
         }
 
@@ -94,5 +96,5 @@ private:
     size_t n;
 };
 } // namespace doris
-
+#include "common/compile_check_end.h"
 #endif //DORIS_ITOKEN_EXTRACTOR_H
