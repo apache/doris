@@ -353,8 +353,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                         submitDataLoad(dictionary, updateVersion.second);
                         continue;
                     }
-                    // 2. if some BE lost datas(new or restart), refresh it all.
-                    // TODO: modify UnassignedAllBEJob and Coordinator to do partially refresh.
+                    // 2. if some BE lost datas(new or restart), refresh ALL because base table may have data changes in
+                    // this duration. we must keep data consistent.
                     if (!dictionary.dataCompleted() // rely on collectDictionaryStatus() we just did.
                             // 3. base table has been updated AND when data is older than its lifetime, refresh it.
                             || updateVersion.first && dictionary.getNextRefreshTime() < now) {

@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+// import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -570,6 +571,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Pair<FunctionSignature, Dictionary> sigAndDict = dictGet.customSignatureDict();
         FunctionSignature signature = sigAndDict.first;
         Dictionary dictionary = sigAndDict.second;
+
+        // set fragment has dict_get.
+        //FIXME: 得确定context.addPlanFragment(...);是否必然和visitExpr有先后关系
+        //List<PlanFragment> fragments = context.getPlanFragments();
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGet.getName()), argTypes, signature.returnType.toCatalogDataType(),
