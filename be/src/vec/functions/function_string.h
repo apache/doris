@@ -1776,6 +1776,110 @@ public:
     }
 };
 
+// class FunctionFormatNumber : public IFunction {
+// public:
+//     static constexpr auto name = "format_number";
+
+//     static constexpr const char* UNITS[6] = {"", "K", "M", "B", "T", "Q"};
+
+//     static FunctionPtr create() { return std::make_shared<FunctionFormatNumber>(); }
+
+//     String get_name() const override { return name; }
+
+//     size_t get_number_of_arguments() const override { return 1; }
+
+//     bool is_variadic() const override { return false; }
+
+//     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+//         return std::make_shared<DataTypeString>();
+//     }
+
+//     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+//                         uint32_t result, size_t input_rows_count) const override {
+//         auto column = block.get_by_position(arguments[0]).column;
+//         const auto& column_data =
+//                 assert_cast<const ColumnVector<Float64>*>(column.get())->get_data();
+//         auto col_res = ColumnString::create();
+//         fmt::memory_buffer buffer;
+
+//         for (auto i = 0; i < input_rows_count; ++i) {
+//             auto res_data = format_number(buffer, column_data[i]);
+//             col_res->insert_data(res_data.data(), res_data.length());
+//         }
+//         block.replace_by_position(result, std::move(col_res));
+//         return Status::OK();
+//     }
+
+//     std::string format_number(fmt::memory_buffer& buffer, double number) const {
+//         buffer.clear();
+//         double abs_number = std::abs(number);
+//         int unit_index = 0;
+//         while (abs_number >= 1000 && unit_index < 5) {
+//             abs_number /= 1000;
+//             ++unit_index;
+//         }
+//         if (number < 0) {
+//             fmt::format_to(buffer, "-");
+//         }
+//         if (abs_number == 1) {
+//             //eg: 1000 ---> 1K
+//             fmt::format_to(buffer, "{}", abs_number);
+//         } else if (abs_number < 10) {
+//             //eg: 1239 ---> 1.24K only want to show 2 decimal
+//             fmt::format_to(buffer, "{:.2f}", abs_number);
+//         } else if (abs_number < 100) {
+//             //eg: 12399999 ---> 12.4M only want to show 1 decimal
+//             fmt::format_to(buffer, "{:.1f}", abs_number);
+//         } else {
+//             // eg: 999999999999999 ---> 1000T only want to show 0 decimal
+//             fmt::format_to(buffer, "{:.0f}", abs_number);
+//         }
+//         fmt::format_to(buffer, UNITS[unit_index]);
+//         return fmt::to_string(buffer);
+//     }
+// };
+
+template <typename Impl>
+class FunctionStringFormatRound : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionStringFormatRound>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_GE(arguments.size(), 2);
+        auto arg_column_1 = block.get_by_position(arguments[0]).column;
+        const auto& arg_column_data_1 =
+                assert_cast<const ColumnVector<Float64>*>(arg_column_1.get())->get_data();
+        auto arg_column_2 = block.get_by_position(arguments[1]).column;
+        const auto& arg_column_data_2 =
+                assert_cast<const ColumnVector<Int32>*>(arg_column_2.get())->get_data();
+        auto col_res = ColumnString::create();
+
+        for (auto i = 0; i < input_rows_count; ++i) {
+            double origin_value = arg_column_data_1[i];
+            int32_t d = arg_column_data_2[i];
+            if (d < 0) {
+                return Status::InvalidArgument(
+                        "The second argument is {}, it can not be less than 0.", d);
+            }
+            LOG(INFO) << "--ftw: origin_value = " << origin_value << "; d = " << d;
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(d) << origin_value;
+            auto res_data = oss.str();
+            col_res->insert_data(res_data.data(), res_data.length());
+        }
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+};
+
 class FunctionSplitPart : public IFunction {
 public:
     static constexpr auto name = "split_part";
