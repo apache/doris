@@ -1161,6 +1161,24 @@ struct StringRPad {
     static constexpr auto is_lpad = false;
 };
 
+struct StringDoubleFormatRound {
+    static constexpr auto name = "format_round";
+    static constexpr auto is_lpad = false;
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<vectorized::DataTypeFloat64>(),
+                std::make_shared<vectorized::DataTypeInt32>()};
+    }
+};
+
+// struct StringDecimalFormatRound {
+//     static constexpr auto name = "format_round";
+//     static constexpr auto is_lpad = false;
+//     static DataTypes get_variadic_argument_types() {
+//         return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
+//                 std::make_shared<vectorized::DataTypeInt32>()};
+//     }
+// };
+
 template <typename LeftDataType, typename RightDataType>
 using StringStartsWithImpl = StringFunctionImpl<LeftDataType, RightDataType, StartsWithOp>;
 
@@ -1204,6 +1222,8 @@ using FunctionStringAppendTrailingCharIfAbsent =
 
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
+using FunctionStringDoubleFormatRound = FunctionStringFormatRound<StringDoubleFormatRound>;
+// using FunctionStringDecimalFormatRound = FunctionStringFormatRound<StringDecimalFormatRound>;
 
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringASCII>();
@@ -1251,6 +1271,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
+    factory.register_function<FunctionStringDoubleFormatRound>();
+    // factory.register_function<FunctionStringDecimalFormatRound>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
@@ -1292,6 +1314,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
+    factory.register_alias(FunctionStringDoubleFormatRound::name, "format_round");
 }
 
 } // namespace doris::vectorized
