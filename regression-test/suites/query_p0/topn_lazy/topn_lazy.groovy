@@ -100,9 +100,9 @@ suite("topn_lazy") {
         multiContains("VMaterializeNode", 1)
     }
     
-    qt_test_lazy1 """select * from dates order by d_date limit 10;"""
+    qt_test_lazy1 """select * from date order by d_date limit 10;"""
 
-    qt_test_lazy2 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason, d_holidayfl FROM dates ORDER BY d_date LIMIT 10;"""
+    qt_test_lazy2 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason FROM date ORDER BY d_date LIMIT 10;"""
 
     // Add new test cases for LEFT JOIN with different column orders
     sql """ DROP TABLE IF EXISTS users """
