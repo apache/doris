@@ -47,7 +47,8 @@ public class DistributeHint extends Hint {
         this(distributeType, skewExpr, skewValues, false);
     }
 
-    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues, boolean isSuccessInSkew) {
+    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues,
+            boolean isSuccessInSkew) {
         super("Distribute");
         this.distributeType = distributeType;
         this.skewExpr = skewExpr;

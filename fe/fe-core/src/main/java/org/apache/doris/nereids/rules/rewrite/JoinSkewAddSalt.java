@@ -128,7 +128,8 @@ public class JoinSkewAddSalt extends OneRewriteRuleFactory {
         if (leftSkewExpr == null || rightSkewExpr == null) {
             return null;
         }
-        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor), TinyIntType.INSTANCE);
+        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor),
+                TinyIntType.INSTANCE);
         if (!literalType.isPresent()) {
             throw new RuntimeException();
         }
