@@ -371,21 +371,33 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
     std::stack<std::pair<VExprSPtr, int>> s;
     s.emplace(root, root_children);
     while (!s.empty()) {
-        auto& parent = s.top();
-        if (parent.second > 1) {
-            parent.second -= 1;
-        } else {
-            s.pop();
+        bool need_pop = false;
+        VExprSPtr current_parent;
+        // scope resource lifecycle for s.top() to avoid dangling reference
+        {
+            auto& top = s.top();
+            current_parent = top.first;  // copy the shared ptr
+            top.second--;
+            if (top.second <= 0) {
+                need_pop = true;
+            }
         }
 
         if (++*node_idx >= nodes.size()) {
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
+
         VExprSPtr expr;
         RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
-        parent.first->add_child(expr);
+        current_parent->add_child(expr);
+        // stack pop
+        if (need_pop) {
+            s.pop();
+        }
+        // push to stack if has children
         int num_children = nodes[*node_idx].num_children;
+        LOG(INFO) << "num_children = " << num_children;
         if (num_children > 0) {
             s.emplace(expr, num_children);
         }
