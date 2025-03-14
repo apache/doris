@@ -1357,17 +1357,6 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
     res_code = remove_delete_bitmap_lock(meta_service.get(), 2, 123, -1);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     clear_rowsets(6);
-
-    // commit compaction job with lock expired
-    test_start_compaction_job(2, 2, 3, 5, TabletCompactionJobPB::BASE);
-    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 12345, 1);
-    ASSERT_EQ(res_code, MetaServiceCode::OK);
-    sleep(2);
-    test_commit_compaction_job(2, 2, 3, 5, TabletCompactionJobPB::BASE);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-    res_code = remove_delete_bitmap_lock(meta_service.get(), 2, -1, 12345);
-    ASSERT_EQ(res_code, MetaServiceCode::OK);
-    clear_rowsets(5);
 }
 
 TEST(MetaServiceJobTest, SchemaChangeJobTest) {

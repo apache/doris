@@ -504,24 +504,6 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
             code = cast_as<ErrCategory::READ>(err);
             return false;
         }
-        MowTabletCompactionPB mow_tablet_compaction;
-        if (!mow_tablet_compaction.ParseFromString(tablet_compaction_val)) [[unlikely]] {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = "failed to parse MowTabletCompactionPB";
-            return false;
-        }
-        using namespace std::chrono;
-        int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-        if (mow_tablet_compaction.expiration() > 0 && mow_tablet_compaction.expiration() < now) {
-            ss << "tablet compaction expired, table_id=" << table_id << " tablet_id=" << tablet_id
-               << " initiator=" << lock_initiator
-               << " expiration=" << mow_tablet_compaction.expiration()
-               << " key=" << hex(tablet_compaction_key);
-            msg = ss.str();
-            code = MetaServiceCode::LOCK_EXPIRED;
-            txn->remove(tablet_compaction_key);
-            return false;
-        }
         txn->remove(tablet_compaction_key);
         INSTANCE_LOG(INFO) << "remove tablet compaction lock, table_id=" << table_id
                            << " tablet_id=" << tablet_id << " lock_id=" << lock_id

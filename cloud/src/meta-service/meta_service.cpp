@@ -2284,10 +2284,14 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
         return;
     }
+
+    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     bool first_retry = true;
-    while (true) {
+    int64_t retry = 0;
+    while (retry <= 1) {
+        retry++;
         response->Clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
