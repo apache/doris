@@ -119,8 +119,9 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
 
             _spill_read_dependencies[sender_idx]->block();
             auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
-                    state, _spill_read_dependencies[sender_idx], _source_profiles[sender_idx],
-                    _shared_state->shared_from_this(), catch_exception_func);
+                    state, _spill_read_dependencies[sender_idx],
+                    _source_operator_profiles[sender_idx], _shared_state->shared_from_this(),
+                    catch_exception_func);
             auto* thread_pool =
                     ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
             RETURN_IF_ERROR(thread_pool->submit(std::move(spill_runnable)));
@@ -214,11 +215,11 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
             RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                     state, spill_stream, print_id(state->query_id()), "MultiCastSender", _node_id,
                     std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-                    _sink_profile));
+                    _sink_operator_profile));
             for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
                 if (distances[i] < total_count) {
                     auto reader = spill_stream->create_separate_reader();
-                    reader->set_counters(_source_profiles[i]);
+                    reader->set_counters(_source_operator_profiles[i]);
                     auto reader_item = std::make_shared<SpillingReader>(
                             std::move(reader), spill_stream, distances[i], false);
                     _spill_readers[i].emplace_back(std::move(reader_item));
@@ -283,8 +284,8 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
     };
 
     auto spill_runnable = std::make_shared<SpillSinkRunnable>(
-            state, nullptr, _spill_dependency, _sink_profile, _shared_state->shared_from_this(),
-            exception_catch_func);
+            state, nullptr, _spill_dependency, _sink_operator_profile,
+            _shared_state->shared_from_this(), exception_catch_func);
 
     _spill_dependency->block();
 
