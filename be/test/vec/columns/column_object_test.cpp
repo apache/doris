@@ -127,4 +127,131 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nothing");
 }
 
+TEST_F(ColumnObjectTest, test_insert_indices_from) {
+    // Test case 1: Insert from scalar variant source to empty destination
+    {
+        // Create source column with scalar values
+        auto src_column = ColumnObject::create(true);
+        Field field_int(123);
+        src_column->try_insert(field_int);
+        Field field_int2(456);
+        src_column->try_insert(field_int2);
+        src_column->finalize();
+        EXPECT_TRUE(src_column->is_scalar_variant());
+        EXPECT_TRUE(src_column->is_finalized());
+        EXPECT_EQ(src_column->size(), 2);
+
+        // Create empty destination column
+        auto dst_column = ColumnObject::create(true);
+        EXPECT_EQ(dst_column->size(), 0);
+
+        // Create indices
+        std::vector<uint32_t> indices = {0, 1};
+
+        // Insert using indices
+        dst_column->insert_indices_from(*src_column, indices.data(),
+                                        indices.data() + indices.size());
+
+        // Verify results
+        EXPECT_EQ(dst_column->size(), 2);
+        EXPECT_TRUE(dst_column->is_scalar_variant());
+        EXPECT_TRUE(dst_column->is_finalized());
+        EXPECT_EQ(dst_column->get_root_type()->get_name(), src_column->get_root_type()->get_name());
+
+        Field result1;
+        dst_column->get(0, result1);
+        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 123);
+
+        Field result2;
+        dst_column->get(1, result2);
+        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
+    }
+
+    // Test case 2: Insert from scalar variant source to non-empty destination of same type
+    {
+        // Create source column with scalar values
+        auto src_column = ColumnObject::create(true);
+        Field field_int(123);
+        src_column->try_insert(field_int);
+        Field field_int2(456);
+        src_column->try_insert(field_int2);
+        src_column->finalize();
+        EXPECT_TRUE(src_column->is_scalar_variant());
+
+        // Create destination column with same type
+        auto dst_column = ColumnObject::create(true);
+        Field field_int3(789);
+        dst_column->try_insert(field_int3);
+        dst_column->finalize();
+        EXPECT_TRUE(dst_column->is_scalar_variant());
+        EXPECT_EQ(dst_column->size(), 1);
+
+        // Create indices for selecting specific elements
+        std::vector<uint32_t> indices = {1, 0};
+
+        // Insert using indices (reversed order)
+        dst_column->insert_indices_from(*src_column, indices.data(),
+                                        indices.data() + indices.size());
+
+        // Verify results
+        EXPECT_EQ(dst_column->size(), 3);
+
+        Field result1, result2, result3;
+        dst_column->get(0, result1);
+        dst_column->get(1, result2);
+        dst_column->get(2, result3);
+
+        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 789);
+        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
+        EXPECT_EQ(result3.get<VariantMap>().at("").get<Int64>(), 123);
+    }
+
+    // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
+    {
+        // Create source column with object values (non-scalar)
+        auto src_column = ColumnObject::create(true);
+
+        // Create a map with {"a": 123}
+        Field field_map = VariantMap();
+        auto& map1 = field_map.get<VariantMap&>();
+        map1["a"] = 123;
+        src_column->try_insert(field_map);
+
+        // Create another map with {"b": "hello"}
+        field_map = VariantMap();
+        auto& map2 = field_map.get<VariantMap&>();
+        map2["b"] = String("hello");
+        src_column->try_insert(field_map);
+
+        src_column->finalize();
+        EXPECT_FALSE(src_column->is_scalar_variant());
+
+        // Create destination column (empty)
+        auto dst_column = ColumnObject::create(true);
+
+        // Create indices
+        std::vector<uint32_t> indices = {1, 0};
+
+        // Insert using indices
+        dst_column->insert_indices_from(*src_column, indices.data(),
+                                        indices.data() + indices.size());
+
+        // Verify results
+        EXPECT_EQ(dst_column->size(), 2);
+
+        Field result1, result2;
+        dst_column->get(0, result1);
+        dst_column->get(1, result2);
+
+        EXPECT_TRUE(result1.get_type() == Field::Types::VariantMap);
+        EXPECT_TRUE(result2.get_type() == Field::Types::VariantMap);
+
+        const auto& result1_map = result1.get<const VariantMap&>();
+        const auto& result2_map = result2.get<const VariantMap&>();
+
+        EXPECT_EQ(result1_map.at("b").get<const String&>(), "hello");
+        EXPECT_EQ(result2_map.at("a").get<Int64>(), 123);
+    }
+}
+
 } // namespace doris::vectorized
