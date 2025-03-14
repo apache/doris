@@ -1072,7 +1072,7 @@ public class NumericArithmetic {
         if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
-        return checkOutputBoundary(new DoubleLiteral(Math.log1p(first.getValue())));
+        return checkOutputBoundary(new DoubleLiteral(Math.log(first.getValue())));
     }
 
     /**
