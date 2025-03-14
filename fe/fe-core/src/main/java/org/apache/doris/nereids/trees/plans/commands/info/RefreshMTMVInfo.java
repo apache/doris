@@ -66,13 +66,7 @@ public class RefreshMTMVInfo {
      */
     public void analyze(ConnectContext ctx) {
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
-                mvName.getTbl(), PrivPredicate.CREATE)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
-                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
-                    mvName.getDb() + ": " + mvName.getTbl());
-            throw new AnalysisException(message);
-        }
+        checkPriv(ctx);
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
@@ -81,6 +75,16 @@ public class RefreshMTMVInfo {
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkPriv(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getCtl(), mvName.getDb(),
+                mvName.getTbl(), PrivPredicate.CREATE)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
+                    mvName.getDb() + ": " + mvName.getTbl());
+            throw new AnalysisException(message);
         }
     }
 
