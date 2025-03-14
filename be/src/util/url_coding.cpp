@@ -39,7 +39,7 @@ void url_encode(const std::string_view& in, std::string* out) {
         } else if (c == ' ') {
             os << '+';
         } else {
-            os << '%' << to_hex(c >> 4) << to_hex(c % 16);
+            os << '%' << to_hex((unsigned char)c >> 4) << to_hex((unsigned char)c % 16);
         }
     }
 
