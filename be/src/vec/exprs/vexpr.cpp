@@ -376,7 +376,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
         // scope resource lifecycle for s.top() to avoid dangling reference
         {
             auto& top = s.top();
-            current_parent = top.first;  // copy the shared ptr
+            current_parent = top.first; // copy the shared ptr
             top.second--;
             if (top.second <= 0) {
                 need_pop = true;
