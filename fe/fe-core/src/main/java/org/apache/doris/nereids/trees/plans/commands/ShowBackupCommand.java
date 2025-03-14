@@ -44,6 +44,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -89,7 +90,8 @@ public class ShowBackupCommand extends ShowCommand {
     /**
      * get label predicate for show backup
      */
-    private Predicate<String> getSnapshotPredicate() throws AnalysisException {
+    @VisibleForTesting
+    protected Predicate<String> getSnapshotPredicate() throws AnalysisException {
         if (null == where) {
             return label -> true;
         }
@@ -106,7 +108,8 @@ public class ShowBackupCommand extends ShowCommand {
     /**
      * validate
      */
-    private boolean validate(ConnectContext ctx) throws UserException {
+    @VisibleForTesting
+    protected boolean validate(ConnectContext ctx) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
             if (Strings.isNullOrEmpty(dbName)) {
