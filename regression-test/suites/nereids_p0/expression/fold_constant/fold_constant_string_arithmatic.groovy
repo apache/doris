@@ -511,7 +511,73 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select overlay('עברית', 1, 1, '😀')")
     testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
     testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
-
+    testFoldConst("select overlay('abc', 1, 1, 'x')")
+    testFoldConst("select overlay('abc', 2, 1, 'x')")
+    testFoldConst("select overlay('abc', 3, 1, 'x')")
+    testFoldConst("select overlay('abc', 1, 3, 'xyz')")
+    testFoldConst("select overlay('abc', 0, 1, 'x')") // 越界
+    testFoldConst("select overlay('abc', -1, 1, 'x')") // 越界
+    testFoldConst("select overlay(null, 1, 1, 'x')") // null 原始字符串
+    testFoldConst("select overlay('abc', null, 1, 'x')") // null 起始位置
+    testFoldConst("select overlay('abc', 1, null, 'x')") // null 子串长度
+    testFoldConst("select overlay('abc', 1, 1, null)") // null 新字符串
+    testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
+    testFoldConst("select overlay('αβγ', 1, 1, 'x')")
+    testFoldConst("select overlay('中文', 1, 1, 'x')")
+    testFoldConst("select overlay('日本語', 1, 1, 'x')")
+    testFoldConst("select overlay('한국어', 1, 1, 'x')")
+    testFoldConst("select overlay('русский', 1, 1, 'x')")
+    testFoldConst("select overlay('עברית', 1, 1, 'x')")
+    testFoldConst("select overlay('a😀bc', 2, 2, 'xyz')")
+    testFoldConst("select overlay('αβγ', 2, 2, 'xyz')")
+    testFoldConst("select overlay('中文', 2, 2, 'xyz')")
+    testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
+    testFoldConst("select overlay('한국어', 2, 2, 'xyz')")
+    testFoldConst("select overlay('русский', 2, 2, 'xyz')")
+    testFoldConst("select overlay('עברית', 2, 2, 'xyz')")
+    testFoldConst("select overlay('abc', 1, 1, '😀')")
+    testFoldConst("select overlay('abc', 1, 1, 'α')")
+    testFoldConst("select overlay('abc', 1, 1, '中')")
+    testFoldConst("select overlay('abc', 1, 1, '日')")
+    testFoldConst("select overlay('abc', 1, 1, '한')")
+    testFoldConst("select overlay('abc', 1, 1, 'р')")
+    testFoldConst("select overlay('abc', 1, 1, 'ע')")
+    testFoldConst("select overlay('a😀bc', 1, 1, 'α')")
+    testFoldConst("select overlay('αβγ', 1, 1, '中')")
+    testFoldConst("select overlay('中文', 1, 1, '日')")
+    testFoldConst("select overlay('日本語', 1, 1, '한')")
+    testFoldConst("select overlay('한국어', 1, 1, 'р')")
+    testFoldConst("select overlay('русский', 1, 1, 'ע')")
+    testFoldConst("select overlay('עברית', 1, 1, '😀')")
+    testFoldConst("select overlay('abc', -1, 1, 'x')") // 负数起始位置
+    testFoldConst("select overlay('abc', 1, -1, 'x')") // 负数子串长度
+    testFoldConst("select overlay('abc', 1, 10, 'xyz')") // 子串长度越界
+    testFoldConst("select overlay('abc', 4, 1, 'x')") // 起始位置越界
+    testFoldConst("select overlay('abc', 1, 1, 'xyzw')") // 新字符串长度大于替换长度
+    testFoldConst("select overlay('a😀bc', 1, 1, 'αβγ')") // 新字符串包含多字符
+    testFoldConst("select overlay('αβγ', 1, 1, '中文')") // 新字符串包含多字符
+    testFoldConst("select overlay('中文', 1, 1, '日本語')") // 新字符串包含多字符
+    testFoldConst("select overlay('日本語', 1, 1, '한국어')") // 新字符串包含多字符
+    testFoldConst("select overlay('한국어', 1, 1, 'русский')") // 新字符串包含多字符
+    testFoldConst("select overlay('русский', 1, 1, 'עברית')") // 新字符串包含多字符
+    testFoldConst("select overlay('עברית', 1, 1, 'a😀bc')") // 新字符串包含多字符
+    testFoldConst("select overlay('', 1, 1, 'x')") // 空字符串
+    testFoldConst("select overlay('abc', 1, 0, 'x')") // 子串长度为0
+    testFoldConst("select overlay('abc', 1, 1, '')") // 新字符串为空
+    testFoldConst("select overlay('a😀bc', 1, 0, 'x')") // 子串长度为0，含emoji
+    testFoldConst("select overlay('αβγ', 1, 0, 'x')") // 子串长度为0，含希腊字符
+    testFoldConst("select overlay('中文', 1, 0, 'x')") // 子串长度为0，含中文
+    testFoldConst("select overlay('日本語', 1, 0, 'x')") // 子串长度为0，含日文
+    testFoldConst("select overlay('한국어', 1, 0, 'x')") // 子串长度为0，含韩文
+    testFoldConst("select overlay('русский', 1, 0, 'x')") // 子串长度为0，含俄文
+    testFoldConst("select overlay('עברית', 1, 0, 'x')") // 子串长度为0，含希伯来文
+    testFoldConst("select overlay('abc', 1, 1, '😀α中文日한俄ע')") // 新字符串包含所有字符集
+    testFoldConst("select overlay('😀α中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含所有字符集
+    testFoldConst("select overlay('abc', 1, 1, '😀α')") // 新字符串包含emoji和希腊字符
+    testFoldConst("select overlay('😀α', 1, 1, 'abc')") // 原始字符串包含emoji和希腊字符
+    testFoldConst("select overlay('中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含多语言字符
+    testFoldConst("select overlay('abc', 1, 1, '中文日한俄ע')") // 新字符串包含多语言字符
+    
     // parse_url
     testFoldConst("select parse_url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
     testFoldConst("select parse_url('http://www.example.com/path?query=abc', 'HOST')")
@@ -947,6 +1013,58 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select strleft(' Hello World', 5)")
     testFoldConst("select strleft('Hello World ', 50)")
     testFoldConst("select strleft(NULL, 1)")
+    testFoldConst("select strleft('😊😉👍', 2)")
+    testFoldConst("select strleft('αβγδ', 3)")
+    testFoldConst("select strleft('你好世界', 4)")
+    testFoldConst("select strleft('こんにちは世界', 5)")
+    testFoldConst("select strleft('안녕하세요', 3)")
+    testFoldConst("select strleft('привет', 4)")
+    testFoldConst("select strleft('שלום', 3)")
+    testFoldConst("select strleft('😊😉👍😊😉', 4)")
+    testFoldConst("select strleft('αβγδεζ', 4)")
+    testFoldConst("select strleft('你好呀，世界', 6)")
+    testFoldConst("select strleft('こんにちは、素晴らしい一日', 7)")
+    testFoldConst("select strleft('안녕하세요 여러분', 5)")
+    testFoldConst("select strleft('привет мир', 6)")
+    testFoldConst("select strleft('שלום עולם', 4)")
+    testFoldConst("select strleft(null, 2)")
+    testFoldConst("select strleft('😊😉👍😊😉👍', 0)")
+    testFoldConst("select strleft('αβγδεζη', -1)")
+    testFoldConst("select strleft('你好，美好的一天', -2)")
+    testFoldConst("select strleft('こんにちは、素晴らしい一日', -3)")
+    testFoldConst("select strleft('안녕하세요 여러분 안녕히가세요', -4)")
+    testFoldConst("select strleft('привет всем друзьям', -5)")
+    testFoldConst("select strleft('שלום לכל החברים', -3)")
+    testFoldConst("select strleft('', 2)")
+    testFoldConst("select strleft('😊😉', -1)")
+    testFoldConst("select strleft('αβ', 0)")
+    testFoldConst("select strleft('你好', -1)")
+    testFoldConst("select strleft('こんにちは', 0)")
+    testFoldConst("select strleft('안녕하세요', -1)")
+    testFoldConst("select strleft('привет', 0)")
+    testFoldConst("select strleft('שלום', -1)")
+    testFoldConst("select strleft('😊😉👍😊😉👍😊', 5)")
+    testFoldConst("select strleft('αβγδεζηθ', 5)")
+    testFoldConst("select strleft('你好，世界！欢迎', 6)")
+    testFoldConst("select strleft('こんにちは、世界！ようこそ', 7)")
+    testFoldConst("select strleft('안녕하세요 세계!', 5)")
+    testFoldConst("select strleft('привет, мир!', 6)")
+    testFoldConst("select strleft('שלום עולם!', 4)")
+    testFoldConst("select strleft('😊😉👍😊😉👍😊😉', 6)")
+    testFoldConst("select strleft('αβγδεζηθι', 6)")
+    testFoldConst("select strleft('你好呀，美好的世界', 7)")
+    testFoldConst("select strleft('こんにちは、素晴らしい世界よ', 8)")
+    testFoldConst("select strleft('안녕하세요, 아름다운 세상', 7)")
+    testFoldConst("select strleft('привет, прекрасный мир', 8)")
+    testFoldConst("select strleft('שלום לעולם יפה', 5)")
+    testFoldConst("select strleft('', -1)")
+    testFoldConst("select strleft('😊😉', 0)")
+    testFoldConst("select strleft('αβ', -1)")
+    testFoldConst("select strleft('你好', 0)")
+    testFoldConst("select strleft('こんにちは', -1)")
+    testFoldConst("select strleft('안녕하세요', 0)")
+    testFoldConst("select strleft('привет', -1)")
+    testFoldConst("select strleft('שלום', 0)")
 
     // strright
     testFoldConst("select strright('good morning', NULL)")
@@ -957,7 +1075,59 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select strright(' Hello World', 5)")
     testFoldConst("select strright('Hello World  ', 5)")
     testFoldConst("select strright(NULL, 1)")
-
+    testFoldConst("select strright('😊😉👍', 2)")
+    testFoldConst("select strright('αβγδ', 3)")
+    testFoldConst("select strright('你好世界', 2)")
+    testFoldConst("select strright('こんにちは世界', 3)")
+    testFoldConst("select strright('안녕하세요', 3)")
+    testFoldConst("select strright('привет', 4)")
+    testFoldConst("select strright('שלום', 3)")
+    testFoldConst("select strright('😊😉👍😊😉', 4)")
+    testFoldConst("select strright('αβγδεζ', 4)")
+    testFoldConst("select strright('你好呀，世界', 6)")
+    testFoldConst("select strright('こんにちは、素晴らしい一日', 7)")
+    testFoldConst("select strright('안녕하세요 여러분', 5)")
+    testFoldConst("select strright('привет мир', 6)")
+    testFoldConst("select strright('שלום לכל החברים', 10)")
+    testFoldConst("select strright(null, 2)")
+    testFoldConst("select strright('😊😉👍😊😉👍', 0)")
+    testFoldConst("select strright('αβγδεζη', -1)")
+    testFoldConst("select strright('你好，美好的一天', -2)")
+    testFoldConst("select strright('こんにちは、素晴らしい一日', -3)")
+    testFoldConst("select strright('안녕하세요 여러분 안녕히가세요', -4)")
+    testFoldConst("select strright('привет всем друзьям', -5)")
+    testFoldConst("select strright('שלום עולם!', -3)")
+    testFoldConst("select strright('', 2)")
+    testFoldConst("select strright('😊😉', -1)")
+    testFoldConst("select strright('αβ', 0)")
+    testFoldConst("select strright('你好', -1)")
+    testFoldConst("select strright('こんにちは', 0)")
+    testFoldConst("select strright('안녕하세요', -1)")
+    testFoldConst("select strright('привет', 0)")
+    testFoldConst("select strright('שלום', -1)")
+    testFoldConst("select strright('😊😉👍😊😉👍😊', 5)")
+    testFoldConst("select strright('αβγδεζηθ', 5)")
+    testFoldConst("select strright('你好，世界！欢迎', 6)")
+    testFoldConst("select strright('こんにちは、世界！ようこそ', 7)")
+    testFoldConst("select strright('안녕하세요 세계!', 5)")
+    testFoldConst("select strright('привет, мир!', 6)")
+    testFoldConst("select strright('שלום עולם!', 4)")
+    testFoldConst("select strright('😊😉👍😊😉👍😊😉', 6)")
+    testFoldConst("select strright('αβγδεζηθι', 6)")
+    testFoldConst("select strright('你好呀，美好的世界', 7)")
+    testFoldConst("select strright('こんにちは、素晴らしい世界よ', 8)")
+    testFoldConst("select strright('안녕하세요, 아름다운 세상', 7)")
+    testFoldConst("select strright('привет, прекрасный мир', 8)")
+    testFoldConst("select strright('שלום לעולם יפה', 5)")
+    testFoldConst("select strright('', -1)")
+    testFoldConst("select strright('😊😉', 0)")
+    testFoldConst("select strright('αβ', -1)")
+    testFoldConst("select strright('你好', 0)")
+    testFoldConst("select strright('こんにちは', -1)")
+    testFoldConst("select strright('안녕하세요', 0)")
+    testFoldConst("select strright('привет', -1)")
+    testFoldConst("select strright('שלום', 0)")
+    
     // sub_replace
     testFoldConst("select sub_replace(CAST('doris' AS STRING), CAST('***' AS STRING), 1, 2)")
     testFoldConst("select sub_replace(CAST('doris' AS STRING), CAST('***' AS STRING), 1, 2)")
@@ -1529,5 +1699,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?🌍=b&c=d&e=f&g=h&i=j&k=l', '')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?🌍=b&c=d&e=f&g=h&i=j&k=l', null)")
 
+    // replace_empty
+    testFoldConst("select replace_empty('😀abc', '', 'def')")
 }
 

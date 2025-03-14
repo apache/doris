@@ -79,6 +79,8 @@ public class StringArithmetic {
     }
 
     private static String substringImpl(String first, int second, int third) {
+        second = first.offsetByCodePoints(0, second);
+        third = first.offsetByCodePoints(0, third);
         int stringLength = first.length();
         if (stringLength == 0) {
             return "";
@@ -295,10 +297,11 @@ public class StringArithmetic {
     public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() < first.getValue().length()) {
-            return castStringLikeLiteral(first, first.getValue().substring(0, second.getValue()));
-        } else {
+        } else if (second.getValue() > first.getValue().length()) {
             return first;
+        } else {
+            int index = first.getValue().offsetByCodePoints(0, second.getValue());
+            return castStringLikeLiteral(first, first.getValue().substring(0, index));
         }
     }
 
@@ -312,12 +315,14 @@ public class StringArithmetic {
         } else if (second.getValue() > first.getValue().length()) {
             return first;
         } else {
+            int index = first.getValue().offsetByCodePoints(0, second.getValue());
+            int inputLength = first.getValue().codePointCount(0, first.getValue().length());
             if (second.getValue() > 0) {
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    first.getValue().length() - second.getValue(), first.getValue().length()));
+                    inputLength - index, inputLength));
             } else {
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    Math.abs(second.getValue()) - 1, first.getValue().length()));
+                    Math.abs(index) - 1, inputLength));
             }
         }
     }
@@ -777,13 +782,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "strleft")
     public static Expression strLeft(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() <= 0) {
-            return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
-            return first;
-        } else {
-            return castStringLikeLiteral(first, first.getValue().substring(0, second.getValue()));
-        }
+        return left(first, second);
     }
 
     /**
@@ -791,19 +790,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "strright")
     public static Expression strRight(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
-            return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
-            return first;
-        } else {
-            if (second.getValue() > 0) {
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    first.getValue().length() - second.getValue(), first.getValue().length()));
-            } else {
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    Math.abs(second.getValue()) - 1, first.getValue().length()));
-            }
-        }
+        return right(first, second);
     }
 
     /**
@@ -816,15 +803,17 @@ public class StringArithmetic {
         if (pos.getValue() <= 0 || pos.getValue() > originStr.getValue().length()) {
             return originStr;
         } else {
-            if (len.getValue() < 0 || (pos.getValue() + len.getValue()) > originStr.getValue().length()) {
-                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+            int indexLeft = originStr.getValue().offsetByCodePoints(0, pos.getValue());
+            int indexRight = originStr.getValue().offsetByCodePoints(0, len.getValue());
+            int totalLength = originStr.getValue().offsetByCodePoints(0, originStr.getValue().length());
+            if (len.getValue() < 0 || len.getValue() > (originStr.getValue().length() - len.getValue())) {
+                sb.append(originStr.getValue().substring(0, indexLeft - 1));
                 sb.append(insertStr.getValue());
                 return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(originStr.getValue().substring(0, indexLeft - 1));
                 sb.append(insertStr.getValue());
-                sb.append(originStr.getValue().substring(pos.getValue()
-                        + len.getValue() - 1, originStr.getValue().length()));
+                sb.append(originStr.getValue().substring(indexLeft + indexRight - 1, totalLength));
                 return castStringLikeLiteral(originStr, sb.toString());
             }
         }
@@ -1010,6 +999,26 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "replace_empty")
     public static Expression replaceEmpty(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
+        if (second.getValue().isEmpty()) {
+            byte[] input = first.getValue().getBytes(StandardCharsets.UTF_8);
+            byte[] replace = third.getValue().getBytes(StandardCharsets.UTF_8);
+            byte[] output = new byte[input.length + (input.length + 1) * replace.length];
+            for (int i = 0; i < replace.length; i++) {
+                output[i] = replace[i];
+            }
+            int last = replace.length;
+            for (int i = 0; i < input.length; i++) {
+                for (int j = 0; j < input.length; j++) {
+                    output[last] = input[j];
+                    last++;
+                }
+                for (int j = 0; j < replace.length; j++) {
+                    output[last] = replace[j];
+                    last++;
+                }
+            }
+            return castStringLikeLiteral(first, output.toString());
+        }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
 
