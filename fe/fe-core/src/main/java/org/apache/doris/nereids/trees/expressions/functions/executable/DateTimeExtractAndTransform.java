@@ -295,14 +295,14 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter(Locale.US).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter(Locale.US).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
@@ -310,14 +310,14 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter(Locale.US).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
+        return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter(Locale.US).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
