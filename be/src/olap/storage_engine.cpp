@@ -1493,54 +1493,6 @@ void BaseStorageEngine::_evict_querying_rowset() {
     }
 }
 
-void BaseStorageEngine::_should_delay_submission() {
-    // Calculate the total size and row count of the compaction task
-    int input_rowsets_total_size = 0;
-    int input_row_num = 0;
-    for (auto& rowset : _input_rowsets) {
-        const auto& rowset_meta = rowset->rowset_meta();
-        auto total_size = rowset_meta->total_disk_size();
-        input_rowsets_total_size += total_size;
-        input_row_num += rowset->num_rows();
-    }
-
-    // Determine if this is a small task based on configured thresholds
-    is_small_task = (input_rowsets_total_size <= config::cumu_delay_strategy_size &&
-                     input_row_num <= config::cumu_delay_strategy_row_num);
-
-    // Case 1: Multiple threads available => accept all tasks
-    if (remaining_threads > 1) {
-        // Update small task counter if needed
-        if (is_small_task) {
-            small_tasks_running++;
-        }
-        return false; // No delay needed
-    }
-
-    // Case 2: Only one thread left => accept if small or if another small task is already running
-    if (small_tasks_running > 0 || is_small_task) {
-        // Update small task counter if needed
-        if (is_small_task) {
-            small_tasks_running++;
-        }
-        return false; // No delay needed
-    }
-
-    // Case 3: Only one thread left, this is a big task, and no small tasks are running
-    // Delay this task to reserve capacity for potential small tasks
-    LOG_WARNING(
-            "failed to do CumulativeCompaction, cumu thread pool is intensive, delay big "
-            "task.")
-            .tag("tablet_id", _tablet->tablet_id())
-            .tag("input_rows", input_row_num)
-            .tag("input_rowsets_total_size", input_rowsets_total_size)
-            .tag("config::cumu_delay_strategy_size", config::cumu_delay_strategy_size)
-            .tag("config::cumu_delay_strategy_row_num", config::cumu_delay_strategy_row_num)
-            .tag("remaining threads", remaining_threads)
-            .tag("small_tasks_running", small_tasks_running);
-    return true; // Delay the task
-}
-
 bool StorageEngine::add_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto success = _broken_paths.emplace(path).second;
