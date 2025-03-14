@@ -69,7 +69,7 @@ public abstract class ExternalScanNode extends ScanNode {
     @Override
     public void init() throws UserException {
         if (columns == null && desc.getTable() != null) {
-            columns = desc.getTable().getColumns();
+            columns = desc.getTable().getBaseSchema();
         }
         computeColumnsFilter();
         initBackendPolicy();
