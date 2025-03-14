@@ -42,7 +42,8 @@ public class Floor extends ScalarFunction
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DoubleType.INSTANCE)
     );
 
     /**
