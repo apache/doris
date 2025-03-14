@@ -1036,4 +1036,95 @@ public:
     }
 };
 
+template <typename FunctionImpl>
+class FunctionNextDay : public IFunction {
+public:
+    static constexpr auto name = "next_day";
+    static FunctionPtr create() { return std::make_shared<FunctionNextDay>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<FunctionImpl::ReturnType>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        // TODO: const optimize
+        FunctionImpl::execute(context, block, arguments, result, input_rows_count);
+    }
+};
+
+static int day_of_week(const String& weekday) {
+    static const std::unordered_map<String, int> weekday_map = {
+            {"SU", 1}, {"SUN", 1}, {"SUNDAY", 1},   {"MO", 2}, {"MON", 2}, {"MONDAY", 2},
+            {"TU", 3}, {"TUE", 3}, {"TUESDAY", 3},  {"WE", 4}, {"WED", 4}, {"WEDNESDAY", 4},
+            {"TH", 5}, {"THU", 5}, {"THURSDAY", 5}, {"FR", 6}, {"FRI", 6}, {"FRIDAY", 6},
+            {"SA", 7}, {"SAT", 7}, {"SATURDAY", 7},
+    };
+    std::transform(weekday.begin(), weekday.end(), weekday.begin(), std::toupper);
+    auto it = weekday_map.find(weekday);
+    if (it == weekday_map.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
+class DateNextDayImpl {
+    using ReturnType = DataTypeDateV2;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count) {
+        CHECK_EQ(arguments.size(), 2);
+        auto res = ColumnVector::create();
+        const auto* date_col =
+                assert_cast<const ColumnDateV2*>(block.get_by_position(arguments[0]).column.get());
+        const auto* week_col =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[1]).column.get());
+        for (int i = 0; i < input_rows_count; ++i) {
+            auto date = date_col->get_data_at(i);
+            auto week = week_col->get_data_at(i);
+            auto day_of_week = day_of_week(week);
+            if (day_of_week == 0) {
+                // TODO: ensure error handle
+                res->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
+            } else {
+                auto dtv = DateV2Value<DateV2ValueType>::create_from_olap_date(date);
+                auto days_to_add = (day_of_week - dtv.day_of_week() + 7) % 7;
+                dtv.add_days(days_to_add);
+                res.insert_value(dtv.to_olap_date());
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+class DateTimeNextDayImpl {
+    using ReturnType = DataTypeDateTimeV2;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t input_rows_count) {
+        CHECK_EQ(arguments.size(), 2);
+        auto res = ColumnVector::create();
+        const auto* date_col = assert_cast<const ColumnDateTimeV2*>(
+                block.get_by_position(arguments[0]).column.get());
+        const auto* week_col =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[1]).column.get());
+        for (int i = 0; i < input_rows_count; ++i) {
+            auto date = date_col->get_data_at(i);
+            auto week = week_col->get_data_at(i);
+            auto day_of_week = day_of_week(week);
+            if (day_of_week == 0) {
+                // TODO: ensure error handle
+                res->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
+            } else {
+                auto dtv = DateV2Value<DateTimeV2ValueType>::create_from_olap_date(date);
+                auto days_to_add = (day_of_week - dtv.day_of_week() + 7) % 7;
+                dtv.add_days(days_to_add);
+                res.insert_value(dtv.to_olap_date());
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized
