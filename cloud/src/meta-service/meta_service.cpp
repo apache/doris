@@ -1792,7 +1792,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     return true;
 }
 
-static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
+static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
                                           std::stringstream& ss, std::unique_ptr<Transaction>& txn,
                                           std::string& instance_id, int64_t tablet_id) {
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
@@ -1862,7 +1862,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         return;
     }
 
-    bool is_not_first_sub_txn = (request->has_txn_id() && request->txn_id() != request->lock_id());
+    bool is_explict_txn = request->has_txn_id();
+    bool is_first_sub_txn = (is_explict_txn && request->txn_id() == request->lock_id());
     bool unlock = request->has_unlock() ? request->unlock() : false;
     if (!unlock) {
         // 1. Check whether the lock expires
@@ -1879,8 +1880,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
         // if this is a txn load and is not the first sub txn, we should not remove
         // the pending delete bitmaps written by previous sub txns
-        if (!is_not_first_sub_txn) {
-            if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
+        if (!is_explict_txn || is_first_sub_txn) {
+            if (!remove_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
                 return;
             }
         }
@@ -1897,7 +1898,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     PendingDeleteBitmapPB previous_pending_info;
-    if (is_not_first_sub_txn) {
+    if (is_explict_txn && !is_first_sub_txn) {
         std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
         std::string pending_val;
         auto err = txn->get(pending_key, &pending_val);
@@ -1927,7 +1928,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     // lock_id = -3 : compaction update delete bitmap without lock
     if (request->lock_id() > 0) {
         std::string pending_val;
-        if (is_not_first_sub_txn) {
+        if (is_explict_txn && !is_first_sub_txn) {
             // put current delete bitmap keys and previous sub txns' into tablet's pending delete bitmap KV
             PendingDeleteBitmapPB total_pending_info {std::move(previous_pending_info)};
             auto* cur_pending_keys = delete_bitmap_keys.mutable_delete_bitmap_keys();

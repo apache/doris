@@ -1419,7 +1419,8 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
-    // to determine whether this is a txn_load and whether it's the first sub txn
+    // to determine whether this is in an explict txn and whether it's the first sub txn
+    // should only set this field in explict txn
     optional int64 txn_id = 12;
 }
 
