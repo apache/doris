@@ -401,13 +401,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -425,6 +418,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             .tag("out_rowset_size", _output_rowsets.size())
             .tag("start_calc_delete_bitmap_version", start_calc_delete_bitmap_version)
             .tag("alter_version", alter_version);
+    RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
+    Defer defer {[&]() {
+        static_cast<void>(_cloud_storage_engine.unregister_compaction_stop_token(_new_tablet));
+    }};
+
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     std::shared_ptr<CloudTablet> tmp_tablet =
@@ -444,6 +442,8 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     if (max_version >= start_calc_delete_bitmap_version) {
         RETURN_IF_ERROR(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {start_calc_delete_bitmap_version, max_version}, &incremental_rowsets));
+        DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
+                        DBUG_BLOCK);
         for (auto rowset : incremental_rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
