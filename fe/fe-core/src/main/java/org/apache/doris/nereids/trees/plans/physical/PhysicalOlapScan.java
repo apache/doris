@@ -118,9 +118,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     @Override
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        StringBuilder jrfBuilder = new StringBuilder();
         if (!getAppliedRuntimeFilters().isEmpty()) {
-            getAppliedRuntimeFilters().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
+            getAppliedRuntimeFilters().forEach(
+                    jrf -> jrfBuilder.append(" RF").append(jrf.getId().asInt()));
         }
         String index = "";
         if (selectedIndexId != getTable().getBaseIndexId()) {
@@ -133,7 +134,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + "]"
                         + getGroupIdWithPrefix(),
-                "stats", statistics, "RFs", builder
+                "stats", statistics, "JRFs", jrfBuilder,
+                "RFV2", runtimeFiltersV2
         );
     }
 

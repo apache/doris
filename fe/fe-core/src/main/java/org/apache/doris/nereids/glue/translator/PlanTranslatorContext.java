@@ -72,6 +72,8 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
+    private final RunTimeFilterTranslatorV2 rfTranslatorV2;
+
     private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
@@ -118,12 +120,14 @@ public class PlanTranslatorContext {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
+        this.rfTranslatorV2 = new RunTimeFilterTranslatorV2(ctx.getRuntimeFilterV2Context());
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
+        this.rfTranslatorV2 = null;
         this.topnFilterContext = new TopnFilterContext();
     }
 
@@ -336,5 +340,9 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public RunTimeFilterTranslatorV2 getRunTimeFilterTranslatorV2() {
+        return rfTranslatorV2;
     }
 }
