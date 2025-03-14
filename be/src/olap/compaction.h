@@ -154,6 +154,8 @@ public:
 
     int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
+    std::vector<RowsetSharedPtr> get_input_rowsets() const { return _input_rowsets; }
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();

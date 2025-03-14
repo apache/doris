@@ -146,6 +146,7 @@ public:
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
+    bool _should_delay_submission();
 
     int32_t _effective_cluster_id = -1;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -434,6 +435,12 @@ private:
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
     void _check_tablet_delete_bitmap_score_callback();
+
+    bool _should_delay_submission(bool& is_small_task, int input_rowsets_total_size,
+                                  int input_row_num);
+
+    bool _check_cumu_should_delay_submission(const std::shared_ptr<CompactionMixin>& compaction,
+                                             const TabletSharedPtr& tablet, bool& is_small_task);
 
 private:
     EngineOptions _options;

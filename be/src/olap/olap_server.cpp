@@ -995,6 +995,77 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     });
 }
 
+bool StorageEngine::_should_delay_submission(bool& is_small_task, int input_rowsets_total_size,
+                                             int input_row_num) {
+    // Determine if this is a small task based on configured thresholds
+    is_small_task = (input_rowsets_total_size <= config::cumu_delay_strategy_size &&
+                     input_row_num <= config::cumu_delay_strategy_row_num);
+
+    // Case 1: Multiple threads available => accept all tasks
+    if (_cumu_compaction_thread_pool_remaining_threads > 1) {
+        // Update small task counter if needed
+        if (is_small_task) {
+            _cumu_compaction_thread_pool_small_tasks_running++;
+        }
+        return false; // No delay needed
+    }
+
+    // Case 2: Only one thread left => accept if small or if another small task is already running
+    if (_cumu_compaction_thread_pool_small_tasks_running > 0 || is_small_task) {
+        // Update small task counter if needed
+        if (is_small_task) {
+            _cumu_compaction_thread_pool_small_tasks_running++;
+        }
+        return false; // No delay needed
+    }
+
+    // Case 3: Only one thread left, this is a big task, and no small tasks are running
+    // Delay this task to reserve capacity for potential small tasks
+    return true; // Delay the task
+}
+
+bool StorageEngine::_check_cumu_should_delay_submission(
+        const std::shared_ptr<CompactionMixin>& compaction, const TabletSharedPtr& tablet,
+        bool& is_small_task) {
+    if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+        _cumu_compaction_thread_pool_remaining_threads++;
+        if (_cumu_compaction_thread_pool->max_threads() >=
+            config::min_threads_for_cumu_delay_strategy) {
+            // Calculate the total size and row count of the compaction task
+            int input_rowsets_total_size = 0;
+            int input_row_num = 0;
+            for (auto& rowset : compaction->get_input_rowsets()) {
+                const auto& rowset_meta = rowset->rowset_meta();
+                auto total_size = rowset_meta->total_disk_size();
+                input_rowsets_total_size += total_size;
+                input_row_num += rowset->num_rows();
+            }
+            if (_should_delay_submission(is_small_task, input_rowsets_total_size, input_row_num)) {
+                LOG_WARNING(
+                        "failed to do CumulativeCompaction, cumu thread pool is intensive, delay "
+                        "big "
+                        "task.")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .tag("input_rows", input_row_num)
+                        .tag("input_rowsets_total_size", input_rowsets_total_size)
+                        .tag("config::cumu_delay_strategy_size", config::cumu_delay_strategy_size)
+                        .tag("config::cumu_delay_strategy_row_num",
+                             config::cumu_delay_strategy_row_num)
+                        .tag("remaining threads", _cumu_compaction_thread_pool_remaining_threads)
+                        .tag("small_tasks_running",
+                             _cumu_compaction_thread_pool_small_tasks_running);
+                long now = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+                tablet->set_last_cumu_compaction_failure_time(now);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
@@ -1052,23 +1123,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _cumu_compaction_thread_pool_small_tasks_running--;
                 }
             }};
-            if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-                std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
-                _cumu_compaction_thread_pool_remaining_threads++;
-                if (_cumu_compaction_thread_pool->max_threads() >=
-                    config::min_threads_for_cumu_delay_strategy) {
-                    if (assert_cast<CumulativeCompaction*>(compaction.get())
-                                ->should_delay_submission(
-                                        _cumu_compaction_thread_pool_remaining_threads,
-                                        _cumu_compaction_thread_pool_small_tasks_running,
-                                        is_small_task)) {
-                        long now = duration_cast<std::chrono::milliseconds>(
-                                           std::chrono::system_clock::now().time_since_epoch())
-                                           .count();
-                        tablet->set_last_cumu_compaction_failure_time(now);
-                    }
-                }
-            }
+            if (_check_cumu_should_delay_submission(compaction, tablet, is_small_task)) {
+                return;
+            };
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="
