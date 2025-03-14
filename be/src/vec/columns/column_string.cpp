@@ -36,26 +36,22 @@ namespace doris::vectorized {
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
-    auto count = offsets.size();
-    if (chars.size() != offsets[count - 1]) {
-        LOG(FATAL) << "row count: " << count << ", chars.size(): " << chars.size() << ", offset["
-                   << count - 1 << "]: " << offsets[count - 1];
-    }
-    if (offsets[-1] != 0) {
-        LOG(FATAL) << "wrong offsets[-1]: " << offsets[-1];
-    }
-    for (size_t i = 0; i < count; ++i) {
+#ifndef NDEBUG
+    sanity_check_simple();
+    auto count = (int)offsets.size();
+    for (int i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
-            LOG(FATAL) << "row count: " << count << ", offsets[" << i << "]: " << offsets[i]
-                       << ", offsets[" << i - 1 << "]: " << offsets[i - 1];
+            throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
+                                                  count, i, offsets[i], i - 1, offsets[i - 1]));
         }
     }
+#endif
 }
 
 template <typename T>
 void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
-    auto count = offsets.size();
+    auto count = (int)offsets.size();
     if (chars.size() != offsets[count - 1]) {
         throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
                                               count, chars.size(), count - 1, offsets[count - 1]));
@@ -151,7 +147,14 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
-    sanity_check_simple();
+#ifndef NDEBUG
+    auto count = int64_t(offsets.size());
+    // offsets may overflow, so we make chars.size() as T to do same overflow check
+    if (offsets.back() != T(chars.size())) {
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
+    }
+#endif
 }
 
 template <typename T>
