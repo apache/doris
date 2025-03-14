@@ -644,6 +644,8 @@ public:
     std::queue<vectorized::Block> blocks_buffer;
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
+    std::atomic_int sink_sorter_idx = 0;
+    std::atomic_int source_sorter_idx = 0;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
 };
