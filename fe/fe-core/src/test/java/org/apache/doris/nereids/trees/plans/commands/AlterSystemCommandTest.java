@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
@@ -32,26 +34,41 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropFollowerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropObserverOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
-import org.apache.doris.utframe.MockUsers;
-import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AlterSystemCommandTest extends TestWithFeService {
-    @Test
-    void testValidate() throws UserException {
-        List<String> hostPorts = ImmutableList.of("127.0.0.1:9050", "127.0.0.1:19050");
-        List<String> hostPortsErr = ImmutableList.of("127.0.0.1:89050", "355.0.0.1:19050");
-        Map<String, String> properties = new HashMap<>();
-        properties.put("tag.compute_group_name", "another_compute_group");
-        String brokerName = "brocker1";
+public class AlterSystemCommandTest {
+    @Mocked
+    private ConnectContext connectContext;
+    @Mocked
+    private AccessControllerManager accessControllerManager;
+    private List<String> hostPorts = ImmutableList.of("127.0.0.1:9050", "127.0.0.1:19050");
+    private List<String> hostPortsErr = ImmutableList.of("127.0.0.1:89050", "355.0.0.1:19050");
+    private Map<String, String> properties = ImmutableMap.of();
+    private String brokerName = "brocker1";
 
+    @Test
+    void testValidateNormal() {
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.OPERATOR);
+                minTimes = 0;
+                result = true;
+            }
+        };
         // test addBackend
         AlterSystemCommand addBackend = new AlterSystemCommand(
                 new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
@@ -138,14 +155,27 @@ public class AlterSystemCommandTest extends TestWithFeService {
                         ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
         Assertions.assertDoesNotThrow(() -> modifyFrontendHostName.validate(connectContext));
+    }
+
+    @Test
+    void testValidateNoPrivilege() {
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.OPERATOR);
+                minTimes = 0;
+                result = false;
+            }
+        };
 
         // test addBackend with no privilege
-        MockUsers.changeUser(MockUsers.getUserWithNoAllPrivilege());
-        AlterSystemCommand addBackend0 = new AlterSystemCommand(
+        AlterSystemCommand addBackend = new AlterSystemCommand(
                 new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
-        Assertions.assertThrows(AnalysisException.class, () -> addBackend0.validate(connectContext),
+        Assertions.assertThrows(AnalysisException.class, () -> addBackend.validate(connectContext),
                 "Access denied; you need (at least one of) the (NODE) privilege(s) for this operation");
-
     }
 }
 
