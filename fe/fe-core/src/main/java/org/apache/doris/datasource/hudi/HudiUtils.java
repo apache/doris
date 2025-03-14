@@ -45,14 +45,15 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
-    private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    private static final DateTimeFormatter DEFAULT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
      * Convert different query instant time format to the commit time format.
@@ -74,7 +75,8 @@ public class HudiUtils {
             HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
             return queryInstant;
         } else if (instantLength == 10) { // for yyyy-MM-dd
-            return HoodieActiveTimeline.formatDate(defaultDateFormat.parse(queryInstant));
+            LocalDate date = LocalDate.parse(queryInstant, DEFAULT_DATE_FORMATTER);
+            return HoodieActiveTimeline.formatDate(java.sql.Date.valueOf(date));
         } else {
             throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
                     + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "

@@ -33,7 +33,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
@@ -264,6 +264,9 @@ public:
               _day(0), // _microsecond(0): remove it to reduce memory, and Reorder the variables
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
+
+    const static VecDateTimeValue FIRST_DAY;
+    const static VecDateTimeValue FIRST_SUNDAY;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -634,7 +637,7 @@ public:
     std::string debug_string() const {
         char buf[64];
         char* end = to_string(buf);
-        return std::string(buf, end - buf);
+        return {buf, static_cast<size_t>(end - buf)};
     }
 
     static VecDateTimeValue datetime_min_value() {
@@ -759,6 +762,11 @@ private:
               _year(year) {}
 };
 
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1970, 1,
+                                                          1);
+inline const VecDateTimeValue VecDateTimeValue::FIRST_SUNDAY(false, TYPE_DATETIME, 0, 0, 0, 1970, 1,
+                                                             4);
+
 template <typename T>
 class DateV2Value {
 public:
@@ -769,10 +777,16 @@ public:
     DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
 
     DateV2Value(underlying_value int_val) : int_val_(int_val) {}
+    template <typename U>
+        requires std::is_integral_v<U>
+    DateV2Value(U other) = delete;
 
     DateV2Value(DateV2Value<T>& other) = default;
 
     DateV2Value(const DateV2Value<T>& other) = default;
+
+    const static DateV2Value<T> FIRST_DAY;
+    const static DateV2Value<T> FIRST_SUNDAY;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -952,6 +966,7 @@ public:
     }
 
     uint16_t year() const { return date_v2_value_.year_; }
+    uint16_t year_of_week() const;
     uint8_t month() const { return date_v2_value_.month_; }
     int quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
     int week() const { return week(mysql_week_mode(0)); } //00-53
@@ -1093,15 +1108,7 @@ public:
         return ts1 > ts2;
     }
 
-    DateV2Value<T>& operator=(const DateV2Value<T>& other) {
-        int_val_ = other.to_date_int_val();
-        return *this;
-    }
-
-    DateV2Value<T>& operator=(DateV2Value<T>& other) {
-        int_val_ = other.to_date_int_val();
-        return *this;
-    }
+    DateV2Value<T>& operator=(const DateV2Value<T>& other) = default;
 
     const char* month_name() const;
 
@@ -1136,7 +1143,7 @@ public:
     std::string debug_string() const {
         char buf[64];
         char* end = to_string(buf);
-        return std::string(buf, end - buf);
+        return {buf, static_cast<size_t>(end - buf)};
     }
 
     bool is_valid_date() const {
@@ -1327,6 +1334,11 @@ private:
                 uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
+
+template <typename T>
+inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(1970, 1, 1, 0, 0, 0, 0);
+template <typename T>
+inline const DateV2Value<T> DateV2Value<T>::FIRST_SUNDAY = DateV2Value<T>(1970, 1, 4, 0, 0, 0, 0);
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);
