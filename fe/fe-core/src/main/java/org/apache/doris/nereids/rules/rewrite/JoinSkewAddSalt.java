@@ -75,7 +75,7 @@ import java.util.stream.Collectors;
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
  *       +--LogicalOlapScan(t2)
  * */
-public class JoinSkewSalt extends OneRewriteRuleFactory {
+public class JoinSkewAddSalt extends OneRewriteRuleFactory {
     private static final String RANDOM_COLUMN_NAME_LEFT = "r1";
     private static final String RANDOM_COLUMN_NAME_RIGHT = "r2";
     private static final String SKEW_VALUE_COLUMN_NAME = "skewValue";
@@ -83,7 +83,7 @@ public class JoinSkewSalt extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalJoin().thenApply(JoinSkewSalt::transform).toRule(RuleType.JOIN_SKEW_SALT);
+        return logicalJoin().thenApply(JoinSkewAddSalt::transform).toRule(RuleType.JOIN_SKEW_ADD_SALT);
     }
 
     private static Plan transform(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {

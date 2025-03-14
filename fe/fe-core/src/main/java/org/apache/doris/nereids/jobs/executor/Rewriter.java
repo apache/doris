@@ -89,7 +89,7 @@ import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
-import org.apache.doris.nereids.rules.rewrite.JoinSkewSalt;
+import org.apache.doris.nereids.rules.rewrite.JoinSkewAddSalt;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -364,7 +364,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new AdjustAggregateNullableForEmptySet())
                 ),
                 topic("skew rewrite",
-                        topDown(new JoinSkewSalt())),
+                        topDown(new JoinSkewAddSalt())),
                 topic("Eager aggregation",
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),

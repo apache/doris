@@ -385,7 +385,7 @@ public enum RuleType {
     // short circuit rule
     SHOR_CIRCUIT_POINT_QUERY(RuleTypeClass.REWRITE),
     // skew rewrtie
-    JOIN_SKEW_SALT(RuleTypeClass.REWRITE),
+    JOIN_SKEW_ADD_SALT(RuleTypeClass.REWRITE),
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),

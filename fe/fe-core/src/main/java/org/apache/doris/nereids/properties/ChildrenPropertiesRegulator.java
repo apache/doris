@@ -303,6 +303,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
 
         if (hashJoin.getDistributeHint() != null
                 && hashJoin.getDistributeHint().distributeType.equals(DistributeType.SHUFFLE_RIGHT)
+                && hashJoin.getDistributeHint().getSkewExpr() != null
                 && (leftHashSpec.getOrderedShuffledColumns().size() != ((DistributionSpecHash) requiredProperties.get(0)
                 .getDistributionSpec()).getOrderedShuffledColumns().size()
                 || rightHashSpec.getOrderedShuffledColumns().size() != ((DistributionSpecHash) requiredProperties.get(1)
