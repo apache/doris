@@ -568,14 +568,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
         }
 
         vectorized::ColumnPtr filter_ptr = output_block->get_by_position(result_column_id).column;
+        const uint8_t* filter =
+                assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data().data();
 
         RETURN_IF_ERROR(
                 vectorized::Block::filter_block(output_block, result_column_id, orig_columns));
-        const uint8_t* filter =
-                assert_cast<const vectorized::ColumnUInt8*>(
-                        output_block->get_by_position(result_column_id).column.get())
-                        ->get_data()
-                        .data();
 
         auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
                                        const std::vector<uint32_t>& row_indexs, int column_offset,
