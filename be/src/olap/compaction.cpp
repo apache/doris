@@ -507,7 +507,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << "s. cumulative_compaction_policy=" << cumu_policy->name()
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second())
               << ((_tablet->enable_unique_key_merge_on_write() &&
-                   config::enable_compaction_unique_mow_by_mor)
+                   !config::enable_compaction_unique_mow_by_mor)
                           ? "compaction_using_mow: true"
                           : "");
 
