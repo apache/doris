@@ -98,6 +98,9 @@ public class JoinSkewAddSalt extends OneRewriteRuleFactory {
             return null;
         }
         DistributeHint hint = join.getDistributeHint();
+        if (hint.isSuccessInSkew()) {
+            return null;
+        }
         Expression skewExpr = hint.getSkewExpr();
         if (hint.distributeType != DistributeType.SHUFFLE_RIGHT || skewExpr == null) {
             return null;
@@ -147,7 +150,7 @@ public class JoinSkewAddSalt extends OneRewriteRuleFactory {
         List<Expression> newHashJoinConjuncts = new ArrayList<>(join.getHashJoinConjuncts());
         newHashJoinConjuncts.add(saltEqual);
         return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts, join.getOtherJoinConjuncts(),
-                new DistributeHint(hint.distributeType), leftProject, rightProject, JoinReorderContext.EMPTY);
+                hint.withSuccessInSkew(true), leftProject, rightProject, JoinReorderContext.EMPTY);
     }
 
     // Add a project on top of originPlan, which includes all the original columns plus a case when column.
@@ -172,7 +175,7 @@ public class JoinSkewAddSalt extends OneRewriteRuleFactory {
             Plan originPlan, int factor, DataType type) {
         if (skewValues.isEmpty()) {
             List<NamedExpression> namedExpressions = new ArrayList<>(originPlan.getOutput());
-            namedExpressions.add(new Alias(new IntegerLiteral(0), RANDOM_COLUMN_NAME_RIGHT));
+            namedExpressions.add(new Alias(DataType.promoteLiteral(0, type), RANDOM_COLUMN_NAME_RIGHT));
             return new LogicalProject<>(namedExpressions, originPlan);
         } else {
             List<List<NamedExpression>> constantExprsList = new ArrayList<>();

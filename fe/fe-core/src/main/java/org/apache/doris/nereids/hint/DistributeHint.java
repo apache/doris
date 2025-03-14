@@ -37,22 +37,30 @@ public class DistributeHint extends Hint {
 
     private final List<Expression> skewValues;
 
+    private boolean isSuccessInSkew = false;
+
     public DistributeHint(DistributeType distributeType) {
-        super("Distribute");
-        this.distributeType = distributeType;
-        this.skewExpr = null;
-        this.skewValues = null;
+        this(distributeType, null, null);
     }
 
     public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues) {
+        this(distributeType, skewExpr, skewValues, false);
+    }
+
+    public DistributeHint(DistributeType distributeType, Expression skewExpr, List<Expression> skewValues, boolean isSuccessInSkew) {
         super("Distribute");
         this.distributeType = distributeType;
         this.skewExpr = skewExpr;
         this.skewValues = skewValues;
+        this.isSuccessInSkew = isSuccessInSkew;
     }
 
     public DistributeHint withSkewExpr(Expression expr) {
         return new DistributeHint(distributeType, expr, skewValues);
+    }
+
+    public DistributeHint withSuccessInSkew(boolean success) {
+        return new DistributeHint(distributeType, skewExpr, skewValues, success);
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
@@ -65,6 +73,10 @@ public class DistributeHint extends Hint {
 
     public List<Expression> getSkewValues() {
         return skewValues;
+    }
+
+    public boolean isSuccessInSkew() {
+        return isSuccessInSkew;
     }
 
     /**
