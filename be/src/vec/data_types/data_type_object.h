@@ -50,11 +50,12 @@ namespace doris::vectorized {
 class DataTypeObject : public IDataType {
 private:
     int32_t _max_subcolumns_count = 0;
+    std::string name = "Variant";
 
 public:
     DataTypeObject() {}
     DataTypeObject(int32_t max_subcolumns_count);
-    const char* get_family_name() const override { return "Variant"; }
+    const char* get_family_name() const override { return name.c_str(); }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_VARIANT, _max_subcolumns_count);

@@ -48,7 +48,9 @@ class IColumn;
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 DataTypeObject::DataTypeObject(int32_t max_subcolumns_count)
-        : _max_subcolumns_count(max_subcolumns_count) {}
+        : _max_subcolumns_count(max_subcolumns_count) {
+    name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
+}
 bool DataTypeObject::equals(const IDataType& rhs) const {
     auto rhs_type = typeid_cast<const DataTypeObject*>(&rhs);
     if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
