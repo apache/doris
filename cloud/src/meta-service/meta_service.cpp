@@ -1793,8 +1793,8 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
 }
 
 static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
-                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
-                                          std::string& instance_id, int64_t tablet_id) {
+                                         std::stringstream& ss, std::unique_ptr<Transaction>& txn,
+                                         std::string& instance_id, int64_t tablet_id) {
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
     std::string pending_val;
     auto err = txn->get(pending_key, &pending_val);
