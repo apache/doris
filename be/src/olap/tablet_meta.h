@@ -557,7 +557,8 @@ public:
 
     bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
 
-    void remove_rowset_cache_version(const RowsetId& rowset_id);
+    // return the size of the map
+    size_t remove_rowset_cache_version(const RowsetId& rowset_id);
 
     class AggCachePolicy : public LRUCachePolicy {
     public:
