@@ -601,6 +601,87 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void getRelatedTableInfoTestWithWindowDateTruncTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "
+                                + "count(o.O_ORDERDATE) over (partition by date_trunc(l.L_SHIPDATE, 'day'), l.L_SHIPDATE order by l.L_ORDERKEY  rows between unbounded preceding and current row) as window_count "
+                                + "FROM "
+                                + "lineitem as l "
+                                + "LEFT JOIN "
+                                + "(SELECT abs(O_TOTALPRICE + 10) as c1_abs, O_CUSTKEY, O_ORDERDATE, O_ORDERKEY "
+                                + "FROM orders) as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY "
+                                + "JOIN "
+                                + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
+                                + "FROM partsupp) as ps "
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithWindowDateTruncDiffTest1() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "
+                                + "count(o.O_ORDERDATE) over (partition by date_trunc(l.L_SHIPDATE, 'month'), l.L_SHIPDATE order by l.L_ORDERKEY  rows between unbounded preceding and current row) as window_count "
+                                + "FROM "
+                                + "lineitem as l "
+                                + "LEFT JOIN "
+                                + "(SELECT abs(O_TOTALPRICE + 10) as c1_abs, O_CUSTKEY, O_ORDERDATE, O_ORDERKEY "
+                                + "FROM orders) as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY "
+                                + "JOIN "
+                                + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
+                                + "FROM partsupp) as ps "
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", "day",
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column time unit is not compatible from the expression to check"));
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithWindowDateTruncDiffTest2() {
+        // should fail but now success, because date_trunc(l.L_SHIPDATE, 'month')
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "
+                                + "count(o.O_ORDERDATE) over (partition by date_trunc(l.L_SHIPDATE, 'month'), l.L_SHIPDATE order by l.L_ORDERKEY  rows between unbounded preceding and current row) as window_count "
+                                + "FROM "
+                                + "lineitem as l "
+                                + "LEFT JOIN "
+                                + "(SELECT abs(O_TOTALPRICE + 10) as c1_abs, O_CUSTKEY, O_ORDERDATE, O_ORDERKEY "
+                                + "FROM orders) as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY "
+                                + "JOIN "
+                                + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
+                                + "FROM partsupp) as ps "
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void getRelatedTableInfoTestWithWindowButNotPartitionTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "
