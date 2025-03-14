@@ -44,6 +44,7 @@ class CloudBaseCompaction;
 class CloudFullCompaction;
 class TabletHotspot;
 class CloudWarmUpManager;
+class CloudCompactionStopToken;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -143,6 +144,10 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
+
+    Status unregister_compaction_stop_token(CloudTabletSPtr tablet);
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -188,6 +193,9 @@ private:
     // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             _submitted_cumu_compactions;
+    // tablet_id -> active compaction stop tokens
+    std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
+            _active_compaction_stop_tokens;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
