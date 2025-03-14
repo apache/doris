@@ -1101,10 +1101,9 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
             return;
         }
 
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            ctx->disabled = true;
-        } else {
+        // rf merger backend may finished before rf's send_filter_size, we just disable filter in this case.
+        ctx->disabled = true;
+        if (!status.is<ErrorCode::END_OF_FILE>()) {
             ctx->err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);
         }
