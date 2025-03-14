@@ -433,7 +433,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select right('Hello World', 0)")
     testFoldConst("select right(NULL, 1)")
     testFoldConst("select right('🐼abc🐼', 100)")
-    testFoldConst("select strright("你好世界",5)")
+    testFoldConst("select right('你好世界',5)")
     
     // rpad
     testFoldConst("select rpad(cast('hi' as string), 1, cast('xy' as string))")
