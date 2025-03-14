@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -54,7 +55,7 @@ import java.util.List;
 /**
  * show frontend/backend config
 */
-public class ShowConfigCommand extends Command implements NoForward {
+public class ShowConfigCommand extends Command implements Redirect {
 
     public static final ImmutableList<String> FE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
             "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
@@ -174,5 +175,18 @@ public class ShowConfigCommand extends Command implements NoForward {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowConfigCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // no need forward to master for backend config
+        if (nodeType == NodeType.BACKEND) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }
