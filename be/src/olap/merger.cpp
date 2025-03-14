@@ -90,7 +90,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
     reader_params.tablet_schema = merge_tablet_schema;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+    if (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+        !config::enable_compaction_unique_mow_by_mor) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     }
 
@@ -265,7 +266,8 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.tablet_schema = merge_tablet_schema;
     bool has_cluster_key = false;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+    if (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+        !config::enable_compaction_unique_mow_by_mor) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
         has_cluster_key = true;
     }

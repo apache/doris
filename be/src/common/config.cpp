@@ -412,6 +412,9 @@ DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
 
+// If enabled, compaction on unique mow table will use mor way
+DEFINE_mBool(enable_compaction_unique_mow_by_mor, "true");
+
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
