@@ -51,7 +51,7 @@ public:
         return MutableBlock::build_mutable_block(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block,
-                                                      std::vector<SlotDescriptor*>& slots) {
+                                                      const std::vector<SlotDescriptor*>& slots) {
         if (!block->mem_reuse()) {
             size_t column_size = slots.size();
             MutableColumns columns(column_size);

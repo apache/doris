@@ -492,35 +492,26 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-    if (!req.runtime_state->tablet_commit_infos().empty()) {
+    if (auto tci = req.runtime_state->tablet_commit_infos(); !tci.empty()) {
         params.__isset.commitInfos = true;
-        params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
-        for (auto& info : req.runtime_state->tablet_commit_infos()) {
-            params.commitInfos.push_back(info);
-        }
+        params.commitInfos.insert(params.commitInfos.end(), tci.begin(), tci.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->tablet_commit_infos().empty()) {
+            if (auto rs_tci = rs->tablet_commit_infos(); !rs_tci.empty()) {
                 params.__isset.commitInfos = true;
-                params.commitInfos.insert(params.commitInfos.end(),
-                                          rs->tablet_commit_infos().begin(),
-                                          rs->tablet_commit_infos().end());
+                params.commitInfos.insert(params.commitInfos.end(), rs_tci.begin(), rs_tci.end());
             }
         }
     }
-    if (!req.runtime_state->error_tablet_infos().empty()) {
+    if (auto eti = req.runtime_state->error_tablet_infos(); !eti.empty()) {
         params.__isset.errorTabletInfos = true;
-        params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
-        for (auto& info : req.runtime_state->error_tablet_infos()) {
-            params.errorTabletInfos.push_back(info);
-        }
+        params.errorTabletInfos.insert(params.errorTabletInfos.end(), eti.begin(), eti.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->error_tablet_infos().empty()) {
+            if (auto rs_eti = rs->error_tablet_infos(); !rs_eti.empty()) {
                 params.__isset.errorTabletInfos = true;
-                params.errorTabletInfos.insert(params.errorTabletInfos.end(),
-                                               rs->error_tablet_infos().begin(),
-                                               rs->error_tablet_infos().end());
+                params.errorTabletInfos.insert(params.errorTabletInfos.end(), rs_eti.begin(),
+                                               rs_eti.end());
             }
         }
     }
@@ -672,16 +663,14 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     return Status::OK();
 }
 
-void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    auto query_id = f_context->get_query_id();
+void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     int64 now = duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
-    _pipeline_map.erase({query_id, f_context->get_fragment_id()});
+    _pipeline_map.erase(key);
 }
 
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
@@ -870,11 +859,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 
     {
-        for (const auto& local_param : params.local_params) {
-            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
-            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
-        }
-
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -915,13 +899,9 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx = nullptr;
-    std::vector<TUniqueId> all_instance_ids;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {
             query_ctx = q_ctx;
-            // Copy instanceids to avoid concurrent modification.
-            // And to reduce the scope of lock.
-            all_instance_ids = query_ctx->fragment_instance_ids;
         } else {
             LOG(WARNING) << "Query " << print_id(query_id)
                          << " does not exists, failed to cancel it";

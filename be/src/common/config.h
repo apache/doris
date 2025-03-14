@@ -1325,6 +1325,9 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
+// Ingest binlog with persistent connection
+DECLARE_Bool(enable_ingest_binlog_with_persistent_connection);
+
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 

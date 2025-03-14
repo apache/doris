@@ -157,6 +157,8 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TFrontendReportAliveSessionRequest;
+import org.apache.doris.thrift.TFrontendReportAliveSessionResult;
 import org.apache.doris.thrift.TGetBackendMetaRequest;
 import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
@@ -287,6 +289,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1050,7 +1053,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
-        ConnectContext context = new ConnectContext(null, true);
+        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1787,14 +1790,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 subTxnInfo.getTabletCommitInfos(), null));
             }
             transactionState.setSubTxnIds(subTxnIds);
-            return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(db, request.getTxnId(),
-                    subTransactionStates, timeoutMs);
-        } else {
+            return Env.getCurrentGlobalTransactionMgr()
+                    .commitAndPublishTransaction(db, request.getTxnId(),
+                            subTransactionStates, timeoutMs);
+        } else if (!request.isOnlyCommit()) {
             return Env.getCurrentGlobalTransactionMgr()
                     .commitAndPublishTransaction(db, tableList,
                             request.getTxnId(),
                             TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                             TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+        } else {
+            // single table commit, so don't need to wait for publish.
+            Env.getCurrentGlobalTransactionMgr()
+                    .commitTransaction(db, tableList,
+                            request.getTxnId(),
+                            TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
+                            TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+            return true;
         }
     }
 
@@ -2199,6 +2211,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TFrontendReportAliveSessionResult getAliveSessions(TFrontendReportAliveSessionRequest request)
+            throws TException {
+        TFrontendReportAliveSessionResult result = new TFrontendReportAliveSessionResult();
+        result.setStatus(TStatusCode.OK);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get alive sessions request: {}", request);
+        }
+
+        Env env = Env.getCurrentEnv();
+        if (env.isReady()) {
+            if (request.getClusterId() != env.getClusterId()) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
+            } else if (!request.getToken().equals(env.getToken())) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
+            } else {
+                result.setMsg("success");
+                result.setSessionIdList(env.getAllAliveSessionIds());
+            }
+        } else {
+            result.setStatus(TStatusCode.ILLEGAL_STATE);
+            result.setMsg("not ready");
+        }
+        return result;
     }
 
     @Override
@@ -3322,6 +3362,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLastCommitSeq(lagInfo.getLastCommitSeq());
             result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
             result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+            result.setNextCommitSeq(lagInfo.getNextCommitSeq());
+            result.setNextBinlogTimestamp(lagInfo.getNextCommitTs());
         }
         return result;
     }
@@ -4125,8 +4167,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetCurrentUserIdent()) {
             userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         }
+        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
+        if (request.isSetTimeZone()) {
+            timeZone = request.getTimeZone();
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionForRpc(userIdentity, isShowFullSql);
+                .listConnectionForRpc(userIdentity, isShowFullSql, Optional.of(timeZone));
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;

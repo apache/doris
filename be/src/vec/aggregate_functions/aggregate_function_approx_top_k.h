@@ -44,6 +44,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionTopKGenericData {
     using Set = SpaceSaving<StringRef, StringRefHash>;
@@ -212,8 +213,9 @@ public:
             for (size_t i = 0; i < _column_names.size(); i++) {
                 begin = argument_columns[i]->deserialize_and_insert_from_arena(begin);
                 std::string row_str = argument_types[i]->to_string(*argument_columns[i], 0);
-                sub_writer.Key(_column_names[i].data(), _column_names[i].size());
-                sub_writer.String(row_str.data(), row_str.size());
+                sub_writer.Key(_column_names[i].data(),
+                               cast_set<uint32_t>(_column_names[i].size()));
+                sub_writer.String(row_str.data(), cast_set<uint32_t>(row_str.size()));
             }
             sub_writer.Key("count");
             sub_writer.String(std::to_string(result.count).c_str());
@@ -226,4 +228,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
