@@ -3389,6 +3389,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLastCommitSeq(lagInfo.getLastCommitSeq());
             result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
             result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+            result.setNextCommitSeq(lagInfo.getNextCommitSeq());
+            result.setNextBinlogTimestamp(lagInfo.getNextCommitTs());
         }
         return result;
     }
