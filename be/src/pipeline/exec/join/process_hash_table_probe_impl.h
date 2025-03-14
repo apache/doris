@@ -312,13 +312,16 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
     vectorized::ColumnPtr filter_ptr = output_block->get_by_position(filter_column_id).column;
     const uint8_t* filter =
             assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data().data();
-
+    size_t row_count = filter_ptr->size();
     RETURN_IF_ERROR(
             vectorized::Block::filter_block(output_block, filter_column_id, column_to_keep));
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
                                    const std::vector<uint32_t>& row_indexs, int column_offset,
                                    vectorized::Block* source_block) {
+        if (!_have_other_join_conjunct) {
+            return;
+        }
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&
@@ -330,7 +333,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
             return;
         }
         std::vector<uint32_t> final_row_indexs;
-        for (int i = 0; i < filter_ptr->size(); ++i) {
+        for (int i = 0; i < row_count; ++i) {
             if (filter[i]) {
                 final_row_indexs.push_back(row_indexs[i]);
             }
