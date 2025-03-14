@@ -112,6 +112,9 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionLevelThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
 
+    private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
+
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -150,6 +153,7 @@ public class TableProperty implements Writable {
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
+                buildAutoAnalyzeProperty();
                 break;
             default:
                 break;
@@ -227,6 +231,12 @@ public class TableProperty implements Writable {
     public TableProperty buildDisableAutoCompaction() {
         disableAutoCompaction = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
+        return this;
+    }
+
+    public TableProperty buildAutoAnalyzeProperty() {
+        autoAnalyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY,
+                PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY);
         return this;
     }
 
