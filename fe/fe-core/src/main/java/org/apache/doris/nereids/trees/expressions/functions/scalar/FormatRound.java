@@ -21,13 +21,12 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,16 +35,16 @@ import java.util.List;
 
 /** FormatRound function */
 public class FormatRound extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(DoubleType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(DecimalV3Type.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(StringType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(DecimalV3Type.INSTANCE, IntegerType.INSTANCE));
 
     /**
      * constructor with 2 or more arguments.
      */
     public FormatRound(Expression arg0, Expression arg1) {
-        super("format_round", ExpressionUtils.mergeArguments(arg0, arg1));
+        super("format_round", arg0, arg1);
     }
 
     /**
