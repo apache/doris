@@ -1059,7 +1059,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                             mutable_column.get())
                             ->insert_default();
                 } else {
-                    mutable_column->insert_default();
+                    mutable_column->insert(rs_column.get_vec_type()->get_default());
                 }
             } else {
                 mutable_column->insert_from(*old_block.get_by_position(i).column,
@@ -1173,7 +1173,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                             new_col.get())
                             ->insert_default();
                 } else {
-                    new_col->insert_default();
+                    new_col->insert(tablet_column.get_vec_type()->get_default());
                 }
             } else {
                 new_col->insert_from(old_value_col, idx);
