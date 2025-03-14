@@ -3353,6 +3353,14 @@ public class Config extends ConfigBase {
             "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
     public static boolean enable_show_file_cache_hotspot_stmt = false;
 
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的请求超时, 默认10000ms",
+            "Request timeout for FE connecting to meta service in cloud mode, default is 10000ms."})
+    public static int meta_service_brpc_timeout_ms = 10000;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认200ms",
+            "Connection timeout for FE connecting to meta service in cloud mode., default is 200ms."})
+    public static int meta_service_brpc_connect_timeout_ms = 200;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

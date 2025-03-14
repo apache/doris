@@ -1402,6 +1402,8 @@ enum MetaServiceCode {
 
     SCHEMA_DICT_NOT_FOUND = 11001;
 
+    KV_TXN_CONFLICT_BUSY = 12001;
+
     UNDEFINED_ERR = 1000000;
 }
 

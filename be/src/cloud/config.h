@@ -60,6 +60,7 @@ DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_timeout_retry_times);
 
 // CloudTabletMgr config
 DECLARE_Int64(tablet_cache_capacity);
