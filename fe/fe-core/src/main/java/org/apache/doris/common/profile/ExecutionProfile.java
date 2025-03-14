@@ -70,10 +70,11 @@ public class ExecutionProfile {
 
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
-    // Add lock for queryFinishTime to handle concurrent access
-    private ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+
     // Counter to track how many times queryFinishTime has been updated
     private volatile long queryFinishTimeUpdateCount = 0;
+
+    private ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     private Map<Integer, Integer> fragmentIdBeNum;
     private Map<Integer, Integer> seqNoToFragmentId;
@@ -247,7 +248,8 @@ public class ExecutionProfile {
                 String suffix = " (host=" + backendHBAddress + ")";
                 for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                     String name = "";
-                    boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
+                    boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel()
+                                            && pipelineProfile.is_fragment_level);
                     if (isFragmentLevel) {
                         // Fragment Level profile is also represented by TDetailedReportParams.
                         name = "Fragment Level Profile: " + suffix;
