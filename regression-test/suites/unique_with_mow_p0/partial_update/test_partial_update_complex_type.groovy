@@ -143,7 +143,12 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
             }
             sql(sql1)
 
-            qt_sql """ select * from ${tableName2} order by id;"""
+            qt_sql """ select *,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName2} order by id,__DORIS_VERSION_COL__;"""
+            sql "set skip_delete_bitmap=true;"
+            sql "set skip_delete_sign=true;"
+            qt_sql """ select *,__DORIS_VERSION_COL__,__DORIS_DELETE_SIGN__ from ${tableName2} order by id,__DORIS_VERSION_COL__;"""
+            sql "set skip_delete_bitmap=false;"
+            sql "set skip_delete_sign=false;"
         }
     }
 }
