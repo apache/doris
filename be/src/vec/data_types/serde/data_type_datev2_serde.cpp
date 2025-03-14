@@ -97,8 +97,6 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const Nul
     const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        // 60 = '0000-03-01'.daynr(), daynr is 32-bit date data as number of days since UNIX epoch.
-        // Arrow has a bug, when it is less than '0000-03-01', serialized time is one day larger than the actual time.
         auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr() -
                      date_threshold;
         if (null_map && (*null_map)[i]) {
@@ -116,14 +114,9 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
-    int64_t divisor = 1;
-    int64_t multiplier = 1;
-
-    multiplier = 24 * 60 * 60; // day => secs
     for (auto value_i = start; value_i < end; ++value_i) {
         DateV2Value<DateV2ValueType> v;
-        v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
-                        ctz);
+        v.get_date_from_daynr(concrete_array->Value(value_i) + date_threshold);
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
 }

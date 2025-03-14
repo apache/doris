@@ -495,7 +495,7 @@ TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
 TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     MutableColumns array_cols;
     DataTypes types;
-    for (int i = 0; i < 38; i++) {
+    for (int i = 0; i < array_descs.size(); i++) {
         // todo. fix decimal256 serde
         if (array_types[i]->get_name().find("Decimal(76, 40)") != std::string::npos) {
             continue;
@@ -504,16 +504,6 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
         types.push_back(array_types[i]);
     }
     CommonDataTypeSerdeTest::assert_arrow_format(array_cols, types);
-    {
-        // TODO, not real expected exception.
-        for (int i = 39; i < 41; ++i) {
-            MutableColumns error_cols;
-            error_cols.push_back(array_columns[i]->get_ptr());
-            DataTypes typ;
-            typ.push_back(array_types[i]);
-            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, typ));
-        }
-    }
 }
 
 //================== datatype for array ut test ==================
