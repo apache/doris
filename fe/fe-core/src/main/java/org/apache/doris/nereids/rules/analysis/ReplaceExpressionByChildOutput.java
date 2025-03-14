@@ -53,21 +53,27 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                 ))
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalAggregate()).then(sort -> {
-                            LogicalAggregate<Plan> aggregate = sort.child();
-                            Map<Expression, Slot> sMap = buildOutputAliasMap(aggregate.getOutputExpressions());
+                            LogicalAggregate<Plan> agg = sort.child();
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(agg.getOutputExpressions());
+                            if (sMap.isEmpty() && isSelectDistinct(agg)) {
+                                sMap = getSelectDistinctExpressions(agg);
+                            }
                             return replaceSortExpression(sort, sMap);
                         })
                 )).add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalHaving(logicalAggregate())).then(sort -> {
-                            LogicalAggregate<Plan> aggregate = sort.child().child();
-                            Map<Expression, Slot> sMap = buildOutputAliasMap(aggregate.getOutputExpressions());
+                            LogicalAggregate<Plan> agg = sort.child().child();
+                            Map<Expression, Slot> sMap = buildOutputAliasMap(agg.getOutputExpressions());
+                            if (sMap.isEmpty() && isSelectDistinct(agg)) {
+                                sMap = getSelectDistinctExpressions(agg);
+                            }
                             return replaceSortExpression(sort, sMap);
                         })
                 ))
                 .build();
     }
 
-    private Map<Expression, Slot> buildOutputAliasMap(List<NamedExpression> output) {
+    private static Map<Expression, Slot> buildOutputAliasMap(List<NamedExpression> output) {
         Map<Expression, Slot> sMap = Maps.newHashMapWithExpectedSize(output.size());
         for (NamedExpression expr : output) {
             if (expr instanceof Alias) {
@@ -92,5 +98,23 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
         }
 
         return changed ? new LogicalSort<>(newKeys.build(), sort.child()) : sort;
+    }
+
+    private static boolean isSelectDistinct(LogicalAggregate<? extends Plan> agg) {
+        return agg.getGroupByExpressions().equals(agg.getOutputExpressions())
+                && agg.getGroupByExpressions().equals(agg.child().getOutput());
+    }
+
+    private static Map<Expression, Slot> getSelectDistinctExpressions(LogicalAggregate<? extends Plan> agg) {
+        Plan child = agg.child();
+        List<NamedExpression> selectItems;
+        if (child instanceof LogicalProject) {
+            selectItems = ((LogicalProject<?>) child).getProjects();
+        } else if (child instanceof LogicalAggregate) {
+            selectItems = ((LogicalAggregate<?>) child).getOutputExpressions();
+        } else {
+            selectItems = ImmutableList.of();
+        }
+        return buildOutputAliasMap(selectItems);
     }
 }
