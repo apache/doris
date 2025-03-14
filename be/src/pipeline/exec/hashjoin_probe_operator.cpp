@@ -489,7 +489,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     }
 
     for (auto conjunct : _other_join_conjuncts) {
-        conjunct->root()->collect_slot_column_ids(_other_conjunct_lazy_materialized_column_ids);
+        conjunct->root()->collect_slot_column_ids(_other_conjunct_refer_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {

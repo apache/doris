@@ -84,8 +84,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
     for (int i = 0; i < _right_col_len && i + _right_col_idx < mcol.size(); i++) {
         const auto& column = *_build_block->safe_get_by_position(i).column;
         if (_right_output_slot_flags[i] &&
-            _parent_operator->_other_conjunct_lazy_materialized_column_ids.contains(
-                    i + (int)_right_col_idx)) {
+            !_parent_operator->is_lazy_materialized_column(i + (int)_right_col_idx)) {
             if (!build_index_has_zero && _build_column_has_null[i]) {
                 assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
                         ->insert_indices_from_not_has_null(column, _build_indexs.data(),
@@ -127,8 +126,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
             }
         }
 
-        if (_left_output_slot_flags[i] &&
-            _parent_operator->_other_conjunct_lazy_materialized_column_ids.contains(i)) {
+        if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, _probe_indexs[0], size);
@@ -308,6 +306,55 @@ uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t pro
     return matched_cnt;
 }
 
+template <int JoinOpType>
+Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
+        vectorized::Block* output_block, size_t filter_column_id, size_t column_to_keep) {
+    vectorized::ColumnPtr filter_ptr = output_block->get_by_position(filter_column_id).column;
+    const uint8_t* filter =
+            assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data().data();
+
+    RETURN_IF_ERROR(
+            vectorized::Block::filter_block(output_block, filter_column_id, column_to_keep));
+
+    auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
+                                   const std::vector<uint32_t>& row_indexs, int column_offset,
+                                   vectorized::Block* source_block) {
+        std::vector<int> column_ids;
+        for (int i = 0; i < output_slot_flags.size(); ++i) {
+            if (output_slot_flags[i] &&
+                _parent_operator->is_lazy_materialized_column(i + column_offset)) {
+                column_ids.push_back(i);
+            }
+        }
+        if (column_ids.empty()) {
+            return;
+        }
+        std::vector<uint32_t> final_row_indexs;
+        for (int i = 0; i < filter_ptr->size(); ++i) {
+            if (filter[i]) {
+                final_row_indexs.push_back(row_indexs[i]);
+            }
+        }
+        for (int column_id : column_ids) {
+            int output_column_id = column_id + column_offset;
+            output_block->get_by_position(output_column_id).column =
+                    assert_cast<const vectorized::ColumnConst*>(
+                            output_block->get_by_position(output_column_id).column.get())
+                            ->get_data_column_ptr();
+
+            auto& src = source_block->get_by_position(column_id).column;
+            auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
+            dst->clear();
+            dst->insert_indices_from(*src, final_row_indexs.data(),
+                                     final_row_indexs.data() + final_row_indexs.size());
+        }
+    };
+    do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
+                        _build_block.get());
+    do_lazy_materialize(_left_output_slot_flags, _probe_indexs, 0, &_parent->_probe_block);
+    return Status::OK();
+}
+
 /**
      * Mark join: there is a column named mark column which stores the result of mark join conjunct.
      * For example:
@@ -452,7 +499,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     auto result_column_id = output_block->columns();
     output_block->insert(
             {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
-    return vectorized::Block::filter_block(output_block, result_column_id, result_column_id);
+    return finalize_block_with_filter(output_block, result_column_id, result_column_id);
 }
 
 template <int JoinOpType>
@@ -567,50 +614,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
             orig_columns = _right_col_idx;
         }
 
-        vectorized::ColumnPtr filter_ptr = output_block->get_by_position(result_column_id).column;
-        const uint8_t* filter =
-                assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data().data();
-
-        RETURN_IF_ERROR(
-                vectorized::Block::filter_block(output_block, result_column_id, orig_columns));
-
-        auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
-                                       const std::vector<uint32_t>& row_indexs, int column_offset,
-                                       vectorized::Block* source_block) {
-            std::vector<int> column_ids;
-            for (int i = 0; i < output_slot_flags.size(); ++i) {
-                if (output_slot_flags[i] &&
-                    !_parent_operator->_other_conjunct_lazy_materialized_column_ids.contains(
-                            i + column_offset)) {
-                    column_ids.push_back(i);
-                }
-            }
-            if (column_ids.empty()) {
-                return;
-            }
-            std::vector<uint32_t> final_row_indexs;
-            for (int i = 0; i < row_count; ++i) {
-                if (filter[i]) {
-                    final_row_indexs.push_back(row_indexs[i]);
-                }
-            }
-            for (int column_id : column_ids) {
-                int output_column_id = column_id + column_offset;
-                output_block->get_by_position(output_column_id).column =
-                        assert_cast<const vectorized::ColumnConst*>(
-                                output_block->get_by_position(output_column_id).column.get())
-                                ->get_data_column_ptr();
-
-                auto& src = source_block->get_by_position(column_id).column;
-                auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
-                dst->clear();
-                dst->insert_indices_from(*src, final_row_indexs.data(),
-                                         final_row_indexs.data() + final_row_indexs.size());
-            }
-        };
-        do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
-                            _build_block.get());
-        do_lazy_materialize(_left_output_slot_flags, _probe_indexs, 0, &_parent->_probe_block);
+        return finalize_block_with_filter(output_block, result_column_id, orig_columns);
     }
 
     return Status::OK();
