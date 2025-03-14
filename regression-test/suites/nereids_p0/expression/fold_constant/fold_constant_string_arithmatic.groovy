@@ -622,6 +622,12 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select rtrim('[][abc][]', '[]')")
     testFoldConst("select rtrim('<d83d><dc3c>abc<d83d><dc3c>', '<d83d><dc3c>')")
     testFoldConst("select rtrim('aAaaA', 'a')")
+    testFoldConst("select rtrim('한글=b', '글=b')")
+    testFoldConst("select rtrim('こんにちは', 'は')")
+    testFoldConst("select rtrim('こんにちは！！', '！')")
+    testFoldConst("select rtrim('ПриветA', 'тA')")
+    testFoldConst("select rtrim('你好😀😀', '😀')")
+    testFoldConst("select rtrim('很棒👍🙌', '👍🙌')")
 
     // space
     testFoldConst("select space(-5)")
