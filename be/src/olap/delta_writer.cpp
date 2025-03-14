@@ -232,9 +232,7 @@ int64_t BaseDeltaWriter::mem_consumption(MemType mem) {
 }
 
 Status safe_get_file_size(const std::string& file_path, int64_t* file_size) {
-    if (file_size == nullptr) {
-        return Status::InvalidArgument("Null output parameter in safe_get_file_size");
-    }
+    CHECK(file_size != nullptr) << "Null output parameter in safe_get_file_size";
 
     try {
         if (!std::filesystem::exists(file_path)) {
