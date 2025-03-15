@@ -339,6 +339,13 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
+                getHintMap(sql, DorisParser::selectHint), indexInSqlToString);
+        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+    }
+
     public Optional<String> parseForSyncMv(String sql) {
         ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
@@ -433,5 +440,12 @@ public class NereidsParser {
             }
         }
         return newSql.toString().trim();
+    }
+
+    private static CommonTokenStream parseAllTokens(String sql) {
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        tokenStream.fill();
+        return tokenStream;
     }
 }
