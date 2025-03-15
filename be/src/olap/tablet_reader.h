@@ -149,6 +149,8 @@ public:
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap = nullptr;
+        // for vertical compaction of unique key mow table
+        bool unique_key_read_by_mor = true;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
