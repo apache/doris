@@ -68,9 +68,6 @@ public abstract class ExternalScanNode extends ScanNode {
     // For Nereids
     @Override
     public void init() throws UserException {
-        if (columns == null && desc.getTable() != null) {
-            columns = desc.getTable().getBaseSchema();
-        }
         computeColumnsFilter();
         initBackendPolicy();
     }

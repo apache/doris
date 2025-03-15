@@ -125,9 +125,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        if (desc.getTable() != null) {
-            columns = desc.getTable().getBaseSchema();
-        }
         this.analyzer = analyzer;
         // materialize conjuncts in where
         analyzer.materializeSlots(conjuncts);
@@ -143,6 +140,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         result.hostname = hostPort[0];
         result.port = Integer.parseInt(hostPort[1]);
         return result;
+    }
+
+    protected List<Column> getColumns() {
+        if (columns == null && desc.getTable() != null) {
+            columns = desc.getTable().getBaseSchema();
+        }
+        return columns;
     }
 
     public TupleDescriptor getTupleDesc() {
@@ -237,7 +241,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         // for load scan node, table is null
         // partitionsInfo maybe null for other scan node, eg: ExternalScanNode...
         if (desc.getTable() != null) {
-            computeColumnsFilter(columns, partitionsInfo);
+            computeColumnsFilter(getColumns(), partitionsInfo);
         }
     }
 
