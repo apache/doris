@@ -643,6 +643,26 @@ public class Util {
         return rootCause;
     }
 
+    public static String getRootCauseWithSuppressedMessage(Throwable t) {
+        String rootCause;
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+        }
+        StringBuilder msg = new StringBuilder(rootCause);
+        Throwable[] suppressed = p.getSuppressed();
+        for (int i = 0; i < suppressed.length; i++) {
+            msg.append(" With suppressed").append("[").append(i).append("]:").append(suppressed[i].getMessage());
+        }
+        return msg.toString();
+    }
+
     // Return the stack of the root cause
     public static String getRootCauseStack(Throwable t) {
         String rootStack = "unknown";
