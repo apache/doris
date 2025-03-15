@@ -413,6 +413,39 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
 
+static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
+                                  const SchemaCloudDictionary& dict) {
+    std::unordered_map<int32_t, ColumnPB*> unique_id_map;
+    //init map
+    for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
+        unique_id_map[column.unique_id()] = &column;
+    }
+    // column info
+    for (int i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
+        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+        ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
+        to_add = dict_val;
+        VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
+    }
+
+    // index info
+    for (int i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
+        const doris::TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
+        *out->mutable_tablet_schema()->add_index() = dict_val;
+        VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
+    }
+
+    // sparse column info
+    for (int i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
+        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+        *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
+        VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
+    }
+}
+
 } // namespace
 
 Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
@@ -613,9 +646,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     meta_pb = cloud_rowset_meta_to_doris(copied_cloud_rs_meta_pb);
                 } else {
                     // Otherwise, use the schema dictionary from the response (if available).
-                    meta_pb = cloud_rowset_meta_to_doris(
-                            cloud_rs_meta_pb,
-                            resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
+                    meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
+                    if (resp.has_schema_dict()) {
+                        fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb, resp.schema_dict());
+                    }
                 }
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);

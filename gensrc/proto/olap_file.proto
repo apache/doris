@@ -137,6 +137,7 @@ message RowsetMetaPB {
 
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
+    optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
 }
 
 message SchemaDictKeyList {
@@ -383,6 +384,7 @@ message TabletSchemaPB {
     optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
     optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    // FIXME(gavin): deprecate and remove in the future
     optional bool is_in_memory = 8 [default=false];
     optional int32 delete_sign_idx = 9 [default = -1];
     optional int32 sequence_col_idx = 10 [default= -1];
@@ -395,8 +397,8 @@ message TabletSchemaPB {
     optional int32 version_col_idx = 17 [default = -1];
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
-    optional bool is_partial_update = 20 [default=false]; // deprecated
-    repeated string partial_update_input_columns = 21; // deprecated
+    reserved 20; // deprecated is_partial_update
+    reserved 21; // deprecated partial_update_input_columns
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
@@ -405,7 +407,7 @@ message TabletSchemaPB {
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
 
-    optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional bool enable_variant_flatten_nested = 28 [default=false];
     optional int32 skip_bitmap_col_idx = 29 [default = -1];
     optional int64 storage_page_size = 30 [default=65536];
 }
@@ -437,12 +439,15 @@ message TabletSchemaCloudPB {
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
     optional int64 row_store_page_size = 27 [default=16384];
-    optional bool enable_mow_light_delete = 28 [default=false];
+    reserved 28; // deprecated enable_mow_light_delete
     optional bool enable_variant_flatten_nested = 29 [default=false];
     optional int32 skip_bitmap_col_idx = 30 [default = -1];
     optional int64 storage_page_size = 31 [default=65536];
 
     optional bool is_dynamic_schema = 100 [default=false];
+
+    // FIXME(gavin): deprecate and remove in the future
+    optional bool is_in_memory = 200 [default=false]; // unused, just keep align to TabletSchemaPB
 }
 
 enum TabletStatePB {
@@ -578,8 +583,8 @@ message TabletMetaCloudPB {
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 34 [default = 3600];
-    optional int64 group_commit_interval_ms = 35 [default = 10000];
-    optional int64 group_commit_data_bytes = 36 [default = 134217728];
+    reserved 35; // deprecated group_commit_interval_ms
+    reserved 36; // deprecated group_commit_data_bytes
     optional int64 time_series_compaction_empty_rowsets_threshold = 37 [default = 5];
     optional int64 time_series_compaction_level_threshold = 38 [default = 1];
 
