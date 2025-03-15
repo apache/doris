@@ -82,7 +82,7 @@ public class CreateIndexClause extends AlterTableClause {
         indexDef.analyze();
         this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
                 indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getProperties(), indexDef.getComment(), indexDef.getColumnUniqueIds());
+                indexDef.getProperties(), indexDef.getComment());
     }
 
     @Override

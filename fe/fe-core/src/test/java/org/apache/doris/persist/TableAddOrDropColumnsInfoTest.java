@@ -71,7 +71,7 @@ public class TableAddOrDropColumnsInfoTest {
         indexNameToId.put("index", 1L);
 
         List<Index> indexes = Lists.newArrayList(
-                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.INVERTED, null, "xxxxxx", Lists.newArrayList(1)));
+                new Index(0, "index", Lists.newArrayList("testCol1"), IndexDef.IndexType.INVERTED, null, "xxxxxx"));
 
         TableAddOrDropColumnsInfo tableAddOrDropColumnsInfo1 = new TableAddOrDropColumnsInfo(
                 "", dbId, tableId, tableId,
