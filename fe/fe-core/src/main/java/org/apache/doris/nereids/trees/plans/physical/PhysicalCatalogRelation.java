@@ -152,6 +152,9 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
             getAppliedRuntimeFilters()
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
+        if (!runtimeFiltersV2.isEmpty()) {
+            shapeBuilder.append("RFV2: ").append(runtimeFiltersV2);
+        }
         return shapeBuilder.toString();
     }
 
