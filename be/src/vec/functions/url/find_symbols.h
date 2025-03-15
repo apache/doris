@@ -362,8 +362,8 @@ inline const char* find_first_symbols_dispatch(const std::string_view haystack,
 
 template <char... symbols>
 inline const char* find_first_symbols(const char* begin, const char* end) {
-    return detail::find_first_symbols_dispatch<true, detail::ReturnMode::End, symbols...>(begin,
-                                                                                          end);
+    return ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::End, symbols...>(begin,
+                                                                                              end);
 }
 
 /// Returning non const result for non const arguments.
@@ -371,93 +371,95 @@ inline const char* find_first_symbols(const char* begin, const char* end) {
 template <char... symbols>
 inline char* find_first_symbols(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_first_symbols_dispatch<true, detail::ReturnMode::End, symbols...>(begin,
-                                                                                           end));
+            ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::End, symbols...>(
+                    begin, end));
 }
 
 inline const char* find_first_symbols(std::string_view haystack, const SearchSymbols& symbols) {
-    return detail::find_first_symbols_dispatch<true, detail::ReturnMode::End>(haystack, symbols);
+    return ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::End>(haystack,
+                                                                                  symbols);
 }
 
 template <char... symbols>
 inline const char* find_first_not_symbols(const char* begin, const char* end) {
-    return detail::find_first_symbols_dispatch<false, detail::ReturnMode::End, symbols...>(begin,
-                                                                                           end);
+    return ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::End, symbols...>(
+            begin, end);
 }
 
 template <char... symbols>
 inline char* find_first_not_symbols(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_first_symbols_dispatch<false, detail::ReturnMode::End, symbols...>(begin,
-                                                                                            end));
+            ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::End, symbols...>(
+                    begin, end));
 }
 
 inline const char* find_first_not_symbols(std::string_view haystack, const SearchSymbols& symbols) {
-    return detail::find_first_symbols_dispatch<false, detail::ReturnMode::End>(haystack, symbols);
+    return ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::End>(haystack,
+                                                                                   symbols);
 }
 
 template <char... symbols>
 inline const char* find_first_symbols_or_null(const char* begin, const char* end) {
-    return detail::find_first_symbols_dispatch<true, detail::ReturnMode::Nullptr, symbols...>(begin,
-                                                                                              end);
+    return ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::Nullptr, symbols...>(
+            begin, end);
 }
 
 template <char... symbols>
 inline char* find_first_symbols_or_null(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_first_symbols_dispatch<true, detail::ReturnMode::Nullptr, symbols...>(
+            ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::Nullptr, symbols...>(
                     begin, end));
 }
 
 inline const char* find_first_symbols_or_null(std::string_view haystack,
                                               const SearchSymbols& symbols) {
-    return detail::find_first_symbols_dispatch<true, detail::ReturnMode::Nullptr>(haystack,
-                                                                                  symbols);
+    return ::detail::find_first_symbols_dispatch<true, ::detail::ReturnMode::Nullptr>(haystack,
+                                                                                      symbols);
 }
 
 template <char... symbols>
 inline const char* find_first_not_symbols_or_null(const char* begin, const char* end) {
-    return detail::find_first_symbols_dispatch<false, detail::ReturnMode::Nullptr, symbols...>(
+    return ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::Nullptr, symbols...>(
             begin, end);
 }
 
 template <char... symbols>
 inline char* find_first_not_symbols_or_null(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_first_symbols_dispatch<false, detail::ReturnMode::Nullptr, symbols...>(
+            ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::Nullptr, symbols...>(
                     begin, end));
 }
 
 inline const char* find_first_not_symbols_or_null(std::string_view haystack,
                                                   const SearchSymbols& symbols) {
-    return detail::find_first_symbols_dispatch<false, detail::ReturnMode::Nullptr>(haystack,
-                                                                                   symbols);
+    return ::detail::find_first_symbols_dispatch<false, ::detail::ReturnMode::Nullptr>(haystack,
+                                                                                       symbols);
 }
 
 template <char... symbols>
 inline const char* find_last_symbols_or_null(const char* begin, const char* end) {
-    return detail::find_last_symbols_sse2<true, detail::ReturnMode::Nullptr, symbols...>(begin,
-                                                                                         end);
+    return ::detail::find_last_symbols_sse2<true, ::detail::ReturnMode::Nullptr, symbols...>(begin,
+                                                                                             end);
 }
 
 template <char... symbols>
 inline char* find_last_symbols_or_null(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_last_symbols_sse2<true, detail::ReturnMode::Nullptr, symbols...>(begin,
-                                                                                          end));
+            ::detail::find_last_symbols_sse2<true, ::detail::ReturnMode::Nullptr, symbols...>(begin,
+                                                                                              end));
 }
 
 template <char... symbols>
 inline const char* find_last_not_symbols_or_null(const char* begin, const char* end) {
-    return detail::find_last_symbols_sse2<false, detail::ReturnMode::Nullptr, symbols...>(begin,
-                                                                                          end);
+    return ::detail::find_last_symbols_sse2<false, ::detail::ReturnMode::Nullptr, symbols...>(begin,
+                                                                                              end);
 }
 
 template <char... symbols>
 inline char* find_last_not_symbols_or_null(char* begin, char* end) {
     return const_cast<char*>(
-            detail::find_last_symbols_sse2<false, detail::ReturnMode::Nullptr, symbols...>(begin,
-                                                                                           end));
+            ::detail::find_last_symbols_sse2<false, ::detail::ReturnMode::Nullptr, symbols...>(
+                    begin, end));
 }
 
 /// Slightly resembles boost::split. The drawback of boost::split is that it fires a false positive in clang static analyzer.
