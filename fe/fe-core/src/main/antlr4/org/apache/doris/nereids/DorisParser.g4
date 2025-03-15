@@ -40,8 +40,6 @@ statement
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
     | SHOW (PROCEDURE | FUNCTION) STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
     | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
-    // FIXME: like should be wildWhere? FRONTEND should not contain FROM backendid
-    | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)? #showConfig
     ;
 
 statementBase
@@ -230,7 +228,7 @@ supportedAlterStatement
     | ALTER WORKLOAD GROUP name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
-        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
+        LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
@@ -307,7 +305,7 @@ supportedShowStatement
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
-    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
+    | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW DATA TYPES                                                               #showDataTypes
@@ -340,6 +338,9 @@ supportedShowStatement
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
+    // FIXME: like should be wildWhere? FRONTEND should not contain FROM backendid
+    | ADMIN? SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)?
+        (FROM backendId=INTEGER_VALUE)?                                             #showConfig
     ;
 
 supportedLoadStatement
@@ -971,7 +972,7 @@ dataDesc
 statementScope
     : (GLOBAL | SESSION | LOCAL)
     ;
-    
+
 buildMode
     : BUILD (IMMEDIATE | DEFERRED)
     ;
