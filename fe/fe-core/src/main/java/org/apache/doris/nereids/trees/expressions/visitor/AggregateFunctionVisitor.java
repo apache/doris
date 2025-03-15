@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DSHllCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -248,6 +249,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitNdv(Ndv ndv, C context) {
         return visitAggregateFunction(ndv, context);
+    }
+
+    default R visitDSHllCountDistinct(DSHllCountDistinct dshllCountDistinct, C context) {
+        return visitAggregateFunction(dshllCountDistinct, context);
     }
 
     default R visitOrthogonalBitmapIntersect(OrthogonalBitmapIntersect function, C context) {
