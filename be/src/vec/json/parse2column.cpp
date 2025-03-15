@@ -184,7 +184,8 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            bool inserted = column_object.try_insert_default_from_nested(entry);
+            bool inserted = UNLIKELY(entry->path.has_nested_part() &&
+                                     column_object.try_insert_default_from_nested(entry));
             if (!inserted) {
                 entry->data.insert_default();
             }

@@ -252,6 +252,7 @@ public:
         // If it is the root subcolumn of SubcolumnsTree,
         // the root Node should be JSONB type when finalize
         bool is_root = false;
+        size_t num_rows = 0;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn>;
 

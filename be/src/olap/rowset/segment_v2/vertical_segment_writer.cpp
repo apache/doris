@@ -1097,7 +1097,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             RETURN_IF_ERROR(_column_writers[current_column_id]->append(
                     column->get_nullmap(), column->get_data(), data.num_rows));
             _flush_schema->append_column(tablet_column);
-            _olap_data_convertor->clear_source_content();
+            _olap_data_convertor->clear_source_content(current_column_id);
         }
     }
 
