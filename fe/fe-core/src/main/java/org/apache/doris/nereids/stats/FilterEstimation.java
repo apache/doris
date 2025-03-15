@@ -511,14 +511,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 4. not A like XXX
                 // 5. not array_contains([xx, xx], xx)
                 colBuilder.setNumNulls(0);
-                Preconditions.checkArgument(
-                        child instanceof EqualPredicate
-                                || child instanceof InPredicate
-                                || child instanceof IsNull
-                                || child instanceof Like
-                                || child instanceof Match
-                                || child instanceof Function,
-                        "Not-predicate meet unexpected child: %s", child.toSql());
+
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
@@ -543,6 +536,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else if (child instanceof Match) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
+                } else {
+                    rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+                    colBuilder.setIsUnknown(true);
                 }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore
