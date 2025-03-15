@@ -28,6 +28,7 @@ import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,9 +78,11 @@ public class MetaServiceClient {
                 .defaultServiceConfig(serviceConfig)
                 .defaultLoadBalancingPolicy("round_robin")
                 .enableRetry()
-                .usePlaintext().build();
+                .usePlaintext()
+                .withOption(ChannelOption.CONNECT_TIMEOUT_MILLIS, Config.meta_service_brpc_connect_timeout_ms).build();
         stub = MetaServiceGrpc.newFutureStub(channel);
-        blockingStub = MetaServiceGrpc.newBlockingStub(channel);
+        blockingStub = MetaServiceGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS);
         expiredAt = connectionAgeExpiredAt();
     }
 

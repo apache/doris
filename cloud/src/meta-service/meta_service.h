@@ -27,6 +27,7 @@
 #include <random>
 #include <type_traits>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "cpp/sync_point.h"
 #include "meta-service/txn_kv.h"
@@ -709,6 +710,28 @@ private:
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
                                                            const Request*, Response*,
                                                            ::google::protobuf::Closure*);
+    int64_t get_fdb_client_thread_busyness_percent() {
+        //auto now = steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        auto duration_s =
+                duration_cast<std::chrono::seconds>(now - buyness_last_update_time_).count();
+        if (duration_s > config::bvar_qps_update_second) {
+            cache_buyness_percent_ = g_bvar_fdb_client_thread_busyness_percent.get_value();
+            buyness_last_update_time_ = now;
+        }
+        return cache_buyness_percent_;
+    }
+
+    int get_dynamic_retry_count() {
+        int64_t busyness_percent = get_fdb_client_thread_busyness_percent();
+        if (busyness_percent > config::retry_disable_busyness_threshold) {
+            return 0;
+        } else if (busyness_percent > config::retry_reduce_busyness_threshold) {
+            return config::busyness_reduced_retry_times;
+        } else {
+            return config::txn_store_retry_times;
+        }
+    }
 
     template <typename Request, typename Response>
     void call_impl(MetaServiceMethod<Request, Response> method,
@@ -759,7 +782,8 @@ private:
                         0, config::txn_store_retry_base_intervals_ms)(rng);
             }
 
-            if (retry_times >= config::txn_store_retry_times ||
+            int dynamic_max_retry_cnt = get_dynamic_retry_count();
+            if (retry_times >= dynamic_max_retry_cnt ||
                 // Retrying KV_TXN_TOO_OLD is very expensive, so we only retry once.
                 (retry_times > 1 && code == MetaServiceCode::KV_TXN_TOO_OLD)) {
                 // For KV_TXN_CONFLICT, we should return KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES,
@@ -769,7 +793,10 @@ private:
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
                         : code == MetaServiceCode::KV_TXN_CONFLICT
-                                ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
+                                ? get_fdb_client_thread_busyness_percent() >
+                                                  config::retry_disable_busyness_threshold
+                                          ? MetaServiceCode::KV_TXN_CONFLICT_BUSY
+                                          : KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
                                 : MetaServiceCode::KV_TXN_TOO_OLD);
                 return;
             }
@@ -782,7 +809,8 @@ private:
             retry_times += 1;
             LOG(WARNING) << __PRETTY_FUNCTION__ << " sleep " << duration_ms
                          << " ms before next round, retry times left: "
-                         << (config::txn_store_retry_times - retry_times)
+                         << (dynamic_max_retry_cnt - retry_times)
+                         << ", max retry count: " << dynamic_max_retry_cnt
                          << ", code: " << MetaServiceCode_Name(code)
                          << ", msg: " << resp->status().msg();
             bthread_usleep(duration_ms * 1000);
@@ -790,6 +818,9 @@ private:
     }
 
     std::unique_ptr<MetaServiceImpl> impl_;
+    std::chrono::steady_clock::time_point buyness_last_update_time_ =
+            std::chrono::steady_clock::now() - std::chrono::seconds(100);
+    int32_t cache_buyness_percent_ = 0;
 };
 
 } // namespace doris::cloud

@@ -33,6 +33,7 @@ DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
 DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
 DEFINE_mInt32(meta_service_rpc_retry_times, "200");
 DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
+DEFINE_mInt32(meta_service_rpc_timeout_retry_times, "1");
 
 DEFINE_Int64(tablet_cache_capacity, "100000");
 DEFINE_Int64(tablet_cache_shards, "16");
