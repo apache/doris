@@ -99,7 +99,7 @@ public class ExternalMetaCacheMgr {
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
-    public ExternalMetaCacheMgr() {
+    public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
         rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
@@ -108,7 +108,8 @@ public class ExternalMetaCacheMgr {
         commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 10000,
-                "CommonRefreshExecutor", 10, true);
+                isCheckpointCatalog ? "CommonRefreshExecutorCheckpoint" : "CommonRefreshExecutorNotCheckPoint", 10,
+                true);
 
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.

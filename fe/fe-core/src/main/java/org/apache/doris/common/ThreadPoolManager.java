@@ -187,16 +187,35 @@ public class ThreadPoolManager {
     }
 
     public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
-                                                         int maximumPoolSize,
-                                                         long keepAliveTime,
-                                                         TimeUnit unit,
-                                                         BlockingQueue<Runnable> workQueue,
-                                                         RejectedExecutionHandler handler,
-                                                         String poolName,
-                                                         boolean needRegisterMetric) {
+            int maximumPoolSize,
+            long keepAliveTime,
+            TimeUnit unit,
+            BlockingQueue<Runnable> workQueue,
+            RejectedExecutionHandler handler,
+            String poolName,
+            boolean needRegisterMetric) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
-        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
-                keepAliveTime, unit, workQueue, threadFactory, handler);
+        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(0, maximumPoolSize,
+                keepAliveTime, unit, workQueue, threadFactory, handler) {
+            @Override
+            protected void beforeExecute(Thread t, Runnable r) {
+                super.beforeExecute(t, r);
+                System.out.println("Thread " + t.getName() + " is about to execute task: " + r);
+            }
+
+            @Override
+            protected void afterExecute(Runnable r, Throwable t) {
+                super.afterExecute(r, t);
+                System.out.println("Thread " + Thread.currentThread().getName() + " has finished executing task: " + r);
+            }
+
+            @Override
+            protected void terminated() {
+                super.terminated();
+                System.out.println("ThreadPool has terminated.");
+            }
+        };
+
         if (needRegisterMetric) {
             nameToThreadPoolMap.put(poolName, threadPool);
         }
