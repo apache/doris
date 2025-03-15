@@ -1450,6 +1450,8 @@ struct TGetBinlogLagResult {
     5: optional i64 last_commit_seq
     6: optional i64 first_binlog_timestamp
     7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
