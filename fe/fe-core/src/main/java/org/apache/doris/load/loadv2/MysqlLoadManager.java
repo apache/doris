@@ -34,6 +34,9 @@ import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlDataDescription;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -156,6 +159,73 @@ public class MysqlLoadManager {
         this.periodScheduler.scheduleAtFixedRate(this::cleanFailedRecords, 1, 24, TimeUnit.HOURS);
     }
 
+    public LoadJobRowResult executeMySqlLoadJob(ConnectContext context, MysqlDataDescription dataDesc, String loadId)
+            throws IOException, UserException {
+        LoadJobRowResult loadResult = new LoadJobRowResult();
+        List<String> filePaths = dataDesc.getFilePaths();
+        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String table = dataDesc.getTableName();
+        int oldTimeout = context.getExecTimeout();
+        int newTimeOut = extractTimeOut(dataDesc);
+        if (newTimeOut > oldTimeout) {
+            // set query timeout avoid by killed TimeoutChecker
+            SessionVariable sessionVariable = context.getSessionVariable();
+            sessionVariable.setIsSingleSetVar(true);
+            VariableMgr.setVar(sessionVariable,
+                new SetVar(SessionVariable.QUERY_TIMEOUT, new StringLiteral(String.valueOf(newTimeOut))));
+        }
+        String token = Env.getCurrentEnv().getTokenManager().acquireToken();
+        boolean clientLocal = dataDesc.isClientLocal();
+        MySqlLoadContext loadContext = new MySqlLoadContext();
+        loadContextMap.put(loadId, loadContext);
+        LOG.info("Executing mysql load with id: {}.", loadId);
+        try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
+            for (String file : filePaths) {
+                InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
+                HttpPut request = generateRequestForMySqlLoadV2(entity, dataDesc, database, table, token);
+                loadContext.setRequest(request);
+                try (final CloseableHttpResponse response = httpclient.execute(request)) {
+                    String body = EntityUtils.toString(response.getEntity());
+                    JsonObject result = JsonParser.parseString(body).getAsJsonObject();
+                    if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
+                        String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
+                                .map(JsonElement::getAsString).orElse("");
+                        failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
+                        LOG.warn("Execute mysql load failed with request: {} and response: {}, job id: {}",
+                                request, body, loadId);
+                        throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
+                    }
+                    loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
+                    loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
+                }
+            }
+        } catch (Throwable t) {
+            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t);
+            // drain the data from client conn util empty packet received, otherwise the connection will be reset
+            if (clientLocal && loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
+                LOG.warn("Not drained yet, try reading left data from client connection for load {}.", loadId);
+                ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
+                // MySql client will send an empty packet when eof
+                while (buffer != null && buffer.limit() != 0) {
+                    buffer = context.getMysqlChannel().fetchOnePacket();
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Finished reading the left bytes.");
+                }
+            }
+            // make cancel message to user
+            if (loadContextMap.containsKey(loadId) && loadContextMap.get(loadId).isCancelled()) {
+                throw new LoadException("Cancelled");
+            } else {
+                throw t;
+            }
+        } finally {
+            LOG.info("Mysql load job {} finished, loaded records: {}", loadId, loadResult.getRecords());
+            loadContextMap.remove(loadId);
+        }
+        return loadResult;
+    }
+
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt, String loadId)
             throws IOException, UserException {
         return executeMySqlLoadJobFromStmt(context, stmt.getDataDescriptions().get(0), loadId);
@@ -258,11 +328,36 @@ public class MysqlLoadManager {
         }
     }
 
+    private int extractTimeOut(MysqlDataDescription desc) {
+        if (desc.getProperties() != null && desc.getProperties().containsKey(MysqlLoadCommand.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(desc.getProperties().get(MysqlLoadCommand.TIMEOUT_PROPERTY));
+        }
+        return -1;
+    }
+
     private int extractTimeOut(DataDescription desc) {
         if (desc.getProperties() != null && desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
             return Integer.parseInt(desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY));
         }
         return -1;
+    }
+
+    private String getColumns(MysqlDataDescription desc) {
+        List<String> fields = desc.getColumns();
+        if (!fields.isEmpty()) {
+            StringBuilder fieldString = new StringBuilder();
+            fieldString.append(Joiner.on(",").join(fields));
+            List<Expression> columnMappingList = new ArrayList<>();
+            desc.getColumnsMapping().forEach((key, value) -> columnMappingList.add(value));
+            fieldString.append(",");
+            List<String> mappings = new ArrayList<>();
+            for (Expression expression : columnMappingList) {
+                mappings.add(expression.toSql().replaceAll("`", ""));
+            }
+            fieldString.append(Joiner.on(",").join(mappings));
+            return fieldString.toString();
+        }
+        return null;
     }
 
     private String getColumns(DataDescription desc) {
@@ -331,6 +426,104 @@ public class MysqlLoadManager {
                 inputStream.markFinished();
             }
         });
+    }
+
+    public HttpPut generateRequestForMySqlLoadV2(
+            InputStreamEntity entity,
+            MysqlDataDescription desc,
+            String database,
+            String table,
+            String token) throws LoadException {
+        final HttpPut httpPut = new HttpPut(selectBackendForMySqlLoad(database, table));
+
+        httpPut.addHeader("Expect", "100-continue");
+        httpPut.addHeader("Content-Type", "text/plain");
+        httpPut.addHeader("token", token);
+
+        Map<String, String> props = desc.getProperties();
+        if (props != null) {
+            // max_filter_ratio
+            if (props.containsKey(MysqlLoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                String maxFilterRatio = props.get(MysqlLoadCommand.MAX_FILTER_RATIO_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
+            }
+
+            // exec_mem_limit
+            if (props.containsKey(MysqlLoadCommand.EXEC_MEM_LIMIT_PROPERTY)) {
+                String memory = props.get(MysqlLoadCommand.EXEC_MEM_LIMIT_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.EXEC_MEM_LIMIT_PROPERTY, memory);
+            }
+
+            // strict_mode
+            if (props.containsKey(MysqlLoadCommand.STRICT_MODE_PROPERTY)) {
+                String strictMode = props.get(MysqlLoadCommand.STRICT_MODE_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.STRICT_MODE_PROPERTY, strictMode);
+            }
+
+            // timeout
+            if (props.containsKey(MysqlLoadCommand.TIMEOUT_PROPERTY)) {
+                String timeout = props.get(MysqlLoadCommand.TIMEOUT_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.TIMEOUT_PROPERTY, timeout);
+            }
+
+            // timezone
+            if (props.containsKey(MysqlLoadCommand.TIMEZONE_PROPERTY)) {
+                String timezone = props.get(MysqlLoadCommand.TIMEZONE_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.TIMEZONE_PROPERTY, timezone);
+            }
+
+            // trim quotes
+            if (props.containsKey(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY)) {
+                String trimQuotes = props.get(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.TRIM_DOUBLE_QUOTES_PROPERTY, trimQuotes);
+            }
+
+            // enclose
+            if (props.containsKey(MysqlLoadCommand.ENCLOSE_PROPERTY)) {
+                String enclose = props.get(MysqlLoadCommand.ENCLOSE_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.ENCLOSE_PROPERTY, enclose);
+            }
+
+            //escape
+            if (props.containsKey(MysqlLoadCommand.ESCAPE_PROPERTY)) {
+                String escape = props.get(MysqlLoadCommand.ESCAPE_PROPERTY);
+                httpPut.addHeader(MysqlLoadCommand.ESCAPE_PROPERTY, escape);
+            }
+        }
+
+        // skip_lines
+        if (desc.getSkipLines() != 0) {
+            httpPut.addHeader(MysqlLoadCommand.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
+        }
+
+        // column_separator
+        if (desc.getColumnSeparator() != null) {
+            httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
+        }
+
+        // line_delimiter
+        if (desc.getLineDelimiter() != null) {
+            httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+        }
+
+        // columns
+        String columns = getColumns(desc);
+        if (columns != null) {
+            httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_COLUMNS, columns);
+        }
+
+        // partitions
+        if (!desc.getPartitionNamesInfo().getPartitionNames().isEmpty()) {
+            List<String> ps = desc.getPartitionNamesInfo().getPartitionNames();
+            String pNames = Joiner.on(",").join(ps);
+            if (desc.getPartitionNamesInfo().isTemp()) {
+                httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
+            } else {
+                httpPut.addHeader(MysqlLoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);
+            }
+        }
+        httpPut.setEntity(entity);
+        return httpPut;
     }
 
     // public only for test
