@@ -1014,6 +1014,15 @@ struct StringAppendTrailingCharIfAbsent {
     using Offsets = ColumnString::Offsets;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
+
+    static bool str_end_with(const StringRef& str, const StringRef& end) {
+        if (str.size < end.size) {
+            return false;
+        }
+        // The end_with method of StringRef needs to ensure that the size of end is less than or equal to the size of str.
+        return str.end_with(end);
+    }
+
     static void vector_vector(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
                               const Chars& rdata, const Offsets& roffsets, Chars& res_data,
                               Offsets& res_offsets, NullMap& null_map_data) {
@@ -1025,36 +1034,39 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int l_size = loffsets[i] - loffsets[i - 1];
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+            // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+            auto [byte_len, char_len] = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    rstr.begin(), rstr.end(), 2);
 
-            int r_size = roffsets[i] - roffsets[i - 1];
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-
-            if (r_size != 1) {
+            if (char_len != 1) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
                 continue;
             }
-            if (l_raw[l_size - 1] == r_raw[0]) {
-                StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
-                                            res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(l_raw, l_raw + l_size);
-            buffer.append(r_raw, r_raw + 1);
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
     }
     static void vector_scalar(FunctionContext* context, const Chars& ldata, const Offsets& loffsets,
-                              const StringRef& rdata, Chars& res_data, Offsets& res_offsets,
+                              const StringRef& rstr, Chars& res_data, Offsets& res_offsets,
                               NullMap& null_map_data) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
         fmt::memory_buffer buffer;
-
-        if (rdata.size != 1) {
+        // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+        auto [byte_len, char_len] =
+                simd::VStringFunctions::iterate_utf8_with_limit_length(rstr.begin(), rstr.end(), 2);
+        if (char_len != 1) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
             }
@@ -1063,23 +1075,21 @@ struct StringAppendTrailingCharIfAbsent {
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
+            StringRef lstr = StringRef(reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]),
+                                       loffsets[i] - loffsets[i - 1]);
 
-            int l_size = loffsets[i] - loffsets[i - 1];
-            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-
-            if (l_raw[l_size - 1] == rdata.data[0]) {
-                StringOP::push_value_string(std::string_view(l_raw, l_size), i, res_data,
-                                            res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(l_raw, l_raw + l_size);
-            buffer.append(rdata.begin(), rdata.end());
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
     }
-    static void scalar_vector(FunctionContext* context, const StringRef& ldata, const Chars& rdata,
+    static void scalar_vector(FunctionContext* context, const StringRef& lstr, const Chars& rdata,
                               const Offsets& roffsets, Chars& res_data, Offsets& res_offsets,
                               NullMap& null_map_data) {
         size_t input_rows_count = roffsets.size();
@@ -1089,20 +1099,23 @@ struct StringAppendTrailingCharIfAbsent {
         for (size_t i = 0; i < input_rows_count; ++i) {
             buffer.clear();
 
-            int r_size = roffsets[i] - roffsets[i - 1];
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            StringRef rstr = StringRef(reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]),
+                                       roffsets[i] - roffsets[i - 1]);
+            // The iterate_utf8_with_limit_length function iterates over a maximum of two UTF-8 characters.
+            auto [byte_len, char_len] = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    rstr.begin(), rstr.end(), 2);
 
-            if (r_size != 1) {
+            if (char_len != 1) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map_data);
                 continue;
             }
-            if (ldata.size == 0 || ldata.back() == r_raw[0]) {
-                StringOP::push_value_string(ldata.to_string_view(), i, res_data, res_offsets);
+            if (str_end_with(lstr, rstr)) {
+                StringOP::push_value_string(lstr, i, res_data, res_offsets);
                 continue;
             }
 
-            buffer.append(ldata.begin(), ldata.end());
-            buffer.append(r_raw, r_raw + 1);
+            buffer.append(lstr.begin(), lstr.end());
+            buffer.append(rstr.begin(), rstr.end());
             StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i, res_data,
                                         res_offsets);
         }
