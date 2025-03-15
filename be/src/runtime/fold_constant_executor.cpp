@@ -227,6 +227,12 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
+        if (column_type && column_type->get_type_id() == vectorized::TypeIndex::Float64) {
+            if (val == std::floor(val) && !std::isinf(val) && val >= INT_MIN && val <= INT_MAX) {
+                result = fmt::format(FMT_COMPILE("{}"), static_cast<int>(val));
+                break;
+            }
+        }
         result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }

@@ -794,7 +794,12 @@ public class NumericArithmetic {
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first) {
         DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
-        return new DoubleLiteral(middleResult.roundFloor(0).getDouble());
+        double result = middleResult.roundFloor(0).getDouble();
+        if (result == Math.floor(result) && !Double.isInfinite(result)
+                && result >= Integer.MIN_VALUE && result <= Integer.MAX_VALUE) {
+            return new IntegerLiteral((int) result);
+        }
+        return new DoubleLiteral(result);
     }
 
     /**
@@ -803,7 +808,12 @@ public class NumericArithmetic {
     @ExecFunction(name = "floor")
     public static Expression floor(DoubleLiteral first, IntegerLiteral second) {
         DecimalV3Literal middleResult = new DecimalV3Literal(new BigDecimal(Double.toString(first.getValue())));
-        return new DoubleLiteral(middleResult.roundFloor(second.getValue()).getDouble());
+        double result = middleResult.roundFloor(second.getValue()).getDouble();
+        if (second.getValue() == 0 && result == Math.floor(result) && !Double.isInfinite(result)
+                && result >= Integer.MIN_VALUE && result <= Integer.MAX_VALUE) {
+            return new IntegerLiteral((int) result);
+        }
+        return new DoubleLiteral(result);
     }
 
     /**
