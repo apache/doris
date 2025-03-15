@@ -52,7 +52,7 @@ public interface SplitGenerator {
         return -1;
     }
 
-    default void startSplit(int numBackends) {
+    default void startSplit(int numBackends) throws UserException {
     }
 
     /**
