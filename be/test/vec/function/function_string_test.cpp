@@ -406,6 +406,8 @@ TEST(function_string_test, function_string_strright_test) {
                 {{std::string("hah hah"), -1}, std::string("hah hah")},
                 {{std::string("🤣"), -1}, std::string("🤣")},
                 {{std::string("🤣😃😄"), -2}, std::string("😃😄")},
+                {{std::string("🐼abc🐼"), 100}, std::string("🐼abc🐼")},
+                {{std::string("你好世界"), 5}, std::string("你好世界")},
                 {{std::string("12345"), 6}, std::string("12345")},
                 {{std::string("12345"), 12345}, std::string("12345")},
                 {{std::string("-12345"), -1}, std::string("-12345")},
