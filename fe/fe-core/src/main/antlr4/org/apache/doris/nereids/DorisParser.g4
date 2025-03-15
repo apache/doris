@@ -66,6 +66,7 @@ statementBase
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
+    | supportedTransactionStatement     #supportedTransactionStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -79,7 +80,6 @@ unsupportedStatement
     | unsupportedAlterStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
-    | unsupportedTransactionStatement
     | unsupportedCancelStatement
     | unsupportedCleanStatement
     | unsupportedRefreshStatement
@@ -588,7 +588,7 @@ wildWhere
     | WHERE expression
     ;
 
-unsupportedTransactionStatement
+supportedTransactionStatement
     : BEGIN (WITH LABEL identifier?)?                                               #transactionBegin
     | COMMIT WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                  #transcationCommit
     | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
