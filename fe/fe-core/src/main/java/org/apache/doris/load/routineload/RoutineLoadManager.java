@@ -110,6 +110,10 @@ public class RoutineLoadManager implements Writable {
     public RoutineLoadManager() {
     }
 
+    public List<RoutineLoadJob> getAllRoutineLoadJobs() {
+        return new ArrayList<>(idToRoutineLoadJob.values());
+    }
+
     public void addMultiLoadTaskTxnIdToRoutineLoadJobId(long txnId, long routineLoadJobId) {
         multiLoadTaskTxnIdToRoutineLoadJobId.put(txnId, routineLoadJobId);
     }
