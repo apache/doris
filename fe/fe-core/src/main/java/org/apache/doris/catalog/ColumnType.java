@@ -28,6 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -183,7 +184,8 @@ public abstract class ColumnType {
         }
         if (srcTypeLen > dstTypeLen) {
             throw new DdlException(
-                String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(), dst.toSql()));
+                    String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(),
+                            dst.toSql()));
         }
     }
 
@@ -208,12 +210,48 @@ public abstract class ColumnType {
         if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
-            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
-                throw new DdlException("Cannot change struct type with different field size");
+            // now we only support add new field for struct type
+            if (thisStructType.getFields().size() > otherStructType.getFields().size()) {
+                throw new DdlException("Cannot reduce struct fields from " + checkType.toSql() + " to "
+                        + other.toSql());
             }
-            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+            int i = 0;
+            HashSet<String> thisStructNames = new HashSet<>();
+            for (; i < thisStructType.getFields().size(); i++) {
+                // do not support struct same position field name/type change
+                StructField thisField = thisStructType.getFields().get(i);
+                StructField otherField = otherStructType.getFields().get(i);
+                if (!thisField.equals(otherField)) {
+                    // name and type are changed will throw exception
+                    if (!thisField.getName().equals(otherField.getName())) {
+                        throw new DdlException("Cannot change name in struct" + thisField.getName() + " to "
+                                + otherField.getName());
+                    }
+                    if (!thisField.getType().equals(otherField.getType())) {
+                        if (thisField.getType().isStringType() && otherField.getType().isStringType()) {
+                            // check string type
+                            // check length growth later in checkSupportSchemaChangeForCharType
+                            checkSupportSchemaChangeForCharType(thisStructType.getFields().get(i).getType(),
+                                    otherStructType.getFields().get(i).getType());
+                        } else if (thisField.getType().isComplexType() && otherField.getType().isComplexType()) {
+                            // check complex type recursively
+                            checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
+                                    otherStructType.getFields().get(i).getType(), true);
+                        } else {
+                            throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+                        }
+                    }
+                }
                 checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
                         otherStructType.getFields().get(i).getType(), true);
+                thisStructNames.add(thisStructType.getFields().get(i).getName());
+            }
+            for (; i < otherStructType.getFields().size(); i++) {
+                // to check new field name is not conflict with old field name
+                if (thisStructNames.contains(otherStructType.getFields().get(i).getName())) {
+                    throw new DdlException("The added sub-column of struct has the same name as the current one: "
+                            + otherStructType.getFields().get(i).getName());
+                }
             }
         } else if (checkType.isArrayType()) {
             if (!other.isArrayType()) {

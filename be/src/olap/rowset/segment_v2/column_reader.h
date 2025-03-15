@@ -134,10 +134,10 @@ public:
     virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    Status new_iterator(ColumnIterator** iterator);
-    Status new_array_iterator(ColumnIterator** iterator);
-    Status new_struct_iterator(ColumnIterator** iterator);
-    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);

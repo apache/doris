@@ -715,8 +715,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     return Status::OK();
 }
 
-static Status new_default_iterator(const TabletColumn& tablet_column,
-                                   std::unique_ptr<ColumnIterator>* iter) {
+Status Segment::new_default_iterator(const TabletColumn& tablet_column,
+                                     std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
                 "invalid nonexistent column without default value. column_uid={}, column_name={}, "
@@ -740,7 +740,7 @@ Status Segment::_new_iterator_with_variant_root(const TabletColumn& tablet_colum
                                                 const SubcolumnColumnReaders::Node* root,
                                                 vectorized::DataTypePtr target_type_hint) {
     ColumnIterator* it;
-    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(root->data.reader->new_iterator(&it, &tablet_column));
     auto* stream_iter = new ExtractReader(
             tablet_column,
             std::make_unique<SubstreamIterator>(root->data.file_column_type->create_column(),
@@ -807,7 +807,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             assert(leaf);
             std::unique_ptr<ColumnIterator> sibling_iter;
             ColumnIterator* sibling_iter_ptr;
-            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr, &tablet_column));
             sibling_iter.reset(sibling_iter_ptr);
             *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                   leaf->data.file_column_type);
@@ -838,7 +838,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
         iter->reset(it);
         return Status::OK();
     }
@@ -849,7 +849,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             // Direct read extracted columns
             const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
             ColumnIterator* it;
-            RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+            RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
             iter->reset(it);
         } else {
             // Node contains column with children columns or has correspoding sparse columns
@@ -903,7 +903,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     // init iterator by unique id
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    RETURN_IF_ERROR(
+            _column_readers.at(tablet_column.unique_id())->new_iterator(&it, &tablet_column));
     iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.is_agg_state_type() &&
@@ -922,7 +923,8 @@ Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions*
                                     std::unique_ptr<ColumnIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
+    TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
     iter->reset(it);
     return Status::OK();
 }
