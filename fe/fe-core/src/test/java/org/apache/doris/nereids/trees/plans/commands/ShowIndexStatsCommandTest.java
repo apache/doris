@@ -29,9 +29,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Before;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ShowIndexStatsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -46,8 +45,7 @@ public class ShowIndexStatsCommandTest {
     private ConnectContext ctx;
     private Database db;
 
-    @Before
-    public void setUp() throws Exception {
+    private void runBefore() throws Exception {
         db = CatalogMocker.mockDb();
         new Expectations() {
             {
@@ -89,7 +87,8 @@ public class ShowIndexStatsCommandTest {
     }
 
     @Test
-    public void testValidateNormal() {
+    public void testValidateNormal() throws Exception {
+        runBefore();
         TableNameInfo tableNameInfo =
                 new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
         ShowIndexStatsCommand command = new ShowIndexStatsCommand(tableNameInfo, CatalogMocker.TEST_TBL_NAME);
@@ -97,7 +96,8 @@ public class ShowIndexStatsCommandTest {
     }
 
     @Test
-    public void testValidateFail() {
+    public void testValidateFail() throws Exception {
+        runBefore();
         TableNameInfo tableNameInfo =
                 new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, tableNotExist);
         ShowIndexStatsCommand command = new ShowIndexStatsCommand(tableNameInfo, tableNotExist);
