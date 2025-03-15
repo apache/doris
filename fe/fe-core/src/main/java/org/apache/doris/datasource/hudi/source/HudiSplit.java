@@ -41,4 +41,5 @@ public class HudiSplit extends FileSplit {
     private List<String> hudiColumnTypes;
     private List<String> nestedFields;
     private String hudiJniScanner;
+    private Long schemaId = 0L;
 }
