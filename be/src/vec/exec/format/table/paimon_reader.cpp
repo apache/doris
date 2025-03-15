@@ -38,6 +38,68 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
 }
 
+Status PaimonReader::gen_file_col_name(
+        const std::vector<std::string>& read_table_col_names,
+        const std::unordered_map<uint64_t, std::string>& table_col_id_table_name_map,
+        const std::unordered_map<std::string, ColumnValueRangeType>*
+                table_col_name_to_value_range) {
+    // It is a bit similar to iceberg. I will consider integrating it when I write hudi schema change later.
+    _table_col_to_file_col.clear();
+    _file_col_to_table_col.clear();
+
+    if (!_params.__isset.paimon_schema_info) [[unlikely]] {
+        return Status::RuntimeError("miss paimon schema info.");
+    }
+
+    if (!_params.paimon_schema_info.contains(_range.table_format_params.paimon_params.schema_id))
+            [[unlikely]] {
+        return Status::InternalError("miss paimon schema info.");
+    }
+
+    const auto& table_id_to_file_name =
+            _params.paimon_schema_info.at(_range.table_format_params.paimon_params.schema_id);
+    for (auto [table_col_id, file_col_name] : table_id_to_file_name) {
+        if (table_col_id_table_name_map.find(table_col_id) == table_col_id_table_name_map.end()) {
+            continue;
+        }
+        auto& table_col_name = table_col_id_table_name_map.at(table_col_id);
+
+        _table_col_to_file_col.emplace(table_col_name, file_col_name);
+        _file_col_to_table_col.emplace(file_col_name, table_col_name);
+        if (table_col_name != file_col_name) {
+            _has_schema_change = true;
+        }
+    }
+
+    _all_required_col_names.clear();
+    _not_in_file_col_names.clear();
+    for (auto name : read_table_col_names) {
+        auto iter = _table_col_to_file_col.find(name);
+        if (iter == _table_col_to_file_col.end()) {
+            auto name_low = to_lower(name);
+            _all_required_col_names.emplace_back(name_low);
+
+            _table_col_to_file_col.emplace(name, name_low);
+            _file_col_to_table_col.emplace(name_low, name);
+            if (name != name_low) {
+                _has_schema_change = true;
+            }
+        } else {
+            _all_required_col_names.emplace_back(iter->second);
+        }
+    }
+
+    for (auto& it : *table_col_name_to_value_range) {
+        auto iter = _table_col_to_file_col.find(it.first);
+        if (iter == _table_col_to_file_col.end()) {
+            _new_colname_to_value_range.emplace(it.first, it.second);
+        } else {
+            _new_colname_to_value_range.emplace(iter->second, it.second);
+        }
+    }
+    return Status::OK();
+}
+
 Status PaimonReader::init_row_filters() {
     const auto& table_desc = _range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
@@ -107,7 +169,30 @@ Status PaimonReader::init_row_filters() {
 }
 
 Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
-    return _file_format_reader->get_next_block(block, read_rows, eof);
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _table_col_to_file_col.find(col.name);
+            if (iter != _table_col_to_file_col.end()) {
+                col.name = iter->second;
+            }
+        }
+        block->initialize_index_by_name();
+    }
+
+    RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
+
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _file_col_to_table_col.find(col.name);
+            if (iter != _file_col_to_table_col.end()) {
+                col.name = iter->second;
+            }
+        }
+        block->initialize_index_by_name();
+    }
+    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
