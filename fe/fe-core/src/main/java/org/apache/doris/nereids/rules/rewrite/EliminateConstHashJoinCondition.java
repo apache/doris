@@ -27,6 +27,10 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import org.apache.doris.qe.ConnectContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -36,10 +40,13 @@ import java.util.Optional;
  * T1.a = T2.a can be eliminated
  */
 public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
+    public static final Logger LOG = LogManager.getLogger(EliminateConstHashJoinCondition.class);
 
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> ConnectContext.get() != null &&
+                    ConnectContext.get().getSessionVariable().enableEliminateConstJoinCondition)
                 .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
                 .whenNot(join -> join.isMarkJoin())
                 .then(EliminateConstHashJoinCondition::eliminateConstHashJoinCondition)
@@ -79,8 +86,9 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
             }
         }
         if (changed) {
+            LOG.info("EliminateConstHashJoinCondition: " + join.getHashJoinConjuncts() + " -> " + newHashConditions);
             return join.withHashJoinConjuncts(newHashConditions);
         }
-        return null;
+        return join;
     }
 }
