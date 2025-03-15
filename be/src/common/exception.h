@@ -152,3 +152,29 @@ inline const std::string& Exception::to_string() const {
             return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);
+
+#define DORIS_CHECK(condition, ...)                                                           \
+    do {                                                                                      \
+        if (!(condition)) {                                                                   \
+            throw doris::Exception(doris::Status::FatalError(                                 \
+                    "Check failed: {} {}", #condition __VA_OPT__(, fmt::format(__VA_ARGS__)), \
+                    ""));                                                                     \
+        }                                                                                     \
+    } while (0)
+
+template <typename T>
+T* DorisCheckNotNull(const char* expr, T* ptr) {
+    if (ptr == nullptr) {
+        throw doris::Exception(
+                doris::Status::FatalError("Check failed: '{}' must be not null", expr));
+    }
+    return ptr;
+}
+
+#define DORIS_CHECK_LT(a, b, ...) DORIS_CHECK(a < b, __VA_ARGS__)
+#define DORIS_CHECK_LE(a, b, ...) DORIS_CHECK(a <= b, __VA_ARGS__)
+#define DORIS_CHECK_GT(a, b, ...) DORIS_CHECK(a > b, __VA_ARGS__)
+#define DORIS_CHECK_GE(a, b, ...) DORIS_CHECK(a >= b, __VA_ARGS__)
+#define DORIS_CHECK_EQ(a, b, ...) DORIS_CHECK(a == b, __VA_ARGS__)
+#define DORIS_CHECK_NE(a, b, ...) DORIS_CHECK(a != b, __VA_ARGS__)
+#define DORIS_CHECK_NOTNULL(a) DorisCheckNotNull(#a, (a))
