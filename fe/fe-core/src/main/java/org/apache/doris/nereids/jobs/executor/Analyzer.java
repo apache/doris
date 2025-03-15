@@ -31,7 +31,6 @@ import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.CompressedMaterialize;
-import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
@@ -43,7 +42,6 @@ import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
-import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
@@ -110,13 +108,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
                     new ProjectToGlobalAggregate(),
-                    // this rule check's the logicalProject node's isDistinct property
-                    // and replace the logicalProject node with a LogicalAggregate node
-                    // so any rule before this, if create a new logicalProject node
-                    // should make sure isDistinct property is correctly passed around.
-                    // please see rule BindSlotReference or BindFunction for example
-                    new EliminateDistinctConstant(),
-                    new ProjectWithDistinctToAggregate(),
                     new ReplaceExpressionByChildOutput(),
                     new OneRowRelationExtractAggregate()
             ),
