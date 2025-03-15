@@ -32,6 +32,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -543,9 +544,20 @@ public class BindExpression implements AnalysisRuleFactory {
             otherJoinConjuncts.add(otherJoinConjunct);
         }
 
+        DistributeHint distributeHint = join.getDistributeHint();
+        if (distributeHint.getSkewExpr() != null) {
+            Expression skewExpr = analyzer.analyze(distributeHint.getSkewExpr());
+            List<Expression> skewValues = new ArrayList<>();
+            for (Expression skewValue : join.getDistributeHint().getSkewValues()) {
+                skewValue = TypeCoercionUtils.castIfNotSameType(skewValue, skewExpr.getDataType());
+                skewValues.add(skewValue);
+            }
+            distributeHint = new DistributeHint(distributeHint.distributeType, skewExpr, skewValues);
+        }
+
         return new LogicalJoin<>(join.getJoinType(),
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
-                join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
+                distributeHint, join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
                 join.children(), null);
     }
 
