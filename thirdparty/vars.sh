@@ -319,10 +319,10 @@ LIBUNWIND_SOURCE="libunwind-1.6.2"
 LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
 
 # cctz
-CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
-CCTZ_NAME="cctz-2.3.tar.gz"
-CCTZ_SOURCE="cctz-2.3"
-CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
+CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/refs/tags/v2.4.tar.gz"
+CCTZ_NAME="cctz-2.4.tar.gz"
+CCTZ_SOURCE="cctz-2.4"
+CCTZ_MD5SUM="dcae652e5a79c03b25da9561aba01aed"
 
 # datatables, bootstrap 3 and jQuery 3
 # The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
