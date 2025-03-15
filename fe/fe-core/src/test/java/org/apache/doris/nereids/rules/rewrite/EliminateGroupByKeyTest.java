@@ -56,6 +56,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test.eli_gbk_t(a int, b int) distributed by hash(a) properties('replication_num'='1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -178,5 +179,19 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1
                                 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+    }
+
+    @Test
+    void testRepeatEliminateByEqual() {
+        PlanChecker.from(connectContext)
+                .analyze("select count(1) from (select a,b from eli_gbk_t where a=b group by grouping sets((a,b),(b,a))) t group by a,b;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+        PlanChecker.from(connectContext)
+                .analyze("select count(1) from (select a,b from eli_gbk_t where a=b group by cube(a,b)) t group by a,b;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
     }
 }

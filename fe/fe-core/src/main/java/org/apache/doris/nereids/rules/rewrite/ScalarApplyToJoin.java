@@ -45,7 +45,10 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isScalar).then(apply -> {
-            if (apply.isCorrelated()) {
+            // apply.isCorrelated() only check if correlated slot exits
+            // but correlation filter may be eliminated by SimplifyConflictCompound rule
+            // so we need check both correlated slot and correlation filter exists before creating LogicalJoin node
+            if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                 return correlatedToJoin(apply);
             } else {
                 return unCorrelatedToJoin(apply);

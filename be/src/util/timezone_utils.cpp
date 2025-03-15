@@ -42,6 +42,7 @@
 using boost::algorithm::to_lower_copy;
 
 namespace fs = std::filesystem;
+#include "common/compile_check_begin.h"
 
 namespace doris {
 
@@ -60,7 +61,7 @@ static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change b
 void TimezoneUtils::clear_timezone_caches() {
     lower_zone_cache_->clear();
 }
-int TimezoneUtils::cache_size() {
+size_t TimezoneUtils::cache_size() {
     return lower_zone_cache_->size();
 }
 
@@ -178,4 +179,5 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

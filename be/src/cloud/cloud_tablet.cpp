@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -452,27 +453,14 @@ void CloudTablet::clear_cache() {
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    for (auto& rs : rowsets) {
-        // Clear cached opened segments and inverted index cache in memory
-        rs->clear_cache();
-    }
-
-    if (config::enable_file_cache) {
-        for (const auto& rs : rowsets) {
-            // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
-            if (rs.use_count() > 2) {
-                LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
-                             << rs.use_count()
-                             << " references. File Cache won't be recycled when query is using it.";
-                continue;
-            }
-            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                // TODO: Segment::file_cache_key
-                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached_async(file_key);
-            }
+    for (const auto& rs : rowsets) {
+        // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
+        if (rs.use_count() > 2) {
+            LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
+                         << " references. File Cache won't be recycled when query is using it.";
+            return;
         }
+        rs->clear_cache();
     }
 }
 
@@ -744,6 +732,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
         auto retry = dp->param<bool>("retry", false);
+        auto sleep_sec = dp->param<int>("sleep", 0);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
         if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
                     "injected DELETE_BITMAP_LOCK_ERROR");
@@ -904,7 +894,7 @@ Status CloudTablet::sync_meta() {
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            // TODO(Lchangliang): recycle_resources_by_self();
+            clear_cache();
         }
         return st;
     }
@@ -975,6 +965,27 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
     // Currently, this information will not be used by the cloud report,
     // but it may be used in the future.
+}
+
+Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
+                                              DeleteBitmap* expected_delete_bitmap) {
+    DeleteBitmapPtr cached_delete_bitmap;
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
+            txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
+    if (st.ok()) {
+        bool res = (expected_delete_bitmap->cardinality() == cached_delete_bitmap->cardinality());
+        auto msg = fmt::format(
+                "delete bitmap cache check failed, cur_cardinality={}, cached_cardinality={}"
+                "txn_id={}, tablet_id={}",
+                expected_delete_bitmap->cardinality(), cached_delete_bitmap->cardinality(), txn_id,
+                tablet_id());
+        if (!res) {
+            DCHECK(res) << msg;
+            return Status::InternalError<false>(msg);
+        }
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

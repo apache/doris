@@ -114,6 +114,12 @@ public class RoutineLoadManager implements Writable {
         return new ArrayList<>(idToRoutineLoadJob.values());
     }
 
+    public List<RoutineLoadJob> getActiveRoutineLoadJobs() {
+        return idToRoutineLoadJob.values().stream()
+                .filter(job -> !job.state.isFinalState())
+                .collect(Collectors.toList());
+    }
+
     public void addMultiLoadTaskTxnIdToRoutineLoadJobId(long txnId, long routineLoadJobId) {
         multiLoadTaskTxnIdToRoutineLoadJobId.put(txnId, routineLoadJobId);
     }

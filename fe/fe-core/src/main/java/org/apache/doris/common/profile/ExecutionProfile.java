@@ -84,7 +84,7 @@ public class ExecutionProfile {
         this.queryId = queryId;
         root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
-        root.addChild(fragmentsProfile);
+        root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
         multiBeProfile = Maps.newHashMap();
         fragmentIdBeNum = Maps.newHashMap();
@@ -93,14 +93,14 @@ public class ExecutionProfile {
         for (int fragmentId : fragmentIds) {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
             fragmentProfiles.put(fragmentId, runtimeProfile);
-            fragmentsProfile.addChild(runtimeProfile);
+            fragmentsProfile.addChild(runtimeProfile, true);
             multiBeProfile.put(fragmentId, Maps.newHashMap());
             fragmentIdBeNum.put(fragmentId, 0);
             seqNoToFragmentId.put(i, fragmentId);
             ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
-        root.addChild(loadChannelProfile);
+        root.addChild(loadChannelProfile, true);
     }
 
     private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
@@ -158,7 +158,7 @@ public class ExecutionProfile {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
-            fragmentsProfile.addChild(newFragmentProfile);
+            fragmentsProfile.addChild(newFragmentProfile, true);
             // All pipeline profiles of this fragment on all BEs
             List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(seqNoToFragmentId.get(i));
             int pipelineIdx = 0;
@@ -177,7 +177,7 @@ public class ExecutionProfile {
                             allPipelineTask.get(0).nodeId());
                     RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
                 }
-                newFragmentProfile.addChild(mergedpipelineProfile);
+                newFragmentProfile.addChild(mergedpipelineProfile, true);
                 pipelineIdx++;
                 fragmentsProfile.rowsProducedMap.putAll(mergedpipelineProfile.rowsProducedMap);
             }
@@ -257,7 +257,7 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                fragmentProfiles.get(fragmentId).addChild(profileNode);
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
             setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
         }
@@ -323,7 +323,7 @@ public class ExecutionProfile {
         sb.append("ExecutionProfile: ").append(DebugUtil.printId(queryId)).append("\n");
         for (Entry<Integer, RuntimeProfile> entry : fragmentProfiles.entrySet()) {
             sb.append("Fragment ").append(entry.getKey()).append(":\n");
-            entry.getValue().prettyPrint(sb, "  ");
+            entry.getValue().prettyPrint(sb, " ");
         }
         return sb.toString();
     }

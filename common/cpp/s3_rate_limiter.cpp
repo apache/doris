@@ -26,7 +26,6 @@
 #if defined(__APPLE__)
 #include <ctime>
 #endif
-#define CURRENT_TIME std::chrono::system_clock::now()
 
 namespace doris {
 // Just 10^6.
@@ -44,7 +43,7 @@ public:
             spin_count++;
             if (spin_count >= MAX_SPIN_COUNT) {
                 LOG(WARNING) << "Warning: Excessive spinning detected while acquiring lock. Spin "
-                                "count: ";
+                                "count: " << spin_count;
                 spin_count = 0;
             }
             // Spin until we acquire the lock
@@ -91,8 +90,8 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(long now, size_t a
 
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
-    auto time = CURRENT_TIME;
-    auto time_nano_count = time.time_since_epoch().count();
+    auto duration = std::chrono::steady_clock::now().time_since_epoch();
+    auto time_nano_count = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
     auto [count_value, tokens_value] = _update_remain_token(time_nano_count, amount);
 
     if (_limit && count_value > _limit) {
@@ -110,8 +109,8 @@ int64_t S3RateLimiter::add(size_t amount) {
     return sleep_time_ns;
 }
 
-S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                         size_t limit, std::function<void(int64_t)> metric_func)
+S3RateLimiterHolder::S3RateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
+                                         std::function<void(int64_t)> metric_func)
         : rate_limiter(std::make_unique<S3RateLimiter>(max_speed, max_burst, limit)),
           metric_func(std::move(metric_func)) {}
 

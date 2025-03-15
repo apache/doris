@@ -34,7 +34,7 @@
 #include "pipeline/query_cache/query_cache.h"
 #include "service/backend_options.h"
 #include "util/to_string.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -70,7 +70,10 @@ Status OlapScanLocalState::_init_profile() {
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
-    _segment_generate_row_range_timer = ADD_TIMER(_segment_profile, "GenerateRowRangeTime");
+    _segment_generate_row_range_by_keys_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByKeysTime");
+    _segment_generate_row_range_by_column_conditions_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByColumnConditionsTime");
     _segment_generate_row_range_by_bf_timer =
             ADD_TIMER(_segment_profile, "GenerateRowRangeByBloomFilterIndexTime");
     _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
@@ -196,6 +199,10 @@ Status OlapScanLocalState::_init_profile() {
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
     _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+
+    _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
+    _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+
     return Status::OK();
 }
 
@@ -277,7 +284,7 @@ bool OlapScanLocalState::_storage_no_merge() {
              p._olap_scan_node.enable_unique_key_merge_on_write));
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -347,7 +354,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
         return Status::OK();
@@ -387,8 +394,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::NewOlapScanner::create_shared(
-                    this, vectorized::NewOlapScanner::Params {
+            auto scanner = vectorized::OlapScanner::create_shared(
+                    this, vectorized::OlapScanner::Params {
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,

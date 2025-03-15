@@ -52,9 +52,9 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -274,13 +274,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         }
     }
 
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
-    }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
@@ -288,6 +281,14 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
                                                                      _delete_bitmap));
+    }
+
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -298,13 +299,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
                 "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
-                "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
-                "rows new added({}), num rows deleted({}), total rows({})",
+                "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
+                "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
                 _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
                 _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
-                _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
-                rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
-                rowset_writer()->num_rows());
+                _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
+                rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
+                rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
         return Status::OK();
     }
 

@@ -49,20 +49,7 @@
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
 
-namespace {
-auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
-        if (ns > 0) {
-            ns_bvar << ns;
-        } else {
-            req_num_bvar << 1;
-        }
-    };
-}
-} // namespace
-
 namespace doris::cloud {
-
 namespace s3_bvar {
 bvar::LatencyRecorder s3_get_latency("s3_get");
 bvar::LatencyRecorder s3_put_latency("s3_put");
@@ -84,12 +71,12 @@ bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_nu
 AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters(
                   {std::make_unique<S3RateLimiterHolder>(
-                           S3RateLimitType::GET, config::s3_get_token_per_second,
-                           config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                           config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                           config::s3_get_token_limit,
                            metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
                    std::make_unique<S3RateLimiterHolder>(
-                           S3RateLimitType::PUT, config::s3_put_token_per_second,
-                           config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                           config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                           config::s3_put_token_limit,
                            metric_func_factory(put_rate_limit_ns,
                                                put_rate_limit_exceed_req_num))}) {}
 
@@ -228,10 +215,10 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
     switch (conf.provider) {
     case S3Conf::GCS:
-        *accessor = std::make_shared<GcsAccessor>(std::move(conf));
+        *accessor = std::make_shared<GcsAccessor>(conf);
         break;
     default:
-        *accessor = std::make_shared<S3Accessor>(std::move(conf));
+        *accessor = std::make_shared<S3Accessor>(conf);
         break;
     }
 
@@ -255,8 +242,14 @@ int S3Accessor::init() {
         options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
-                           conf_.ak, conf_.bucket);
+        if (config::force_azure_blob_global_endpoint) {
+            uri_ = fmt::format("https://{}.blob.core.windows.net/{}", conf_.ak, conf_.bucket);
+        } else {
+            uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);
+            if (uri_.find("://") == std::string::npos) {
+                uri_ = "https://" + uri_;
+            }
+        }
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.

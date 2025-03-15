@@ -73,8 +73,9 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     }
 
     if (!output_block->empty()) {
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
-                                                               output_block->columns()));
+        //if buffer have no data and sink not eos, block reading and wait for signal again
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block,
+                                                 output_block->columns()));
         local_state._num_rows_returned += output_block->rows();
     }
     return Status::OK();

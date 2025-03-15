@@ -212,6 +212,10 @@ void process_dictionary(SchemaCloudDictionary& dict,
 // such restored schema in fdb. And also add extra dict key info to RowsetMetaCloudPB.
 void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
                        Transaction* txn, RowsetMetaCloudPB* rowset_meta) {
+    // if schema_dict_key_list is not empty, then the schema already replaced in BE side, and no need to update dict
+    if (rowset_meta->has_schema_dict_key_list()) {
+        return;
+    }
     std::stringstream ss;
     // wrtie dict to rowset meta and update dict
     SchemaCloudDictionary dict;
@@ -311,6 +315,7 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         cloud::put(txn, dict_key, dict_val, 0);
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
                   << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
+                  << ", index_id=" << rowset_meta->index_id()
                   << ", Current column ID=" << dict.current_column_dict_id()
                   << ", Current index ID=" << dict.current_index_dict_id()
                   << ", Dict bytes=" << dict_val.size();
@@ -322,7 +327,6 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
                       google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB>* rsp_metas,
                       SchemaCloudDictionary* rsp_dict, GetRowsetRequest::SchemaOp schema_op) {
     std::stringstream ss;
-
     // read dict if any rowset has dict key list
     SchemaCloudDictionary dict;
     std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, index_id});

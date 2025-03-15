@@ -31,7 +31,16 @@ suite ("sum_devide_count") {
         """
 
     sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
     sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
     sql "insert into sum_devide_count select 3,-3,null,'c';"
 
     sql "SET experimental_enable_nereids_planner=true"
@@ -42,10 +51,17 @@ suite ("sum_devide_count") {
     sleep(3000)
 
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
     sql "insert into sum_devide_count select 3,2,null,'c';"
 
     sql "analyze table sum_devide_count with sync;"
-    sql """alter table sum_devide_count modify column k1 set stats ('row_count'='5');"""
+    sql """alter table sum_devide_count modify column k1 set stats ('row_count'='20');"""
 
     sql """set enable_stats=false;"""
 

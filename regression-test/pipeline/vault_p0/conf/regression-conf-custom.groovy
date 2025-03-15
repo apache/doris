@@ -38,7 +38,10 @@ extHiveHmsUser = "root"
 // for case test_minio_storage_vault.groovy
 extMinioHost = "127.0.0.1"
 extMinioPort = 19000
+extMinioDomain = "myminio.com"
 extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
 extMinioRegion = "us-east-1"
 extMinioBucket = "test-bucket"
+
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"

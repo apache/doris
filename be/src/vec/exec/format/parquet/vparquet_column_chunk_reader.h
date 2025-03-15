@@ -49,7 +49,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -228,6 +228,7 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     Statistics _statistics;
 };
+#include "common/compile_check_end.h"
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
 

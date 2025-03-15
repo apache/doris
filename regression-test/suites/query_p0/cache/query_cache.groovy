@@ -160,4 +160,26 @@ suite("query_cache") {
         GROUP BY field3
     """
 
+    order_qt_query_cache7 """
+        SELECT
+        col_int_undef_signed,
+            MIN(`col_int_undef_signed`) AS field1,
+            MAX(`col_int_undef_signed`) AS field2,
+            COUNT(`col_int_undef_signed`) AS field3,
+            SUM(`col_int_undef_signed`) AS field4
+        FROM ${tableName}
+        GROUP BY col_int_undef_signed
+    """
+
+    // reorder the order_qt_query_cache7 select list to test the cache hit
+    order_qt_query_cache8 """
+ SELECT
+    COUNT(`col_int_undef_signed`) AS field3,  -- Count of col_int_undef_signed (Original field3)
+    col_int_undef_signed,                      -- The original unsigned integer column (Original col_int_undef_signed)
+    SUM(`col_int_undef_signed`) AS field4,     -- Sum of col_int_undef_signed (Original field4)
+    MIN(`col_int_undef_signed`) AS field1,     -- Minimum value of col_int_undef_signed (Original field1)
+    MAX(`col_int_undef_signed`) AS field2      -- Maximum value of col_int_undef_signed (Original field2). Note: Trailing comma removed to avoid syntax error.
+FROM ${tableName}
+GROUP BY col_int_undef_signed;
+    """
 } 

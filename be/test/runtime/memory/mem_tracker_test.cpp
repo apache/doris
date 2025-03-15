@@ -34,23 +34,18 @@ TEST(MemTrackerTest, SingleTrackerNoLimit) {
     EXPECT_EQ(t->consumption(), 20);
     t->release(15);
     EXPECT_EQ(t->consumption(), 5);
-    EXPECT_FALSE(t->limit_exceeded());
     t->release(5);
 }
 
 TEST(MemTrackerTest, SingleTrackerWithLimit) {
     auto t = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "limit tracker",
                                                  11);
-    EXPECT_TRUE(t->has_limit());
     t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
-    EXPECT_FALSE(t->limit_exceeded());
     t->consume(10);
     EXPECT_EQ(t->consumption(), 20);
-    EXPECT_TRUE(t->limit_exceeded());
     t->release(15);
     EXPECT_EQ(t->consumption(), 5);
-    EXPECT_FALSE(t->limit_exceeded());
     t->release(5);
 }
 

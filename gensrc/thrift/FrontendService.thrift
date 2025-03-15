@@ -199,6 +199,8 @@ struct TQueryStatistics {
     9: optional i64 shuffle_send_rows
     10: optional i64 scan_bytes_from_local_storage
     11: optional i64 scan_bytes_from_remote_storage
+    12: optional i64 spill_write_bytes_to_local_storage
+    13: optional i64 spill_read_bytes_from_local_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -380,10 +382,14 @@ struct TMasterOpRequest {
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
     30: optional TGroupCommitInfo groupCommitInfo
+    31: optional binary prepareExecuteBuffer
 
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
+
+    // temporary table
+    1002: optional string sessionId
 }
 
 struct TColumnDefinition {
@@ -651,6 +657,7 @@ struct TCommitTxnRequest {
     // used for ccr
     13: optional bool txn_insert
     14: optional list<TSubTxnInfo> sub_txn_infos
+    15: optional bool only_commit   // only commit txn, without waiting txn publish
 }
 
 struct TCommitTxnResult {
@@ -737,6 +744,17 @@ struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
    3: optional string deployMode
+}
+
+struct TFrontendReportAliveSessionRequest {
+   1: required i32 clusterId
+   2: required string token
+}
+
+struct TFrontendReportAliveSessionResult {
+   1: required Status.TStatusCode status
+   2: required string msg
+   3: required list<string> sessionIdList
 }
 
 struct TDiskInfo {
@@ -829,6 +847,7 @@ struct TSchemaTableRequestParams {
     3: optional bool replay_to_other_fe
     4: optional string catalog  // use for table specific queries
     5: optional i64 dbId         // used for table specific queries
+    6: optional string time_zone // used for DATETIME field
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1282,6 +1301,8 @@ struct TGetBinlogLagResult {
     5: optional i64 last_commit_seq
     6: optional i64 first_binlog_timestamp
     7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
@@ -1321,6 +1342,7 @@ struct TCreatePartitionRequest {
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1328,6 +1350,7 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1338,6 +1361,7 @@ struct TReplacePartitionRequest {
     4: optional list<i64> partition_ids // partition to replace.
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1345,6 +1369,7 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
@@ -1434,9 +1459,12 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
-    4: optional list<i64> dropped_partitions
-    5: optional list<i64> dropped_tables
-    6: optional list<i64> dropped_indexes
+    4: optional list<i64> dropped_partitions    // DEPRECATED
+    5: optional list<i64> dropped_tables        // DEPRECATED
+    6: optional list<i64> dropped_indexes       // DEPRECATED
+    7: optional map<i64, i64> dropped_partition_map     // id -> commit seq
+    8: optional map<i64, i64> dropped_table_map         // id -> commit seq
+    9: optional map<i64, i64> dropped_index_map         // id -> commit seq
 }
 
 struct TGetMetaResult {
@@ -1478,6 +1506,7 @@ struct TGetColumnInfoResult {
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
     2: optional Types.TUserIdentity current_user_ident
+    3: optional string time_zone
 }
 
 struct TShowProcessListResult {
@@ -1601,6 +1630,8 @@ service FrontendService {
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 

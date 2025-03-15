@@ -26,12 +26,15 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -103,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -114,6 +118,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
@@ -142,9 +147,13 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -544,6 +553,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showProcCommand, context);
     }
 
+    default R visitShowDataCommand(ShowDataCommand showDataCommand, C context) {
+        return visitCommand(showDataCommand, context);
+    }
+
     default R visitShowStorageEnginesCommand(ShowStorageEnginesCommand showStorageEnginesCommand, C context) {
         return visitCommand(showStorageEnginesCommand, context);
     }
@@ -617,6 +630,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(whiteListCommand, context);
     }
 
+    default R visitAlterCatalogPropertiesCommand(AlterCatalogPropertiesCommand alterCatalogPropsCmd, C context) {
+        return visitCommand(alterCatalogPropsCmd, context);
+    }
+
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
         return visitCommand(recoverDatabaseCommand, context);
     }
@@ -627,6 +644,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRecoverTableCommand(RecoverTableCommand recoverTableCommand, C context) {
         return visitCommand(recoverTableCommand, context);
+    }
+
+    default R visitShowStoragePolicyCommand(ShowStoragePolicyCommand showStoragePolicyCommand, C context) {
+        return visitCommand(showStoragePolicyCommand, context);
     }
 
     default R visitRecoverPartitionCommand(RecoverPartitionCommand recoverPartitionCommand, C context) {
@@ -805,7 +826,32 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showQueuedAnalyzeJobsCommand, context);
     }
 
+    default R visitShowColumnHistogramStatsCommand(ShowColumnHistogramStatsCommand showColumnHistogramStatCommand,
+                                                   C context) {
+        return visitCommand(showColumnHistogramStatCommand, context);
+    }
+
     default R visitDescribeCommand(DescribeCommand describeCommand, C context) {
         return visitCommand(describeCommand, context);
+    }
+
+    default R visitShowTableStatusCommand(ShowTableStatusCommand showTableStatusCommand, C context) {
+        return visitCommand(showTableStatusCommand, context);
+    }
+
+    default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
+        return visitCommand(showTableCommand, context);
+    }
+
+    default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
+        return visitCommand(showTabletIdCommand, context);
+    }
+
+    default R visitAlterTableStatsCommand(AlterTableStatsCommand alterTableStatsCommand, C context) {
+        return visitCommand(alterTableStatsCommand, context);
+    }
+
+    default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
+        return visitCommand(alterColumnStatsCommand, context);
     }
 }

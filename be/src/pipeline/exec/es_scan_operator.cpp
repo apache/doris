@@ -19,7 +19,7 @@
 
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
-#include "vec/exec/scan/new_es_scanner.h"
+#include "vec/exec/scan/es_scanner.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -62,7 +62,7 @@ Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -92,7 +92,7 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
-        std::shared_ptr<vectorized::NewEsScanner> scanner = vectorized::NewEsScanner::create_shared(
+        std::shared_ptr<vectorized::EsScanner> scanner = vectorized::EsScanner::create_shared(
                 RuntimeFilterConsumer::_state, this, p._limit, p._tuple_id, properties,
                 p._docvalue_context, doc_value_mode,
                 RuntimeFilterConsumer::_state->runtime_profile());
@@ -136,8 +136,8 @@ Status EsScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::open(state));
+Status EsScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::prepare(state));
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {

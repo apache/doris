@@ -28,6 +28,7 @@ public class MergeProjectsCBO extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalProject())
+                .when(project -> project.canMergeProjections(project.child()))
                 .then(project -> MergeProjects.mergeProjects(project))
                 .toRule(RuleType.MERGE_PROJECTS);
     }

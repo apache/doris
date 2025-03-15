@@ -150,7 +150,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                             }
                                             return true;
                                         })
-                        )).then(r -> {
+                        ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalFilter<LogicalOlapScan>> bottomProject = r.child().child().child();
                             List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
@@ -183,6 +183,10 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
         if (logicalProject.isPresent()) {
             deferredMaterializedExprIds.retainAll(logicalProject.get().getInputSlots().stream()
                     .map(NamedExpression::getExprId).collect(Collectors.toSet()));
+        }
+        if (deferredMaterializedExprIds.isEmpty()) {
+            // nothing to deferred materialize
+            return null;
         }
         LogicalDeferMaterializeOlapScan deferOlapScan = new LogicalDeferMaterializeOlapScan(
                 logicalOlapScan, deferredMaterializedExprIds, columnId);

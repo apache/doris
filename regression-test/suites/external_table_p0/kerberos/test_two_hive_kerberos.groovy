@@ -138,14 +138,16 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
 
         // test information_schema.backend_kerberos_ticket_cache
         sql """switch internal"""
+        List<List<Object>> backends = sql "show backends"
+        int beNum = backends.size();
         test {
             sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab";"""
-            rowNum 1
+            rowNum beNum
         } 
 
         test {
             sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";"""
-            rowNum 1
+            rowNum beNum
         }
 
         // sql """drop catalog ${hms_catalog_name};"""

@@ -1091,6 +1091,11 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
     if (cumulative_compaction_policy == nullptr) [[unlikely]] {
         return 0;
     }
+    DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
+        LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
+                .tag("tablet id", tablet_id());
+        return 0;
+    });
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
@@ -2006,7 +2011,10 @@ Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetShare
 Status Tablet::cooldown(RowsetSharedPtr rowset) {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("try schema_change_lock failed");
+        return Status::Error<TRY_LOCK_FAILED>(
+                "try schema_change_lock failed, schema change running or inverted index built on "
+                "this tablet={}",
+                tablet_id());
     }
     // Check executing serially with compaction task.
     std::unique_lock base_compaction_lock(_base_compaction_lock, std::try_to_lock);
