@@ -18,33 +18,33 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * explode([1, 2, 3]), generate 3 lines include 1, 2 and 3.
  */
-public class ExplodeOuter extends TableGeneratingFunction implements BinaryExpression, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new FollowToAnyDataType(0)).args(ArrayType.of(new AnyDataType(0)))
-    );
+public class ExplodeOuter extends TableGeneratingFunction implements ExplicitlyCastableSignature, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more argument.
      */
-    public ExplodeOuter(Expression arg) {
-        super("explode_outer", arg);
+    public ExplodeOuter(Expression[] args) {
+        super("explode_outer", args);
     }
 
     /**
@@ -52,13 +52,37 @@ public class ExplodeOuter extends TableGeneratingFunction implements BinaryExpre
      */
     @Override
     public ExplodeOuter withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeOuter(children.get(0));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ExplodeOuter(children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression child : children) {
+            if (!child.isNullLiteral() && !(child.getDataType() instanceof ArrayType)) {
+                throw new AnalysisException("only support array type for explode_outer function but got "
+                    + child.getDataType());
+            }
+        }
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).isNullLiteral()) {
+                arguments.add(ArrayType.of(NullType.INSTANCE));
+                structFields.add(
+                    new StructField("col" + (i + 1), ArrayType.of(NullType.INSTANCE).getItemType(), true, ""));
+            } else {
+                structFields.add(
+                    new StructField("col" + (i + 1),
+                        ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            }
+        }
+        return ImmutableList.of(FunctionSignature.of(new StructType(structFields.build()), arguments));
     }
 
     @Override
