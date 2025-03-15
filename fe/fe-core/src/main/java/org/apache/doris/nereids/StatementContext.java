@@ -164,7 +164,7 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
