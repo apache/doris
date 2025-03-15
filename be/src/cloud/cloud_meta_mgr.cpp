@@ -1141,6 +1141,11 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
             }
         }
     });
+    DBUG_EXECUTE_IF("CloudMetaMgr::test_update_delete_bitmap_fail", {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
+                "test update delete bitmap failed, tablet_id: {}, lock_id: {}", tablet.tablet_id(),
+                lock_id);
+    });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
