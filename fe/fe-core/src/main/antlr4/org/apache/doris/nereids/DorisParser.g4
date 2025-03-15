@@ -742,6 +742,8 @@ supportedStatsStatement
     | ALTER TABLE name=multipartIdentifier (INDEX indexName=identifier)?
         MODIFY COLUMN columnName=identifier
         SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
+    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAnalyzeJob
     ;
 
 unsupportedStatsStatement
@@ -749,8 +751,6 @@ unsupportedStatsStatement
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
-    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
-    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
