@@ -184,6 +184,7 @@ supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
+    | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier #alterSystemRenameComputeGroup
     ;
 
 supportedDropStatement

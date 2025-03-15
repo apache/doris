@@ -94,6 +94,10 @@ public class CloudEnv extends Env {
         return this.upgradeMgr;
     }
 
+    public CloudClusterChecker getCloudClusterChecker() {
+        return this.cloudClusterCheck;
+    }
+
     public String getCloudInstanceId() {
         return cloudInstanceId;
     }
