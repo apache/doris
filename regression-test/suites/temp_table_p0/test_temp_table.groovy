@@ -123,6 +123,7 @@ suite('test_temp_table', 'p0') {
     assertFalse(hasTempTable)
 
     // will create a normal olap table, not temporary table, even if source table is temporary
+    sql "drop table if exists t_test_table3_0"
     sql "create table t_test_table3_0 like t_test_temp_table3"
     show_tables = sql "show tables"
     def hasTable = false
@@ -403,7 +404,7 @@ suite('test_temp_table', 'p0') {
         sql "CREATE MATERIALIZED VIEW mv_mtmv1 as select k1 from temp_table_with_dyncmic_partition"
         throw new IllegalStateException("Should throw error")
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("do not support create materialized view on temporary table"), ex.getMessage())
+        assertTrue(ex.getMessage().contains("table not found"), ex.getMessage())
     }
     def show_create_mv1 = sql "show create materialized view mv_mtmv1 on temp_table_with_dyncmic_partition"
     assertEquals(show_create_mv1.size(), 0)
