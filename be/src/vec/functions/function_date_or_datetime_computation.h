@@ -1044,7 +1044,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<typename FunctionImpl::ReturnType>();
+        return make_nullable(std::make_shared<typename FunctionImpl::ReturnType>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1085,14 +1085,14 @@ struct DateNextDayImpl {
             auto week = week_col->get_data_at(i);
             auto week_day = day_of_week(week);
             if (week_day == 0) {
-                // TODO: ensure how to handle error
-                res->insert_value(0);
+                return Status::InvalidArgument("Invalid weekday: {}", week);
             } else {
-                auto dtv = DateV2Value<DateV2ValueType>::create_from_olap_date(date);
+                auto dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date);
                 auto days_to_add = (week_day - dtv.day_of_week() + 7) % 7;
+                days_to_add = days_to_add == 0 ? 7 : days_to_add;
                 dtv.date_add_interval<TimeUnit::DAY>(
                         TimeInterval(TimeUnit::DAY, days_to_add, false));
-                res->insert_value(dtv.to_olap_date());
+                res->insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
             }
         }
         block.replace_by_position(result, std::move(res));
@@ -1115,14 +1115,14 @@ struct DateTimeNextDayImpl {
             auto week = week_col->get_data_at(i);
             auto week_day = day_of_week(week);
             if (week_day == 0) {
-                // TODO: ensure error handle
-                res->insert_value(0);
+                return Status::InvalidArgument("Invalid weekday: {}", week);
             } else {
-                auto dtv = DateV2Value<DateTimeV2ValueType>::create_from_olap_date(date);
+                auto dtv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(date);
                 auto days_to_add = (week_day - dtv.day_of_week() + 7) % 7;
+                days_to_add = days_to_add == 0 ? 7 : days_to_add;
                 dtv.date_add_interval<TimeUnit::DAY>(
                         TimeInterval(TimeUnit::DAY, days_to_add, false));
-                res->insert_value(dtv.to_olap_date());
+                res->insert_value(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv));
             }
         }
         block.replace_by_position(result, std::move(res));
