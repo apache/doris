@@ -2558,9 +2558,8 @@ public class ShowExecutor {
                     }
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
-                    String tableName = olapTable.getDisplayName();
                     if (olapTable.isTemporary()) {
-                        if (!Util.isTempTableInCurrentSession(tableName)) {
+                        if (!Util.isTempTableInCurrentSession(olapTable.getName())) {
                             continue;
                         }
                     }
@@ -2570,7 +2569,7 @@ public class ShowExecutor {
                     }
                     String unsortedReservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
                     rows.add(Lists.newArrayList(
-                            tableName,
+                            olapTable.getDisplayName(),
                             String.valueOf(dynamicPartitionProperty.getEnable()),
                             dynamicPartitionProperty.getTimeUnit().toUpperCase(),
                             String.valueOf(dynamicPartitionProperty.getStart()),
