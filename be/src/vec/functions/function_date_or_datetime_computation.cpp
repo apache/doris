@@ -94,8 +94,9 @@ using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
 using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
-using FunctionMonthsBetweenDate = FunctionMonthsBetween<DateV2ValueType, UInt32>;
-using FunctionMonthsBetweenDateTime = FunctionMonthsBetween<DateTimeV2ValueType, UInt64>;
+using FunctionMonthsBetweenDate = FunctionMonthsBetween<ColumnDateV2, DateV2ValueType, UInt32>;
+using FunctionMonthsBetweenDateTime =
+        FunctionMonthsBetween<ColumnDateTimeV2, DateTimeV2ValueType, UInt64>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
