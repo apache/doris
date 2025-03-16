@@ -18,35 +18,28 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 /**
  * ShowDatabasesCommand
@@ -60,7 +53,6 @@ public class ShowDatabasesCommand extends ShowCommand {
 
     private String catalog;
     private final String likePattern;
-    private String dbName;
     private final Expression whereClause;
 
     /**
@@ -102,45 +94,16 @@ public class ShowDatabasesCommand extends ShowCommand {
     /**
      * execute sql and return result
      */
-    private ShowResultSet execute(ConnectContext ctx) throws AnalysisException {
-        List<List<String>> rows = Lists.newArrayList();
-        // cluster feature is deprecated.
-        CatalogIf catalogIf = ctx.getCatalog(catalog);
-        if (catalogIf == null) {
-            throw new AnalysisException("No catalog found with name " + catalog);
-        }
+    private ShowResultSet execute(ConnectContext ctx, StmtExecutor executor, String whereClause) {
+        List<AliasInfo> selectList = new ArrayList<>();
+        selectList.add(AliasInfo.of(ORI_DB_COL, DB_COL));
 
-        List<String> dbNames = catalogIf.getDbNames();
-        Set<String> dbNameSet = Sets.newTreeSet();
-        if (!Strings.isNullOrEmpty(dbName) && dbNames.contains(dbName)) {
-            dbNameSet.add(dbName);
-        } else {
-            PatternMatcher matcher = null;
-            if (likePattern != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(likePattern,
-                        CaseSensibility.DATABASE.getCaseSensibility());
-            }
-            for (String fullName : dbNames) {
-                final String db = ClusterNamespace.getNameFromFullName(fullName);
+        TableNameInfo fullTblName = new TableNameInfo(catalog, InfoSchemaDb.DATABASE_NAME, "schemata");
 
-                // Filter dbname
-                if (matcher != null && !matcher.match(db)) {
-                    continue;
-                }
-
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), catalog,
-                        fullName, PrivPredicate.SHOW)) {
-                    continue;
-                }
-
-                dbNameSet.add(db);
-            }
-        }
-
-        for (String dbName : dbNameSet) {
-            rows.add(Lists.newArrayList(dbName));
-        }
-
+        // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
+        // This also applies to the internal catalog.
+        LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName, whereClause);
+        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
         return new ShowResultSet(META_DATA, rows);
     }
 
@@ -149,14 +112,12 @@ public class ShowDatabasesCommand extends ShowCommand {
         validate(ctx);
         if (whereClause != null) {
             Expression rewrited = whereClause.accept(new ReplaceColumnNameVisitor(), null);
-            if (rewrited instanceof EqualTo && ((EqualTo) rewrited).left() instanceof UnboundSlot
-                    && ((EqualTo) rewrited).right() instanceof Literal) {
-                dbName = ((Literal) ((EqualTo) rewrited).right()).getStringValue();
-            } else {
-                throw new AnalysisException("Only support 'SCHEMA_NAME or Database = 'xxx''");
-            }
+            String whereCondition = " WHERE " + rewrited.toSql();
+            return execute(ctx, executor, whereCondition);
+        } else if (likePattern != null) {
+            return execute(ctx, executor, " WHERE TABLE_SCHEMA LIKE '" + likePattern + "'");
         }
-        return execute(ctx);
+        return execute(ctx, executor, "");
     }
 
     @Override
