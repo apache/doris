@@ -419,6 +419,7 @@ import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
+import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnlockTablesContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
@@ -765,6 +766,7 @@ import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -5280,6 +5282,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : visitPropertyClause(ctx.propertyClause());
 
         return new InstallPluginCommand(source, properties);
+    }
+
+    @Override
+    public LogicalPlan visitUninstallPlugin(UninstallPluginContext ctx) {
+        String name = visitIdentifierOrText(ctx.identifierOrText());
+
+        return new UninstallPluginCommand(name);
     }
 
     private Expression getWildWhere(DorisParser.WildWhereContext ctx) {

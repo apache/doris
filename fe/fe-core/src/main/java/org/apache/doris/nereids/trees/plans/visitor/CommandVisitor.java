@@ -225,6 +225,7 @@ import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -770,6 +771,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabasePropertiesCommand(AlterDatabasePropertiesCommand alterDatabasePropsCmd, C context) {
         return visitCommand(alterDatabasePropsCmd, context);
+    }
+
+    default R visitUninstallPluginCommand(UninstallPluginCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
