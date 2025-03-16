@@ -122,6 +122,9 @@ class SimpleFunctionFactory {
     /// which actually should be done by now-2 version.
     constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 5;
 
+    /// @TEMPORARY: for be_exec_version=8.
+    constexpr static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 8;
+
 public:
     void register_function(const std::string& name, const Creator& ptr) {
         DataTypes types = ptr()->get_variadic_argument_types();
@@ -218,10 +221,10 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=4
+    /// @TEMPORARY: for be_exec_version=8
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
-        if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
+        if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
         }
