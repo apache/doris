@@ -127,8 +127,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinutesDiff>();
     factory.register_function<FunctionSecondsDiff>();
 
-    factory.register_function<FunctionNextDay<DataTypeDateTime>>();
-    factory.register_function<FunctionNextDay<DataTypeDateTimeV2>>();
+    factory.register_function<FunctionNextDay<DateNextDayImpl>>();
+    factory.register_function<FunctionNextDay<DateTimeNextDayImpl>>();
 
     factory.register_function<FunctionToYearWeekTwoArgs>();
     factory.register_function<FunctionToWeekTwoArgs>();
