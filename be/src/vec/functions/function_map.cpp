@@ -286,6 +286,24 @@ public:
     }
 };
 
+class FunctionStrToMap : public IFunction {
+public:
+    static constexpr auto name = "str_to_map";
+    static FunctionPtr create() { return std::make_shared<FunctionStrToMap>(); }
+
+    /// Get function name.
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return true; }
+
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeMap>(make_nullable(arguments[0]),
+                                             make_nullable(arguments[1]));
+    }
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
