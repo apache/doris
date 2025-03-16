@@ -30,9 +30,9 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
-#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/function/function_test_util.h"
 

@@ -36,7 +36,6 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
-
 #include "common/compile_check_begin.h"
 
 VExplodeTableFunction::VExplodeTableFunction() {

@@ -22,10 +22,10 @@
 #include <memory>
 #include <string_view>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/udf_table_function.h"
-#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
@@ -33,9 +33,9 @@
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/exprs/table_function/vposexplode.h"
 #include "vec/utils/util.hpp"
-#include "agent/be_exec_version_manager.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -70,12 +70,10 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 const std::unordered_map<std::string, std::string> TableFunctionFactory::_function_to_replace = {
-        {"explode", "explode_old"},
-        {"explode_variant_array", "explode_variant_array_old"}
-};
+        {"explode", "explode_old"}, {"explode_variant_array", "explode_variant_array_old"}};
 
 Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn,
-                        int be_version = BeExecVersionManager::get_newest_version()) {
+                                    int be_version = BeExecVersionManager::get_newest_version()) {
     bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
     if (t_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         *fn = pool->add(UDFTableFunction::create_unique(t_fn).release());

@@ -165,8 +165,9 @@ void register_table_function_expand(SimpleFunctionFactory& factory, const std::s
 };
 
 template <typename FunctionImpl>
-void register_table_alternative_function_expand(SimpleFunctionFactory& factory, const std::string& name,
-                                    const std::string& suffix) {
+void register_table_alternative_function_expand(SimpleFunctionFactory& factory,
+                                                const std::string& name,
+                                                const std::string& suffix) {
     factory.register_alternative_function<FunctionFake<FunctionImpl>>(name);
     factory.register_alternative_function<FunctionFake<FunctionImpl>>(name + suffix);
 };
@@ -186,8 +187,10 @@ void register_table_function_expand_outer(SimpleFunctionFactory& factory, const 
 };
 
 template <typename FunctionImpl>
-void register_table_alternative_function_expand_outer(SimpleFunctionFactory& factory, const std::string& name) {
-    register_table_alternative_function_expand<FunctionImpl>(factory, name, COMBINATOR_SUFFIX_OUTER);
+void register_table_alternative_function_expand_outer(SimpleFunctionFactory& factory,
+                                                      const std::string& name) {
+    register_table_alternative_function_expand<FunctionImpl>(factory, name,
+                                                             COMBINATOR_SUFFIX_OUTER);
 };
 
 template <typename ReturnType, bool VARIADIC>
@@ -229,7 +232,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
     register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode_variant_array");
-    register_table_alternative_function_expand_outer<FunctionExplode>(factory, "explode_variant_array");
+    register_table_alternative_function_expand_outer<FunctionExplode>(factory,
+                                                                      "explode_variant_array");
 }
 
 } // namespace doris::vectorized
