@@ -152,6 +152,14 @@ public:
         register_function(name, &createDefaultFunction<Function>);
     }
 
+    /// @TEMPORARY: for be_exec_version=8
+    template <class Function>
+    void register_alternative_function(std::string name) {
+        static std::string suffix {"_old"};
+        function_to_replace[name] = name + suffix;
+        register_function(name + suffix, &createDefaultFunction<Function>);
+    }
+
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }
