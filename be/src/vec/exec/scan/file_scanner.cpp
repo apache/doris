@@ -847,7 +847,7 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
     temp_arguments[2] = num_columns_without_result + 1; // len
     size_t result_column_id = num_columns_without_result + 2;
 
-    SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
+    SubstringUtil<>::substring_execute(*block, temp_arguments, result_column_id, block->rows());
     auto res = ColumnNullable::create(block->get_by_position(result_column_id).column,
                                       null_map_column_ptr);
     block->replace_by_position(idx, std::move(res));

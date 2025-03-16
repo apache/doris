@@ -177,7 +177,7 @@ public:
         temp_arguments[2] = 2; // width
         uint32_t result_column_id = 3;
 
-        SubstringUtil::substring_execute(temp_block, temp_arguments, result_column_id,
+        SubstringUtil<>::substring_execute(temp_block, temp_arguments, result_column_id,
                                          temp_block.rows());
         if (is_nullable) {
             auto res_column = ColumnNullable::create(
