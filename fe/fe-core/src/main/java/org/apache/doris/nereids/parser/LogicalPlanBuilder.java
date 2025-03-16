@@ -380,6 +380,7 @@ import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
+import org.apache.doris.nereids.DorisParser.UninstallPluginContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
@@ -667,6 +668,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -4943,6 +4945,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             return new ShowVariablesCommand(statementScope, null);
         }
+    }
+
+    @Override
+    public LogicalPlan visitUninstallPlugin(UninstallPluginContext ctx) {
+        String name = visitIdentifierOrText(ctx.identifierOrText());
+
+        return new UninstallPluginCommand(name);
     }
 
     private Expression getWildWhere(DorisParser.WildWhereContext ctx) {
