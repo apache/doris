@@ -1044,13 +1044,13 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<FunctionImpl::ReturnType>();
+        return std::make_shared<typename FunctionImpl::ReturnType>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         // TODO: const optimize
-        FunctionImpl::execute(context, block, arguments, result, input_rows_count);
+        return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
 
