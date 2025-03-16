@@ -165,7 +165,7 @@ struct StringOP {
 
 template <bool is_for_zero = false>
 struct SubstringUtil {
-    static constexpr auto name = "substring" + (is_for_zero ? "_for_zero" : "");
+    static constexpr auto name = is_for_zero ? "substring_for_zero" : "substring";
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
@@ -909,7 +909,7 @@ public:
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<false>::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -958,7 +958,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<>::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
