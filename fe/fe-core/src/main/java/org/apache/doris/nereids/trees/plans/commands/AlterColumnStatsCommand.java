@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -27,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -176,10 +176,9 @@ public class AlterColumnStatsCommand extends AlterCommand {
             }
             indexId = idxId;
         }
-
-        if (table.getColumn(columnName) == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                    columnName, FeNameFormat.getColumnNameRegex());
+        Column column = table.getColumn(columnName);
+        if (column == null || !column.getName().equals(columnName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
 
         if (opPartitionNamesInfo != null && table instanceof OlapTable) {
