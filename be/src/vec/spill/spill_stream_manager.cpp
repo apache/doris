@@ -174,6 +174,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
+            std::cerr << "create spill dir failed: " << st.to_string();
             continue;
         }
         data_dir = dir;
