@@ -20,7 +20,9 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.BinlogDesc;
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
@@ -770,6 +772,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
@@ -6195,6 +6198,71 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public List<ChannelDescription> visitChannelDescriptions(DorisParser.ChannelDescriptionsContext ctx) {
+        List<ChannelDescription> channelDescriptions = new ArrayList<>();
+        for (DorisParser.ChannelDescriptionContext channelDescriptionContext : ctx.channelDescription()) {
+            List<String> soureParts = visitMultipartIdentifier(channelDescriptionContext.source);
+            if (soureParts.size() != 2) {
+                throw new ParseException("only support mysql_db.src_tbl", channelDescriptionContext.source);
+            }
+            TableNameInfo srcTableInfo = new TableNameInfo(soureParts);
+
+            List<String> targetParts = visitMultipartIdentifier(channelDescriptionContext.destination);
+            if (targetParts.isEmpty()) {
+                throw new ParseException("contains at least one target table", channelDescriptionContext.destination);
+            }
+            TableNameInfo targetTableInfo = new TableNameInfo(targetParts);
+
+            PartitionNames partitionNames = null;
+            if (channelDescriptionContext.partitionSpec() != null) {
+                Pair<Boolean, List<String>> partitionSpec =
+                        visitPartitionSpec(channelDescriptionContext.partitionSpec());
+                partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+            }
+
+            List<String> columns;
+            if (channelDescriptionContext.columnList != null) {
+                columns = visitIdentifierList(channelDescriptionContext.columnList);
+            } else {
+                columns = ImmutableList.of();
+            }
+
+            ChannelDescription channelDescription = new ChannelDescription(
+                    srcTableInfo.getDb(),
+                    srcTableInfo.getTbl(),
+                    targetTableInfo.getTbl(),
+                    partitionNames,
+                    columns
+            );
+            channelDescriptions.add(channelDescription);
+        }
+        return channelDescriptions;
+    }
+
+    @Override
+    public LogicalPlan visitCreateDataSyncJob(DorisParser.CreateDataSyncJobContext ctx) {
+        List<ChannelDescription> channelDescriptions = visitChannelDescriptions(ctx.channelDescriptions());
+        List<String> labelParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = labelParts.size();
+        String jobName = labelParts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = labelParts.get(size - 2);
+        }
+        Map<String, String> propertieItem = visitPropertyItemList(ctx.propertyItemList());
+        BinlogDesc binlogDesc = new BinlogDesc(propertieItem);
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        CreateDataSyncJobCommand createDataSyncJobCommand = new CreateDataSyncJobCommand(
+                dbName,
+                jobName,
+                channelDescriptions,
+                binlogDesc,
+                properties
+        );
+        return createDataSyncJobCommand;
     }
 }
 

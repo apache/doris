@@ -31,6 +31,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.sync.canal.CanalDestination;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -66,6 +67,30 @@ public class SyncJobManager implements Writable {
         idToSyncJob = Maps.newConcurrentMap();
         dbIdToJobNameToSyncJobs = Collections.synchronizedMap(Maps.newLinkedHashMap());
         lock = new ReentrantReadWriteLock(true);
+    }
+
+    public void addDataSyncJob(CreateDataSyncJobCommand command) throws DdlException {
+        if (!Config.enable_feature_data_sync_job) {
+            throw new DdlException("Data sync job is deprecated and disabled by default. You can enable it by setting "
+                + "'enable_feature_data_sync_job=true' in fe.conf. "
+                + "But it's not recommended to use it in production.");
+        }
+        long jobId = Env.getCurrentEnv().getNextId();
+        SyncJob syncJob = SyncJob.fromCommand(jobId, command);
+        writeLock();
+        try {
+            checkDuplicateRemote(syncJob);
+            unprotectedAddSyncJob(syncJob);
+            Env.getCurrentEnv().getEditLog().logCreateSyncJob(syncJob);
+        } finally {
+            writeUnlock();
+        }
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                .add("name", syncJob.getJobName())
+                .add("type", syncJob.getJobType())
+                .add("config", syncJob.getJobConfig())
+                .add("msg", "add sync job.")
+                .build());
     }
 
     public void addDataSyncJob(CreateDataSyncJobStmt stmt) throws DdlException {
