@@ -213,7 +213,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=4. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=8. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
