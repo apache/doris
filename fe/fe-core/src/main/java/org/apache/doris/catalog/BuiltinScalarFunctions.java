@@ -925,7 +925,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
-            scalar(SubstringForZero.class, "substr_for_zero", "substr_for_zero"),
+            scalar(SubstringForZero.class, "substr_for_zero", "substring_for_zero"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),
