@@ -451,7 +451,8 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
             tmp_row_sources.emplace_back(ctx->order(), false);
         }
         if (ctx->is_same() &&
-            ((_keys_type == KeysType::UNIQUE_KEYS && _key_group_cluster_key_idxes.empty()) ||
+            ((_keys_type == KeysType::UNIQUE_KEYS && _key_group_cluster_key_idxes.empty() &&
+              _opts.unique_key_read_by_mor) ||
              _keys_type == KeysType::AGG_KEYS)) {
             // skip cur row, copy pre ctx
             ++_merged_rows;

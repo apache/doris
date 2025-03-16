@@ -119,6 +119,7 @@ public:
     std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+    bool unique_key_read_by_mor = true;
 };
 
 struct CompactionSampleInfo {
