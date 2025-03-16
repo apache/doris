@@ -36,6 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -57,7 +58,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -285,8 +285,6 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (sourceLength > targetLength && targetLength >= 0) {
-                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
                 }
@@ -792,10 +790,11 @@ public class BindSink implements AnalysisRuleFactory {
             Expression expression = new NereidsParser().parseExpression(exprSql);
             Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(expression, nereidsSlotReplaceMap);
             Scope scope = new Scope(Lists.newArrayList(nereidsSlotReplaceMap.values()));
+            StatementContext statementContext = new StatementContext();
             LogicalEmptyRelation dummyPlan = new LogicalEmptyRelation(
-                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+                    statementContext.getNextRelationId(), new ArrayList<>());
             CascadesContext cascadesContext = CascadesContext.initContext(
-                    ConnectContext.get().getStatementContext(), dummyPlan, PhysicalProperties.ANY);
+                    statementContext, dummyPlan, PhysicalProperties.ANY);
             ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
             return analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
         }
