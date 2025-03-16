@@ -251,7 +251,7 @@ public enum RuleType {
 
     // rewrite load project for stream load
     REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD(RuleTypeClass.REWRITE),
-    
+
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),

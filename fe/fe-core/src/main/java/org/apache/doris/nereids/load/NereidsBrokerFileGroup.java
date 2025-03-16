@@ -498,43 +498,35 @@ public class NereidsBrokerFileGroup implements Writable {
         lineDelimiter = Text.readString(in);
         isNegative = in.readBoolean();
         // partitionIds
-        { // CHECKSTYLE IGNORE THIS LINE
-            int partSize = in.readInt();
-            if (partSize > 0) {
-                partitionIds = Lists.newArrayList();
-                for (int i = 0; i < partSize; ++i) {
-                    partitionIds.add(in.readLong());
-                }
+        int partSize = in.readInt();
+        if (partSize > 0) {
+            partitionIds = Lists.newArrayList();
+            for (int i = 0; i < partSize; ++i) {
+                partitionIds.add(in.readLong());
             }
-        } // CHECKSTYLE IGNORE THIS LINE
-          // fileFieldName
-        { // CHECKSTYLE IGNORE THIS LINE
-            int fileFieldNameSize = in.readInt();
-            if (fileFieldNameSize > 0) {
-                fileFieldNames = Lists.newArrayList();
-                for (int i = 0; i < fileFieldNameSize; ++i) {
-                    fileFieldNames.add(Text.readString(in));
-                }
+        }
+        // fileFieldName
+        int fileFieldNameSize = in.readInt();
+        if (fileFieldNameSize > 0) {
+            fileFieldNames = Lists.newArrayList();
+            for (int i = 0; i < fileFieldNameSize; ++i) {
+                fileFieldNames.add(Text.readString(in));
             }
-        } // CHECKSTYLE IGNORE THIS LINE
-          // fileInfos
-        { // CHECKSTYLE IGNORE THIS LINE
-            int size = in.readInt();
-            filePaths = Lists.newArrayList();
-            for (int i = 0; i < size; ++i) {
-                filePaths.add(Text.readString(in));
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-          // expr column map
+        }
+        // fileInfos
+        int size = in.readInt();
+        filePaths = Lists.newArrayList();
+        for (int i = 0; i < size; ++i) {
+            filePaths.add(Text.readString(in));
+        }
+        // expr column map
         Map<String, Expr> exprColumnMap = Maps.newHashMap();
-        { // CHECKSTYLE IGNORE THIS LINE
-            int size = in.readInt();
-            for (int i = 0; i < size; ++i) {
-                final String name = Text.readString(in);
-                exprColumnMap.put(name, Expr.readIn(in));
-            }
-        } // CHECKSTYLE IGNORE THIS LINE
-          // file format
+        size = in.readInt();
+        for (int i = 0; i < size; ++i) {
+            final String name = Text.readString(in);
+            exprColumnMap.put(name, Expr.readIn(in));
+        }
+        // file format
         if (in.readBoolean()) {
             fileFormat = Text.readString(in);
         }
