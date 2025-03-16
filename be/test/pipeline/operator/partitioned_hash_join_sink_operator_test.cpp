@@ -368,7 +368,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     std::cout << "profile: " << sink_state->operator_profile()->pretty_print() << std::endl;
 
-    auto written_rows_counter = sink_state->operator_profile()->get_counter("SpillWriteRows");
+    auto written_rows_counter = sink_state->custom_profile()->get_counter("SpillWriteRows");
     auto written_rows = written_rows_counter->value();
     ASSERT_EQ(written_rows, 2) << "SpillWriteRows: " << written_rows_counter->value();
 

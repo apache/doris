@@ -223,7 +223,7 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
 
     shared_state->inner_runtime_state = std::make_unique<MockRuntimeState>();
     shared_state->inner_shared_state = std::make_shared<MockHashJoinSharedState>();
-    shared_state->setup_shared_profile(local_state->operator_profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
