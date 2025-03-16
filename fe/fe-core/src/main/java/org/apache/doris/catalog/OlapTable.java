@@ -916,7 +916,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                                         visibleVersion, schemaHash);
                                 newTablet.addReplica(replica, true /* is restore */);
                             }
-                            if (createNewColocateGroup) {
+                            if (createNewColocateGroup && idxId == baseIndexId) {
                                 backendsPerBucketSeq.putIfAbsent(entry3.getKey(), Lists.newArrayList());
                                 backendsPerBucketSeq.get(entry3.getKey()).add(entry3.getValue());
                             }
@@ -929,18 +929,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
             if (createNewColocateGroup) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            }
-
-            // we have added these index to memory, only need to persist here
-            if (groupId != null) {
-                backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
-                ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, getId(),
-                            backendsPerBucketSeq);
-                colocatePersistInfos.add(info);
+                // only first partition need to create colocate group
+                createNewColocateGroup = false;
             }
 
             // reset partition id
             partition.setIdForRestore(entry.getKey());
+        }
+
+        // we have added these index to memory, only need to persist here
+        if (groupId != null) {
+            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+            ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, getId(),
+                    backendsPerBucketSeq);
+            colocatePersistInfos.add(info);
         }
 
         // reset the indexes and update the indexes in materialized index meta too.
