@@ -77,30 +77,28 @@ public:
     // DataSinkOperatorXBase* parent, RuntimeState* state
     MockHashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : HashJoinBuildSinkLocalState(parent, state) {
-        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
+        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();        
+        _operator_profile = state->obj_pool()->add(new RuntimeProfile("OperatorProfile"));
+        _common_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
         _memory_used_counter =
-                _runtime_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
 
-        ADD_TIMER(_runtime_profile, "PublishRuntimeFilterTime");
-        ADD_TIMER(_runtime_profile, "BuildRuntimeFilterTime");
-        ADD_TIMER(_runtime_profile, "BuildHashTableTime");
-        ADD_TIMER(_runtime_profile, "MergeBuildBlockTime");
-        ADD_TIMER(_runtime_profile, "BuildTableInsertTime");
-        ADD_TIMER(_runtime_profile, "BuildExprCallTime");
-        ADD_TIMER(_runtime_profile, "RuntimeFilterInitTime");
-        ADD_COUNTER(_runtime_profile, "MemoryUsageBuildBlocks", TUnit::UNIT);
-        ADD_COUNTER(_runtime_profile, "MemoryUsageHashTable", TUnit::BYTES);
-        ADD_COUNTER(_runtime_profile, "MemoryUsageBuildKeyArena", TUnit::BYTES);
+        ADD_TIMER(_custom_profile, "PublishRuntimeFilterTime");
+        ADD_TIMER(_custom_profile, "BuildRuntimeFilterTime");
+        ADD_TIMER(_custom_profile, "BuildHashTableTime");
+        ADD_TIMER(_custom_profile, "MergeBuildBlockTime");
+        ADD_TIMER(_custom_profile, "BuildTableInsertTime");
+        ADD_TIMER(_custom_profile, "BuildExprCallTime");
+        ADD_TIMER(_custom_profile, "RuntimeFilterInitTime");
+        ADD_COUNTER(_custom_profile, "MemoryUsageBuildBlocks", TUnit::UNIT);
+        ADD_COUNTER(_custom_profile, "MemoryUsageHashTable", TUnit::BYTES);
+        ADD_COUNTER(_custom_profile, "MemoryUsageBuildKeyArena", TUnit::BYTES);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
     Status close(RuntimeState* state, Status status) override { return Status::OK(); }
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override { return 0; }
-
-private:
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
 };
 
 class MockHashJoinBuildOperator : public HashJoinBuildSinkOperatorX {
@@ -131,7 +129,7 @@ class MockHashJoinProbeLocalState : public HashJoinProbeLocalState {
 public:
     MockHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : HashJoinProbeLocalState(state, parent) {
-        _operator_profile = std::make_unique<RuntimeProfile>("MockHashJoinProbeOperator");
+        _operator_profile = std::make_unique<RuntimeProfile>("OperatorProfile");
         _custom_profile = std::make_unique<RuntimeProfile>("CustomCounters");
         _common_profile = std::make_unique<RuntimeProfile>("CommonCounters");
         _operator_profile->add_child(_custom_profile.get(), true);
@@ -210,15 +208,15 @@ public:
     MockPartitionedHashJoinSinkLocalState(PartitionedHashJoinSinkOperatorX* parent,
                                           RuntimeState* state, ObjectPool* pool)
             : PartitionedHashJoinSinkLocalState(parent, state) {
-        _operator_profile =
-                pool->add(new RuntimeProfile("MockPartitionedHashJoinSinkLocalStateProfile"));
-        _custom_profile =
-                pool->add(new RuntimeProfile("MockPartitionedHashJoinSinkLocalStateCustomProfile"));
-        _common_profile =
-                pool->add(new RuntimeProfile("MockPartitionedHashJoinSinkLocalStateCommonProfile"));
+        _operator_profile = pool->add(new RuntimeProfile("OperatorProfile"));
+        _custom_profile = pool->add(new RuntimeProfile("CustomCounters"));
+        _common_profile = pool->add(new RuntimeProfile("CommonCounters"));
 
         _memory_used_counter =
-                _operator_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+                _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+
+        _operator_profile->add_child(_custom_profile, true);
+        _operator_profile->add_child(_common_profile, true);
     }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override { return Status::OK(); }
