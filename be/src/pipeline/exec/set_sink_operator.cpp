@@ -37,7 +37,6 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     auto& build_block = local_state._shared_state->build_block;
-    auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
         {
@@ -57,18 +56,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            if constexpr (is_intersect) {
-                valid_element_in_hash_tbl = 0;
-            } else {
-                std::visit(
-                        [&](auto&& arg) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                valid_element_in_hash_tbl = arg.hash_table->size();
-                            }
-                        },
-                        local_state._shared_state->hash_table_variants->method_variant);
-            }
+            local_state._shared_state->updatae_valid_element_in_hash_tbl(is_intersect);
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             if (_child_quantity == 1) {

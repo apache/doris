@@ -431,6 +431,21 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     return Status::OK();
 }
 
+void SetSharedState::updatae_valid_element_in_hash_tbl(bool is_intersect) {
+    if (is_intersect) {
+        valid_element_in_hash_tbl = 0;
+    } else {
+        std::visit(
+                [&](auto&& arg) {
+                    using HashTableCtxType = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        valid_element_in_hash_tbl = arg.hash_table->size();
+                    }
+                },
+                hash_table_variants->method_variant);
+    }
+}
+
 Status SetSharedState::hash_table_init() {
     std::vector<vectorized::DataTypePtr> data_types;
     for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
