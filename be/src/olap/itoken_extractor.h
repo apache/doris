@@ -61,7 +61,7 @@ public:
 
         while (cur < length && static_cast<const Derived*>(this)->next_in_string(
                                        data, length, &cur, &token_start, &token_len)) {
-            bloom_filter.add_bytes(data + token_start, uint32_t(token_len));
+            bloom_filter.add_bytes(data + token_start, token_len);
         }
     }
 
@@ -72,7 +72,7 @@ public:
         std::string token;
         while (cur < length &&
                static_cast<const Derived*>(this)->next_in_string_like(data, length, &cur, token)) {
-            bloom_filter.add_bytes(token.data(), uint32_t(token.size()));
+            bloom_filter.add_bytes(token.data(), token.size());
             added = true;
         }
 
