@@ -143,7 +143,6 @@ TEST_F(ProfileSpecTest, DataStreamSinkOperatorTest) {
     sink.__set_tablet_sink_txn_id(1);
     sink.__set_tablet_sink_exprs({});
     std::unique_ptr<MockRuntimeState> state = std::make_unique<MockRuntimeState>();
-    EXPECT_CALL(*state, enable_local_merge_sort()).WillOnce(testing::Return(false));
     ExchangeSinkOperatorX sink_op(static_cast<RuntimeState*>(state.get()), row_desc, 1, sink, {},
                                   {});
     ExchangeSinkLocalState local_state(state.get());
