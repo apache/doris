@@ -117,7 +117,7 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
                 return ((AbstractPlan) physicalPlan.child(0)).getPlanTreeFingerprint();
             }
         } else {
-            throw new RuntimeException("illegal group plan type during getFingerprint");
+            throw new IllegalStateException("illegal group plan type during getFingerprint");
         }
     }
 
