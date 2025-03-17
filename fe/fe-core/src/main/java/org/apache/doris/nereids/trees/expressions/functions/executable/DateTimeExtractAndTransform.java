@@ -302,8 +302,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue())
-                .withResolverStyle(ResolverStyle.STRICT).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
@@ -311,16 +310,14 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue())
-                .withResolverStyle(ResolverStyle.STRICT).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue())
-                .withResolverStyle(ResolverStyle.STRICT).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
     }
@@ -542,8 +539,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(StringLikeLiteral date, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        DateTimeFormatter formatter = DateUtils.dateTimeFormatter(format.getValue())
-                .withResolverStyle(ResolverStyle.STRICT);
+        DateTimeFormatter formatter = DateUtils.dateTimeFormatter(format.getValue());
         LocalDateTime dateObj;
         try {
             dateObj = LocalDateTime.parse(date.getValue(), formatter);
