@@ -6183,59 +6183,68 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
-        long expirePolicySecond = -2;
-        int historyPolicy = -2;
-        int reusePolicy = -2;
-        int loginAttempts = -2;
-        long passwordLockSecond = -2;
-        int accountUnlocked = -2;
-
-        if (ctx.expireDefault != null) {
-            expirePolicySecond = -1;
-        } else if (ctx.expireNever != null) {
-            expirePolicySecond = 0;
-        } else if (ctx.expireValue != null) {
-            long value = Long.parseLong(ctx.expireValue.getText());
-            expirePolicySecond = ParserUtils.convertSecond(value, ctx.expireTimeUnit.getText());
-        }
+        int passwordHistory;
+        long passwordExpire;
+        int passwordReuse;
+        int failedLoginAttempts;
+        long passwordLockTime;
+        int accountUnlocked;
 
         if (ctx.historyDefault != null) {
-            historyPolicy = -1;
+            passwordHistory = -1;
         } else if (ctx.historyValue != null) {
-            historyPolicy = Integer.parseInt(ctx.historyValue.getText());
+            passwordHistory = Integer.parseInt(ctx.historyValue.getText());
+        } else {
+            passwordHistory = -2;
         }
 
-        if (ctx.reuseValue != null) {
-            reusePolicy = Integer.parseInt(ctx.reuseValue.getText());
+        if (ctx.expireDefault != null) {
+            passwordExpire = -1;
+        } else if (ctx.expireNever != null) {
+            passwordExpire = 0;
+        } else if (ctx.expireValue != null) {
+            long value = Long.parseLong(ctx.expireValue.getText());
+            passwordExpire = ParserUtils.convertSecond(value, ctx.expireTimeUnit.getText());
+        } else {
+            passwordExpire = -2;
+        }
+
+        if (ctx.reuseDefault != null) {
+            passwordReuse = -1;
+        } else if (ctx.reuseValue != null) {
+            passwordReuse = Integer.parseInt(ctx.reuseValue.getText());
+        } else {
+            passwordReuse = -2;
         }
 
         if (ctx.attemptsValue != null) {
-            loginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
+            failedLoginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
+        } else {
+            failedLoginAttempts = -2;
         }
 
         if (ctx.lockUnbounded != null) {
-            passwordLockSecond = -1;
+            passwordLockTime = -1;
         } else if (ctx.lockValue != null) {
             long value = Long.parseLong(ctx.lockValue.getText());
-            passwordLockSecond = ParserUtils.convertSecond(value, ctx.lockTimeUint.getText());
+            passwordLockTime = ParserUtils.convertSecond(value, ctx.lockTimeUint.getText());
+        } else {
+            passwordLockTime = -2;
         }
 
         if (ctx.ACCOUNT_LOCK() != null) {
             accountUnlocked = -1;
         } else if (ctx.ACCOUNT_UNLOCK() != null) {
             accountUnlocked = 1;
+        } else {
+            accountUnlocked = -2;
         }
 
-        if (expirePolicySecond == -2 && historyPolicy == -2 && reusePolicy == -2
-                && loginAttempts == -2 && passwordLockSecond == -2 && accountUnlocked == -2) {
-            return PasswordOptions.UNSET_OPTION;
-        }
-
-        return new PasswordOptions(expirePolicySecond,
-            historyPolicy,
-            reusePolicy,
-            loginAttempts,
-            passwordLockSecond,
+        return new PasswordOptions(passwordExpire,
+            passwordHistory,
+            passwordReuse,
+            failedLoginAttempts,
+            passwordLockTime,
             accountUnlocked);
     }
 
