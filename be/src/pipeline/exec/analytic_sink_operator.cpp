@@ -104,7 +104,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             }
         }
     }
-    profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
+    custom_profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
     return Status::OK();
 }
 
