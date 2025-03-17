@@ -104,6 +104,40 @@ suite("topn_lazy") {
 
     qt_test_lazy2 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason FROM date ORDER BY d_date LIMIT 10;"""
 
+    // test topn with row store
+    sql """ DROP TABLE IF EXISTS date_row_store """
+    sql """ 
+    CREATE TABLE `date_row_store` (
+        `d_datekey` int NOT NULL,
+        `d_date` varchar(20) NOT NULL,
+        `d_dayofweek` varchar(10) NOT NULL,
+        `d_month` varchar(11) NOT NULL,
+        `d_year` int NOT NULL,
+        `d_yearmonthnum` int NOT NULL,
+        `d_yearmonth` varchar(9) NOT NULL,
+        `d_daynuminweek` int NOT NULL,
+        `d_daynuminmonth` int NOT NULL,
+        `d_daynuminyear` int NOT NULL,
+        `d_monthnuminyear` int NOT NULL,
+        `d_weeknuminyear` int NOT NULL,
+        `d_sellingseason` varchar(14) NOT NULL,
+        `d_lastdayinweekfl` int NOT NULL,
+        `d_lastdayinmonthfl` int NOT NULL,
+        `d_holidayfl` int NOT NULL,
+        `d_weekdayfl` int NOT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`d_datekey`)
+    DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "store_row_column" = "true"
+    ); """
+    sql """ INSERT INTO date_row_store select * from date; """
+
+    qt_test_lazy3 """ select * from date_row_store order by d_date limit 10; """
+
+    qt_test_lazy4 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason FROM date_row_store ORDER BY d_date LIMIT 10;"""
+
     // Add new test cases for LEFT JOIN with different column orders
     sql """ DROP TABLE IF EXISTS users """
     sql """ CREATE TABLE users (
@@ -137,21 +171,21 @@ suite("topn_lazy") {
         (103, 3, 150.00); """
 
     // Test case 1: Original column order
-    qt_test_lazy3 """
+    qt_test_lazy5 """
         SELECT u.user_id, u.user_name, o.order_id, o.order_amount 
         FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
         ORDER BY u.user_id LIMIT 5;
     """
 
     // Test case 2: Different column order
-    qt_test_lazy4 """
+    qt_test_lazy6 """
         SELECT o.order_amount, u.user_name, o.order_id, u.user_id 
         FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
         ORDER BY u.user_id LIMIT 5;
     """
 
     // Test case 3: Another column order variation
-    qt_test_lazy5 """
+    qt_test_lazy7 """
         SELECT u.user_name, o.order_id, u.user_id, o.order_amount 
         FROM users u LEFT JOIN orders o ON u.user_id = o.user_id 
         ORDER BY u.user_id LIMIT 5;
