@@ -66,7 +66,7 @@ import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
@@ -1229,10 +1229,10 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public ComputeGroup getComputeGroup(String qualifiedUser) {
         readLock();
         try {
-            return propertyMgr.getResourceTags(qualifiedUser);
+            return propertyMgr.getComputeGroup(qualifiedUser);
         } finally {
             readUnlock();
         }

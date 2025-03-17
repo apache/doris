@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -566,17 +567,24 @@ public class SystemInfoService {
         return sb.toString();
     }
 
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+        return selectBackendIdsByPolicy(policy, number, getAllClusterBackendsNoException().values().asList());
+    }
+
     /**
      * Select a set of backends by the given policy.
      *
      * @param policy if policy is enableRoundRobin, will update its nextRoundRobinIndex
      * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
-     * or empty set if no backends match the policy, or the number of matched backends is less than "number";
+     *         or empty set if no backends match the policy, or the number of matched backends is less than "number";
      */
-    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number,
+            List<Backend> backendList) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = policy.getCandidateBackends(getAllClusterBackendsNoException().values());
+
+        List<Backend> candidates = policy.getCandidateBackends(backendList);
+
         if (candidates.size() < number || candidates.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
@@ -1085,6 +1093,16 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
+    public ImmutableList<Backend> getBackendListByComputeGroup(Set<String> cgSet) {
+        List<Backend> result = new ArrayList<>();
+        for (Backend be : idToBackendRef.values()) {
+            if (cgSet.contains(be.getLocationTag().value)) {
+                result.add(be);
+            }
+        }
+        return ImmutableList.copyOf(result);
+    }
+
     // Cloud and NonCloud get all bes
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return idToBackendRef;
@@ -1116,16 +1134,6 @@ public class SystemInfoService {
     // CloudSystemInfoService override
     public int getTabletNumByBackendId(long beId) {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
-    }
-
-    public List<Backend> getBackendsByPolicy(BeSelectionPolicy beSelectionPolicy) {
-        try {
-            return beSelectionPolicy.getCandidateBackends(Env.getCurrentSystemInfo()
-                    .getBackendsByCurrentCluster().values().asList());
-        } catch (Throwable t) {
-            LOG.warn("get backends by policy failed, policy: {}", beSelectionPolicy.toString());
-        }
-        return Lists.newArrayList();
     }
 
 }

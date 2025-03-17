@@ -61,6 +61,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -71,7 +72,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -83,6 +83,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1013,6 +1014,35 @@ public abstract class RoutineLoadJob
     // derived class can override this.
     public abstract void prepare() throws UserException;
 
+    // make this public here just for UT.
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        try {
+            if (ConnectContext.get() == null) {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+            String currentUser = ConnectContext.get().getQualifiedUser();
+            if (StringUtils.isEmpty(currentUser)) {
+                currentUser = getUserIdentity().getQualifiedUser();
+            }
+            if (StringUtils.isEmpty(currentUser)) {
+                LOG.warn("can not find user in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+            }
+            if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                LOG.warn("get an invalid compute group in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for routine load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
+        ConnectContext.get().setComputeGroup(computeGroup);
+    }
+
     public TPipelineFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
@@ -1037,6 +1067,8 @@ public abstract class RoutineLoadJob
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
+            } else {
+                setComputeGroup();
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
