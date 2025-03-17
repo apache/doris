@@ -25,6 +25,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
 
+import org.apache.doris.nereids.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -38,8 +39,8 @@ public class ExplodeVariantArrayTest {
 
     @Test
     public void testGetSignatures() {
-        // build explode(array<int>, array<int>) expression
-        Expression[] args = { SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)), SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
+        // build explode(variant, variant) expression
+        Expression[] args = { SlotReference.of("int", VariantType.INSTANCE), SlotReference.of("int", VariantType.INSTANCE) };
         ExplodeVariantArray explode = new ExplodeVariantArray(args);
 
         // check signature
@@ -47,12 +48,12 @@ public class ExplodeVariantArrayTest {
         Assertions.assertEquals(1, signatures.size());
         FunctionSignature signature = signatures.get(0);
         Assertions.assertEquals(2, signature.argumentsTypes.size());
-        Assertions.assertTrue(signature.argumentsTypes.get(0).isArrayType());
+        Assertions.assertTrue(signature.argumentsTypes.get(0).isVariantType());
         Assertions.assertTrue(signature.returnType.isStructType());
         StructType returnType = (StructType) signature.returnType;
         Assertions.assertEquals(2, returnType.getFields().size());
-        Assertions.assertEquals(IntegerType.INSTANCE, returnType.getFields().get(0).getDataType());
-        Assertions.assertEquals(IntegerType.INSTANCE, returnType.getFields().get(1).getDataType());
+        Assertions.assertEquals(VariantType.INSTANCE, returnType.getFields().get(0).getDataType());
+        Assertions.assertEquals(VariantType.INSTANCE, returnType.getFields().get(1).getDataType());
     }
 
     /////////////////////////////////////////
@@ -71,9 +72,8 @@ public class ExplodeVariantArrayTest {
 
     @Test
     public void testCheckLegalityBeforeTypeCoercionWithValidArgument() {
-        // build explode(array<int>, array<int>) expression
-        Expression[] args = { SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)),
-            SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
+        // build explode(variant, variant) expression
+        Expression[] args = { SlotReference.of("int", VariantType.INSTANCE), SlotReference.of("int", VariantType.INSTANCE) };
         ExplodeVariantArray explode = new ExplodeVariantArray(args);
 
         // type check
