@@ -300,7 +300,7 @@ Status DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info
         auto seg_path =
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
         int64_t segment_size = 0;
-        RETURN_IF_ERROR(safe_get_file_size(seg_path, &segment_size));
+        RETURN_IF_ERROR(_safe_get_file_size(seg_path, &segment_size));
 
         request->mutable_segments_size()->insert({segment_id, segment_size});
         auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
@@ -312,7 +312,7 @@ Status DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     index_path_prefix, index_meta.first, index_meta.second);
                     int64_t size = 0;
-                    RETURN_IF_ERROR(safe_get_file_size(inverted_index_file, &size));
+                    RETURN_IF_ERROR(_safe_get_file_size(inverted_index_file, &size));
                     PTabletWriteSlaveRequest::IndexSize index_size;
                     index_size.set_indexid(index_meta.first);
                     index_size.set_size(size);
@@ -328,7 +328,7 @@ Status DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info
                 std::string inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
                 int64_t size = 0;
-                RETURN_IF_ERROR(safe_get_file_size(inverted_index_file, &size));
+                RETURN_IF_ERROR(_safe_get_file_size(inverted_index_file, &size));
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
                 index_size.set_indexid(0);
