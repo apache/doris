@@ -129,6 +129,7 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
@@ -553,6 +554,11 @@ public:
 
     uint64_t get_delete_bitmap_count();
 
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
+
+    // return the size of the map
+    size_t remove_rowset_cache_version(const RowsetId& rowset_id);
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
@@ -584,8 +590,12 @@ public:
     };
 
 private:
+    DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
+
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    mutable std::shared_mutex _rowset_cache_version_lock;
+    mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
     // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
     std::map<std::string,
              std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>

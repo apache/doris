@@ -383,6 +383,9 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
 
     RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
 
+    delete_bitmap->add(
+            {rowset_id, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+            DeleteBitmap::ROWSET_SENTINEL_MARK);
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
             "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
@@ -767,30 +770,27 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 rsid_to_rowset, &block));
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
-        if (new_generated_rows != rowset_writer->num_rows()) {
-            LOG(WARNING) << "partial update correctness warning: conflict new generated rows ("
-                         << new_generated_rows << ") not equal to the new flushed rows ("
-                         << rowset_writer->num_rows() << "), tablet: " << tablet_id();
-        }
         auto cost_us = watch.get_elapse_time_us();
-        if (cost_us > 10 * 1000) {
+        if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
             LOG(INFO) << "calc segment delete bitmap for partial update, tablet: " << tablet_id()
                       << " rowset: " << rowset_id << " seg_id: " << seg->id()
                       << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                       << " conflict rows: " << conflict_rows
                       << " new generated rows: " << new_generated_rows
-                      << " bimap num: " << delete_bitmap->delete_bitmap.size()
+                      << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
+                      << " bitmap cardinality: " << delete_bitmap->cardinality()
                       << " cost: " << cost_us << "(us)";
         }
         return Status::OK();
     }
     auto cost_us = watch.get_elapse_time_us();
-    if (cost_us > 10 * 1000) {
+    if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
         LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
-                  << " bitmap num: " << delete_bitmap->delete_bitmap.size() << " cost: " << cost_us
+                  << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
+                  << " bitmap cardinality: " << delete_bitmap->cardinality() << " cost: " << cost_us
                   << "(us)";
     }
     return Status::OK();
@@ -1351,8 +1351,13 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     auto t5 = watch.get_elapse_time_us();
     RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap,
                                              transient_rs_writer.get(), cur_rowset_ids));
+
+    // defensive check, check that the delete bitmap cache we wrote is correct
+    RETURN_IF_ERROR(self->check_delete_bitmap_cache(txn_id, delete_bitmap.get()));
+
     LOG(INFO) << "[Publish] construct delete bitmap tablet: " << self->tablet_id()
-              << ", rowset_ids to add: " << rowset_ids_to_add.size()
+              << ", rowset_ids to add: "
+              << (specified_rowsets.size() + rowsets_skip_alignment.size())
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
               << ", cur version: " << cur_version << ", transaction_id: " << txn_id << ","
               << ss.str() << " , total rows: " << total_rows

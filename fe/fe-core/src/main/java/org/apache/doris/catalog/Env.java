@@ -6125,7 +6125,8 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
-        olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
+        List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
+                tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
         long version;
         long versionTime = System.currentTimeMillis();
@@ -6148,10 +6149,11 @@ public class Env {
             LOG.warn("produceEvent failed: ", t);
         }
         // write log
-        ReplacePartitionOperationLog info =
-                new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime,
-                        isForceDropOld);
+        ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), db.getFullName(),
+                olapTable.getId(), olapTable.getName(),
+                partitionNames, tempPartitionNames, replacedPartitionIds, isStrictRange, useTempPartitionName, version,
+                versionTime,
+                isForceDropOld);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -6580,9 +6582,26 @@ public class Env {
 
         if (Config.enable_feature_binlog) {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
-            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
-            dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
-            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
+            // id -> commit seq
+            List<Pair<Long, Long>> droppedPartitions = binlogManager.getDroppedPartitions(db.getId());
+            List<Pair<Long, Long>> droppedTables = binlogManager.getDroppedTables(db.getId());
+            List<Pair<Long, Long>> droppedIndexes = binlogManager.getDroppedIndexes(db.getId());
+            dbMeta.setDroppedPartitionMap(droppedPartitions.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            dbMeta.setDroppedTableMap(droppedTables.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            dbMeta.setDroppedIndexMap(droppedIndexes.stream()
+                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+            // Keep compatibility with old version
+            dbMeta.setDroppedPartitions(droppedPartitions.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
+            dbMeta.setDroppedTables(droppedTables.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
+            dbMeta.setDroppedIndexes(droppedIndexes.stream()
+                    .map(p -> p.first)
+                    .collect(Collectors.toList()));
         }
 
         result.setDbMeta(dbMeta);

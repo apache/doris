@@ -73,8 +73,9 @@ Status SpillStreamManager::init() {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
+    // Reduce min threads to 1, to avoid occupy too many threads at start time.
     static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
-                              .set_min_threads(config::spill_io_thread_pool_thread_num)
+                              .set_min_threads(1)
                               .set_max_threads(config::spill_io_thread_pool_thread_num)
                               .set_max_queue_size(config::spill_io_thread_pool_queue_size)
                               .build(&_spill_io_thread_pool));
