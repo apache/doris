@@ -49,13 +49,18 @@ public class StrToMap extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullLiteral, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE))
+                    .args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE)).args(VarcharType.SYSTEM_DEFAULT,
                     VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(StringType.INSTANCE),
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(StringType.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(MapType.SYSTEM_DEFAULT).args(StringType.INSTANCE, StringType.INSTANCE,
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE)).args(VarcharType.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE)).args(StringType.INSTANCE),
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE)).args(StringType.INSTANCE,
+                    StringType.INSTANCE),
+            FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE)).args(StringType.INSTANCE,
+                    StringType.INSTANCE,
                     StringType.INSTANCE));
 
     /**
