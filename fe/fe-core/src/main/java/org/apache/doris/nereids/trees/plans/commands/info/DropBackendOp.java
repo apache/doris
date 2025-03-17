@@ -17,9 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.DropBackendClause;
-
 import java.util.List;
 
 /**
@@ -48,10 +45,5 @@ public class DropBackendOp extends BackendOp {
             }
         }
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new DropBackendClause(ids, hostInfos, force);
     }
 }
