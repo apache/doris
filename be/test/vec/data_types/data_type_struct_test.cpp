@@ -145,8 +145,8 @@ protected:
         BaseInputTypeSet struct_map_char_double = {TypeIndex::Struct, TypeIndex::Map,
                                                    TypeIndex::String, TypeIndex::Float64};
         // struct_map<datetime,decimal<76,56>>
-        BaseInputTypeSet struct_map_datetime_decimal = {TypeIndex::Struct, TypeIndex::Map,
-                                                        TypeIndex::DateTime, TypeIndex::Decimal256};
+        BaseInputTypeSet struct_map_datetime_decimal = {
+                TypeIndex::Struct, TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
         // struct_map<ipv4,ipv6>
         BaseInputTypeSet struct_map_ipv4_ipv6 = {TypeIndex::Struct, TypeIndex::Map, TypeIndex::IPv4,
                                                  TypeIndex::IPv6};
@@ -319,10 +319,6 @@ TEST_F(DataTypeStructTest, SerdeArrowTest) {
     MutableColumns columns;
     DataTypes types;
     for (int i = 0; i < descs_.size(); i++) {
-        // todo. fix decimal256 serde
-        if (types_[i]->get_name().find("Decimal(76, 40)") != std::string::npos) {
-            continue;
-        }
         columns.push_back(columns_[i]->get_ptr());
         types.push_back(types_[i]);
     }

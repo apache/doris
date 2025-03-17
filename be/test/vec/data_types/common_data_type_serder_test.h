@@ -407,7 +407,12 @@ public:
                       << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }
-        std::cout << "arrow deserialize block: " << new_block->dump_structure() << std::endl;
+        std::cout << "arrow deserialize block structure: " << new_block->dump_structure()
+                  << std::endl;
+        std::cout << "arrow deserialize block data: "
+                  << new_block->dump_data(
+                             0, std::min(static_cast<size_t>(rows), static_cast<size_t>(5)))
+                  << std::endl;
     }
 
     static void compare_two_blocks(const std::shared_ptr<Block>& frist_block,

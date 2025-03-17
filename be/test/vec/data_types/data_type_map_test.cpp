@@ -22,6 +22,7 @@
 
 #include <iostream>
 
+#include "common/exception.h"
 #include "vec/columns/column.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -161,8 +162,8 @@ protected:
                 TypeIndex::Map, TypeIndex::String, TypeIndex::Float64};
         // map<map<datetime, decimal<76,56>>, map<datetime, decimal<76,56>>>
         BaseInputTypeSet map_map_datetime_decimal = {
-                TypeIndex::Map, TypeIndex::Map,      TypeIndex::DateTime,  TypeIndex::Decimal256,
-                TypeIndex::Map, TypeIndex::DateTime, TypeIndex::Decimal256};
+                TypeIndex::Map, TypeIndex::Map,        TypeIndex::DateTimeV2, TypeIndex::Decimal256,
+                TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
         // map<map<ipv4, ipv6>, map<ipv4, ipv6>>
         BaseInputTypeSet map_map_ipv4_ipv6 = {TypeIndex::Map,  TypeIndex::Map, TypeIndex::IPv4,
                                               TypeIndex::IPv6, TypeIndex::Map, TypeIndex::IPv4,
@@ -342,10 +343,6 @@ TEST_F(DataTypeMapTest, SerdeArrowTest) {
     MutableColumns columns;
     DataTypes types;
     for (int i = 0; i < descs_.size(); i++) {
-        // todo. fix decimal256 serde
-        if (types_[i]->get_name().find("Decimal(76, 40)") != std::string::npos) {
-            continue;
-        }
         columns.push_back(columns_[i]->get_ptr());
         types.push_back(types_[i]);
     }

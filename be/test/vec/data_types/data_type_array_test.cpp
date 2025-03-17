@@ -154,8 +154,8 @@ protected:
         BaseInputTypeSet array_map_char_double = {TypeIndex::Array, TypeIndex::Map,
                                                   TypeIndex::String, TypeIndex::Float64};
         // test_array_map<datetime,decimal<76,56>>.csv
-        BaseInputTypeSet array_map_datetime_decimal = {TypeIndex::Array, TypeIndex::Map,
-                                                       TypeIndex::DateTime, TypeIndex::Decimal256};
+        BaseInputTypeSet array_map_datetime_decimal = {
+                TypeIndex::Array, TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
         // test_array_map<ipv4,ipv6>.csv
         BaseInputTypeSet array_map_ipv4_ipv6 = {TypeIndex::Array, TypeIndex::Map, TypeIndex::IPv4,
                                                 TypeIndex::IPv6};
@@ -496,10 +496,6 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     MutableColumns array_cols;
     DataTypes types;
     for (int i = 0; i < array_descs.size(); i++) {
-        // todo. fix decimal256 serde
-        if (array_types[i]->get_name().find("Decimal(76, 40)") != std::string::npos) {
-            continue;
-        }
         array_cols.push_back(array_columns[i]->get_ptr());
         types.push_back(array_types[i]);
     }
