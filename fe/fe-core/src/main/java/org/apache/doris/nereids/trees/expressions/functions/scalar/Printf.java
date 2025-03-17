@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -46,7 +45,7 @@ import java.util.List;
  * Returns a formatted string from printf-style format strings.
  */
 public class Printf extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, TinyIntType.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, SmallIntType.INSTANCE),
@@ -58,10 +57,10 @@ public class Printf extends ScalarFunction
             FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE));
 
     /**
-     * constructor with 2 or more arguments.
+     * constructor with 1 or more arguments.
      */
-    public Printf(Expression arg0, Expression arg1, Expression... varArgs) {
-        super("Printf", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
+    public Printf(Expression arg0, Expression... varArgs) {
+        super("Printf", ExpressionUtils.mergeArguments(arg0, varArgs));
     }
 
     /**
@@ -69,18 +68,17 @@ public class Printf extends ScalarFunction
      */
     @Override
     public Printf withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 2);
-        return new Printf(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
-    }
-
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        Preconditions.checkArgument(children.size() >= 1);
+        return new Printf(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitPrintf(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }
