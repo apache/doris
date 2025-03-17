@@ -1275,6 +1275,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return expr -> expressionAnalyzer.analyze(expr, rewriteContext);
     }
 
+    /**SimpleExprAnalyzer*/
     protected interface SimpleExprAnalyzer {
         Expression analyze(Expression expr);
 
