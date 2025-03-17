@@ -64,6 +64,8 @@ public:
 
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool);
 
+    virtual ~WorkloadGroup();
+
     int64_t version() const { return _version; }
 
     uint64_t cpu_share() const { return _cpu_share.load(); }
@@ -182,10 +184,9 @@ public:
 
     void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
-    void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                             vectorized::SimplifiedScanScheduler** scan_sched,
-                             ThreadPool** memtable_flush_pool,
-                             vectorized::SimplifiedScanScheduler** remote_scan_sched);
+    virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
+                                     vectorized::SimplifiedScanScheduler** scan_sched,
+                                     vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
 
@@ -210,7 +211,7 @@ public:
 
     int64_t get_mem_used();
 
-    ThreadPool* get_memtable_flush_pool_ptr() {
+    virtual ThreadPool* get_memtable_flush_pool() {
         // no lock here because this is called by memtable flush,
         // to avoid lock competition with the workload thread pool's update
         return _memtable_flush_pool.get();
@@ -227,7 +228,9 @@ public:
 
     int64_t free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
-private:
+    friend class DummyWorkloadGroupTest;
+
+protected:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
@@ -292,7 +295,7 @@ using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 struct WorkloadGroupInfo {
     const uint64_t id = 0;
-    const std::string name;
+    const std::string name = "";
     const uint64_t cpu_share = 0;
     const int64_t memory_limit = 0;
     const bool enable_memory_overcommit = false;

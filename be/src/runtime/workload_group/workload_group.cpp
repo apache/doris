@@ -87,6 +87,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
 
+WorkloadGroup::~WorkloadGroup() = default;
+
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
@@ -747,13 +749,11 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
-                                        ThreadPool** memtable_flush_pool,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
-    *memtable_flush_pool = _memtable_flush_pool.get();
 }
 
 std::string WorkloadGroup::thread_debug_info() {

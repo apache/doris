@@ -30,6 +30,7 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_group/dummy_workload_group.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_metrics.h"
 #include "util/mem_info.h"
@@ -49,6 +50,12 @@ PausedQuery::PausedQuery(std::shared_ptr<QueryContext> query_ctx, double cache_r
           reserve_size_(reserve_size),
           query_id_(print_id(query_ctx->query_id())) {
     enqueue_at = std::chrono::system_clock::now();
+}
+
+WorkloadGroupMgr::~WorkloadGroupMgr() = default;
+
+WorkloadGroupMgr::WorkloadGroupMgr() {
+    _dummy_workload_group = std::make_shared<DummyWorkloadGroup>();
 }
 
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
@@ -85,6 +92,9 @@ void WorkloadGroupMgr::get_related_workload_groups(
 }
 
 WorkloadGroupPtr WorkloadGroupMgr::get_group(uint64_t wg_id) {
+    if (wg_id == DUMMY_WORKLOAD_GROUP_ID) {
+        return _dummy_workload_group;
+    }
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     if (_workload_groups.find(wg_id) != _workload_groups.end()) {
         return _workload_groups.at(wg_id);

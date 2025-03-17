@@ -106,7 +106,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     std::shared_ptr<WorkloadGroup> wg_sptr = _wg_wptr.lock();
     ThreadPool* wg_thread_pool = nullptr;
     if (wg_sptr) {
-        wg_thread_pool = wg_sptr->get_memtable_flush_pool_ptr();
+        wg_thread_pool = wg_sptr->get_memtable_flush_pool();
     }
     Status ret = wg_thread_pool ? wg_thread_pool->submit(std::move(task))
                                 : _thread_pool->submit(std::move(task));
