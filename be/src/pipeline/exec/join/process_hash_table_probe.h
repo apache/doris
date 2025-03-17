@@ -95,10 +95,11 @@ struct ProcessHashTableProbe {
     const std::shared_ptr<vectorized::Block>& _build_block;
     std::unique_ptr<vectorized::Arena> _arena;
 
-    std::vector<uint32_t> _probe_indexs;
+    vectorized::ColumnVector<uint32_t> _probe_indexs;
+    vectorized::ColumnVector<uint32_t> _output_row_indexs;
     bool _probe_visited = false;
     bool _picking_null_keys = false;
-    std::vector<uint32_t> _build_indexs;
+    vectorized::ColumnVector<uint32_t> _build_indexs;
     std::vector<uint8_t> _null_flags;
 
     /// If the probe key of one row on left side is null,
