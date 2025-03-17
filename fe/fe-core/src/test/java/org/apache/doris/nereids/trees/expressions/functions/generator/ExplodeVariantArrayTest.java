@@ -21,11 +21,10 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
-
 import org.apache.doris.nereids.types.VariantType;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
