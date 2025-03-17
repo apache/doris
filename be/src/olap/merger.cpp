@@ -90,8 +90,9 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
     reader_params.tablet_schema = merge_tablet_schema;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty() ||
-        !config::enable_compaction_unique_mow_by_mor) {
+    if (tablet->enable_unique_key_merge_on_write() &&
+        (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+         !config::enable_compaction_unique_mow_by_mor)) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
         reader_params.unique_key_read_by_mor = false;
     }
@@ -266,10 +267,11 @@ Status Merger::vertical_compact_one_group(
     }
 
     reader_params.tablet_schema = merge_tablet_schema;
-    if (!tablet->tablet_schema()->cluster_key_uids().empty() ||
-        !config::enable_compaction_unique_mow_by_mor) {
+    if (tablet->enable_unique_key_merge_on_write() &&
+        (!tablet->tablet_schema()->cluster_key_uids().empty() ||
+         !config::enable_compaction_unique_mow_by_mor)) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-        reader_params.unique_key_read_by_mor=false;
+        reader_params.unique_key_read_by_mor = false;
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {

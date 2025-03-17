@@ -191,8 +191,9 @@ Status Compaction::merge_input_rowsets() {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
         if (_is_vertical) {
-            if (!_tablet->tablet_schema()->cluster_key_uids().empty() ||
-                !config::enable_compaction_unique_mow_by_mor) {
+            if (_tablet->enable_unique_key_merge_on_write() &&
+                (!_tablet->tablet_schema()->cluster_key_uids().empty() ||
+                 !config::enable_compaction_unique_mow_by_mor)) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
@@ -1116,6 +1117,7 @@ Status CompactionMixin::modify_rowsets() {
         }
         std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
         if (config::enable_rowid_conversion_correctness_check &&
+            tablet()->enable_unique_key_merge_on_write() &&
             tablet()->tablet_schema()->cluster_key_uids().empty() &&
             config::enable_compaction_unique_mow_by_mor) {
             location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
@@ -1134,8 +1136,9 @@ Status CompactionMixin::modify_rowsets() {
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
             std::size_t merged_missed_rows_size = _stats.merged_rows;
-            if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty() ||
-                !config::enable_compaction_unique_mow_by_mor) {
+            if (_tablet->enable_unique_key_merge_on_write() &&
+                (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty() ||
+                 !config::enable_compaction_unique_mow_by_mor)) {
                 merged_missed_rows_size += _stats.filtered_rows;
             }
 
