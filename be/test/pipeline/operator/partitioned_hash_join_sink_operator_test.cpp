@@ -26,33 +26,25 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "partitioned_hash_join_test_helper.h"
 #include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
-#include "testutil/mock/mock_data_stream_sender.h"
-#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_operators.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vexpr_fwd.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
