@@ -66,11 +66,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_AGG_STATE,       /* 34 */
     TYPE_DECIMAL256,      /* 35 */
     TYPE_IPV4,            /* 36 */
-    TYPE_IPV6,            /* 37 */
-
-    INVALID_TYPE_END /* always the last one, only used to iterate over enum */
+    TYPE_IPV6             /* 37 */
 };
 
 constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
-constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = INVALID_TYPE_END - 1;
+constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_DECIMAL256;
 } // namespace doris
