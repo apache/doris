@@ -17,6 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -29,14 +35,20 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.MapUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public class AlterMTMV implements Writable {
+    private static final Logger LOG = LogManager.getLogger(AlterMTMV.class);
+
     @SerializedName("ot")
     private MTMVAlterOpType opType;
     @SerializedName("mn")
@@ -156,7 +168,45 @@ public class AlterMTMV implements Writable {
     }
 
     public static AlterMTMV read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), AlterMTMV.class);
+        AlterMTMV alterMTMV = GsonUtils.GSON.fromJson(Text.readString(in), AlterMTMV.class);
+        alterMTMV.compatible();
+        return alterMTMV;
     }
 
+
+    private void compatible() {
+        if (!Env.getCurrentEnv().isReady()) {
+            return;
+        }
+        if (relation != null) {
+            Optional<String> errMsg = relation.compatible(Env.getCurrentEnv().getCatalogMgr());
+            if (errMsg.isPresent()) {
+                LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
+                        mvName.getTbl(),
+                        errMsg.get());
+            }
+        }
+        if (!MapUtils.isEmpty(partitionSnapshots)) {
+            MTMV mtmv = null;
+            try {
+                mtmv = getMTMV(mvName);
+            } catch (DdlException | MetaNotFoundException e) {
+                LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(), mvName.getTbl(),
+                        e.getMessage());
+                return;
+            }
+            for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
+                Optional<String> errMsg = snapshot.compatible(mtmv);
+                if (errMsg.isPresent()) {
+                    LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
+                            mvName.getTbl(), errMsg.get());
+                }
+            }
+        }
+    }
+
+    private MTMV getMTMV(TableNameInfo mvName) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+        return (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
+    }
 }
