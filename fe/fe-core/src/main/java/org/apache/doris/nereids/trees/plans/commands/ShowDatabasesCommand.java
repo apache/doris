@@ -107,8 +107,10 @@ public class ShowDatabasesCommand extends ShowCommand {
             throw new AnalysisException("No catalog found with name " + catalog);
         }
         List<String> dbNames = catalogIf.getDbNames();
-        if (!Strings.isNullOrEmpty(dbName) && dbNames.contains(dbName)) {
-            rows.add(Lists.newArrayList(dbName));
+        if (!Strings.isNullOrEmpty(dbName)) {
+            if (dbNames.contains(dbName)) {
+                rows.add(Lists.newArrayList(dbName));
+            }
             return new ShowResultSet(META_DATA, rows);
         }
 
