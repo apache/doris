@@ -768,7 +768,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    mutable_full_columns[cids_missing[i]]->insert_default();
+                    mutable_full_columns[cids_missing[i]]->insert(
+                            tablet_column.get_vec_type()->get_default());
                 }
             }
             continue;

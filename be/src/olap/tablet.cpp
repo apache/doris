@@ -3362,7 +3362,7 @@ Status Tablet::generate_new_block_for_partial_update(
                     assert_cast<vectorized::ColumnNullable*>(mutable_column.get())
                             ->insert_null_elements(1);
                 } else {
-                    mutable_column->insert_default();
+                    mutable_column->insert(rs_column.get_vec_type()->get_default());
                 }
             } else {
                 mutable_column->insert_from(
