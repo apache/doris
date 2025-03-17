@@ -110,6 +110,10 @@ public class RoutineLoadManager implements Writable {
     public RoutineLoadManager() {
     }
 
+    public List<RoutineLoadJob> getAllRoutineLoadJobs() {
+        return new ArrayList<>(idToRoutineLoadJob.values());
+    }
+
     public List<RoutineLoadJob> getActiveRoutineLoadJobs() {
         return idToRoutineLoadJob.values().stream()
                 .filter(job -> !job.state.isFinalState())
