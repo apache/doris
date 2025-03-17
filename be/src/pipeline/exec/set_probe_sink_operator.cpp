@@ -144,16 +144,17 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
         vectorized::ColumnRawPtrs& raw_ptrs, int child_id) {
     auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+    auto & child_exprs = local_state._child_exprs;      
+    for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_col_id = -1;
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(child_exprs[i]->execute(&block, &result_col_id));
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto * column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (build_not_ignore_null[i]) { //same as build column
                 raw_ptrs[i] = nullable;
             } else {

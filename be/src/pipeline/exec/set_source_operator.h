@@ -41,6 +41,7 @@ public:
     Status open(RuntimeState* state) override;
 
 private:
+    void _add_result_columns();
     friend class SetSourceOperatorX<is_intersect>;
     friend class OperatorX<SetSourceLocalState<is_intersect>>;
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
@@ -49,6 +50,7 @@ private:
 
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
+    vectorized::IColumn::Selector _result_indexs;
 };
 
 template <bool is_intersect>
@@ -87,8 +89,6 @@ private:
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
                                   const int batch_size, bool* eos);
 
-    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value,
-                             int& block_size);
     const size_t _child_quantity;
 };
 #include "common/compile_check_end.h"
