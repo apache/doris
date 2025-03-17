@@ -124,6 +124,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         AlterTableStmt stmt = (AlterTableStmt) parseAndAnalyzeStmt(alterStmt);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(stmt);
         waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        jobSize++;
 
         tbl.readLock();
         try {
@@ -247,14 +248,14 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + " MODIFY COLUMN c_s struct<col6:varchar(30),"
                 + "col1:int,col2:decimalv3(10,2),col3:datetimev2(0),col4:text> "
                 + defaultValue;
-        expectException(alterStmt, "Cannot change");
+        expectException(alterStmt, "Cannot rename");
     }
 
     private void testChangeExistingSubColumnType(String defaultValue, String tableName) {
         String alterStmt = "ALTER TABLE test." + tableName
                 + " MODIFY COLUMN c_s struct<col:varchar(30),col1:varchar(10),col2:decimalv3(10,2),col3:datetimev2(0),col4:text> "
                 + defaultValue;
-        expectException(alterStmt, "Cannot change");
+        expectException(alterStmt, "Incompatible type change");
     }
 
     private void testAddUnsupportedSubColumnType(String defaultValue, String tableName) {
@@ -283,10 +284,9 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                     + defaultVal;
             AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
             Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
-            // check alter job
-            jobSize++;
             // check alter job, do not create job
             Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+            jobSize++;
             waitAlterJobDone(alterJobs);
             // add struct column
             // support nested struct can also be support add sub-column
@@ -295,20 +295,19 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                     + defaultVal;
             addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
             Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
-            // check alter job
-            jobSize++;
             // check alter job, do not create job
             alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+            jobSize++;
             waitAlterJobDone(alterJobs);
 
 
-            // 正向测试
+            // positive test
             testAddSingleSubColumn(tbl, tableName, defaultVal);
             testAddNestedStructSubColumn(tbl, tableName, defaultVal);
             testAddMultipleSubColumns(tbl, tableName, defaultVal);
             testLengthenVarcharSubColumn(tbl, tableName, defaultVal);
 
-            // 负向测试
+            // negative test
             testReduceSubColumns(defaultVal, tableName);
             testShortenVarcharSubColumn(defaultVal, tableName);
             testChangeStructToOtherType(defaultVal, tableName);
@@ -491,6 +490,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // check alter job, do not create job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
 
         tbl.readLock();
         try {
@@ -509,6 +509,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropValColStm);
         jobSize++;
         // check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
         tbl.readLock();
         try {
             Assertions.assertEquals(8, tbl.getBaseSchema().size());
@@ -545,6 +546,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // check alter job, do not create job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
 
         tbl.readLock();
         try {
@@ -563,6 +565,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropValColStm);
         jobSize++;
         // check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
         tbl.readLock();
         try {
             Assertions.assertEquals(6, tbl.getBaseSchema().size());
@@ -626,6 +629,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
@@ -646,6 +650,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         jobSize++;
         // check alter job
         LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
@@ -685,6 +690,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
@@ -704,6 +710,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
         jobSize++;
         // check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
@@ -743,7 +750,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         // check dup job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
-        Assertions.assertEquals(jobSize, alterJobs.size() - 21);
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
@@ -763,6 +770,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
         jobSize++;
         // check alter job
+        Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
         tbl.readLock();
