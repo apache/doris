@@ -672,7 +672,6 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
-import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -779,6 +778,17 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+<<<<<<< HEAD
+=======
+import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
+>>>>>>> 7f28115506 (implement showCreateRoutineLoadCommand in nereids)
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
@@ -6195,6 +6205,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateRoutineLoad(DorisParser.ShowCreateRoutineLoadContext ctx) {
+        boolean isAll = ctx.ALL() != null;
+        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = parts.size();
+        String label = parts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = parts.get(size - 2);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        return new ShowCreateRoutineLoadCommand(labelNameInfo, isAll);
     }
 }
 
