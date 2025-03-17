@@ -823,11 +823,6 @@ void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
 
 void Block::update_hash(SipHash& hash) const {
     bool skip_version_col = config::skip_version_col_when_calc_check_sum;
-    std::string msg {};
-    for (const auto& name : get_names()) {
-        msg += fmt::format("{},", name);
-    }
-    LOG_INFO("[xxx Block::update_hash] {}", msg);
     for (size_t row_no = 0, num_rows = rows(); row_no < num_rows; ++row_no) {
         for (const auto& col : data) {
             if (skip_version_col && col.name == VERSION_COL) {
