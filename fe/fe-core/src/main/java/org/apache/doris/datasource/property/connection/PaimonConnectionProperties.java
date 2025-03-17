@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.connection;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
-import org.apache.doris.datasource.property.metastore.HMSProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.HDFSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -64,9 +63,9 @@ public class PaimonConnectionProperties {
         switch (metaProps.getType()) {
             case HMS:
                 options.set("metastore", "hive");
-                HMSProperties hmsProperties = (HMSProperties) metaProps;
+                //.HMSProperties hmsProperties = (HMSProperties) metaProps;
                 // TODO we need add all metastore parameters to paimon options?
-                hmsProperties.toPaimonOptionsAndConf(options);
+                // hmsProperties.toPaimonOptionsAndConf(options);
                 break;
             case DLF:
                 options.set("metastore", "hive");

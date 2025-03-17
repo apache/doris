@@ -34,7 +34,6 @@ import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -61,7 +60,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
@@ -583,7 +581,7 @@ public class OutFileClause {
 
         if (properties.containsKey(PROP_DELETE_EXISTING_FILES)) {
             deleteExistingFiles = Boolean.parseBoolean(properties.get(PROP_DELETE_EXISTING_FILES))
-                                    & Config.enable_delete_existing_files;
+                    & Config.enable_delete_existing_files;
             processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -616,14 +614,6 @@ public class OutFileClause {
         if (this.fileFormatType == TFileFormatType.FORMAT_ORC) {
             getOrcProperties(processedPropKeys);
         }
-
-        if (processedPropKeys.size() != properties.size()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("{} vs {}", processedPropKeys, properties);
-            }
-            throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
-                    .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
-        }
     }
 
     /**
@@ -643,42 +633,15 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
             brokerName = StorageBackend.StorageType.HDFS.name();
             storageType = StorageBackend.StorageType.HDFS;
+        } else if (filePath.toUpperCase().startsWith("oss".toUpperCase())) {
+            brokerName = StorageBackend.StorageType.S3.name();
+            storageType = StorageBackend.StorageType.S3;
+
         } else {
             return;
         }
 
-        Map<String, String> brokerProps = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
-                brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
-                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            } else if ((entry.getKey().startsWith(HADOOP_FS_PROP_PREFIX)
-                    || entry.getKey().startsWith(HADOOP_PROP_PREFIX))
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                processedPropKeys.add(entry.getKey());
-            }
-        }
-        if (storageType == StorageBackend.StorageType.S3) {
-            if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                brokerProps.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
-                processedPropKeys.add(PropertyConverter.USE_PATH_STYLE);
-            }
-            S3Properties.requiredS3Properties(brokerProps);
-        } else if (storageType == StorageBackend.StorageType.HDFS) {
-            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
-            }
-        }
-        brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
+        brokerDesc = new BrokerDesc(brokerName, storageType, properties);
     }
 
     public static String getFsName(String path) {
@@ -869,7 +832,7 @@ public class OutFileClause {
         sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
-            sinkOptions.setBrokerProperties(brokerDesc.getProperties());
+            sinkOptions.setBrokerProperties(brokerDesc.getStorageProperties().getBackendConfigProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }

@@ -20,9 +20,9 @@ package org.apache.doris.fs.remote.dfs;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.datasource.property.storage.HDFSProperties;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -55,7 +55,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -63,14 +62,20 @@ public class DFSFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
     private HadoopAuthenticator authenticator = null;
+    private HDFSProperties hdfsProperties;
 
-    public DFSFileSystem(Map<String, String> properties) {
-        this(StorageBackend.StorageType.HDFS, properties);
+    public DFSFileSystem(HDFSProperties hdfsProperties) {
+
+
+        super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
+        this.properties.putAll(properties);
+        this.hdfsProperties = hdfsProperties;
     }
 
-    public DFSFileSystem(StorageBackend.StorageType type, Map<String, String> properties) {
-        super(type.name(), type);
+    public DFSFileSystem(HDFSProperties hdfsProperties, StorageBackend.StorageType storageType) {
+        super(storageType.name(), storageType);
         this.properties.putAll(properties);
+        this.hdfsProperties = hdfsProperties;
     }
 
     @VisibleForTesting
@@ -85,12 +90,8 @@ public class DFSFileSystem extends RemoteFileSystem {
                     throw new UserException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
-                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
-                    for (Map.Entry<String, String> propEntry : properties.entrySet()) {
-                        conf.set(propEntry.getKey(), propEntry.getValue());
-                    }
-                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
-                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
+                    Configuration conf = hdfsProperties.getHadoopConfiguration();
+                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {
@@ -111,7 +112,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                FileSystem fileSystem, Path locatedPath) throws IOException {
+                                                                FileSystem fileSystem, Path locatedPath)
+            throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -221,7 +223,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {

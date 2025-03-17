@@ -24,6 +24,7 @@ import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.google.common.base.Preconditions;
@@ -118,8 +119,11 @@ public class S3Resource extends Resource {
     }
 
     private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
-            Map<String, String> properties) throws DdlException {
-        S3FileSystem fileSystem = new S3FileSystem(properties);
+                               Map<String, String> properties) throws DdlException {
+        org.apache.doris.datasource.property.storage.S3Properties s3params =
+                (org.apache.doris.datasource.property.storage.S3Properties) StorageProperties
+                        .createStorageProperties(properties);
+        S3FileSystem fileSystem = new S3FileSystem(s3params);
         String testFile = "s3://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
         if (FeConstants.runningUnitTest) {

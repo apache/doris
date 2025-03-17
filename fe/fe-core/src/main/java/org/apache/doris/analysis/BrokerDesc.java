@@ -23,8 +23,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.datasource.property.constants.BosProperties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
@@ -80,8 +81,10 @@ public class BrokerDesc extends StorageDesc implements Writable {
         } else {
             this.storageType = StorageBackend.StorageType.BROKER;
         }
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
-        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
+        this.storageProperties = StorageProperties.createStorageProperties(properties);
+        // we should use storage properties?
+        this.properties.putAll(storageProperties.getBackendConfigProperties());
+        this.convertedToS3 = ObjectStorageProperties.class.isInstance(this.storageProperties);
         if (this.convertedToS3) {
             this.storageType = StorageBackend.StorageType.S3;
         }
@@ -93,9 +96,11 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
+        this.storageProperties = StorageProperties.createStorageProperties(properties);
+        // we should use storage properties?
+        this.properties.putAll(storageProperties.getBackendConfigProperties());
         this.storageType = storageType;
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
-        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
+        this.convertedToS3 = ObjectStorageProperties.class.isInstance(this.storageProperties);
         if (this.convertedToS3) {
             this.storageType = StorageBackend.StorageType.S3;
         }
@@ -159,6 +164,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 LOG.warn("set to BROKER, because of exception", e);
             }
         }
+        this.storageProperties = StorageProperties.createStorageProperties(properties);
         storageType = st;
     }
 

@@ -66,7 +66,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      */
     @Setter
     @Getter
-    @ConnectorProperty(names = {"usePathStyle"}, required = false,
+    @ConnectorProperty(names = {"usePathStyle", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected boolean usePathStyle = false;
 
@@ -125,5 +125,12 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
         return generateAWSS3Properties(endpoint, region, accessKey, secretKey,
                 String.valueOf(getMaxConnections()), String.valueOf(getRequestTimeoutS()),
                 String.valueOf(getConnectionTimeoutS()), String.valueOf(isUsePathStyle()));
+    }
+
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
+        Map<String, String> config = new HashMap<>();
+        toNativeS3Configuration(config);
+        return config;
     }
 }

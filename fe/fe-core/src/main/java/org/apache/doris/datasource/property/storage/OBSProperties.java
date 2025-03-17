@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -44,13 +45,16 @@ public class OBSProperties extends AbstractObjectStorageProperties {
         // Initialize fields from origProps
     }
 
+
+
     @Override
-    public void toHadoopConfiguration(Map<String, String> config) {
-        config.put("fs.obs.endpoint", obsEndpoint);
-        config.put("fs.obs.access.key", obsAccessKey);
-        config.put("fs.obs.secret.key", obsSecretKey);
-        config.put("fs.obs.impl", "org.apache.hadoop.fs.obs.OBSFileSystem");
-        //set other k v if nessesary
+    public Configuration getHadoopConfiguration() {
+        Configuration conf = new Configuration(false);
+        conf.set("fs.obs.endpoint", obsEndpoint);
+        conf.set("fs.obs.access.key", obsAccessKey);
+        conf.set("fs.obs.secret.key", obsSecretKey);
+        conf.set("fs.obs.impl", "org.apache.hadoop.fs.obs.OBSFileSystem");
+        return conf;
     }
 
     @Override

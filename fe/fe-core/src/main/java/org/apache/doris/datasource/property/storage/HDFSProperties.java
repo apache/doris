@@ -20,8 +20,10 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import org.apache.commons.collections.MapUtils;
 import org.apache.hadoop.conf.Configuration;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class HDFSProperties extends StorageProperties {
@@ -57,8 +59,33 @@ public class HDFSProperties extends StorageProperties {
             description = "Whether to enable the impersonation of HDFS.")
     private boolean hdfsImpersonationEnabled = false;
 
+    /**
+     * The final HDFS configuration map that determines the effective settings.
+     * Priority rules:
+     * 1. If a key exists in `overrideConfig` (user-provided settings), its value takes precedence.
+     * 2. If a key is not present in `overrideConfig`, the value from `hdfs-site.xml` or `core-site.xml` is used.
+     * 3. This map should be used to read the resolved HDFS configuration, ensuring the correct precedence is applied.
+     */
+    Map<String, String> finalHdfsConfig;
+
     public HDFSProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
+        // to be care     setOrigProps(matchParams);
+        loadFinalHdfsConfig(origProps);
+    }
+
+    private void loadFinalHdfsConfig(Map<String, String> origProps) {
+        if (MapUtils.isEmpty(origProps)) {
+            return;
+        }
+        finalHdfsConfig = new HashMap<>();
+        Configuration configuration = new Configuration();
+        origProps.forEach((k, v) -> {
+            if (null != configuration.getTrimmed(k)) {
+                finalHdfsConfig.put(k, v);
+            }
+        });
+
     }
 
     @Override
@@ -88,13 +115,48 @@ public class HDFSProperties extends StorageProperties {
     public void toHadoopConfiguration(Configuration conf) {
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(conf::set);
-        conf.set("hdfs.authentication.type", hdfsAuthenticationType);
+        if (MapUtils.isNotEmpty(finalHdfsConfig)) {
+            finalHdfsConfig.forEach(conf::set);
+        }
+        //todo waiting be support should use new params
+        conf.set("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            conf.set("hdfs.authentication.kerberos.principal", hdfsKerberosPrincipal);
-            conf.set("hdfs.authentication.kerberos.keytab", hdfsKerberosKeytab);
+            conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
+            conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
         }
         if (!Strings.isNullOrEmpty(hadoopUsername)) {
             conf.set("hadoop.username", hadoopUsername);
         }
+    }
+
+    public Configuration getHadoopConfiguration() {
+        Configuration conf = new Configuration(false);
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        allProps.forEach(conf::set);
+        if (MapUtils.isNotEmpty(finalHdfsConfig)) {
+            finalHdfsConfig.forEach(conf::set);
+        }
+        conf.set("hdfs.security.authentication", hdfsAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
+            conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
+            conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
+        }
+        if (!Strings.isNullOrEmpty(hadoopUsername)) {
+            conf.set("hadoop.username", hadoopUsername);
+        }
+
+        return conf;
+    }
+
+    //fixme be should send use input params
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
+        Configuration configuration = getHadoopConfiguration();
+        Map<String, String> backendConfigProperties = new HashMap<>();
+        for (Map.Entry<String, String> entry : configuration) {
+            backendConfigProperties.put(entry.getKey(), entry.getValue());
+        }
+
+        return backendConfigProperties;
     }
 }

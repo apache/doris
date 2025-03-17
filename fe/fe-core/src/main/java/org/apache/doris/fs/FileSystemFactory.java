@@ -18,14 +18,9 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.datasource.property.constants.AzureProperties;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.StorageTypeMapper;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.fs.remote.dfs.JFSFileSystem;
-import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -36,7 +31,7 @@ import java.util.Map;
 public class FileSystemFactory {
 
     public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
-        // TODO: rename StorageBackend.StorageType
+        /*// TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
             if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
                 return new AzureFileSystem(properties);
@@ -52,12 +47,18 @@ public class FileSystemFactory {
             return new BrokerFileSystem(name, properties);
         } else {
             throw new UnsupportedOperationException(type.toString() + "backend is not implemented");
-        }
+        }*/
+        return null;
     }
+
+    public static RemoteFileSystem get(StorageProperties storageProperties) {
+        return StorageTypeMapper.create(storageProperties);
+    }
+
 
     public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Map<String, String> properties,
                                                        String bindBrokerName) {
-        switch (type) {
+        /*switch (type) {
             case S3:
                 if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
                     return new AzureFileSystem(properties);
@@ -76,7 +77,8 @@ public class FileSystemFactory {
                 return new AzureFileSystem(properties);
             default:
                 throw new IllegalStateException("Not supported file system type: " + type);
-        }
+        }*/
+        return null;
     }
 
     public static RemoteFileSystem getS3FileSystem(Map<String, String> properties) {

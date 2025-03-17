@@ -28,7 +28,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
-public class StorageProperties extends ConnectionProperties {
+public abstract class StorageProperties extends ConnectionProperties {
 
     public static final String FS_HDFS_SUPPORT = "fs.hdfs.support";
     public static final String FS_S3_SUPPORT = "fs.s3.support";
@@ -46,6 +46,8 @@ public class StorageProperties extends ConnectionProperties {
         COS,
         UNKNOWN
     }
+
+    public abstract Map<String, String> getBackendConfigProperties();
 
     @Getter
     protected Type type;
@@ -102,6 +104,35 @@ public class StorageProperties extends ConnectionProperties {
         return storageProperties;
     }
 
+    public static StorageProperties createStorageProperties(Map<String, String> origProps) {
+        StorageProperties storageProperties = null;
+        // 1. parse the storage properties by user specified fs.xxx.support properties
+        if (isFsSupport(origProps, FS_HDFS_SUPPORT)) {
+            storageProperties = new HDFSProperties(origProps);
+        }
+
+        if (isFsSupport(origProps, FS_S3_SUPPORT) || S3Properties.guessIsMe(origProps)) {
+            storageProperties = new S3Properties(origProps);
+        }
+        if (isFsSupport(origProps, FS_OSS_SUPPORT)) {
+            storageProperties = new OSSProperties(origProps);
+        }
+        if (isFsSupport(origProps, FS_OBS_SUPPORT)) {
+            storageProperties = new OBSProperties(origProps);
+        }
+        if (isFsSupport(origProps, FS_COS_SUPPORT)) {
+            storageProperties = new COSProperties(origProps);
+        }
+        if (null == storageProperties) {
+            throw new RuntimeException("not support this fs");
+        }
+        storageProperties.normalizedAndCheckProps();
+        //load from default file
+        return storageProperties;
+
+    }
+
+
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);
         this.type = type;
@@ -123,4 +154,5 @@ public class StorageProperties extends ConnectionProperties {
         }
         return false;
     }
+
 }

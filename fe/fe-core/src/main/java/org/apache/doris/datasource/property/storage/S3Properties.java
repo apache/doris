@@ -23,9 +23,11 @@ import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -49,11 +51,6 @@ public class S3Properties extends AbstractObjectStorageProperties {
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 
-    @ConnectorProperty(names = {"use_path_style",
-            "s3.path-style-access"},
-            required = false,
-            description = "Whether to use path style access.")
-    protected String usePathStyle = "false";
 
     @ConnectorProperty(names = {"s3.connection.maximum",
             "AWS_MAX_CONNECTIONS"},
@@ -150,25 +147,34 @@ public class S3Properties extends AbstractObjectStorageProperties {
         catalogProps.put("s3.access-key-id", s3AccessKey);
         catalogProps.put("s3.secret-access-key", s3SecretKey);
         catalogProps.put("client.region", s3Region);
-        catalogProps.put("s3.path-style-access", usePathStyle);
+        catalogProps.put("s3.path-style-access", Boolean.toString(usePathStyle));
     }
 
     @Override
-    public void toHadoopConfiguration(Map<String, String> config) {
-        config.put("fs.s3a.access.key", s3AccessKey);  // AWS Access Key
-        config.put("fs.s3a.secret.key", s3SecretKey);  // AWS Secret Key
-        config.put("fs.s3a.endpoint", s3Endpoint);
-        config.put("fs.s3a.region", s3Region);
-        config.put("fs.s3a.connection.maximum", String.valueOf(s3ConnectionMaximum));
-        config.put("fs.s3a.connection.timeout", String.valueOf(s3ConnectionRequestTimeoutS));
-        config.put("fs.s3a.request.timeout", String.valueOf(s3ConnectionTimeoutS));
-        config.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+    public Configuration getHadoopConfiguration() {
+        Configuration conf = new Configuration(false);
+        conf.set("fs.s3a.access.key", s3AccessKey);
+        conf.set("fs.s3a.secret.key", s3SecretKey);
+        conf.set("fs.s3a.endpoint", s3Endpoint);
+        conf.set("fs.s3a.region", s3Region);
+        conf.set("fs.s3a.connection.maximum", String.valueOf(s3ConnectionMaximum));
+        conf.set("fs.s3a.connection.timeout", String.valueOf(s3ConnectionRequestTimeoutS));
+        conf.set("fs.s3a.request.timeout", String.valueOf(s3ConnectionTimeoutS));
+        conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        return conf;
     }
 
     @Override
     public void toNativeS3Configuration(Map<String, String> config) {
         Map<String, String> awsS3Properties = generateAWSS3Properties(s3Endpoint, s3Region, s3AccessKey, s3SecretKey,
-                s3ConnectionMaximum, s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, usePathStyle);
+                s3ConnectionMaximum, s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
         config.putAll(awsS3Properties);
+    }
+
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
+        Map<String, String> config = new HashMap<>();
+        toNativeS3Configuration(config);
+        return config;
     }
 }

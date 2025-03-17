@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -51,12 +52,14 @@ public class COSProperties extends AbstractObjectStorageProperties {
     }
 
     @Override
-    public void toHadoopConfiguration(Map<String, String> config) {
-        config.put("fs.cosn.bucket.region", getRegion());
-        config.put("fs.cos.endpoint", cosEndpoint);
-        config.put("fs.cosn.userinfo.secretId", cosAccessKey);
-        config.put("fs.cosn.userinfo.secretKey", cosSecretKey);
-        config.put("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
+    public Configuration getHadoopConfiguration() {
+        Configuration conf = new Configuration(false);
+        conf.set("fs.cosn.bucket.region", getRegion());
+        conf.set("fs.cos.endpoint", cosEndpoint);
+        conf.set("fs.cosn.userinfo.secretId", cosAccessKey);
+        conf.set("fs.cosn.userinfo.secretKey", cosSecretKey);
+        conf.set("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
+        return conf;
     }
 
     @Override

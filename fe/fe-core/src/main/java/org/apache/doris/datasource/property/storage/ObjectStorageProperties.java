@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.hadoop.conf.Configuration;
+
 import java.util.Map;
 
 /**
@@ -34,7 +36,7 @@ public interface ObjectStorageProperties {
      * @param config a map to populate with the HDFS-compatible configuration parameters.
      *               These parameters will be used by Hadoop clients to connect to the object storage system.
      */
-    void toHadoopConfiguration(Map<String, String> config);
+    Configuration getHadoopConfiguration();
 
     /**
      * Converts the object storage properties to a configuration map compatible with the

@@ -39,7 +39,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -257,7 +256,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
             if (request.getTaskStatus().getStatusCode() == TStatusCode.NOT_IMPLEMENTED_ERROR) {
                 status = new Status(ErrCode.COMMON_ERROR,
-                    "make snapshot failed, currently not support backup tablet with cooldowned remote data");
+                        "make snapshot failed, currently not support backup tablet with cooldowned remote data");
                 cancelInternal();
             }
 
@@ -300,7 +299,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         Map<Long, List<String>> tabletFileMap = request.getTabletFiles();
         if (tabletFileMap.isEmpty()) {
             LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
-                     task.getBackendId(), this);
+                    task.getBackendId(), this);
             return false;
         }
 
@@ -320,15 +319,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
             if (tabletFiles.size() != uploadedFiles.size()) {
                 LOG.warn("upload snapshot files failed because file num is wrong. "
-                        + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
-                         tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
+                                + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
+                        tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
                 return false;
             }
 
             if (!Collections2.filter(tabletFiles, Predicates.not(Predicates.in(uploadedFiles))).isEmpty()) {
                 LOG.warn("upload snapshot files failed because file is different. "
-                        + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
-                         tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
+                                + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
+                        tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
                 return false;
             }
 
@@ -384,7 +383,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -539,8 +538,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // Limit the max num of tablets involved in a backup job, to avoid OOM.
         if (unfinishedTaskIds.size() > Config.max_backup_tablets_per_job) {
             String msg = String.format("the num involved tablets %d exceeds the limit %d, "
-                    + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
-                    + "to change this limitation",
+                            + "which might cause the FE OOM, change config `max_backup_tablets_per_job` "
+                            + "to change this limitation",
                     unfinishedTaskIds.size(), Config.max_backup_tablets_per_job);
             LOG.warn(msg);
             status = new Status(ErrCode.COMMON_ERROR, msg);
@@ -576,13 +575,13 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     }
                 }
             }
-        }  finally {
+        } finally {
             olapTable.readUnlock();
         }
     }
 
     private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
-            TableRef backupTableRef, AgentBatchTask batchTask) {
+                                                            TableRef backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editlog for barrier commit seq
         long dbId = db.getId();
         String dbName = db.getFullName();
@@ -688,7 +687,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
-            List<Resource> copiedResources) {
+                                                          List<Resource> copiedResources) {
         OdbcTable copiedOdbcTable = odbcTable.clone();
         if (copiedOdbcTable == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
@@ -777,7 +776,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -818,7 +817,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    "repo__" + repoId, label + "__" + createTimeStr).normalize();
+                "repo__" + repoId, label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -889,7 +888,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // log
         env.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
-                 localMetaInfoFilePath, localJobInfoFilePath, this);
+                localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
     private void releaseSnapshots() {
