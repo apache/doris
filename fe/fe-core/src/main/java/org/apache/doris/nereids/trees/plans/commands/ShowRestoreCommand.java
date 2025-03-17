@@ -44,6 +44,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -86,6 +87,12 @@ public class ShowRestoreCommand extends ShowCommand {
         this.needBriefResult = needBriefResult;
     }
 
+    public ShowRestoreCommand(String dbName, Expression where) {
+        super(PlanType.SHOW_RESTORE_COMMAND);
+        this.dbName = dbName;
+        this.where = where;
+    }
+
     /**
      * get meta for show restore
      */
@@ -101,7 +108,8 @@ public class ShowRestoreCommand extends ShowCommand {
     /**
      * get label predicate for show restore
      */
-    private Predicate<String> getLabelPredicate() throws AnalysisException {
+    @VisibleForTesting
+    protected Predicate<String> getLabelPredicate() throws AnalysisException {
         if (null == where) {
             return label -> true;
         }
@@ -118,7 +126,8 @@ public class ShowRestoreCommand extends ShowCommand {
     /**
      * validate
      */
-    private boolean validate(ConnectContext ctx) throws UserException {
+    @VisibleForTesting
+    protected boolean validate(ConnectContext ctx) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
             if (Strings.isNullOrEmpty(dbName)) {
