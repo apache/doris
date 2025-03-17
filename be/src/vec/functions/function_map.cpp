@@ -46,6 +46,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -299,17 +300,75 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeMap>(make_nullable(arguments[0]),
-                                             make_nullable(arguments[1]));
+        return std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                             make_nullable(std::make_shared<DataTypeString>()));
     }
-};
 
-void register_function_map(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionMap>();
-    factory.register_function<FunctionMapContains<true>>();
-    factory.register_function<FunctionMapContains<false>>();
-    factory.register_function<FunctionMapEntries<true>>();
-    factory.register_function<FunctionMapEntries<false>>();
-}
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK(arguments.size() == 3);
+        auto& str_col = block.get_by_position(arguments[0]).column;
+        auto& pair_delim_col = block.get_by_position(arguments[1]).column;
+        auto& kv_delim_col = block.get_by_position(arguments[2]).column;
+
+        const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
+        const auto* pair_delim_column = assert_cast<const ColumnString*>(pair_delim_col.get());
+        const auto* kv_delim_column = assert_cast<const ColumnString*>(kv_delim_col.get());
+
+        auto result_column = ColumnMap::create(ColumnString::create(), ColumnString::create());
+        auto& map_keys_column = result_column->get_keys();
+        auto& map_values_column = result_column->get_values();
+        auto& map_offsets_column = result_column->get_offsets();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto str = str_column->get_data_at(i);
+            auto pair_delim = pair_delim_column->get_data_at(i);
+            auto kv_delim = kv_delim_column->get_data_at(i);
+
+            auto kvs = split_pair_by_delim(str, pair_delim);
+            for (const auto& kv : kvs) {
+                auto kv_parts = split_kv_by_delim(kv, kv_delim);
+                map_keys_column.insert_data(kv_parts[0].data(), kv_parts[0].size());
+                map_values_column.insert_data(kv_parts[1].data(), kv_parts[1].size());
+            }
+            map_offsets_column.push_back(map_keys_column.size());
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+
+        return Status::OK();
+    }
+
+private:
+    static std::vector<StringRef> split_pair_by_delim(const StringRef& str,
+                                                      const StringRef& delim) {
+        std::vector<StringRef> result;
+        size_t pos = 0;
+        while (pos < str.size()) {
+            auto next_pos = str.find(delim, pos);
+            result.push_back(str.substr(pos, next_pos - pos));
+            pos = next_pos + delim.size();
+        }
+        return result;
+    }
+
+    static std::vector<StringRef> split_kv_by_delim(const StringRef& str, const StringRef& delim) {
+        // split by delim to key and value, if not found, return the whole string as key and empty string as value
+        auto pos = str.find(delim);
+        if (pos == StringRef::npos) {
+            return {str, ""};
+        } else {
+            return {str.substr(0, pos), str.substr(pos + delim.size())};
+        }
+    }
+
+    void register_function_map(SimpleFunctionFactory& factory) {
+        factory.register_function<FunctionMap>();
+        factory.register_function<FunctionMapContains<true>>();
+        factory.register_function<FunctionMapContains<false>>();
+        factory.register_function<FunctionMapEntries<true>>();
+        factory.register_function<FunctionMapEntries<false>>();
+        factory.register_function<FunctionStrToMap>();
+    }
 
 } // namespace doris::vectorized
