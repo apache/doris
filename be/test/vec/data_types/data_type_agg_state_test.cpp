@@ -97,7 +97,10 @@ TEST_P(DataTypeAggStateTest, MetaInfoTest) {
 }
 
 TEST_P(DataTypeAggStateTest, CreateColumnTest) {
-    Field default_field = Field(String());
+    std::string res;
+    res.resize(8);
+    memset(res.data(), 0, 8);
+    Field default_field = Field(res);
     std::cout << "create_column_assert: " << datatype_agg_state_count->get_name() << std::endl;
     auto column = (datatype_agg_state_count)->create_column();
     ASSERT_EQ(column->size(), 0);

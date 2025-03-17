@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -129,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
@@ -512,6 +514,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showBackendsCommand, context);
     }
 
+    default R visitShowBackupCommand(ShowBackupCommand showBackupCommand, C context) {
+        return visitCommand(showBackupCommand, context);
+    }
+
     default R visitShowCreateTableCommand(ShowCreateTableCommand showCreateTableCommand, C context) {
         return visitCommand(showCreateTableCommand, context);
     }
@@ -841,6 +847,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
         return visitCommand(showTableCommand, context);
+    }
+
+    default R visitShowIndexStatsCommand(ShowIndexStatsCommand showIndexStatsCommand, C context) {
+        return visitCommand(showIndexStatsCommand, context);
     }
 
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
