@@ -408,7 +408,7 @@ public class StringArithmetic {
     }
 
     private static boolean isAlphabetic(char c) {
-        Pattern pattern = Pattern.compile("\\p{L}");
+        Pattern pattern = Pattern.compile("\\p{Alnum}");
         return pattern.matcher(String.valueOf(c)).find();
     }
 
