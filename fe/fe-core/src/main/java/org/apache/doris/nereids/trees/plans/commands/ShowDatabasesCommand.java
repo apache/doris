@@ -115,7 +115,7 @@ public class ShowDatabasesCommand extends ShowCommand {
             String whereCondition = " WHERE " + rewrited.toSql();
             return execute(ctx, executor, whereCondition);
         } else if (likePattern != null) {
-            return execute(ctx, executor, " WHERE TABLE_SCHEMA LIKE '" + likePattern + "'");
+            return execute(ctx, executor, " WHERE " + ORI_DB_COL + " LIKE '" + likePattern + "'");
         }
         return execute(ctx, executor, "");
     }
