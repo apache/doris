@@ -38,6 +38,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
@@ -155,7 +156,8 @@ public class ShowSnapshotCommand extends ShowCommand {
     /**
      * validate
      */
-    private boolean validate(ConnectContext ctx) throws UserException {
+    @VisibleForTesting
+    protected boolean validate(ConnectContext ctx) throws UserException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
