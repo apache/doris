@@ -45,6 +45,9 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
@@ -314,6 +317,108 @@ public class RoutineLoadManager implements Writable {
         }
 
         return result;
+    }
+
+    public void pauseRoutineLoadJob(PauseRoutineLoadCommand pauseRoutineLoadCommand)
+            throws UserException {
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            if (pauseRoutineLoadCommand.isAll()) {
+                jobs = checkPrivAndGetAllJobs(pauseRoutineLoadCommand.getDbFullName());
+            } else {
+                RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadCommand.getDbFullName(),
+                        pauseRoutineLoadCommand.getLabel());
+                jobs.add(routineLoadJob);
+            }
+        } finally {
+            readUnlock();
+        }
+
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
+                    new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                        "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
+                        false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
+                        routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
+                        "routine load job has been paused by user").build());
+            } catch (UserException e) {
+                LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
+                // if user want to pause a certain job and failed, return error.
+                // if user want to pause all possible jobs, skip error jobs.
+                if (!pauseRoutineLoadCommand.isAll()) {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    public void resumeRoutineLoadJob(ResumeRoutineLoadCommand resumeRoutineLoadCommand)
+            throws UserException {
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        if (resumeRoutineLoadCommand.isAll()) {
+            jobs = checkPrivAndGetAllJobs(resumeRoutineLoadCommand.getDbFullName());
+        } else {
+            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadCommand.getDbFullName(),
+                    resumeRoutineLoadCommand.getLabel());
+            jobs.add(routineLoadJob);
+        }
+
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
+                routineLoadJob.autoResumeCount = 0;
+                routineLoadJob.latestResumeTimestamp = 0;
+                routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                        .add("current_state", routineLoadJob.getState())
+                        .add("user", ConnectContext.get().getQualifiedUser())
+                        .add("msg", "routine load job has been resumed by user")
+                        .build());
+            } catch (UserException e) {
+                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
+                // if user want to resume a certain job and failed, return error.
+                // if user want to resume all possible jobs, skip error jobs.
+                if (!resumeRoutineLoadCommand.isAll()) {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    public void stopRoutineLoadJob(StopRoutineLoadCommand stopRoutineLoadCommand)
+            throws UserException {
+        RoutineLoadJob routineLoadJob;
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            routineLoadJob = checkPrivAndGetJob(stopRoutineLoadCommand.getDbFullName(),
+                stopRoutineLoadCommand.getLabel());
+        } finally {
+            readUnlock();
+        }
+        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
+            new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR,
+                "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
+                false /* not replay */);
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                .add("current_state", routineLoadJob.getState())
+                .add("user", ConnectContext.get().getQualifiedUser())
+                .add("msg", "routine load job has been stopped by user")
+                .build());
     }
 
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)

@@ -779,6 +779,9 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
@@ -6195,6 +6198,55 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitPauseRoutineLoad(DorisParser.PauseRoutineLoadContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = parts.size();
+        String label = parts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = parts.get(size - 2);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        return new PauseRoutineLoadCommand(labelNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitPauseAllRoutineLoad(DorisParser.PauseAllRoutineLoadContext ctx) {
+        return new PauseRoutineLoadCommand();
+    }
+
+    @Override
+    public LogicalPlan visitResumeRoutineLoad(DorisParser.ResumeRoutineLoadContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = parts.size();
+        String label = parts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = parts.get(size - 2);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        return new ResumeRoutineLoadCommand(labelNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitResumeAllRoutineLoad(DorisParser.ResumeAllRoutineLoadContext ctx) {
+        return new ResumeRoutineLoadCommand();
+    }
+
+    @Override
+    public LogicalPlan visitStopRoutineLoad(DorisParser.StopRoutineLoadContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = parts.size();
+        String label = parts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = parts.get(size - 2);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        return new StopRoutineLoadCommand(labelNameInfo);
     }
 }
 
