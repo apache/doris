@@ -1455,6 +1455,8 @@ DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
+DEFINE_mBool(skip_version_col_when_calc_check_sum, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
