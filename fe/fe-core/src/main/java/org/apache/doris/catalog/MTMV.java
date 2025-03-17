@@ -523,6 +523,11 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
+        if (Env.getCurrentEnv().isReady()) {
+            Optional<String> errMsg = compatibleInternal(Env.getCurrentEnv().getCatalogMgr());
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    errMsg.get());
+        }
     }
 
     // toString() is not easy to find where to call the method
