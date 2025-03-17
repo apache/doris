@@ -309,10 +309,11 @@ public:
         DCHECK(arguments.size() == 3);
 
         // map keys column
-        auto result_col_map_keys_data = ColumnString::create();
+        auto result_col_map_keys_data =
+                ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         // map values column
-        auto result_col_map_vals_data = ColumnNullable::create(
-                ColumnString::create(), ColumnUInt8::create(input_rows_count, 0));
+        auto result_col_map_vals_data =
+                ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         // map offsets column
         auto result_col_map_offsets = ColumnUInt64::create();
 
