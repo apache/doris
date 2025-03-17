@@ -271,6 +271,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT FLOOR(-3.7, 0)") // Negative first, zero second
     testFoldConst("SELECT FLOOR(10.123, 2)") // Decimal with precision
     testFoldConst("SELECT FLOOR(-10.123, 1)") // Negative with precision
+    testFoldConst("SELECT FLOOR(12 / 5)")
 
 //Fmod function cases
     testFoldConst("SELECT MOD(10.5, 3.2) AS fmod_case_1") //fmod(10.5 % 3.2)
