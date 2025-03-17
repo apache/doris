@@ -124,7 +124,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     }
 }
 
-TEST_F(TableFunctionTest, vexplode_outer) {
+TEST_F(TableFunctionTest, vexplode_outer_v2) {
     init_expr_context(1);
     VExplodeV2TableFunction explode_outer;
     explode_outer.set_outer();
@@ -222,7 +222,7 @@ TEST_F(TableFunctionTest, vexplode) {
     }
 }
 
-TEST_F(TableFunctionTest, vexplode) {
+TEST_F(TableFunctionTest, vexplode_v2) {
     init_expr_context(1);
     VExplodeV2TableFunction explode;
     explode.set_expr_context(_ctx);
@@ -270,9 +270,9 @@ TEST_F(TableFunctionTest, vexplode) {
     }
 }
 
-TEST_F(TableFunctionTest, vexplode_two_param) {
+TEST_F(TableFunctionTest, vexplode_v2_two_param) {
     init_expr_context(2);
-    VExplodeTableFunction explode;
+    VExplodeV2TableFunction explode;
     explode.set_expr_context(_ctx);
     // explode(Array<String>, Array<String>)
     {
