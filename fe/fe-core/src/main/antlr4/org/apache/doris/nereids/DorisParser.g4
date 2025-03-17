@@ -345,6 +345,9 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
+    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
+    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
     ;
 
 supportedOtherStatement
@@ -443,9 +446,6 @@ unsupportedLoadStatement
           LEFT_PAREN channelDescriptions RIGHT_PAREN
           FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
           properties=propertyClause?                                                #createDataSyncJob
-    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
-    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
-    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
