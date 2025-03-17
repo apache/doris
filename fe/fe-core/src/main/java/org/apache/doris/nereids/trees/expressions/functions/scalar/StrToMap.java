@@ -19,9 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.MapType;
@@ -46,7 +44,7 @@ import java.util.List;
  * Both pairDelim and keyValueDelim are treated as regular expressions.
  */
 public class StrToMap extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullLiteral, AlwaysNullable {
+        implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(MapType.of(StringType.INSTANCE, StringType.INSTANCE))
@@ -82,6 +80,11 @@ public class StrToMap extends ScalarFunction
      */
     public StrToMap(Expression arg0, Expression arg1, Expression arg2) {
         super("str_to_map", arg0, arg1, arg2);
+    }
+
+    @Override
+    public boolean nullable() {
+        return false;
     }
 
     /**
