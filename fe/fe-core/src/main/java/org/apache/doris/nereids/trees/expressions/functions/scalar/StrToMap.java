@@ -101,6 +101,6 @@ public class StrToMap extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitStrToDate(this, context);
+        return visitor.visitStrToMap(this, context);
     }
 }
