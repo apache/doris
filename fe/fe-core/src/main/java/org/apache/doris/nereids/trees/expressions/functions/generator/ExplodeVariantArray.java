@@ -21,7 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
@@ -35,13 +36,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * explode_variant_array(variant([1, 2, 3])), generate 3 lines include 1, 2 and 3.
+ * explode_variant_array(variant([1, 2, 3])), generate three lines include 1, 2 and 3.
+ * explode_variant_array(variant([1, 2, 3]), variant([4, 5, 6])), generate two column and three lines with:
+ * the one column is 1, 2, 3 and the two column is 4, 5, 6.
  */
-public class ExplodeVariantArray extends TableGeneratingFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+public class ExplodeVariantArray extends TableGeneratingFunction implements
+        CustomSignature, ComputePrecision, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more argument.
      */
     public ExplodeVariantArray(Expression[] args) {
         super("explode_variant_array", args);
@@ -67,7 +70,12 @@ public class ExplodeVariantArray extends TableGeneratingFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < children.size(); i++) {
@@ -75,11 +83,16 @@ public class ExplodeVariantArray extends TableGeneratingFunction
                 new StructField("col" + (i + 1), VariantType.INSTANCE, true, ""));
             arguments.add(VariantType.INSTANCE);
         }
-        return ImmutableList.of(FunctionSignature.of(new StructType(structFields.build()), arguments));
+        return FunctionSignature.of(new StructType(structFields.build()), arguments);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeVariant(this, context);
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return super.searchSignature(signatures);
     }
 }
