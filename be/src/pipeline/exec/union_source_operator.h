@@ -43,7 +43,6 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
@@ -52,49 +51,50 @@ private:
     friend class OperatorX<UnionSourceLocalState>;
     bool _need_read_for_const_expr {true};
     int _const_expr_list_idx {0};
-    std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
 
     // If this operator has no children, there is no shared state which owns dependency. So we
     // use this local state to hold this dependency.
     DependencySPtr _only_const_dependency = nullptr;
 };
 
-class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
+/*
+There are two cases for union node: one is only constant expressions, and the other is having other child nodes besides constant expressions.
+Unlike other union operators, the union node only merges data without deduplication.
+
+|   0:VUNION(66)                                                                                                           |
+|      constant exprs:                                                                                                     |
+|          1 | 2 | 3 | 4                                                                                                   |
+|          5 | 6 | 7 | 8                                                                                                   |
+|      tuple ids: 0                                                                                                        | 
+
+|   4:VUNION(179)                                                                                                           |
+|   |  constant exprs:                                                                                                      |
+|   |      1 | 2 | 3 | 4                                                                                                    |
+|   |      5 | 6 | 7 | 8                                                                                                    |
+|   |  child exprs:                                                                                                         |
+|   |      k1[#0] | k2[#1] | k3[#2] | k4[#3]                                                                                |
+|   |      k1[#4] | k2[#5] | k3[#6] | k4[#7]                                                                                |
+|   |  tuple ids: 2                                                                                                         |
+*/
+
+class UnionSourceOperatorX MOCK_REMOVE(final) : public OperatorX<UnionSourceLocalState> {
 public:
     using Base = OperatorX<UnionSourceLocalState>;
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {}
+
+#ifdef BE_TEST
+    UnionSourceOperatorX(int child_size) : _child_size(child_size) {}
+#endif
     ~UnionSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
-    Status init(const TPlanNode& tnode, RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::init(tnode, state));
-        DCHECK(tnode.__isset.union_node);
-        // Create const_expr_ctx_lists_ from thrift exprs.
-        auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-        for (auto& texprs : const_texpr_lists) {
-            vectorized::VExprContextSPtrs ctxs;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
-            _const_expr_lists.push_back(ctxs);
-        }
-        return Status::OK();
-    }
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override {
-        static_cast<void>(Base::prepare(state));
-        // Prepare const expr lists.
-        for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
-        }
-        // open const expr lists.
-        for (const auto& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
-        }
-        return Status::OK();
-    }
     [[nodiscard]] int get_child_count() const { return _child_size; }
     bool require_shuffled_data_distribution() const override {
         return _followed_by_shuffled_operator;
@@ -114,7 +114,7 @@ public:
     }
 
 private:
-    bool _has_data(RuntimeState* state) const {
+    bool has_data(RuntimeState* state) const {
         auto& local_state = get_local_state(state);
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;
@@ -122,9 +122,10 @@ private:
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
+        // For constant expressions, only one instance will execute the expression
         auto& local_state = get_local_state(state);
         return state->per_fragment_instance_idx() == 0 &&
-               local_state._const_expr_list_idx < local_state._const_expr_lists.size();
+               local_state._const_expr_list_idx < _const_expr_lists.size();
     }
     friend class UnionSourceLocalState;
     const int _child_size;

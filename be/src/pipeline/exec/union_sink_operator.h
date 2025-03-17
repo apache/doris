@@ -36,8 +36,7 @@ class UnionSinkOperatorX;
 class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
-    UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _child_row_idx(0) {}
+    UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
@@ -47,25 +46,24 @@ public:
 private:
     std::unique_ptr<vectorized::Block> _output_block;
 
-    /// Const exprs materialized by this node. These exprs don't refer to any children.
-    /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
-
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
     vectorized::VExprContextSPtrs _child_expr;
-
-    /// Index of current row in child_row_block_.
-    int _child_row_idx;
     RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
-class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
+class UnionSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<UnionSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
     UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                        const TPlanNode& tnode, const DescriptorTbl& descs);
+#ifdef BE_TEST
+    UnionSinkOperatorX(int child_size, int cur_child_id, int first_materialized_child_idx)
+            : _first_materialized_child_idx(first_materialized_child_idx),
+              _cur_child_id(cur_child_id),
+              _child_size(child_size) {}
+#endif
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -102,13 +100,9 @@ public:
 
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
+    MOCK_FUNCTION const RowDescriptor& row_descriptor() { return _row_descriptor; }
+
 private:
-    int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
-
-    /// Const exprs materialized by this node. These exprs don't refer to any children.
-    /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
-
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
     vectorized::VExprContextSPtrs _child_expr;
     /// Index of the first non-passthrough child; i.e. a child that needs materialization.
@@ -119,42 +113,13 @@ private:
     const RowDescriptor _row_descriptor;
     const int _cur_child_id;
     const int _child_size;
-    int children_count() const { return _child_size; }
+
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);
         return child_idx < _first_materialized_child_idx;
     }
-    Status materialize_child_block(RuntimeState* state, int child_id,
-                                   vectorized::Block* input_block,
-                                   vectorized::Block* output_block) {
-        DCHECK_LT(child_id, _child_size);
-        DCHECK(!is_child_passthrough(child_id));
-        if (input_block->rows() > 0) {
-            vectorized::MutableBlock mblock =
-                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               _row_descriptor);
-            vectorized::Block res;
-            RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
-            RETURN_IF_ERROR(mblock.merge(res));
-        }
-        return Status::OK();
-    }
-
-    Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
-                             vectorized::Block* res_block) {
-        auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state._expr_timer);
-        const auto& child_exprs = local_state._child_expr;
-        vectorized::ColumnsWithTypeAndName colunms;
-        for (size_t i = 0; i < child_exprs.size(); ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
-            colunms.emplace_back(src_block->get_by_position(result_column_id));
-        }
-        local_state._child_row_idx += src_block->rows();
-        *res_block = {colunms};
-        return Status::OK();
-    }
+    Status materialize_child_block(RuntimeState* state, vectorized::Block* input_block,
+                                   vectorized::Block* output_block);
 };
 
 } // namespace pipeline
