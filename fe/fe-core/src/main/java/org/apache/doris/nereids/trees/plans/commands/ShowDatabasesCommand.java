@@ -112,12 +112,13 @@ public class ShowDatabasesCommand extends ShowCommand {
         validate(ctx);
         if (whereClause != null) {
             Expression rewrited = whereClause.accept(new ReplaceColumnNameVisitor(), null);
-            String whereCondition = " WHERE " + rewrited.toSql();
+            String whereCondition = " WHERE `CATALOG_NAME` = '" + catalog + "'" + rewrited.toSql();
             return execute(ctx, executor, whereCondition);
         } else if (likePattern != null) {
-            return execute(ctx, executor, " WHERE " + ORI_DB_COL + " LIKE '" + likePattern + "'");
+            return execute(ctx, executor, " WHERE `CATALOG_NAME` = '" + catalog
+                    + "'" + ORI_DB_COL + " LIKE '" + likePattern + "'");
         }
-        return execute(ctx, executor, "");
+        return execute(ctx, executor,  " WHERE `CATALOG_NAME` = '" + catalog + "'");
     }
 
     @Override
