@@ -134,6 +134,7 @@ public:
             auto type_array = array_column_type_name.type;
             if (type_array->is_nullable()) {
                 // get the nullmap of nullable column
+                // hold the null column instead of a reference 'cause `column_array` will be assigned and freed below.
                 auto column_array_nullmap =
                         assert_cast<const ColumnNullable&>(*column_array).get_null_map_column_ptr();
 
