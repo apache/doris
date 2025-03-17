@@ -23,6 +23,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -292,7 +293,6 @@ public:
     static constexpr auto name = "str_to_map";
     static FunctionPtr create() { return std::make_shared<FunctionStrToMap>(); }
 
-    /// Get function name.
     String get_name() const override { return name; }
 
     bool is_variadic() const override { return true; }
@@ -307,6 +307,15 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() == 3);
+
+        // map keys column
+        auto result_col_map_keys_data = ColumnString::create();
+        // map values column
+        auto result_col_map_vals_data = ColumnNullable::create(
+                ColumnString::create(), ColumnUInt8::create(input_rows_count, 0));
+        // map offsets column
+        auto result_col_map_offsets = ColumnUInt64::create();
+
         auto& str_col = block.get_by_position(arguments[0]).column;
         auto& pair_delim_col = block.get_by_position(arguments[1]).column;
         auto& kv_delim_col = block.get_by_position(arguments[2]).column;
@@ -314,11 +323,6 @@ public:
         const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
         const auto* pair_delim_column = assert_cast<const ColumnString*>(pair_delim_col.get());
         const auto* kv_delim_column = assert_cast<const ColumnString*>(kv_delim_col.get());
-
-        auto result_column = ColumnMap::create(ColumnString::create(), ColumnString::create());
-        auto& map_keys_column = result_column->get_keys();
-        auto& map_values_column = result_column->get_values();
-        auto& map_offsets_column = result_column->get_offsets();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto str = str_column->get_data_at(i);
@@ -328,47 +332,61 @@ public:
             auto kvs = split_pair_by_delim(str, pair_delim);
             for (const auto& kv : kvs) {
                 auto kv_parts = split_kv_by_delim(kv, kv_delim);
-                map_keys_column.insert_data(kv_parts[0].data(), kv_parts[0].size());
-                map_values_column.insert_data(kv_parts[1].data(), kv_parts[1].size());
+                if (kv_parts.size() == 2) {
+                    result_col_map_keys_data->insert_data(kv_parts[0].data(), kv_parts[0].size());
+                    result_col_map_vals_data->insert_data(kv_parts[1].data(), kv_parts[1].size());
+                } else {
+                    result_col_map_keys_data->insert_data(kv.data(), kv.size());
+                    result_col_map_vals_data->insert_default();
+                }
             }
-            map_offsets_column.push_back(map_keys_column.size());
+            result_col_map_offsets->insert_value(result_col_map_keys_data->size());
         }
 
-        block.replace_by_position(result, std::move(result_column));
+        auto result_col = ColumnMap::create(std::move(result_col_map_keys_data),
+                                            std::move(result_col_map_vals_data),
+                                            std::move(result_col_map_offsets));
+
+        block.replace_by_position(result, std::move(result_col));
 
         return Status::OK();
     }
 
 private:
-    static std::vector<StringRef> split_pair_by_delim(const StringRef& str,
-                                                      const StringRef& delim) {
-        std::vector<StringRef> result;
-        size_t pos = 0;
-        while (pos < str.size()) {
-            auto next_pos = str.find(delim, pos);
-            result.push_back(str.substr(pos, next_pos - pos));
-            pos = next_pos + delim.size();
+    static std::vector<std::string_view> split_pair_by_delim(const std::string_view& str,
+                                                             const std::string_view& delim) {
+        std::vector<std::string_view> result;
+        auto offset = 0;
+        while (offset < str.size()) {
+            auto pos = str.find(delim, offset);
+            if (pos == std::string::npos) {
+                result.push_back(str.substr(offset));
+                break;
+            }
+            result.push_back(str.substr(offset, pos - offset));
+            offset = pos + delim.size();
         }
         return result;
     }
 
-    static std::vector<StringRef> split_kv_by_delim(const StringRef& str, const StringRef& delim) {
-        // split by delim to key and value, if not found, return the whole string as key and empty string as value
+    static std::vector<std::string_view> split_kv_by_delim(const std::string_view& str,
+                                                           const std::string_view& delim) {
         auto pos = str.find(delim);
-        if (pos == StringRef::npos) {
-            return {str, ""};
+        if (pos == std::string::npos) {
+            return {str};
         } else {
             return {str.substr(0, pos), str.substr(pos + delim.size())};
         }
     }
+};
 
-    void register_function_map(SimpleFunctionFactory& factory) {
-        factory.register_function<FunctionMap>();
-        factory.register_function<FunctionMapContains<true>>();
-        factory.register_function<FunctionMapContains<false>>();
-        factory.register_function<FunctionMapEntries<true>>();
-        factory.register_function<FunctionMapEntries<false>>();
-        factory.register_function<FunctionStrToMap>();
-    }
+void register_function_map(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionMap>();
+    factory.register_function<FunctionMapContains<true>>();
+    factory.register_function<FunctionMapContains<false>>();
+    factory.register_function<FunctionMapEntries<true>>();
+    factory.register_function<FunctionMapEntries<false>>();
+    factory.register_function<FunctionStrToMap>();
+}
 
 } // namespace doris::vectorized
