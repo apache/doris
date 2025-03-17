@@ -255,7 +255,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         String alterStmt = "ALTER TABLE test." + tableName
                 + " MODIFY COLUMN c_s struct<col:varchar(30),col1:varchar(10),col2:decimalv3(10,2),col3:datetimev2(0),col4:text> "
                 + defaultValue;
-        expectException(alterStmt, "Incompatible type change");
+        expectException(alterStmt, "Cannot change");
     }
 
     private void testAddUnsupportedSubColumnType(String defaultValue, String tableName) {
