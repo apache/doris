@@ -81,7 +81,7 @@ public class StringArithmetic {
     private static String substringImpl(String first, int second, int third) {
         second = first.offsetByCodePoints(0, second);
         third = first.offsetByCodePoints(0, third);
-        int stringLength = first.length();
+        int stringLength = first.offsetByCodePoints(0, first.length());
         if (stringLength == 0) {
             return "";
         }
@@ -295,9 +295,10 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "left")
     public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
+        int inputLength = first.getValue().offsetByCodePoints(0, first.getValue().length());
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
+        } else if (second.getValue() > inputLength) {
             return first;
         } else {
             int index = first.getValue().offsetByCodePoints(0, second.getValue());
@@ -310,13 +311,13 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "right")
     public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
+        int inputLength = first.getValue().offsetByCodePoints(0, first.getValue().length());
+        if (second.getValue() < (- inputLength) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
+        } else if (second.getValue() > inputLength) {
             return first;
         } else {
             int index = first.getValue().offsetByCodePoints(0, second.getValue());
-            int inputLength = first.getValue().codePointCount(0, first.getValue().length());
             if (second.getValue() > 0) {
                 return castStringLikeLiteral(first, first.getValue().substring(
                     inputLength - index, inputLength));
@@ -342,7 +343,7 @@ public class StringArithmetic {
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
         int result = second.getValue().indexOf(first.getValue()) + 1;
         if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().length()).contains(first.getValue())) {
+                second.getValue().offsetByCodePoints(0, second.getValue().length())).contains(first.getValue())) {
             result = 0;
         }
         return new IntegerLiteral(result);
@@ -807,12 +808,12 @@ public class StringArithmetic {
     public static Expression overlay(StringLikeLiteral originStr,
             IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
         StringBuilder sb = new StringBuilder();
-        if (pos.getValue() <= 0 || pos.getValue() > originStr.getValue().length()) {
+        int totalLength = originStr.getValue().offsetByCodePoints(0, originStr.getValue().length());
+        if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
             return originStr;
         } else {
             int indexLeft = originStr.getValue().offsetByCodePoints(0, pos.getValue());
             int indexRight = originStr.getValue().offsetByCodePoints(0, len.getValue());
-            int totalLength = originStr.getValue().offsetByCodePoints(0, originStr.getValue().length());
             if (len.getValue() < 0 || len.getValue() > (originStr.getValue().length() - len.getValue())) {
                 sb.append(originStr.getValue().substring(0, indexLeft - 1));
                 sb.append(insertStr.getValue());
@@ -942,7 +943,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
-        if (second.getValue().length() != 1) {
+        if (second.getValue().offsetByCodePoints(0, second.getValue().length()) != 1) {
             return new NullLiteral(first.getDataType());
         }
         if (first.getValue().endsWith(second.getValue())) {
