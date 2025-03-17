@@ -91,7 +91,6 @@ public:
             gap = *max_id + 1;
             _set_column_ref_column_id(children[0], gap);
         }
-
         std::vector<std::string> names(gap);
         DataTypes data_types(gap);
 
@@ -105,6 +104,8 @@ public:
                 data_types[i] = std::make_shared<DataTypeUInt8>();
             }
         }
+
+       RETURN_IF_ERROR(_check_column_ref_gap(children[0], gap));
 
         ///* array_map(lambda,arg1,arg2,.....) *///
         //1. child[1:end]->execute(src_block)
@@ -217,7 +218,10 @@ public:
                 }
             }
             // batch_size of array nested data every time inorder to avoid memory overflow
+            MutableColumns columns = lambda_block.mutate_columns();
+            int batch_size = runtime_state->batch_size();
             while (columns[gap]->size() < batch_size) {
+                RETURN_IF_CANCELLED(runtime_state);
                 long max_step = batch_size - columns[gap]->size();
                 long current_step = std::min(
                         max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
@@ -319,6 +323,8 @@ private:
             if (child->is_column_ref()) {
                 auto* ref = static_cast<VColumnRef*>(child.get());
                 ref->set_gap(gap);
+            } else if (child->is_lambda_func()) {
+                continue;
             } else {
                 _set_column_ref_column_id(child, gap);
             }
@@ -334,6 +340,22 @@ private:
                 _collect_slot_ref_column_id(child, output_slot_ref_indexs);
             }
         }
+    }
+
+    Status _check_column_ref_gap(VExprSPtr expr, int columns_size) {
+        for (const auto& child : expr->children()) {
+            if (child->is_column_ref()) {
+                auto* ref = static_cast<VColumnRef*>(child.get());
+                if (ref->get_gap() > columns_size) {
+                    return Status::InternalError("lambda arg's gap cannot be greater than column size");
+                }
+            } else if (child->is_lambda_func()) {
+                continue;
+            } else {
+                return _check_column_ref_gap(child, columns_size);
+            }
+        }
+        return Status::OK();
     }
 
     void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
