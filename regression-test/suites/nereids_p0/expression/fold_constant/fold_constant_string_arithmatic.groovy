@@ -1699,7 +1699,10 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?🌍=b&c=d&e=f&g=h&i=j&k=l', '')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?🌍=b&c=d&e=f&g=h&i=j&k=l', null)")
 
-    // replace_empty
+    // emoji
     testFoldConst("select replace_empty('😀abc', '', 'def')")
+    testFoldConst("select split_by_string('a😁a😁a', '')")
+    testFoldConst("select character_length('a😁a😁a')")
+    testFoldConst("select replace_empty('a😁a😁a', '', '2')")
 }
 

@@ -413,7 +413,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "character_length")
     public static Expression characterLength(StringLikeLiteral first) {
-        return new IntegerLiteral(first.getValue().length());
+        return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
     }
 
     private static boolean isAlphabetic(char c) {
@@ -669,6 +669,27 @@ public class StringArithmetic {
     }
 
     /**
+     * split by char by empty string considering emoji
+     * @param first input string to be split
+     * @return ArrayLiteral
+     */
+    public static Expression splitByGrapheme(StringLikeLiteral first) {
+        List<String> result = new ArrayList<>();
+        int length = first.getValue().length();
+        for (int i = 0; i < length; ) {
+            int codePoint = first.getValue().codePointAt(i);
+            int charCount = Character.charCount(codePoint);
+            result.add(first.getValue().substring(i, i + charCount));
+            i += charCount;
+        }
+        List<Literal> items = new ArrayList<>();
+        for (String s : result) {
+            items.add((Literal) castStringLikeLiteral(first, s));
+        }
+        return new ArrayLiteral(items);
+    }
+
+    /**
      * Executable arithmetic functions split_by_string
      */
     @ExecFunction(name = "split_by_string")
@@ -676,8 +697,10 @@ public class StringArithmetic {
         if (first.getValue().isEmpty()) {
             return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
         }
-        int limit = second.getValue().isEmpty() ? 0 : -1;
-        String[] result = first.getValue().split(Pattern.quote(second.getValue()), limit);
+        if (second.getValue().isEmpty()) {
+            return splitByGrapheme(first);
+        }
+        String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
         List<Literal> items = new ArrayList<>();
         for (String s : result) {
             items.add((Literal) castStringLikeLiteral(first, s));
@@ -775,22 +798,6 @@ public class StringArithmetic {
         } else {
             return new TinyIntLiteral((byte) 1);
         }
-    }
-
-    /**
-     * Executable arithmetic functions strLeft
-     */
-    @ExecFunction(name = "strleft")
-    public static Expression strLeft(StringLikeLiteral first, IntegerLiteral second) {
-        return left(first, second);
-    }
-
-    /**
-     * Executable arithmetic functions strRight
-     */
-    @ExecFunction(name = "strright")
-    public static Expression strRight(StringLikeLiteral first, IntegerLiteral second) {
-        return right(first, second);
     }
 
     /**
@@ -1000,6 +1007,9 @@ public class StringArithmetic {
     @ExecFunction(name = "replace_empty")
     public static Expression replaceEmpty(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
         if (second.getValue().isEmpty()) {
+            if (first.getValue().isEmpty()) {
+                return castStringLikeLiteral(first, third.getValue());
+            }
             byte[] input = first.getValue().getBytes(StandardCharsets.UTF_8);
             byte[] replace = third.getValue().getBytes(StandardCharsets.UTF_8);
             byte[] output = new byte[input.length + (input.length + 1) * replace.length];
