@@ -33,13 +33,26 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
     def tableName = "tbl_" + randomStr
     def tableName2 = "tbl2_" + randomStr
 
+    expectExceptionLike({
+        sql """
+            CREATE STORAGE VAULT ${hdfsVaultName}
+            PROPERTIES (
+                "type" = "hdfs",
+                "fs.defaultFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${hdfsVaultName}",
+                "hadoop.username" = "not_exist_user"
+            );
+        """
+    }, "Permission denied")
+
     sql """
         CREATE STORAGE VAULT ${hdfsVaultName}
         PROPERTIES (
             "type" = "hdfs",
             "fs.defaultFS"="${getHmsHdfsFs()}",
             "path_prefix" = "${hdfsVaultName}",
-            "hadoop.username" = "not_exist_user"
+            "hadoop.username" = "not_exist_user",
+            "s3_validity_check" = "false"
         );
     """
 
@@ -83,7 +96,8 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
             "hadoop.username" = "${getHmsUser()}",
             "hadoop.security.authentication" = "kerberos",
             "hadoop.kerberos.principal" = "hadoop/127.0.0.1@XXX",
-            "hadoop.kerberos.keytab" = "/etc/emr.keytab"
+            "hadoop.kerberos.keytab" = "/etc/not_exist/emr.keytab",
+            "s3_validity_check" = "false"
         );
     """
 

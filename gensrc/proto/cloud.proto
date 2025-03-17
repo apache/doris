@@ -514,6 +514,7 @@ message TabletCompactionJobPB {
         CUMULATIVE = 2;
         EMPTY_CUMULATIVE = 3; // just update cumulative point
         FULL = 4;
+        STOP_TOKEN = 5; // fail existing compactions and deny newly incomming compactions
     }
     // IP and port of the node which initiates this job
     optional string initiator = 1; // prepare
@@ -1484,6 +1485,7 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+    repeated int64 tablet_states = 5;
 }
 
 message RemoveDeleteBitmapUpdateLockRequest {

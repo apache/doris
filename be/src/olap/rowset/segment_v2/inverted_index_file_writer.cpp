@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <filesystem>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
@@ -238,7 +239,7 @@ void InvertedIndexFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
                 return entry.second;
             }
         }
-        return 6; // Other files
+        return std::numeric_limits<int32_t>::max(); // Other files
     };
 
     std::sort(file_infos.begin(), file_infos.end(), [&](const FileInfo& a, const FileInfo& b) {
@@ -555,21 +556,70 @@ void InvertedIndexFileWriter::write_version_and_indices_count(lucene::store::Ind
 std::vector<InvertedIndexFileWriter::FileMetadata> InvertedIndexFileWriter::prepare_file_metadata(
         int64_t& current_offset) {
     std::vector<FileMetadata> file_metadata;
-
+    std::vector<FileMetadata> meta_files;
+    std::vector<FileMetadata> normal_files;
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
         auto* dir = entry.second.get();
 
-        // Get sorted files
         auto sorted_files = prepare_sorted_files(dir);
 
         for (const auto& file : sorted_files) {
-            file_metadata.emplace_back(index_id, index_suffix, file.filename, current_offset,
-                                       file.filesize, dir);
-            current_offset += file.filesize; // Update the data offset
+            bool is_meta = false;
+
+            for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+                if (file.filename.find(entry.first) != std::string::npos) {
+                    meta_files.emplace_back(index_id, index_suffix, file.filename, 0, file.filesize,
+                                            dir);
+                    is_meta = true;
+                    break;
+                }
+            }
+
+            if (!is_meta) {
+                normal_files.emplace_back(index_id, index_suffix, file.filename, 0, file.filesize,
+                                          dir);
+            }
         }
     }
+
+    file_metadata.reserve(meta_files.size() + normal_files.size());
+
+    // meta file
+    for (auto& entry : meta_files) {
+        entry.offset = current_offset;
+        file_metadata.emplace_back(std::move(entry));
+        current_offset += entry.length;
+    }
+    // normal file
+    for (auto& entry : normal_files) {
+        entry.offset = current_offset;
+        file_metadata.emplace_back(std::move(entry));
+        current_offset += entry.length;
+    }
+
+    DBUG_EXECUTE_IF("CSIndexInput.readInternal", {
+        bool is_meta_file = true;
+        for (const auto& entry : file_metadata) {
+            bool is_meta = false;
+            for (const auto& map_entry : InvertedIndexDescriptor::index_file_info_map) {
+                if (entry.filename.find(map_entry.first) != std::string::npos) {
+                    is_meta = true;
+                    break;
+                }
+            }
+
+            if (is_meta_file && !is_meta) {
+                is_meta_file = false;
+            } else if (!is_meta_file && is_meta) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Invalid file order: meta files must be at the beginning of the "
+                                "file_metadata structure.");
+            }
+        }
+    });
+
     return file_metadata;
 }
 

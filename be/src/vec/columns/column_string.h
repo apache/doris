@@ -63,12 +63,15 @@ public:
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}, "
-                    "you can set batch_size a number smaller than {} to avoid this error. rows:{}",
-                    total_length, element_number, element_number, rows);
+        if constexpr (std::is_same_v<T, UInt32>) {
+            if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+                throw Exception(
+                        ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                        "string column length is too large: total_length={}, element_number={}, "
+                        "you can set batch_size a number smaller than {} to avoid this error. "
+                        "rows:{}",
+                        total_length, element_number, element_number, rows);
+            }
         }
     }
 
@@ -131,11 +134,13 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
+        sanity_check_simple();
         return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
+        sanity_check_simple();
         if (res.get_type() == Field::Types::JSONB) {
             // Handle JsonbField
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
@@ -146,6 +151,7 @@ public:
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());
+        sanity_check_simple();
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
@@ -229,6 +235,7 @@ public:
     void insert_many_strings_without_reserve(const StringRef* strings, size_t num) {
         Char* data = chars.data();
         size_t offset = chars.size();
+        data += offset;
         size_t length = 0;
 
         const char* ptr = strings[0].data;
@@ -541,7 +548,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Method replace_column_data is not supported for ColumnString");
-        __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

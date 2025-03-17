@@ -172,10 +172,6 @@ public class RuntimeProfile {
         return this.nodeid;
     }
 
-    public Boolean sinkOperator() {
-        return this.isSinkOperator;
-    }
-
     public Map<String, Counter> getCounterMap() {
         return counterMap;
     }
@@ -196,9 +192,7 @@ public class RuntimeProfile {
         return childCounterMap;
     }
 
-    public double getLocalTimePercent() {
-        return localTimePercent;
-    }
+
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
         counterLock.writeLock().lock();

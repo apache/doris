@@ -1083,6 +1083,7 @@ DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1194,6 +1195,8 @@ DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
+// get agg by cache for mow table
+DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1244,6 +1247,9 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
+// Ingest binlog with persistent connection
+DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
+
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
@@ -1293,6 +1299,8 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1444,6 +1452,8 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST

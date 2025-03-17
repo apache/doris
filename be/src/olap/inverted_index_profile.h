@@ -38,12 +38,12 @@ public:
             const auto& stats = statistics->stats[i];
 
             ADD_TIMER_WITH_LEVEL(profile, hit_rows_name, 1);
-            auto* hit_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "fr_" + stats.column_name,
+            auto* hit_rows = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "HitRows_" + stats.column_name,
                                                           TUnit::UNIT, hit_rows_name, 1);
             COUNTER_UPDATE(hit_rows, stats.hit_rows);
 
             ADD_TIMER_WITH_LEVEL(profile, exec_time_name, 1);
-            auto* exec_time = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ft_" + stats.column_name,
+            auto* exec_time = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ExecTime_" + stats.column_name,
                                                            TUnit::TIME_NS, exec_time_name, 1);
             COUNTER_UPDATE(exec_time, stats.exec_time);
         }
