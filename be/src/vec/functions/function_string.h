@@ -3219,12 +3219,12 @@ constexpr size_t MAX_FORMAT_LEN_INT128() {
 
 template <typename T, size_t N>
 StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T frac_value,
-                          UInt32 decimal_places) {
+                          Int32 decimal_places) {
     static_assert(std::is_integral<T>::value);
     const bool is_negative = int_value < 0 || frac_value < 0;
 
     // do round to frac_part based on decimal_places
-    if (scale > decimal_places) {
+    if (scale > decimal_places && decimal_places > 0) {
         DCHECK(scale <= 38);
         // do rounding, so we need to reserve decimal_places + 1 digits
         auto multiplier =
@@ -3233,7 +3233,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
         // after round frac_value will be positive by design
         frac_value = std::abs(static_cast<int>(frac_value / multiplier)) + 5;
         frac_value /= 10;
-    } else if (scale < decimal_places) {
+    } else if (scale < decimal_places && decimal_places > 0) {
         // since scale <= decimal_places, overflow is impossible
         frac_value = frac_value * common::exp10_i32(decimal_places - scale);
     }
@@ -3258,8 +3258,8 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     const Int32 integer_str_len = N - (p - local);
     const Int32 frac_str_len = decimal_places;
-    const Int32 whole_decimal_str_len =
-            (append_sign_manually ? 1 : 0) + integer_str_len + 1 + frac_str_len;
+    const Int32 whole_decimal_str_len = (append_sign_manually ? 1 : 0) + integer_str_len +
+                                        (decimal_places > 0 ? 1 : 0) + frac_str_len;
 
     StringRef result = context->create_temp_string_val(whole_decimal_str_len);
     char* result_data = const_cast<char*>(result.data);
@@ -3269,7 +3269,9 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     }
 
     memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
-    *(result_data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
+    if (decimal_places > 0) {
+        *(result_data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
+    }
 
     // Convert fractional part to string with proper padding
     T remaining_frac = std::abs(static_cast<int>(frac_value));
@@ -3282,7 +3284,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
 static StringRef do_format_round(FunctionContext* context, const string& value,
-                                 UInt32 decimal_places) {
+                                 Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
             value.size() +
