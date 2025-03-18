@@ -420,9 +420,11 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
     } catch (const std::invalid_argument& e) {
         LOG(WARNING) << "Invalid ignore_above value: "
                      << ", error: " << e.what();
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("Invalid ignore_above value");
     } catch (const std::out_of_range& e) {
         LOG(WARNING) << "ignore_above value out of range: "
                      << ",error: " << e.what();
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("ignore_above value out of range")
     }
 
     std::string search_str(search_query->data, act_len);

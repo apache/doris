@@ -1139,7 +1139,6 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                 } catch (const std::invalid_argument& e) {
                     LOG(WARNING) << "Invalid expiration value format in dir_name: " << dir_name
                                  << ",error: " << e.what();
-                    actual_expire = 0;
                 } catch (const std::out_of_range& e) {
                     LOG(WARNING) << "Expiration value out of range in dir_name: " << dir_name
                                  << ",error: " << e.what();

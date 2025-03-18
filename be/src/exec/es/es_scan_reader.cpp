@@ -80,9 +80,11 @@ ESScanReader::ESScanReader(const std::string& target,
         shard_id = std::stoi(_shards);
     } catch (std::invalid_argument& e) {
         LOG(WARNING) << fmt::format("Invalid shard_id format: {}, error: {}", _shards, e.what());
+        shard_id = -1;
     } catch (std::out_of_range& e) {
         LOG(WARNING) << fmt::format("Shard_id value out of range: {}, error: {}", _shards,
                                     e.what());
+        shard_id = -1;
     }
 
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {

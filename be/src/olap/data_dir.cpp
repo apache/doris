@@ -87,10 +87,10 @@ Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) 
             DCHECK_EQ(fsize, bytes_read);
             try {
                 *cluster_id = std::stoi(content);
-            } catch (std::invalid_argument&) {
-                LOG(WARNING) << "Invalid cluster_id value: " << content;
-            } catch (std::out_of_range&) {
-                LOG(WARNING) << "cluster_id value out of range: " << content;
+            } catch (std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid cluster_id value, error: {} " << e.what();
+            } catch (std::out_of_range& e) {
+                LOG(WARNING) << "cluster_id value out of range, error: {} " << e.what();
             }
         }
     }
