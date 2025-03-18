@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter.h"
@@ -117,6 +119,7 @@ public:
     }
 
     bool set_state(State state) {
+        std::unique_lock<std::mutex> l(_mtx);
         if (_rf_state == State::PUBLISHED ||
             (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
             return false;
@@ -164,6 +167,7 @@ private:
 
     std::atomic<State> _rf_state;
     std::unique_ptr<RuntimeProfile> _profile;
+    std::mutex _mtx;
 };
 
 } // namespace doris

@@ -90,9 +90,10 @@ public:
         if (_state == State::DISABLED) {
             return;
         } else if (state == State::DISABLED) {
-            _disabled_reason = reason;
+            _reason = reason;
         }
         _state = state;
+        _reason = reason;
     }
     State get_state() const { return _state; }
     void check_state(std::vector<State> assumed_states) const {
@@ -136,7 +137,7 @@ private:
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
-    std::string _disabled_reason;
+    std::string _reason;
 };
 
 } // namespace doris
