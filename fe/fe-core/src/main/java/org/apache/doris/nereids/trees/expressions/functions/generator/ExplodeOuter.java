@@ -37,9 +37,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * explode_outer([1, 2, 3]), generate three lines include 1, 2 and 3.
- * explode_outer([1, 2, 3], [4, 5, 6]), generate two column and three lines with:
- * the one column is 1, 2, 3 and the two column is 4, 5, 6.
+ * explode_outer([1, 2, 3]), generate three rows include 1, 2 and 3.
+ * explode_outer([1, 2, 3], [4, 5, 6]) generates two columns and three rows
+ * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
 public class ExplodeOuter extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
 
@@ -62,7 +62,7 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (Expression child : children) {
-            if (!child.getDataType().isNullType() && !(child.getDataType() instanceof ArrayType)) {
+            if (!child.isNullLiteral() && !(child.getDataType() instanceof ArrayType)) {
                 throw new AnalysisException("only support array type for explode_outer function but got "
                     + child.getDataType());
             }
@@ -79,7 +79,7 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < children.size(); i++) {
-            if (children.get(i).getDataType().isNullType()) {
+            if (children.get(i).isNullLiteral()) {
                 arguments.add(ArrayType.of(NullType.INSTANCE));
                 structFields.add(
                     new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));

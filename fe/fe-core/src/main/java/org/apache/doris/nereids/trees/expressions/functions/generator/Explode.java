@@ -37,9 +37,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * explode([1, 2, 3]), generate three lines include 1, 2 and 3.
- * explode([1, 2, 3], [4, 5, 6]), generate two column and three lines with:
- * the one column is 1, 2, 3 and the two column is 4, 5, 6.
+ * explode([1, 2, 3]), generate three rows include 1, 2 and 3.
+ * explode([1, 2, 3], [4, 5, 6]) generates two columns and three rows
+ * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
 public class Explode extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
 
