@@ -23,9 +23,12 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.base.Preconditions;
@@ -37,8 +40,11 @@ import java.util.List;
 public class FormatRound extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(StringType.INSTANCE).args(BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(LargeIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(StringType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).args(DecimalV3Type.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(StringType.INSTANCE).args(DecimalV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE));
 
     /**
      * constructor with 2 or more arguments.
