@@ -41,6 +41,7 @@ import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
+import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -59,6 +60,7 @@ import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.apache.hadoop.fs.FileSystem
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -104,6 +106,7 @@ class Suite implements GroovyInterceptable {
     static Boolean isTrinoConnectorDownloaded = false
 
     private AmazonS3 s3Client = null
+    private FileSystem fs = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -757,6 +760,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    void flightRecord(Closure actionSupplier) {
+        runAction(new FlightRecordAction(context), actionSupplier)
+    }
+
     void profile(String tag, Closure<String> actionSupplier) {
         runAction(new ProfileAction(context, tag), actionSupplier)
     }
@@ -918,6 +925,16 @@ class Suite implements GroovyInterceptable {
     boolean enableHdfs() {
         String enableHdfs = context.config.otherConfigs.get("enableHdfs");
         return enableHdfs.equals("true");
+    }
+
+    synchronized FileSystem getHdfs() {
+        if (fs == null) {
+            String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+            String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+            Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, context.config.dataPath + "/")
+            fs = hdfs.fs
+        }
+        return fs
     }
 
     String uploadToHdfs(String localFile) {
@@ -2958,7 +2975,7 @@ class Suite implements GroovyInterceptable {
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
             sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
-            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
+            sshExec("root", be_ip, "mkdir -p ${udf_file_dir}", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }

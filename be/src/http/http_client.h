@@ -157,6 +157,10 @@ public:
     // execute remote call action
     Status execute(const std::function<bool(const void* data, size_t length)>& callback = {});
 
+    // execute remote call action with retry, like execute_with_retry but keep the http client instance
+    Status execute(int retry_times, int sleep_time,
+                   const std::function<Status(HttpClient*)>& callback);
+
     size_t on_response_data(const void* data, size_t length);
 
     // The file name of the variant column with the inverted index contains %
@@ -178,6 +182,7 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
+    HttpMethod _method = GET;
 };
 
 } // namespace doris

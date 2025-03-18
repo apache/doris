@@ -63,6 +63,7 @@
 #include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/local_merge_sort_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -764,9 +765,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
 
     // 2. Create and initialize LocalExchangeSharedState.
     std::shared_ptr<LocalExchangeSharedState> shared_state =
-            data_distribution.distribution_type == ExchangeType::LOCAL_MERGE_SORT
-                    ? LocalMergeExchangeSharedState::create_shared(_num_instances)
-                    : LocalExchangeSharedState::create_shared(_num_instances);
+            LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -819,25 +818,6 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                             : 0);
         }
         break;
-    case ExchangeType::LOCAL_MERGE_SORT: {
-        auto child_op = cur_pipe->sink()->child();
-        auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(child_op);
-        if (!sort_source) {
-            return Status::InternalError(
-                    "LOCAL_MERGE_SORT must use in SortSourceOperatorX , but now is {} ",
-                    child_op->get_name());
-        }
-        shared_state->exchanger = LocalMergeSortExchanger::create_unique(
-                LocalMergeSortExchanger::MergeInfo {
-                        sort_source->_is_asc_order, sort_source->_nulls_first, sort_source->_limit,
-                        sort_source->_offset, sort_source->_vsort_exec_exprs.ordering_expr_ctxs()},
-                cur_pipe->num_tasks(), _num_instances,
-                _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? cast_set<int>(
-                                  _runtime_state->query_options().local_exchange_free_blocks_limit)
-                        : 0);
-        break;
-    }
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances,
@@ -1513,8 +1493,12 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::SORT_NODE: {
         const auto should_spill = _runtime_state->enable_spill() &&
                                   tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
+        const bool use_local_merge =
+                tnode.sort_node.__isset.use_local_merge && tnode.sort_node.use_local_merge;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        } else if (use_local_merge) {
+            op.reset(new LocalMergeSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else {
             op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         }
@@ -1786,8 +1770,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
@@ -1811,6 +1794,8 @@ Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
+    // Load will set _is_report_success to true because load wants to know
+    // the process.
     if (!_is_report_success && done && exec_status.ok()) {
         return Status::NeedSendAgain("");
     }
@@ -1819,6 +1804,8 @@ Status PipelineFragmentContext::send_report(bool done) {
     // which means no matter query is success or failed, no report is needed.
     // This may happen when the query limit reached and
     // a internal cancellation being processed
+    // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
+    // be set to false, to avoid sending fault report to FE.
     if (!_is_report_success && !_is_report_on_cancel) {
         return Status::NeedSendAgain("");
     }

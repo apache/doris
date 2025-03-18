@@ -194,6 +194,24 @@ suite("view_p0") {
     sql """Alter VIEW `test_view_table2_view` MODIFY COMMENT "";"""
     qt_comment_empty """show create table test_view_table2_view"""
 
+    sql "ALTER VIEW test_view_table2_view as select c_date from test_view_table2"
+    qt_desc_view_1 "DESC test_view_table2_view"
+
+    sql "ALTER VIEW test_view_table2_view(C_DatE) as select c_date from test_view_table2"
+    qt_desc_view_2 "DESC test_view_table2_view"
+
+    sql """DROP VIEW IF EXISTS test_view_table2_view"""
+    sql """CREATE VIEW `test_view_table2_view` (c_dATE)
+            AS
+            SELECT 
+                date_format(c_date,'%Y-%m-%d') AS `CREATE_DATE`
+            FROM 
+                test_view_table2
+            GROUP BY  
+                date_format(c_date, '%Y-%m-%d');
+    """
+    qt_desc_view_3 "DESC test_view_table2_view"
+
     sql """ drop view if exists test_view_table2_view;"""
     sql """DROP TABLE IF EXISTS test_view_table2"""
 }

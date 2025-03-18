@@ -639,6 +639,8 @@ void RleEncoder<T>::Clear() {
 // error is encountered then it is not valid to read any more data until
 // Reset() is called.
 
+//bit-packed-run-len and rle-run-len must be in the range [1, 2^31 - 1].
+// This means that a Parquet implementation can always store the run length in a signed 32-bit integer.
 template <typename T>
 class RleBatchDecoder {
 public:
@@ -674,7 +676,7 @@ public:
 
     // Consume 'num_values_to_consume' values and copy them to 'values'.
     // Returns the number of consumed values or 0 if an error occurred.
-    int32_t GetBatch(T* values, int32_t batch_num);
+    uint32_t GetBatch(T* values, uint32_t batch_num);
 
 private:
     // Called when both 'literal_count_' and 'repeat_count_' have been exhausted.
@@ -834,11 +836,11 @@ bool RleBatchDecoder<T>::FillLiteralBuffer() {
 }
 
 template <typename T>
-int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
-    int32_t num_consumed = 0;
+uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
+    uint32_t num_consumed = 0;
     while (num_consumed < batch_num) {
         // Add RLE encoded values by repeating the current value this number of times.
-        int32_t num_repeats = NextNumRepeats();
+        uint32_t num_repeats = NextNumRepeats();
         if (num_repeats > 0) {
             int32_t num_repeats_to_set = std::min(num_repeats, batch_num - num_consumed);
             T repeated_value = GetRepeatedValue(num_repeats_to_set);
@@ -850,11 +852,11 @@ int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
         }
 
         // Add remaining literal values, if any.
-        int32_t num_literals = NextNumLiterals();
+        uint32_t num_literals = NextNumLiterals();
         if (num_literals == 0) {
             break;
         }
-        int32_t num_literals_to_set = std::min(num_literals, batch_num - num_consumed);
+        uint32_t num_literals_to_set = std::min(num_literals, batch_num - num_consumed);
         if (!GetLiteralValues(num_literals_to_set, values + num_consumed)) {
             return 0;
         }

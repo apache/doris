@@ -188,7 +188,7 @@ private:
         _written_size += write_size;
         if (_written_size == _file_size) {
             // This file has been downloaded, switch to the next one.
-            switchToNextFile();
+            switch_to_next_file();
         }
 
         return write_size;
@@ -196,7 +196,7 @@ private:
 
     Status finish_inner() {
         if (!_is_reading_header && _written_size == _file_size) {
-            switchToNextFile();
+            switch_to_next_file();
         }
 
         if (_fd >= 0) {
@@ -219,7 +219,7 @@ private:
         return Status::OK();
     }
 
-    void switchToNextFile() {
+    void switch_to_next_file() {
         DCHECK(_fd >= 0);
         DCHECK(_written_size == _file_size);
 
@@ -361,6 +361,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
 }
 
 void HttpClient::set_method(HttpMethod method) {
+    _method = method;
     switch (method) {
     case GET:
         curl_easy_setopt(_curl, CURLOPT_HTTPGET, 1L);
@@ -414,6 +415,9 @@ Status HttpClient::execute_delete_request(const std::string& payload, std::strin
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url();
+    }
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
@@ -422,6 +426,10 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
                      << ", trace=" << get_stack_trace() << ", url=" << url;
         std::string errmsg = fmt::format("{}, url={}", _to_errmsg(code), url);
         return Status::HttpError(std::move(errmsg));
+    }
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << "execute http " << to_method_desc(_method) << " request, url " << _get_url()
+                   << " done";
     }
     return Status::OK();
 }
@@ -511,6 +519,29 @@ const char* HttpClient::_get_url() const {
         url = "<unknown>";
     }
     return url;
+}
+
+// execute remote call action with retry
+Status HttpClient::execute(int retry_times, int sleep_time,
+                           const std::function<Status(HttpClient*)>& callback) {
+    Status status;
+    for (int i = 0; i < retry_times; ++i) {
+        status = callback(this);
+        if (status.ok()) {
+            auto http_status = get_http_status();
+            if (http_status == 200) {
+                return status;
+            } else {
+                std::string url = mask_token(_get_url());
+                auto error_msg = fmt::format("http status code is not 200, code={}, url={}",
+                                             http_status, url);
+                LOG(WARNING) << error_msg;
+                return Status::HttpError(error_msg);
+            }
+        }
+        sleep(sleep_time);
+    }
+    return status;
 }
 
 Status HttpClient::execute_with_retry(int retry_times, int sleep_time,

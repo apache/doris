@@ -48,6 +48,7 @@ struct TypeDescriptor {
 
     /// Only set if type == TYPE_DECIMAL
     int precision;
+    /// Only set if type == TYPE_DECIMAL or type = TYPE_DATETIMEV2
     int scale;
 
     std::vector<TypeDescriptor> children;
@@ -69,11 +70,11 @@ struct TypeDescriptor {
 
     // explicit TypeDescriptor(PrimitiveType type) :
     TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
+        // TODO, should not initialize default values, force initialization by parameters or external.
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
-            precision = 18;
             scale = 6;
         }
     }
@@ -168,20 +169,14 @@ struct TypeDescriptor {
         return result;
     }
 
+    template <PrimitiveType o>
+    bool is() const {
+        return this->type == o;
+    }
+
     bool operator==(const TypeDescriptor& o) const {
-        if (type != o.type) {
-            return false;
-        }
-        if (children != o.children) {
-            return false;
-        }
-        if (type == TYPE_CHAR) {
-            return len == o.len;
-        }
-        if (type == TYPE_DECIMALV2) {
-            return precision == o.precision && scale == o.scale;
-        }
-        return true;
+        return type == o.type && len == o.len && precision == o.precision && scale == o.scale &&
+               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls;
     }
 
     bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }

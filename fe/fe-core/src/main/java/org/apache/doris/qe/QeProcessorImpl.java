@@ -75,8 +75,12 @@ public final class QeProcessorImpl implements QeProcessor {
     private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
         if (executionProfile == null) {
-            LOG.warn("Could not find execution profile, query {} be {}",
-                                DebugUtil.printId(profile.query_id), address.toString());
+            // When auto_profile_threshold_ms is not -1, this branch will be very common.
+            // So this log is set to debug level.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Could not find execution profile, query {} be {}",
+                        DebugUtil.printId(profile.query_id), address.toString());
+            }
             return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
                     + DebugUtil.printId(profile.query_id));
         }

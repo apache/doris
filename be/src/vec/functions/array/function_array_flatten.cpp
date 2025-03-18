@@ -59,6 +59,10 @@ public:
                 assert_cast<ColumnArray*>(remove_nullable(src_column)->assume_mutable().get());
         ColumnArray* nested_src_column_array_ptr = src_column_array_ptr;
 
+        DataTypePtr src_data_type = block.get_by_position(arguments[0]).type;
+        auto* src_data_type_array =
+                assert_cast<const DataTypeArray*>(remove_nullable(src_data_type).get());
+
         auto result_column_offsets =
                 assert_cast<ColumnArray::ColumnOffsets&>(src_column_array_ptr->get_offsets_column())
                         .clone();
@@ -66,7 +70,7 @@ public:
                                 ->get_data()
                                 .data();
 
-        while (src_column_array_ptr->get_data_ptr()->is_column_array()) {
+        while (WhichDataType(remove_nullable(src_data_type_array->get_nested_type())).is_array()) {
             nested_src_column_array_ptr = assert_cast<ColumnArray*>(
                     remove_nullable(src_column_array_ptr->get_data_ptr())->assume_mutable().get());
 
@@ -74,6 +78,8 @@ public:
                 offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
             }
             src_column_array_ptr = nested_src_column_array_ptr;
+            src_data_type_array = assert_cast<const DataTypeArray*>(
+                    remove_nullable(src_data_type_array->get_nested_type()).get());
         }
 
         block.replace_by_position(

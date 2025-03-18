@@ -390,6 +390,88 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
+
+TEST_F(InvertedIndexFileWriterTest, PrepareFileMetadataTest) {
+    auto mock_dir = std::make_shared<MockDorisFSDirectoryFileLength>();
+    std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
+            _seg_id, 1, "suffix1");
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
+    mock_dir->init(_fs, local_fs_index_path.c_str());
+
+    std::vector<std::string> files = {"segments_N",  "segments.gen", "0.fnm", "0.tii",
+                                      "null_bitmap", "1.fnm",        "1.tii"};
+    for (auto& file : files) {
+        auto out_file_1 =
+                std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
+        out_file_1->writeString("test1");
+        out_file_1->close();
+    }
+
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments_N")))
+            .WillOnce(testing::Return(1000));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments.gen")))
+            .WillOnce(testing::Return(1200));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.fnm"))).WillOnce(testing::Return(2000));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.tii"))).WillOnce(testing::Return(1500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("null_bitmap")))
+            .WillOnce(testing::Return(500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.fnm"))).WillOnce(testing::Return(2500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.tii"))).WillOnce(testing::Return(2200));
+
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+    auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
+    if (!st.ok()) {
+        std::cerr << "_insert_directory_into_map error in PrepareFileMetadataTest: " << st.msg()
+                  << std::endl;
+        ASSERT_TRUE(false);
+        return;
+    }
+
+    int64_t current_offset = 0;
+
+    std::vector<InvertedIndexFileWriter::FileMetadata> file_metadata =
+            writer.prepare_file_metadata(current_offset);
+
+    ASSERT_EQ(file_metadata.size(), 7); // Adjusted size after adding new files
+
+    std::vector<std::string> expected_files = {"null_bitmap", "segments.gen", "segments_N", "0.fnm",
+                                               "1.fnm",       "0.tii",        "1.tii"};
+    std::vector<int64_t> expected_sizes = {500, 1200, 1000, 2000, 2500, 1500, 2200};
+
+    int64_t tmp_current_offset = 0;
+    for (size_t i = 0; i < file_metadata.size(); ++i) {
+        EXPECT_EQ(file_metadata[i].filename, expected_files[i]);
+        EXPECT_EQ(file_metadata[i].length, expected_sizes[i]);
+        if (i == 0) {
+            EXPECT_EQ(file_metadata[i].offset, 0);
+        } else {
+            EXPECT_EQ(file_metadata[i].offset, tmp_current_offset);
+        }
+        tmp_current_offset += file_metadata[i].length;
+    }
+    EXPECT_EQ(current_offset, tmp_current_offset);
+
+    bool is_meta_file_first = true;
+    for (const auto& metadata : file_metadata) {
+        bool is_meta = false;
+        for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+            if (metadata.filename.find(entry.first) != std::string::npos) {
+                is_meta = true;
+                break;
+            }
+        }
+        if (is_meta_file_first && !is_meta) {
+            is_meta_file_first = false;
+        } else if (!is_meta_file_first && is_meta) {
+            FAIL() << "Meta files should appear before normal files in the metadata.";
+        }
+    }
+}
+
 /*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
     auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(

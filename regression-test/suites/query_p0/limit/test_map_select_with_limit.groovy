@@ -38,7 +38,7 @@ suite("test_map_select_with_limit", "query") {
         """
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
-    sql """ set topn_filter_ratio = 1 """
+    sql """ set topn_filter_ratio = 2 """
     explain{
         sql("select * from test_map_select_with_limit order by k1 limit 1")
         contains "TOPN"

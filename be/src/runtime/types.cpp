@@ -27,10 +27,12 @@
 #include <ostream>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "olap/olap_define.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         : len(-1), precision(-1), scale(-1) {
@@ -46,10 +48,13 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             DCHECK(scalar_type.__isset.len);
             len = scalar_type.len;
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256) {
             DCHECK(scalar_type.__isset.precision);
             DCHECK(scalar_type.__isset.scale);
             precision = scalar_type.precision;
+            scale = scalar_type.scale;
+        } else if (type == TYPE_DATETIMEV2) {
+            DCHECK(scalar_type.__isset.scale);
             scale = scalar_type.scale;
         } else if (type == TYPE_TIMEV2) {
             if (scalar_type.__isset.scale) {
@@ -157,10 +162,13 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             // DCHECK_NE(len, -1);
             scalar_type.__set_len(len);
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256) {
             DCHECK_NE(precision, -1);
             DCHECK_NE(scale, -1);
             scalar_type.__set_precision(precision);
+            scalar_type.__set_scale(scale);
+        } else if (type == TYPE_DATETIMEV2) {
+            DCHECK_NE(scale, -1);
             scalar_type.__set_scale(scale);
         }
     }
@@ -174,10 +182,13 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_STRING) {
         scalar_type->set_len(len);
     } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-               type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
+               type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256) {
         DCHECK_NE(precision, -1);
         DCHECK_NE(scale, -1);
         scalar_type->set_precision(precision);
+        scalar_type->set_scale(scale);
+    } else if (type == TYPE_DATETIMEV2) {
+        DCHECK_NE(scale, -1);
         scalar_type->set_scale(scale);
     } else if (type == TYPE_ARRAY) {
         node->set_type(TTypeNodeType::ARRAY);
@@ -224,10 +235,13 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
             DCHECK(scalar_type.has_len());
             len = scalar_type.len();
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256) {
             DCHECK(scalar_type.has_precision());
             DCHECK(scalar_type.has_scale());
             precision = scalar_type.precision();
+            scale = scalar_type.scale();
+        } else if (type == TYPE_DATETIMEV2) {
+            DCHECK(scalar_type.has_scale());
             scale = scalar_type.scale();
         } else if (type == TYPE_STRING) {
             if (scalar_type.has_len()) {
@@ -262,8 +276,8 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
-        size_t children_size = node.struct_fields_size();
-        for (size_t i = 0; i < children_size; ++i) {
+        int children_size = cast_set<int>(node.struct_fields_size());
+        for (int i = 0; i < children_size; ++i) {
             const auto& field = node.struct_fields(i);
             field_names.push_back(field.name());
             contains_nulls.push_back(field.contains_null());
@@ -362,4 +376,5 @@ TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale) {
     type_desc.__set_types(node_type);
     return type_desc;
 }
+#include "common/compile_check_end.h"
 } // namespace doris

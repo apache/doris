@@ -100,7 +100,7 @@ private:
     friend class Tablet;
     friend class TabletSchema;
 
-    const SlotId _id;
+    MOCK_REMOVE(const) SlotId _id;
     const TypeDescriptor _type;
     const TupleId _parent;
     const int _col_pos;

@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -55,17 +56,20 @@ public class ReplacePartitionOperationLog implements Writable {
     private long versionTime = 0L;
     @SerializedName(value = "force")
     private boolean force = false;
+    @SerializedName(value = "partitionIds")
+    private List<Long> replacedPartitionIds;
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
-                                        List<String> partitionNames,
-                                        List<String> tempPartitonNames, boolean strictRange,
-                                        boolean useTempPartitionName, long version, long versionTime, boolean force) {
+            List<String> partitionNames,
+            List<String> tempPartitonNames, List<Long> replacedPartitionIds, boolean strictRange,
+            boolean useTempPartitionName, long version, long versionTime, boolean force) {
         this.dbId = dbId;
         this.dbName = dbName;
         this.tblId = tblId;
         this.tblName = tblName;
         this.partitions = partitionNames;
         this.tempPartitions = tempPartitonNames;
+        this.replacedPartitionIds = replacedPartitionIds;
         this.strictRange = strictRange;
         this.useTempPartitionName = useTempPartitionName;
         this.version = version;
@@ -83,6 +87,10 @@ public class ReplacePartitionOperationLog implements Writable {
 
     public List<String> getPartitions() {
         return partitions;
+    }
+
+    public List<Long> getReplacedPartitionIds() {
+        return replacedPartitionIds == null ? Lists.newArrayList() : replacedPartitionIds;
     }
 
     public List<String> getTempPartitions() {
@@ -127,5 +135,9 @@ public class ReplacePartitionOperationLog implements Writable {
     @Override
     public String toString() {
         return toJson();
+    }
+
+    public static RecoverInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, RecoverInfo.class);
     }
 }

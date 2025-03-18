@@ -148,8 +148,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
     @Override
@@ -253,7 +251,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     partitionColumns.add(column);
                 }
             }
-            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns));
+            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
         } catch (Exception e) {
             throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
                     null, getCatalog().getName(), key.getDbName(), key.getTblName(),

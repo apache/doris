@@ -177,7 +177,7 @@ public:
     static JsonbDocument* makeDocument(char* pb, uint32_t size, const JsonbValue* rval);
 
     // create an JsonbDocument object from JSONB packed bytes
-    static JsonbDocument* createDocument(const char* pb, size_t size);
+    static JsonbDocument* checkAndCreateDocument(const char* pb, size_t size);
 
     // create an JsonbValue from JSONB packed bytes
     static JsonbValue* createValue(const char* pb, size_t size);
@@ -1138,7 +1138,7 @@ inline JsonbDocument* JsonbDocument::makeDocument(char* pb, uint32_t size, const
     return doc;
 }
 
-inline JsonbDocument* JsonbDocument::createDocument(const char* pb, size_t size) {
+inline JsonbDocument* JsonbDocument::checkAndCreateDocument(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
     }

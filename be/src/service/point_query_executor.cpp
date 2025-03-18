@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/key_util.h"
@@ -63,6 +64,19 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
+public:
+    PointQueryResultBlockBuffer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
+    ~PointQueryResultBlockBuffer() override = default;
+    std::shared_ptr<TFetchDataResult> get_block() {
+        std::lock_guard<std::mutex> l(_lock);
+        DCHECK_EQ(_result_batch_queue.size(), 1);
+        auto result = std::move(_result_batch_queue.front());
+        _result_batch_queue.pop_front();
+        return result;
+    }
+};
 
 Reusable::~Reusable() = default;
 
@@ -540,16 +554,11 @@ Status PointQueryExecutor::_lookup_row_data() {
     return Status::OK();
 }
 
-template <typename MysqlWriter>
-Status serialize_block(RuntimeState* state, MysqlWriter& mysql_writer, vectorized::Block& block,
-                       PTabletKeyLookupResponse* response) {
-    block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.write(state, block));
-    assert(mysql_writer.results().size() == 1);
+Status serialize_block(std::shared_ptr<TFetchDataResult> res, PTabletKeyLookupResponse* response) {
     uint8_t* buf = nullptr;
     uint32_t len = 0;
     ThriftSerializer ser(false, 4096);
-    RETURN_IF_ERROR(ser.serialize(&(mysql_writer.results()[0])->result_batch, &len, &buf));
+    RETURN_IF_ERROR(ser.serialize(&(res->result_batch), &len, &buf));
     response->set_row_batch(std::string((const char*)buf, len));
     return Status::OK();
 }
@@ -558,19 +567,23 @@ Status PointQueryExecutor::_output_data() {
     // 4. exprs exec and serialize to mysql row batches
     SCOPED_TIMER(&_profile_metrics.output_data_ns);
     if (_result_block->rows()) {
+        RuntimeState state;
+        auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
         if (_binary_row_format) {
-            vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<true> mysql_writer(buffer, _reusable->output_exprs(),
                                                               nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         } else {
-            vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<false> mysql_writer(buffer, _reusable->output_exprs(),
                                                                nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {

@@ -103,7 +103,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
             + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
             + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
-            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, MAX_MIN_FILTER_PUSH_DOWN, "
+            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
             + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
             + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
             + "ELIMINATE_FILTER_GROUP_BY_KEY";
@@ -250,6 +250,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ValidateContext validateContext) {
             OlapTable olapTable = olapScan.getTable();
+            if (olapTable.isTemporary()) {
+                throw new AnalysisException("do not support create materialized view on temporary table");
+            }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();

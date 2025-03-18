@@ -658,6 +658,26 @@ public class Util {
         return rootCause;
     }
 
+    public static String getRootCauseWithSuppressedMessage(Throwable t) {
+        String rootCause;
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+        }
+        StringBuilder msg = new StringBuilder(rootCause);
+        Throwable[] suppressed = p.getSuppressed();
+        for (int i = 0; i < suppressed.length; i++) {
+            msg.append(" With suppressed").append("[").append(i).append("]:").append(suppressed[i].getMessage());
+        }
+        return msg.toString();
+    }
+
     // Return the stack of the root cause
     public static String getRootCauseStack(Throwable t) {
         String rootStack = "unknown";
@@ -689,5 +709,33 @@ public class Util {
     // And the db/table's id must >=0, see DescriptorTable.toThrift()
     public static long genIdByName(String... names) {
         return Math.abs(sha256long(String.join(".", names)));
+    }
+
+    public static String generateTempTableInnerName(String tableName) {
+        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+            return tableName;
+        }
+
+        ConnectContext ctx = ConnectContext.get();
+        // when replay edit log, no need to generate temp table name
+        return ctx == null ? tableName : ctx.getSessionId() + FeNameFormat.TEMPORARY_TABLE_SIGN + tableName;
+    }
+
+    public static String getTempTableDisplayName(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[1] : tableName;
+    }
+
+    public static String getTempTableSessionId(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[0] : "";
+    }
+
+    public static boolean isTempTable(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1;
+    }
+
+    public static boolean isTempTableInCurrentSession(String tableName) {
+        return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
     }
 }

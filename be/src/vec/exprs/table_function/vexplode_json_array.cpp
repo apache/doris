@@ -61,7 +61,7 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
         if (WhichDataType(_text_datatype).is_json()) {
-            JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
+            JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(text.data, text.size);
             if (doc && doc->getValue() && doc->getValue()->isArray()) {
                 auto* a = (ArrayVal*)doc->getValue();
                 if (a->numElem() > 0) {

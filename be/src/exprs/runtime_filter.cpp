@@ -47,7 +47,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "util/bitmap_value.h"
 #include "util/brpc_client_cache.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"

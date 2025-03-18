@@ -403,12 +403,15 @@ Status DataDir::load() {
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
+    MonotonicStopWatch rs_timer;
+    rs_timer.start();
     Status load_rowset_status = RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
-
+    rs_timer.stop();
     if (!load_rowset_status) {
         LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << _path;
     } else {
-        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+        LOG(INFO) << "load rowset from meta finished, cost: "
+                  << rs_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
     }
 
     // load tablet
@@ -445,7 +448,10 @@ Status DataDir::load() {
         }
         return true;
     };
+    MonotonicStopWatch tablet_timer;
+    tablet_timer.start();
     Status load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
+    tablet_timer.stop();
     if (!failed_tablet_ids.empty()) {
         LOG(WARNING) << "load tablets from header failed"
                      << ", loaded tablet: " << tablet_ids.size()
@@ -462,7 +468,9 @@ Status DataDir::load() {
     } else {
         LOG(INFO) << "load tablet from meta finished"
                   << ", loaded tablet: " << tablet_ids.size()
-                  << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
+                  << ", error tablet: " << failed_tablet_ids.size()
+                  << ", cost: " << tablet_timer.elapsed_time_milliseconds()
+                  << " ms, path: " << _path;
     }
 
     for (int64_t tablet_id : tablet_ids) {
@@ -486,8 +494,13 @@ Status DataDir::load() {
                                               pending_publish_info_pb.transaction_id(), true);
                 return true;
             };
+    MonotonicStopWatch pending_publish_timer;
+    pending_publish_timer.start();
     RETURN_IF_ERROR(
             TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
+    pending_publish_timer.stop();
+    LOG(INFO) << "load pending publish task from meta finished, cost: "
+              << pending_publish_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
 
     int64_t rowset_partition_id_eq_0_num = 0;
     for (auto rowset_meta : dir_rowset_metas) {
@@ -590,8 +603,11 @@ Status DataDir::load() {
         }
     }
 
-    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version,
-                                          std::string_view val) {
+    int64_t dbm_cnt {0};
+    int64_t unknown_dbm_cnt {0};
+    auto load_delete_bitmap_func = [this, &dbm_cnt, &unknown_dbm_cnt](int64_t tablet_id,
+                                                                      int64_t version,
+                                                                      std::string_view val) {
         TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             return true;
@@ -614,8 +630,10 @@ Status DataDir::load() {
             rst_id.init(delete_bitmap_pb.rowset_ids(i));
             // only process the rowset in _rs_metas
             if (rowset_ids.find(rst_id) == rowset_ids.end()) {
+                ++unknown_dbm_cnt;
                 continue;
             }
+            ++dbm_cnt;
             auto seg_id = delete_bitmap_pb.segment_ids(i);
             auto iter = tablet->tablet_meta()->delete_bitmap().delete_bitmap.find(
                     {rst_id, seg_id, version});
@@ -629,14 +647,22 @@ Status DataDir::load() {
         }
         return true;
     };
+    MonotonicStopWatch dbm_timer;
+    dbm_timer.start();
     RETURN_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func));
+    dbm_timer.stop();
+
+    LOG(INFO) << "load delete bitmap from meta finished, cost: "
+              << dbm_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
 
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
     LOG(INFO) << "finish to load tablets from " << _path
               << ", total rowset meta: " << dir_rowset_metas.size()
-              << ", invalid rowset num: " << invalid_rowset_counter;
+              << ", invalid rowset num: " << invalid_rowset_counter
+              << ", visible/stale rowsets' delete bitmap count: " << dbm_cnt
+              << ", invalid rowsets' delete bitmap count: " << unknown_dbm_cnt;
 
     return Status::OK();
 }

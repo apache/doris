@@ -73,11 +73,11 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
 }
 
 bool is_column_nullable(const IColumn& column) {
-    return check_column<ColumnNullable>(column);
+    return is_column<ColumnNullable>(column);
 }
 
 bool is_column_const(const IColumn& column) {
-    return check_column<ColumnConst>(column);
+    return is_column<ColumnConst>(column);
 }
 
 } // namespace doris::vectorized

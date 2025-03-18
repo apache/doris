@@ -315,6 +315,16 @@ public class StageTest extends TestWithFeService {
         Assert.assertEquals("csv", propertiesMap.get("default.file.type"));
     }
 
+    @Test
+    public void testCreateStageTrimPropertyKey() throws Exception {
+        String sql = CREATE_STAGE_SQL + ", ' default.file.type' = 'csv', ' default.file.compression '='gz')";
+        Assert.assertEquals("csv", parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals("gz", parseAndAnalyze(sql).getStageProperties().getCompression());
+
+        sql = CREATE_STAGE_SQL + ", 'default.file. type' = 'orc')";
+        parseAndAnalyzeWithException(sql, "Property 'default.file. type' is invalid");
+    }
+
     private void parseAndAnalyzeWithException(String sql, String errorMsg) {
         do {
             try {
