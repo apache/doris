@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.CollectRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
@@ -30,7 +31,7 @@ import java.util.List;
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
  * TODO: revisit the interface after subquery analysis is supported.
  */
-public class TableCollector extends AbstractBatchJobExecutor {
+public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> COLLECT_JOBS = buildCollectTableJobs();
 
@@ -39,7 +40,7 @@ public class TableCollector extends AbstractBatchJobExecutor {
      *
      * @param cascadesContext current context for analyzer
      */
-    public TableCollector(CascadesContext cascadesContext) {
+    public TableCollectAndHookInitializer(CascadesContext cascadesContext) {
         super(cascadesContext);
 
     }
@@ -59,12 +60,13 @@ public class TableCollector extends AbstractBatchJobExecutor {
     private static List<RewriteJob> buildCollectTableJobs() {
         return notTraverseChildrenOf(
                 ImmutableSet.of(LogicalView.class),
-                TableCollector::buildCollectorJobs
+                TableCollectAndHookInitializer::buildCollectorJobs
         );
     }
 
     private static List<RewriteJob> buildCollectorJobs() {
         return jobs(
+                topDown(new AddInitMaterializationHook()),
                 topDown(new CollectRelation())
         );
     }
