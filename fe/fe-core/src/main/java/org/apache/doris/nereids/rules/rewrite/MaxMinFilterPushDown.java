@@ -65,7 +65,7 @@ public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalAggregate().whenNot(agg -> agg.getGroupByExpressions().isEmpty()))
                 .then(this::pushDownMaxMinFilter)
-                .toRule(RuleType.MAX_MIN_FILTER_PUSH_DOWN);
+                .toRule(RuleType.PUSH_DOWN_MAX_MIN_FILTER);
     }
 
     private Plan pushDownMaxMinFilter(LogicalFilter<LogicalAggregate<Plan>> filter) {

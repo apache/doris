@@ -119,6 +119,7 @@ public:
     }
 
     void insert(const Field& x) override {
+        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
         insert_data(vectorized::get<const String&>(x).data(), _item_size);
     }
 
