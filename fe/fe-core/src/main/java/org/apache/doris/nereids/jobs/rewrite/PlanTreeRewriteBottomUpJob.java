@@ -123,32 +123,11 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
 
     private void pushChildrenJobs(Plan plan) {
         List<Plan> children = plan.children();
-        switch (children.size()) {
-            case 0: return;
-            case 1:
-                Plan child = children.get(0);
-                RewriteJobContext childRewriteJobContext = new RewriteJobContext(
-                        child, rewriteJobContext, 0, false, batchId);
-                pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, isTraverseChildren, rules));
-                return;
-            case 2:
-                Plan right = children.get(1);
-                RewriteJobContext rightRewriteJobContext = new RewriteJobContext(
-                        right, rewriteJobContext, 1, false, batchId);
-                pushJob(new PlanTreeRewriteBottomUpJob(rightRewriteJobContext, context, isTraverseChildren, rules));
-
-                Plan left = children.get(0);
-                RewriteJobContext leftRewriteJobContext = new RewriteJobContext(
-                        left, rewriteJobContext, 0, false, batchId);
-                pushJob(new PlanTreeRewriteBottomUpJob(leftRewriteJobContext, context, isTraverseChildren, rules));
-                return;
-            default:
-                for (int i = children.size() - 1; i >= 0; i--) {
-                    child = children.get(i);
-                    childRewriteJobContext = new RewriteJobContext(
-                            child, rewriteJobContext, i, false, batchId);
-                    pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, isTraverseChildren, rules));
-                }
+        for (int i = children.size() - 1; i >= 0; i--) {
+            Plan child = children.get(i);
+            RewriteJobContext childRewriteJobContext = new RewriteJobContext(
+                child, rewriteJobContext, i, false, batchId);
+            pushJob(new PlanTreeRewriteBottomUpJob(childRewriteJobContext, context, isTraverseChildren, rules));
         }
     }
 

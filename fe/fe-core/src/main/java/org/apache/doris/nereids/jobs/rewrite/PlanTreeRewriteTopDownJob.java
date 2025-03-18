@@ -73,28 +73,10 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
 
     private void pushChildrenJobs(RewriteJobContext rewriteJobContext) {
         List<Plan> children = rewriteJobContext.plan.children();
-        switch (children.size()) {
-            case 0: return;
-            case 1:
-                RewriteJobContext childRewriteJobContext = new RewriteJobContext(
-                        children.get(0), rewriteJobContext, 0, false, this.rewriteJobContext.batchId);
-                pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, isTraverseChildren, rules));
-                return;
-            case 2:
-                RewriteJobContext rightRewriteJobContext = new RewriteJobContext(
-                        children.get(1), rewriteJobContext, 1, false, this.rewriteJobContext.batchId);
-                pushJob(new PlanTreeRewriteTopDownJob(rightRewriteJobContext, context, isTraverseChildren, rules));
-
-                RewriteJobContext leftRewriteJobContext = new RewriteJobContext(
-                        children.get(0), rewriteJobContext, 0, false, this.rewriteJobContext.batchId);
-                pushJob(new PlanTreeRewriteTopDownJob(leftRewriteJobContext, context, isTraverseChildren, rules));
-                return;
-            default:
-                for (int i = children.size() - 1; i >= 0; i--) {
-                    childRewriteJobContext = new RewriteJobContext(
-                            children.get(i), rewriteJobContext, i, false, this.rewriteJobContext.batchId);
-                    pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, isTraverseChildren, rules));
-                }
+        for (int i = children.size() - 1; i >= 0; i--) {
+            RewriteJobContext childRewriteJobContext = new RewriteJobContext(
+                children.get(i), rewriteJobContext, i, false, this.rewriteJobContext.batchId);
+            pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, isTraverseChildren, rules));
         }
     }
 }
