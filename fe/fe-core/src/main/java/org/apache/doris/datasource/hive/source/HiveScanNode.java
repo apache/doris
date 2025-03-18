@@ -411,7 +411,8 @@ public class HiveScanNode extends FileQueryScanNode {
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
             String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
             if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)
+                    || serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
             } else {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -481,6 +482,22 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setReadJsonByLine(true);
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
+        } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
+            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+            textParams.setColumnSeparator("\t");
+            textParams.setLineDelimiter("\n");
+            fileAttributes.setTextParams(textParams);
+
+            fileAttributes.setJsonpaths("");
+            fileAttributes.setJsonRoot("");
+            fileAttributes.setNumAsString(true);
+            fileAttributes.setFuzzyParse(false);
+            fileAttributes.setReadJsonByLine(true);
+            fileAttributes.setStripOuterArray(false);
+            fileAttributes.setHeaderType("");
+
+            fileAttributes.setOpenxJsonIgnoreMalformed(
+                    Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
         } else {
             throw new UserException(
                     "unsupported hive table serde: " + serDeLib);
