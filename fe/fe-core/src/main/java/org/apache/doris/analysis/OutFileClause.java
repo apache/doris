@@ -581,7 +581,7 @@ public class OutFileClause {
 
         if (properties.containsKey(PROP_DELETE_EXISTING_FILES)) {
             deleteExistingFiles = Boolean.parseBoolean(properties.get(PROP_DELETE_EXISTING_FILES))
-                    & Config.enable_delete_existing_files;
+                                    & Config.enable_delete_existing_files;
             processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
         }
 

@@ -220,7 +220,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                    "Failed to create repository: " + st.getErrMsg());
+                                           "Failed to create repository: " + st.getErrMsg());
         }
         if (!repo.ping()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -281,14 +281,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
             for (AbstractJob job : getAllCurrentJobs()) {
                 if (!job.isDone() && job.getRepoId() == repo.getId()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Backup or restore job is running on this repository."
-                                    + " Can not drop it");
+                                                   "Backup or restore job is running on this repository."
+                                                           + " Can not drop it");
                 }
             }
+
             Status st = repoMgr.removeRepo(repo.getName(), false /* not replay */);
             if (!st.ok()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Failed to drop repository: " + st.getErrMsg());
+                                               "Failed to drop repository: " + st.getErrMsg());
             }
         } finally {
             seqlock.unlock();
@@ -327,9 +328,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             AbstractJob currentJob = getCurrentJob(db.getId());
             if (currentJob != null && !currentJob.isDone()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Can only run one backup or restore job of a database at same time "
-                                + ", current running: label = " + currentJob.getLabel() + " jobId = "
-                                + currentJob.getJobId() + ", to run label = " + stmt.getLabel());
+                                               "Can only run one backup or restore job of a database at same time "
+                                               + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                                               + currentJob.getJobId() + ", to run label = " + stmt.getLabel());
             }
 
             if (stmt instanceof BackupStmt) {
@@ -418,7 +419,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (tbl.getType() != TableType.OLAP) {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
-                                    + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             tblName, tbl.getType().toString());
                     tblRefsNotSupport.add(tblRef);
                     continue;
@@ -548,11 +549,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                    db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                    stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
-                    stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
-                    stmt.isCleanPartitions(), stmt.isAtomicRestore(),
-                    env, repository.getId());
+                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
+                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
+                stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);
@@ -687,6 +688,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
 
+
     public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
                                                               TableRef tableRef) throws DdlException {
         String tblName = tableRef.getName().getTbl();
@@ -765,7 +767,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         BackupJob restoreJob = (BackupJob) job;
         if (restoreJob.getJobId() != task.getJobId() || restoreJob.getState() != BackupJobState.UPLOADING) {
             LOG.info("invalid upload task: {}, job id: {}, job state: {}",
-                    task, restoreJob.getJobId(), restoreJob.getState().name());
+                     task, restoreJob.getJobId(), restoreJob.getState().name());
             return false;
         }
         return restoreJob.finishSnapshotUploadTask(task, request);

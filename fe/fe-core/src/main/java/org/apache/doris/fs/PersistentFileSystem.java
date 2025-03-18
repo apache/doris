@@ -46,8 +46,8 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
 
     public boolean needFullPath() {
         return type == StorageBackend.StorageType.S3
-                || type == StorageBackend.StorageType.OFS
-                || type == StorageBackend.StorageType.JFS;
+                    || type == StorageBackend.StorageType.OFS
+                    || type == StorageBackend.StorageType.JFS;
     }
 
     public PersistentFileSystem(String name, StorageBackend.StorageType type) {
@@ -68,6 +68,7 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
     }
 
     /**
+     *
      * @param in persisted data
      * @return file systerm
      */

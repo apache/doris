@@ -112,8 +112,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                                                                FileSystem fileSystem, Path locatedPath)
-            throws IOException {
+                FileSystem fileSystem, Path locatedPath) throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -223,7 +222,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-            throws IOException {
+                throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {

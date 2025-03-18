@@ -271,7 +271,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 if (name.compareTo((String) root.get("name")) != 0) {
                     return new Status(ErrCode.COMMON_ERROR,
                             "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
-                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
+                                + (String) root.get("name") + "' from " + repoInfoFilePath);
                 }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
@@ -631,7 +631,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         // 2. download
         status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
-                remoteFiles.get(0).getSize());
+                    remoteFiles.get(0).getSize());
         if (!status.ok()) {
             return status;
         }
