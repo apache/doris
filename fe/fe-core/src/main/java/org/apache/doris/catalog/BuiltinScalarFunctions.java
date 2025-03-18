@@ -319,6 +319,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -812,6 +813,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
             scalar(MonthsAdd.class, "months_add", "add_months"),
+            scalar(MonthsBetween.class, "months_between"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),
