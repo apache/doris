@@ -62,7 +62,7 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (Expression child : children) {
-            if (!child.isNullLiteral() && !(child.getDataType() instanceof ArrayType)) {
+            if (!child.getDataType().isNullType() && !(child.getDataType() instanceof ArrayType)) {
                 throw new AnalysisException("only support array type for explode_outer function but got "
                     + child.getDataType());
             }
@@ -79,7 +79,7 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < children.size(); i++) {
-            if (children.get(i).isNullLiteral()) {
+            if (children.get(i).getDataType().isNullType()) {
                 arguments.add(ArrayType.of(NullType.INSTANCE));
                 structFields.add(
                     new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));
