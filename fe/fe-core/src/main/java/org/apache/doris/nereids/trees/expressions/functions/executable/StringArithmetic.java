@@ -79,8 +79,6 @@ public class StringArithmetic {
     }
 
     private static String substringImpl(String first, int second, int third) {
-        second = first.offsetByCodePoints(0, second);
-        third = first.offsetByCodePoints(0, third);
         int stringLength = first.offsetByCodePoints(0, first.length());
         if (stringLength == 0) {
             return "";
@@ -103,8 +101,11 @@ public class StringArithmetic {
         } else {
             rightIndex = third + leftIndex;
         }
+        // at here leftIndex and rightIndex can not be exceeding boundary
+        int finalLeftIndex = first.offsetByCodePoints(0, (int) leftIndex);
+        int finalRightIndex = first.offsetByCodePoints(0, (int) rightIndex);
         // left index and right index are in integer range because of definition, so we can safely cast it to int
-        return first.substring((int) leftIndex, (int) rightIndex);
+        return first.substring(finalLeftIndex, finalRightIndex);
     }
 
     /**
@@ -812,16 +813,14 @@ public class StringArithmetic {
         if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
             return originStr;
         } else {
-            int indexLeft = originStr.getValue().offsetByCodePoints(0, pos.getValue());
-            int indexRight = originStr.getValue().offsetByCodePoints(0, len.getValue());
-            if (len.getValue() < 0 || len.getValue() > (originStr.getValue().length() - len.getValue())) {
-                sb.append(originStr.getValue().substring(0, indexLeft - 1));
+            if (len.getValue() < 0 || len.getValue() > (totalLength - len.getValue())) {
+                sb.append(substringImpl(originStr.getValue(), 0, pos.getValue()));
                 sb.append(insertStr.getValue());
                 return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(originStr.getValue().substring(0, indexLeft - 1));
+                sb.append(substringImpl(originStr.getValue(), 0, pos.getValue()));
                 sb.append(insertStr.getValue());
-                sb.append(originStr.getValue().substring(indexLeft + indexRight - 1, totalLength));
+                sb.append(substringImpl(originStr.getValue(), pos.getValue() + len.getValue(), totalLength));
                 return castStringLikeLiteral(originStr, sb.toString());
             }
         }

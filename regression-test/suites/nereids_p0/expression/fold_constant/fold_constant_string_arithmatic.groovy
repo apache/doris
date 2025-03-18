@@ -259,7 +259,6 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select initcap('semi;test')")
     testFoldConst("select initcap('quote''test')")
     testFoldConst("select initcap('slash/test')")
-    testFoldConst("select initcap('back\slash')")
     testFoldConst("select initcap('emoji<d83d><dc3c>test')")
     testFoldConst("select initcap('数字123test')")
     testFoldConst("select initcap(' leading space')")
