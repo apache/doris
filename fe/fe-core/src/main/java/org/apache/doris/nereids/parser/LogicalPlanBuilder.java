@@ -3706,12 +3706,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 continue;
                             }
                             StringBuilder parameterName = new StringBuilder();
-                            // 2.如果不为空，则判断是否为shuffle或者broadcast，如果是则继续，否则直接加入到leadingParameters
                             String str = visitIdentifierOrText(kv.key);
                             if (JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(str)) {
                                 parameterName.append(str).append(idx++);
                                 leadingParameters.add(parameterName.toString());
-                                // 判断是shuffle还是broadcast，如果是broadcast则加入到leadingParameters
                                 DistributeHint distributeHint;
                                 if (kv.skew == null) {
                                     distributeHint = new DistributeHint(DistributeType.SHUFFLE_RIGHT);

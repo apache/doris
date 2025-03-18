@@ -101,7 +101,7 @@ public class LeadingHint extends Hint {
         List<String> output = new ArrayList<>();
 
         for (String item : list) {
-            if (item.equals("broadcast") || item.startsWith("shuffle")) {
+            if (item.startsWith("broadcast") || item.startsWith("shuffle")) {
                 output.remove(output.size() - 1);
                 output.add(item);
                 continue;
@@ -130,7 +130,7 @@ public class LeadingHint extends Hint {
         List<String> s2 = new ArrayList<>();
 
         for (String item : list) {
-            if (!(item.startsWith("shuffle") || item.equals("broadcast") || item.equals("{")
+            if (!(item.startsWith("shuffle") || item.startsWith("broadcast") || item.equals("{")
                     || item.equals("}") || item.equals("join"))) {
                 tablelist.add(item);
                 s2.add(item);
@@ -172,7 +172,7 @@ public class LeadingHint extends Hint {
         for (String parameter : addJoinParameters) {
             if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
                 out.append(parameter + " ");
-            } else if (parameter.startsWith("shuffle") || parameter.equals("broadcast")) {
+            } else if (parameter.startsWith("shuffle") || parameter.startsWith("broadcast")) {
                 DistributeHint distributeHint = strToHint.get(parameter);
                 if (distributeHint.isSuccess()) {
                     out.append(distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)
@@ -543,7 +543,7 @@ public class LeadingHint extends Hint {
     public Plan generateLeadingJoinPlan() {
         Stack<LogicalPlan> stack = new Stack<>();
         for (String item : normalizedParameters) {
-            if (item.equals("join") || item.startsWith("shuffle") || item.equals("broadcast")) {
+            if (item.equals("join") || item.startsWith("shuffle") || item.startsWith("broadcast")) {
                 LogicalPlan rightChild = stack.pop();
                 LogicalPlan leftChild = stack.pop();
                 LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);
