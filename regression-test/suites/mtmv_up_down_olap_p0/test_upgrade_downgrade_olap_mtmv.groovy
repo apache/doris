@@ -38,12 +38,58 @@ suite("test_upgrade_downgrade_olap_mtmv","p0,mtmv,restart_fe") {
     String dropMtmvName2 = """${suiteName}_dropMtmvName2"""
     String dropMtmvName3 = """${suiteName}_dropMtmvName3"""
 
+
+    def get_follower_ip = {
+        def result = sql """show frontends;"""
+        logger.info("result:" + result)
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return "null"
+    }
+    def get_master_ip = {
+        def result = sql """show frontends;"""
+        logger.info("result:" + result)
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "true" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return "null"
+    }
+
+    def follower_ip = get_follower_ip()
+    def master_ip = get_master_ip()
+
+    def tokens = context.config.jdbcUrl.split('/')
+    def url_tmp1 = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+    def follower_jdbc_url = url_tmp1.replaceAll(/\/\/[0-9.]+:/, "//${follower_ip}:")
+    logger.info("follower_jdbc_url: " + follower_jdbc_url)
+
+    def master_jdbc_url = url_tmp1.replaceAll(/\/\/[0-9.]+:/, "//${master_ip}:")
+    logger.info("master_jdbc_url: " + master_jdbc_url)
+
+
     // drop table
     sql """drop table if exists ${dropTableName1}"""
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${dropMtmvName1}';"""
     assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv1[0][1] == "SUCCESS" || state_mtmv1[0][1] == "INIT")
     assertTrue(state_mtmv1[0][2] == false)
+
+    // After deleting the table, you can create a new MTMV
+    def cur_dropMtmvName3 = dropMtmvName3 + UUID.randomUUID().toString().replaceAll("-", "")
+    sql """
+        CREATE MATERIALIZED VIEW ${cur_dropMtmvName3}
+            REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT user_id, age FROM ${dropTableName4};
+        """
+    waitingMTMVTaskFinishedByMvName(cur_dropMtmvName3)
 
     // drop partition
     def parts_res = sql """show partitions from ${dropTableName2}"""
@@ -64,7 +110,16 @@ suite("test_upgrade_downgrade_olap_mtmv","p0,mtmv,restart_fe") {
     }
 
     def sql2 = "SELECT a.* FROM ${dropTableName2} a inner join ${dropTableName4} b on a.user_id=b.user_id;"
-    mv_rewrite_success(sql2, dropMtmvName2)
+//    mv_rewrite_success(sql2, dropMtmvName2)
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(sql2, dropMtmvName2)
+    }
+
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(sql2, dropMtmvName2)
+    }
 
     // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
     try {
@@ -86,18 +141,15 @@ suite("test_upgrade_downgrade_olap_mtmv","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv2[0][0] == "NORMAL")
     assertTrue(state_mtmv2[0][1] == "SUCCESS")
     assertTrue(state_mtmv2[0][2] == true)
-    mv_rewrite_success(sql2, dropMtmvName2)
+//    mv_rewrite_success(sql2, dropMtmvName2)
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(sql2, dropMtmvName2)
+    }
 
-    // After deleting the table, you can create a new MTMV
-    def cur_dropMtmvName3 = dropMtmvName3 + UUID.randomUUID().toString().replaceAll("-", "")
-    sql """
-        CREATE MATERIALIZED VIEW ${cur_dropMtmvName3}
-            REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT user_id, age FROM ${dropTableName4};
-        """
-    waitingMTMVTaskFinishedByMvName(cur_dropMtmvName3)
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(sql2, dropMtmvName2)
+    }
 
 }
