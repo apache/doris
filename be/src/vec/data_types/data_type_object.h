@@ -55,7 +55,8 @@ private:
 public:
     DataTypeObject() {}
     DataTypeObject(int32_t max_subcolumns_count);
-    const char* get_family_name() const override { return name.c_str(); }
+    String do_get_name() const override { return name; }
+    const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_VARIANT, _max_subcolumns_count);
