@@ -378,6 +378,14 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
     const auto* node =
             target_col.has_path_info() ? _subcolumn_readers->find_leaf(relative_path) : nullptr;
     if (!node) {
+        if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
+            // read sparse column and filter extracted columns in subcolumn_path_map
+            ColumnIterator* inner_iter;
+            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
+            // get subcolumns in sparse path set which will be merged into sparse column
+            RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
+            return Status::OK();
+        }
         if (existed_in_sparse_column || exceeded_sparse_column_limit) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
@@ -387,14 +395,6 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
                     relative_path.get_path(), std::unique_ptr<ColumnIterator>(inner_iter),
                     // need to modify sparse_column_cache, so use const_cast here
                     const_cast<StorageReadOptions*>(opts), target_col);
-            return Status::OK();
-        }
-        if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
-            // read sparse column and filter extracted columns in subcolumn_path_map
-            ColumnIterator* inner_iter;
-            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
-            // get subcolumns in sparse path set which will be merged into sparse column
-            RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
             return Status::OK();
         }
         if (target_col.is_nested_subcolumn()) {
@@ -434,7 +434,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     // Otherwise the prefix is not exist and the sparse column size is reached limit
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >
+                                        _statistics->sparse_column_non_null_size.size() ==
                                                 VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE;
 
     // For compaction operations, read flat leaves, otherwise read hierarchical data

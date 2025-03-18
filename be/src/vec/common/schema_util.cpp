@@ -820,6 +820,8 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
                              size_t num_rows) {
+    size_t limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
+                   stats->sparse_column_non_null_size().size();
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
 
@@ -844,8 +846,7 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (sparse_data_paths_statistics.size() <
-                     VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            else if (sparse_data_paths_statistics.size() < limit) {
                 sparse_data_paths_statistics.emplace(path, 1);
             }
         }
@@ -861,6 +862,14 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
         } else {
             count_map.emplace(sparse_path, size);
         }
+    }
+    if (stats->sparse_column_non_null_size().size() >
+        VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "Sparse column non null size: {} is greater than max statistics size: {}",
+                stats->sparse_column_non_null_size().size(),
+                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
     }
 }
 
