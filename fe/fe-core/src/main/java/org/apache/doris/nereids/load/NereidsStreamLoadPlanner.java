@@ -40,7 +40,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindSink;
-import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -271,9 +271,10 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
-        LogicalPlan streamLoadPlan = (LogicalPlan) createStreamLoadPlan(fileGroupInfo, dataDescription, context);
+        LogicalPlan streamLoadPlan = (LogicalPlan) createStreamLoadPlan(fileGroupInfo, dataDescription, context,
+                hasMissingColExceptAutoIncKey);
         NereidsLoadPlanTranslator loadPlanTranslator = new NereidsLoadPlanTranslator(destTable, taskInfo, loadId,
-                db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns);
+                db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns, context.exprMap);
         NereidsLoadPlanTranslator.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
@@ -349,7 +350,7 @@ public class NereidsStreamLoadPlanner {
     }
 
     private Plan createStreamLoadPlan(NereidsFileGroupInfo fileGroupInfo, NereidsDataDescription dataDescription,
-            NereidsParamCreateContext context) throws UserException {
+            NereidsParamCreateContext context, boolean isPartialUpdate) throws UserException {
         List<NamedExpression> projects = new ArrayList<>(context.exprMap.size());
         List<String> colNames = new ArrayList<>(context.exprMap.size());
         Set<String> uniqueColNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -387,7 +388,7 @@ public class NereidsStreamLoadPlanner {
         currentRootPlan = UnboundTableSinkCreator.createUnboundTableSink(targetTable.getFullQualifiers(), colNames,
                 ImmutableList.of(),
                 partitionNames != null && partitionNames.isTemp(),
-                partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), false,
+                partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), isPartialUpdate,
                 DMLCommandType.LOAD, currentRootPlan);
 
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
@@ -397,7 +398,7 @@ public class NereidsStreamLoadPlanner {
                     ImmutableList.of(Rewriter.bottomUp(new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
                             new BindSink(), new PushDownProjectThroughFilter(), new MergeProjects(),
-                            new ExpressionRewrite())))
+                            new ExpressionNormalization())))
                     .execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());

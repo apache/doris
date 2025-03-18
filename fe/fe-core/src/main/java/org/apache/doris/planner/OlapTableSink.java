@@ -247,8 +247,7 @@ public class OlapTableSink extends DataSink {
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
             HashSet<String> partialUpdateInputColumns) throws UserException {
-        this.uniqueKeyUpdateMode = uniquekeyUpdateMode;
-        this.partialUpdateInputColumns = partialUpdateInputColumns;
+        setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {

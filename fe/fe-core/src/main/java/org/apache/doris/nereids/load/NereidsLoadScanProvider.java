@@ -368,6 +368,7 @@ public class NereidsLoadScanProvider {
                         // directly for all rows like in fixed columns partial update. So we should set if a slot
                         // is key column here
                         slotColumn.setIsKey(tblColumn.isKey());
+                        slotColumn.setIsAutoInc(tblColumn.isAutoInc());
                         slotColumn.setUniqueId(colUniqueId);
                     } else {
                         slotColumn = new Column(realColName, PrimitiveType.VARCHAR, true);
