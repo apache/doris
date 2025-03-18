@@ -375,7 +375,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    auto* spill_write_rows_counter = local_state->profile()->get_counter("SpillWriteRows");
+    auto* spill_write_rows_counter = local_state->custom_profile()->get_counter("SpillWriteRows");
     ASSERT_TRUE(spill_write_rows_counter != nullptr);
     ASSERT_EQ(spill_write_rows_counter->value(), 4);
 
