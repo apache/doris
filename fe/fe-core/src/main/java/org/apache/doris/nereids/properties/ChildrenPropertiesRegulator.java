@@ -308,7 +308,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 .getDistributionSpec()).getOrderedShuffledColumns().size()
                 || rightHashSpec.getOrderedShuffledColumns().size() != ((DistributionSpecHash) requiredProperties.get(1)
                 .getDistributionSpec()).getOrderedShuffledColumns().size())) {
-            // 这里就是强制按照require的列进行hash,还需要考虑equal set的问题～
             List<ExprId> orderedShuffledColumnsLeft = ((DistributionSpecHash) requiredProperties.get(0)
                     .getDistributionSpec()).getOrderedShuffledColumns();
             List<ExprId> orderedShuffledColumnsRight = ((DistributionSpecHash) requiredProperties.get(1)

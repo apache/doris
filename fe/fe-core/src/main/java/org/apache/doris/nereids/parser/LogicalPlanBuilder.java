@@ -3723,7 +3723,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                             skewValues);
                                 }
                                 strToHint.put(parameterName.toString(), distributeHint);
-                                leadingParameters.add(parameterName.toString());
                             } else if (JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(str)) {
                                 parameterName.append(str).append(idx++);
                                 leadingParameters.add(parameterName.toString());
