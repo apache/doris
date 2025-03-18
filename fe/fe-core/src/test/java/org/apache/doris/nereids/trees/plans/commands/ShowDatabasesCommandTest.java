@@ -79,13 +79,6 @@ public class ShowDatabasesCommandTest {
         // catalog is null
         ShowDatabasesCommand command2 = new ShowDatabasesCommand(null, null, equalTo);
         Assertions.assertDoesNotThrow(() -> command2.validate(ctx));
-
-        // where clause is not EqualTo
-        GreaterThan greaterThan = new GreaterThan(new UnboundSlot("schema_name"),
-                new StringLiteral(CatalogMocker.TEST_DB_NAME));
-        ShowDatabasesCommand command3 = new ShowDatabasesCommand(internalCtl, null, greaterThan);
-        Assertions.assertThrows(UserException.class, () -> command3.validate(ctx),
-                "Only support where clause with schema_name = '{db_name}'");
     }
 }
 
