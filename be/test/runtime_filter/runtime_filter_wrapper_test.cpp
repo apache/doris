@@ -86,7 +86,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
     }
     {
         // Insert
@@ -94,7 +94,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
                 vectorized::ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
         EXPECT_EQ(wrapper->insert(col, 0).code(), ErrorCode::INTERNAL_ERROR);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
 
         col = vectorized::ColumnHelper::create_column<DataType>({0});
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
@@ -145,7 +145,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED)
                 << RuntimeFilterWrapper::to_string(wrapper->get_state());
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
 
         // Merge 5 (valid filter)
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -170,7 +170,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->hybrid_set()->size(), 0);
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
     }
     {
         // Assign disabled filter
@@ -179,7 +179,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_TRUE(wrapper->assign(request, nullptr).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
 
         // Assign ignored filter
         PMergeFilterRequest request2;
@@ -187,7 +187,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_TRUE(wrapper->assign(request2, nullptr).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::IGNORED);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_disabled_reason = "";
+        wrapper->_reason = "";
 
         // Assign valid filter
         valid_request.set_contain_null(false);
