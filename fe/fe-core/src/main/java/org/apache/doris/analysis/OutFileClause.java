@@ -633,10 +633,6 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
             brokerName = StorageBackend.StorageType.HDFS.name();
             storageType = StorageBackend.StorageType.HDFS;
-        } else if (filePath.toUpperCase().startsWith("oss".toUpperCase())) {
-            brokerName = StorageBackend.StorageType.S3.name();
-            storageType = StorageBackend.StorageType.S3;
-
         } else {
             return;
         }
