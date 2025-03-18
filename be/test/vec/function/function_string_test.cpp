@@ -2284,7 +2284,8 @@ TEST(function_string_test, function_parse_url_test) {
                 {{std::string(
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
-                 std::string("www.facebook.com")}};
+                 std::string("www.facebook.com")},
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
