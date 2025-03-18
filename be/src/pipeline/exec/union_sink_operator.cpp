@@ -65,27 +65,16 @@ UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, O
 Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
-    {
-        // Create result_expr_ctx_lists_ from thrift exprs.
-        auto& result_texpr_lists = tnode.union_node.result_expr_lists;
-        auto& texprs = result_texpr_lists[_cur_child_id];
-        vectorized::VExprContextSPtrs ctxs;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
-        _child_expr = ctxs;
-    }
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
+            tnode.union_node.result_expr_lists[_cur_child_id], _child_expr));
     return Status::OK();
 }
 
 Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
-    // open const expr lists.
-    RETURN_IF_ERROR(vectorized::VExpr::open(_const_expr, state));
-
-    // open result expr lists.
     RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
-
+    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, row_descriptor()));
     return Status::OK();
 }
 
@@ -100,38 +89,45 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
         local_state._output_block =
                 local_state._shared_state->data_queue.get_free_block(_cur_child_id);
     }
-    if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
+    if (is_child_passthrough(_cur_child_id)) {
+        //pass_through without expr
         if (in_block->rows() > 0) {
             local_state._output_block->swap(*in_block);
             local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
                                                              _cur_child_id);
         }
-    } else if (_get_first_materialized_child_idx() != children_count() &&
-               _cur_child_id < children_count()) { //need materialized
-        RETURN_IF_ERROR(materialize_child_block(state, _cur_child_id, in_block,
-                                                local_state._output_block.get()));
     } else {
-        return Status::InternalError("maybe can't reach here, execute const expr: {}, {}, {}",
-                                     _cur_child_id, _get_first_materialized_child_idx(),
-                                     children_count());
-    }
-    if (UNLIKELY(eos)) {
-        //if _cur_child_id eos, need check to push block
-        //Now here can't check _output_block rows, even it's row==0, also need push block
-        //because maybe sink is eos and queue have none data, if not push block
-        //the source can't can_read again and can't set source finished
-        if (local_state._output_block) {
+        RETURN_IF_ERROR(materialize_child_block(state, in_block, local_state._output_block.get()));
+        if (local_state._output_block->rows() > 0) {
             local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
                                                              _cur_child_id);
         }
-
+    }
+    if (UNLIKELY(eos)) {
+        // set_finish will set source ready
         local_state._shared_state->data_queue.set_finish(_cur_child_id);
         return Status::OK();
     }
-    // not eos and block rows is enough to output,so push block
-    if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
-        local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
-                                                         _cur_child_id);
+    return Status::OK();
+}
+
+Status UnionSinkOperatorX::materialize_child_block(RuntimeState* state,
+                                                   vectorized::Block* input_block,
+                                                   vectorized::Block* output_block) {
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state._expr_timer);
+    if (input_block->rows() > 0) {
+        vectorized::MutableBlock mutable_block =
+                vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                           row_descriptor());
+        vectorized::ColumnsWithTypeAndName colunms;
+        const auto& child_exprs = local_state._child_expr;
+        for (const auto& child_expr : child_exprs) {
+            int result_column_id = -1;
+            RETURN_IF_ERROR(child_expr->execute(input_block, &result_column_id));
+            colunms.emplace_back(input_block->get_by_position(result_column_id));
+        }
+        RETURN_IF_ERROR(mutable_block.merge(vectorized::Block {colunms}));
     }
     return Status::OK();
 }
