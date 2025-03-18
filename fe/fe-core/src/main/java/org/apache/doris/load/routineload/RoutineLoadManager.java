@@ -52,6 +52,7 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 
@@ -111,6 +112,10 @@ public class RoutineLoadManager implements Writable {
     }
 
     public RoutineLoadManager() {
+    }
+
+    public List<RoutineLoadJob> getAllRoutineLoadJobs() {
+        return new ArrayList<>(idToRoutineLoadJob.values());
     }
 
     public List<RoutineLoadJob> getActiveRoutineLoadJobs() {
@@ -654,6 +659,11 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
+    // just for UT
+    public List<Long> getAvailableBackendIdsForUt(long jobId) throws LoadException {
+        return getAvailableBackendIds(jobId);
+    }
+
     /**
      * The routine load task can only be scheduled on backends which has proper resource tags.
      * The tags should be got from user property.
@@ -666,24 +676,43 @@ public class RoutineLoadManager implements Writable {
      * @throws LoadException
      */
     protected List<Long> getAvailableBackendIds(long jobId) throws LoadException {
+        // Usually Cloud node could not reach here(refer CloudRoutineLoadManager.getAvailableBackendIds),
+        // check cloud mode here is just to be on the safe side.
+        if (Config.isCloudMode()) {
+            throw new LoadException("cloud mode should not reach here");
+        }
+
         RoutineLoadJob job = getJob(jobId);
         if (job == null) {
             throw new LoadException("job " + jobId + " does not exist");
         }
-        Set<Tag> tags;
+        Set<Tag> tags = null;
+        ComputeGroup computeGroup = null;
         if (job.getUserIdentity() == null) {
             // For old job, there may be no user info. So we have to use tags from replica allocation
             tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().addTags(tags).needLoadAvailable().build();
+            return Env.getCurrentSystemInfo()
+                    .selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
         } else {
-            tags = Env.getCurrentEnv().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
-            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+            computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(job.getUserIdentity().getQualifiedUser());
+            if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
                 // user may be dropped, or may not set resource tag property.
                 // Here we fall back to use replica tag
                 tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
             }
+
+            if (computeGroup != null && !ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+                return Env.getCurrentSystemInfo()
+                        .selectBackendIdsByPolicy(policy, -1 /* as many as possible */,
+                                computeGroup.getBackendList());
+            } else {
+                BeSelectionPolicy policy = new BeSelectionPolicy.Builder().addTags(tags).needLoadAvailable().build();
+                return Env.getCurrentSystemInfo()
+                        .selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
+            }
         }
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().addTags(tags).build();
-        return Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1 /* as many as possible */);
     }
 
     private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {

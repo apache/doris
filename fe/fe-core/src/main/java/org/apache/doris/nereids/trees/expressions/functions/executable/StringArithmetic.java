@@ -144,13 +144,17 @@ public class StringArithmetic {
         if (left) {
             do {
                 result = afterReplace;
-                afterReplace = result.replaceFirst("^" + second, "");
+                if (result.startsWith(second)) {
+                    afterReplace = result.substring(second.length());
+                }
             } while (!afterReplace.equals(result));
         }
         if (right) {
             do {
                 result = afterReplace;
-                afterReplace = result.replaceFirst(second + "$", "");
+                if (result.endsWith(second)) {
+                    afterReplace = result.substring(0, result.length() - second.length());
+                }
             } while (!afterReplace.equals(result));
         }
         return result;
@@ -407,12 +411,9 @@ public class StringArithmetic {
         return new IntegerLiteral(first.getValue().length());
     }
 
-    private static boolean isSeparator(char c) {
-        if (".$|()[{^?*+\\".indexOf(c) == -1) {
-            return false;
-        } else {
-            return true;
-        }
+    private static boolean isAlphabetic(char c) {
+        Pattern pattern = Pattern.compile("\\p{Alnum}");
+        return pattern.matcher(String.valueOf(c)).find();
     }
 
     /**
@@ -424,7 +425,7 @@ public class StringArithmetic {
         boolean capitalizeNext = true;
 
         for (char c : first.getValue().toCharArray()) {
-            if (Character.isWhitespace(c) || isSeparator(c)) {
+            if (Character.isWhitespace(c) || !isAlphabetic(c)) {
                 result.append(c);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {
@@ -809,22 +810,22 @@ public class StringArithmetic {
      * Executable arithmetic functions overlay
      */
     @ExecFunction(name = "overlay")
-    public static Expression overlay(StringLikeLiteral first,
-                                        IntegerLiteral second, IntegerLiteral third, StringLikeLiteral four) {
+    public static Expression overlay(StringLikeLiteral originStr,
+            IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
         StringBuilder sb = new StringBuilder();
-        if (second.getValue() <= 0 || second.getValue() > first.getValue().length()) {
-            return first;
+        if (pos.getValue() <= 0 || pos.getValue() > originStr.getValue().length()) {
+            return originStr;
         } else {
-            if (third.getValue() < 0 || third.getValue() > (first.getValue().length() - third.getValue())) {
-                sb.append(first.getValue().substring(0, second.getValue() - 1));
-                sb.append(four.getValue());
-                return castStringLikeLiteral(first, sb.toString());
+            if (len.getValue() < 0 || (pos.getValue() + len.getValue()) > originStr.getValue().length()) {
+                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(first.getValue().substring(0, second.getValue() - 1));
-                sb.append(four.getValue());
-                sb.append(first.getValue().substring(second.getValue()
-                        + third.getValue() - 1, first.getValue().length()));
-                return castStringLikeLiteral(first, sb.toString());
+                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(insertStr.getValue());
+                sb.append(originStr.getValue().substring(pos.getValue()
+                        + len.getValue() - 1, originStr.getValue().length()));
+                return castStringLikeLiteral(originStr, sb.toString());
             }
         }
     }
@@ -843,39 +844,71 @@ public class StringArithmetic {
         StringBuilder sb = new StringBuilder();
         switch (second.getValue().toUpperCase()) {
             case "PROTOCOL":
-                sb.append(uri.getScheme()); // e.g., http, https
+                String scheme = uri.getScheme();
+                if (scheme == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(scheme); // e.g., http, https
                 break;
             case "HOST":
-                sb.append(uri.getHost());  // e.g., www.example.com
+                String host = uri.getHost();
+                if (host == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(host);  // e.g., www.example.com
                 break;
             case "PATH":
-                sb.append(uri.getPath());  // e.g., /page
+                String path = uri.getPath();
+                if (path == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(path);  // e.g., /page
                 break;
             case "REF":
                 try {
-                    sb.append(uri.toURL().getRef());  // e.g., /page
+                    String ref = uri.toURL().getRef();
+                    if (ref == null) {
+                        return new NullLiteral(first.getDataType());
+                    }
+                    sb.append(ref);  // e.g., /page
                 } catch (MalformedURLException e) {
                     throw new RuntimeException(e);
                 }
                 break;
             case "AUTHORITY":
-                sb.append(uri.getAuthority());  // e.g., param1=value1&param2=value2
+                String authority = uri.getAuthority();
+                if (authority == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(authority);  // e.g., param1=value1&param2=value2
                 break;
             case "FILE":
                 try {
-                    sb.append(uri.toURL().getFile());  // e.g., param1=value1&param2=value2
+                    String file = uri.toURL().getFile();
+                    if (file == null) {
+                        return new NullLiteral(first.getDataType());
+                    }
+                    sb.append(file);  // e.g., param1=value1&param2=value2
                 } catch (MalformedURLException e) {
                     throw new RuntimeException(e);
                 }
                 break;
             case "QUERY":
-                sb.append(uri.getQuery());  // e.g., param1=value1&param2=value2
+                String query = uri.getQuery();
+                if (query == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(query);  // e.g., param1=value1&param2=value2
                 break;
             case "PORT":
                 sb.append(uri.getPort());
                 break;
             case "USERINFO":
-                sb.append(uri.getUserInfo());  // e.g., user:pass
+                String userInfo = uri.getUserInfo();
+                if (userInfo == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(userInfo);  // e.g., user:pass
                 break;
             default:
                 throw new RuntimeException("Valid URL parts are 'PROTOCOL', 'HOST', "
@@ -943,10 +976,15 @@ public class StringArithmetic {
         if (first.getValue() == null || first.getValue().indexOf('?') == -1) {
             return castStringLikeLiteral(first, "");
         }
+        URI uri;
+        try {
+            uri = new URI(first.getValue());
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
 
-        String[] urlParts = first.getValue().split("\\?", -1);
-        if (urlParts.length > 1) {
-            String query = urlParts[1];
+        String query = uri.getQuery();
+        if (query != null) {
             String[] pairs = query.split("&", -1);
 
             for (String pair : pairs) {

@@ -278,30 +278,6 @@ struct PrimitiveTypeTraits<TYPE_JSONB> {
     using ColumnType = vectorized::ColumnString;
 };
 
-template <typename Traits>
-concept HaveCppType = requires() { sizeof(typename Traits::CppType); };
-
-template <PrimitiveNative type>
-struct PrimitiveTypeSizeReducer {
-    template <HaveCppType Traits>
-    static size_t get_size() {
-        return sizeof(typename Traits::CppType);
-    }
-    template <typename Traits>
-    static size_t get_size() {
-        return 0;
-    }
-
-    static void run(size_t& size) { size = get_size<PrimitiveTypeTraits<PrimitiveType(type)>>(); }
-};
-
-inline size_t get_primitive_type_size(PrimitiveType t) {
-    size_t size = 0;
-    vectorized::constexpr_loop_match<PrimitiveNative, BEGIN_OF_PRIMITIVE_TYPE,
-                                     END_OF_PRIMITIVE_TYPE, PrimitiveTypeSizeReducer>::run(t, size);
-    return size;
-}
-
 template <PrimitiveType PT>
 struct PrimitiveTypeConvertor {
     using CppType = typename PrimitiveTypeTraits<PT>::CppType;
