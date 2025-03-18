@@ -19,13 +19,11 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 

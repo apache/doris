@@ -114,7 +114,6 @@ public class ShowDatabasesCommand extends ShowCommand {
         return new ShowResultSet(META_DATA, rows);
     }
 
-
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
