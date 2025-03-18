@@ -2788,10 +2788,14 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                 } catch (const std::invalid_argument& e) {
                     LOG(WARNING) << "Invalid idx format: " << s.obj_info().id()
                                  << ", error: " << e.what();
+                    code = MetaServiceCode::UNDEFINED_ERR;
+                    msg = "impossible, id invalid";
                     return;
                 } catch (const std::out_of_range& e) {
                     LOG(WARNING) << "Idx value out of range: " << s.obj_info().id()
                                  << ", error: " << e.what();
+                    code = MetaServiceCode::UNDEFINED_ERR;
+                    msg = "impossible, id invalid";
                     return;
                 }
 
