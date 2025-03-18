@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.SetType;
@@ -299,6 +300,7 @@ import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
 import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
+import org.apache.doris.nereids.DorisParser.ShowBackupContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
@@ -565,12 +567,14 @@ import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -579,6 +583,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -605,6 +610,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -632,6 +638,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
@@ -848,6 +855,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -4974,6 +4982,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowBackup(ShowBackupContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new ShowBackupCommand(dbName, wildWhere);
+    }
+
+    @Override
     public LogicalPlan visitShowPlugins(ShowPluginsContext ctx) {
         return new ShowPluginsCommand();
     }
@@ -5941,6 +5962,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowIndexStats(DorisParser.ShowIndexStatsContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        String indexId = stripQuotes(ctx.indexId.getText());
+        return new ShowIndexStatsCommand(tableName, indexId);
+    }
+
+    @Override
     public LogicalPlan visitShowTableStatus(DorisParser.ShowTableStatusContext ctx) {
         String ctlName = null;
         String dbName = null;
@@ -6256,6 +6284,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null;
         AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment);
         return new AlterUserCommand(alterUserInfo);
+    }
+
+    public LogicalPlan visitDropStats(DorisParser.DropStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+        Set<String> columnNames = new HashSet<>();
+        if (ctx.identifierList() != null) {
+            columnNames.addAll(visitIdentifierList(ctx.identifierList()));
+        }
+
+        PartitionNames partitionNames = null;
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+        }
+        return new DropStatsCommand(tableNameInfo, columnNames, partitionNames);
+    }
+
+    @Override
+    public LogicalPlan visitDropCachedStats(DorisParser.DropCachedStatsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        return new DropCachedStatsCommand(tableNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitDropExpiredStats(DorisParser.DropExpiredStatsContext ctx) {
+        return new DropExpiredStatsCommand();
     }
 
     @Override

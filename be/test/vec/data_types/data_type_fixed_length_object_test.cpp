@@ -88,7 +88,10 @@ TEST_P(DataTypeFixedLengthObjectTest, MetaInfoTest) {
 }
 
 TEST_P(DataTypeFixedLengthObjectTest, CreateColumnTest) {
-    Field default_field = Field(String());
+    std::string res;
+    res.resize(8);
+    memset(res.data(), 0, 8);
+    Field default_field = Field(res);
     std::cout << "create_column_assert: " << datatype_fixed_length->get_name() << std::endl;
     auto column = (datatype_fixed_length)->create_column();
     ASSERT_EQ(column->size(), 0);

@@ -23,6 +23,7 @@ import org.apache.doris.common.classloader.ScannerLoader;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
+import org.apache.doris.common.jni.utils.JavaUdfStructType;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
@@ -345,7 +346,7 @@ public abstract class BaseExecutor {
             case STRUCT: {
                 return (Object[] columnData) -> {
                     Object[] result = (HashMap<String, Object>[]) new HashMap<?, ?>[columnData.length];
-                    ArrayList<String> names = returnType.getFieldNames();
+                    ArrayList<String> names = ((JavaUdfStructType) returnType).getFieldNames();
                     for (int i = 0; i < columnData.length; ++i) {
                         HashMap<String, Object> elements = new HashMap<String, Object>();
                         if (columnData[i] != null) {
