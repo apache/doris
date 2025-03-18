@@ -255,6 +255,7 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
     private long dbId;
     private TUniqueKeyUpdateMode uniquekeyUpdateMode;
     private HashSet<String> partialUpdateInputColumns;
+    private Map<String, Expression> exprMap;
 
     private LogicalPlan logicalPlan;
     private Map<String, SlotDescriptor> srcSlots = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -266,7 +267,8 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
      */
     public NereidsLoadPlanTranslator(OlapTable destTable, NereidsLoadTaskInfo taskInfo, TUniqueId loadId, long dbId,
             TUniqueKeyUpdateMode uniquekeyUpdateMode,
-            HashSet<String> partialUpdateInputColumns) {
+            HashSet<String> partialUpdateInputColumns,
+            Map<String, Expression> exprMap) {
         loadPlanInfo = new LoadPlanInfo();
         this.destTable = destTable;
         this.taskInfo = taskInfo;
@@ -274,6 +276,7 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
         this.dbId = dbId;
         this.uniquekeyUpdateMode = uniquekeyUpdateMode;
         this.partialUpdateInputColumns = partialUpdateInputColumns;
+        this.exprMap = exprMap;
     }
 
     /**
@@ -360,18 +363,21 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
         List<Expr> projectList = outputs.stream().map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
-        List<Column> columns = destTable.getFullSchema();
-        Preconditions.checkState(columns.size() == slotList.size(),
-                "slot's size should be same as table's full schema");
+
         int size = slotList.size();
         List<Slot> newSlotList = new ArrayList<>(size);
         for (int i = 0; i < size; ++i) {
-            Column col = columns.get(i);
-            SlotReference slot = ((SlotReference) slotList.get(i)).withColumn(col);
-            if (col.isAutoInc()) {
-                newSlotList.add(slot.withNullable(true));
+            SlotReference slot = (SlotReference) slotList.get(i);
+            Column col = destTable.getColumn(slot.getName());
+            if (col != null) {
+                slot = slot.withColumn(col);
+                if (col.isAutoInc()) {
+                    newSlotList.add(slot.withNullable(true));
+                } else {
+                    newSlotList.add(slot.withNullable(col.isAllowNull()));
+                }
             } else {
-                newSlotList.add(slot.withNullable(col.isAllowNull()));
+                newSlotList.add(slot);
             }
         }
 
@@ -380,7 +386,18 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
         List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
         for (int i = 0; i < slotDescriptorList.size(); ++i) {
             SlotDescriptor slotDescriptor = slotDescriptorList.get(i);
-            loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), projectList.get(i));
+            Expr expr = projectList.get(i);
+            PrimitiveType dstType = slotDescriptor.getType().getPrimitiveType();
+            PrimitiveType srcType = expr.getType().getPrimitiveType();
+            if (!(dstType == PrimitiveType.JSONB
+                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING))) {
+                try {
+                    expr = castToSlot(slotDescriptor, expr);
+                } catch (org.apache.doris.common.AnalysisException e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+            loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), expr);
         }
         return null;
     }
@@ -459,6 +476,9 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
                     } else {
                         expr = null;
                     }
+                }
+                if (exprMap.containsKey(column.getName())) {
+                    continue;
                 }
                 if (expr != null) {
                     try {
