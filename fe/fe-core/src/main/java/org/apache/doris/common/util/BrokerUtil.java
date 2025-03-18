@@ -86,8 +86,8 @@ public class BrokerUtil {
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try {
-            RemoteFileSystem fileSystem = FileSystemFactory.get(
-                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+            //fixme do we need new file system every time?
+            RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties());
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
@@ -108,8 +108,7 @@ public class BrokerUtil {
     }
 
     public static void deleteDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
-        RemoteFileSystem fileSystem = FileSystemFactory.get(
-                brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+        RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties());
         Status st = fileSystem.deleteDirectory(path);
         if (!st.ok()) {
             throw new UserException(brokerDesc.getName() +  " delete directory exception. path="

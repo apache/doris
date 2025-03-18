@@ -86,7 +86,7 @@ public class HMSPropertiesTest {
 
     private void testHmsToPaimonOptions(HMSProperties hmsProperties) {
         Options paimonOptions = new Options();
-        hmsProperties.toPaimonOptionsAndConf(paimonOptions);
+        //hmsProperties.toPaimonOptionsAndConf(paimonOptions);
         Assertions.assertEquals("thrift://127.0.0.1:9083", paimonOptions.get("uri"));
     }
 

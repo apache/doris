@@ -43,12 +43,12 @@ public class OBSPropertyTest {
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
 
         ObjectStorageProperties properties = (ObjectStorageProperties) StorageProperties.create(origProps).get(1);
-        properties.toHadoopConfiguration(origProps);
+        Configuration conf = properties.getHadoopConfiguration();
 
-        Assertions.assertEquals("https://obs.example.com", origProps.get("fs.obs.endpoint"));
-        Assertions.assertEquals("myOBSAccessKey", origProps.get("fs.obs.access.key"));
-        Assertions.assertEquals("myOBSSecretKey", origProps.get("fs.obs.secret.key"));
-        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", origProps.get("fs.obs.impl"));
+        Assertions.assertEquals("https://obs.example.com", conf.get("fs.obs.endpoint"));
+        Assertions.assertEquals("myOBSAccessKey", conf.get("fs.obs.access.key"));
+        Assertions.assertEquals("myOBSSecretKey", conf.get("fs.obs.secret.key"));
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", conf.get("fs.obs.impl"));
 
         // Test creation without additional properties
         origProps = new HashMap<>();
@@ -111,12 +111,7 @@ public class OBSPropertyTest {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
         OBSProperties obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
-        Map<String, String> hdfsParams = new HashMap<>();
-        obsProperties.toHadoopConfiguration(hdfsParams);
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : hdfsParams.entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
+        Configuration configuration = obsProperties.getHadoopConfiguration();
         FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
         FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
         for (FileStatus status : fileStatuses) {

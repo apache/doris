@@ -45,11 +45,11 @@ public class OSSPropertiesTest {
         origProps.put("oss.secret_key", "myOSSSecretKey");
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         ObjectStorageProperties properties = (ObjectStorageProperties) StorageProperties.create(origProps).get(1);
-        properties.toHadoopConfiguration(origProps);
-        Assertions.assertEquals("https://oss.aliyuncs.com", origProps.get("fs.oss.endpoint"));
-        Assertions.assertEquals("myOSSAccessKey", origProps.get("fs.oss.accessKeyId"));
-        Assertions.assertEquals("myOSSSecretKey", origProps.get("fs.oss.accessKeySecret"));
-        Assertions.assertEquals("org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem", origProps.get("fs.oss.impl"));
+        Configuration conf = properties.getHadoopConfiguration();
+        Assertions.assertEquals("https://oss.aliyuncs.com", conf.get("fs.oss.endpoint"));
+        Assertions.assertEquals("myOSSAccessKey", conf.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("myOSSSecretKey", conf.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem", conf.get("fs.oss.impl"));
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
         StorageProperties.create(origProps);
@@ -105,12 +105,7 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
         // ossParams.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
-        Map<String, String> hadoopParams = new HashMap<>();
-        ossProperties.toHadoopConfiguration(hadoopParams);
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : hadoopParams.entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
+        Configuration configuration = ossProperties.getHadoopConfiguration();
         FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
         FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
         for (FileStatus status : fileStatuses) {

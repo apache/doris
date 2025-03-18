@@ -39,7 +39,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -384,7 +383,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -777,7 +776,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);

@@ -20,6 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.datasource.property.storage.HDFSProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
@@ -203,7 +205,8 @@ public class CatalogAPITest {
         properties.put("fs.oss.accessKeyId", ak);
         properties.put("fs.oss.accessKeySecret", sk);
         properties.put("fs.oss.endpoint", "cn-beijing.oss-dls.aliyuncs.com");
-        DFSFileSystem fs = new DFSFileSystem(properties);
+        HDFSProperties hdfsProperties = (HDFSProperties) StorageProperties.createStorageProperties(properties);
+        DFSFileSystem fs = new DFSFileSystem(hdfsProperties);
         List<RemoteFile> results = new ArrayList<>();
 
         Status st = fs.listFiles(remotePath, false, results);

@@ -19,10 +19,12 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonPreProcessable;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -38,6 +40,9 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
     @SerializedName("n")
     public String name;
     public StorageBackend.StorageType type;
+
+    @Getter
+    protected StorageProperties storageProperties;
 
     public boolean needFullPath() {
         return type == StorageBackend.StorageType.S3

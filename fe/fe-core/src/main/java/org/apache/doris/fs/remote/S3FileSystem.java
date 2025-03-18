@@ -22,9 +22,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.AbstractObjectStorageProperties;
 import org.apache.doris.fs.obj.S3ObjStorage;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
@@ -44,10 +43,17 @@ public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
     private HadoopAuthenticator authenticator = null;
+    private AbstractObjectStorageProperties s3Properties;
 
-    public S3FileSystem(Map<String, String> properties) {
-        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
+
+    public S3FileSystem(AbstractObjectStorageProperties s3Properties) {
+
+        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
+                new S3ObjStorage(s3Properties.getOrigProps()));
+        this.s3Properties = s3Properties;
+        this.storageProperties = s3Properties;
         initFsProperties();
+
     }
 
     @VisibleForTesting
@@ -72,14 +78,8 @@ public class S3FileSystem extends ObjFileSystem {
                     throw new UserException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
-                    Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    Configuration conf = s3Properties.getHadoopConfiguration();
                     System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-                    // the entry value in properties may be null, and
-                    PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
-                            .filter(entry -> entry.getKey() != null && entry.getValue() != null)
-                            .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
-                    // S3 does not support Kerberos authentication,
-                    // so here we create a simple authentication
                     AuthenticationConfig authConfig = AuthenticationConfig.getSimpleAuthenticationConfig(conf);
                     HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {

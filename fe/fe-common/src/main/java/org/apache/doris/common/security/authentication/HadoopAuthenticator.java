@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.security.authentication;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 
 import java.io.IOException;
@@ -40,5 +41,10 @@ public interface HadoopAuthenticator {
         } else {
             return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
         }
+    }
+
+    static HadoopAuthenticator getHadoopAuthenticator(Configuration configuration) {
+        AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(configuration);
+        return getHadoopAuthenticator(authConfig);
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -42,12 +43,18 @@ public class OSSProperties extends AbstractObjectStorageProperties {
         super(Type.OSS, origProps);
     }
 
+    protected static boolean guessIsMe(Map<String, String> origProps) {
+        return origProps.containsKey("oss.access_key");
+    }
+
     @Override
-    public void toHadoopConfiguration(Map<String, String> config) {
-        config.put("fs.oss.endpoint", endpoint);
-        config.put("fs.oss.accessKeyId", accessKey);
-        config.put("fs.oss.accessKeySecret", secretKey);
-        config.put("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+    public Configuration getHadoopConfiguration() {
+        Configuration conf = new Configuration(false);
+        conf.set("fs.oss.endpoint", endpoint);
+        conf.set("fs.oss.accessKeyId", accessKey);
+        conf.set("fs.oss.accessKeySecret", secretKey);
+        conf.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+        return conf;
     }
 
     @Override

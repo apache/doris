@@ -52,9 +52,7 @@ public class S3PropertiesTest {
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
         S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-        Map<String, String> config = new HashMap<>();
-        s3Properties.toHadoopConfiguration(config);
-
+        Configuration config = s3Properties.getHadoopConfiguration();
         // Validate the configuration
         Assertions.assertEquals("myS3AccessKey", config.get("fs.s3a.access.key"));
         Assertions.assertEquals("myS3SecretKey", config.get("fs.s3a.secret.key"));
@@ -118,13 +116,7 @@ public class S3PropertiesTest {
         origProps.put("s3.region", "ap-northeast-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
         S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-
-        Map<String, String> hdfsParams = new HashMap<>();
-        s3Properties.toHadoopConfiguration(hdfsParams);
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : hdfsParams.entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
+        Configuration configuration = s3Properties.getHadoopConfiguration();
         FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
         FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
         for (FileStatus status : fileStatuses) {

@@ -17,7 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 
 import java.util.Map;
 
@@ -35,6 +38,9 @@ public class StorageDesc extends ResourceDesc {
     @SerializedName("st")
     protected StorageBackend.StorageType storageType;
 
+    @Getter
+    protected StorageProperties storageProperties;
+
     public StorageDesc() {
     }
 
@@ -42,6 +48,7 @@ public class StorageDesc extends ResourceDesc {
         this.name = name;
         this.storageType = storageType;
         this.properties = properties;
+        this.storageProperties = StorageProperties.createStorageProperties(properties);
     }
 
     public void setName(String name) {

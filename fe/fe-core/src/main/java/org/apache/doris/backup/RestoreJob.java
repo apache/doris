@@ -67,7 +67,6 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -132,14 +131,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     // CHECKSTYLE OFF
     public enum RestoreJobState {
         PENDING, // Job is newly created. Check and prepare meta in catalog. Create replica if necessary.
-                 // Waiting for replica creation finished synchronously, then sending snapshot tasks.
-                 // then transfer to CREATING.
+        // Waiting for replica creation finished synchronously, then sending snapshot tasks.
+        // then transfer to CREATING.
         CREATING, // Creating replica on BE. Transfer to SNAPSHOTING after all replicas created.
         SNAPSHOTING, // Waiting for snapshot finished. Than transfer to DOWNLOAD.
         DOWNLOAD, // Send download tasks.
         DOWNLOADING, // Waiting for download finished.
         COMMIT, // After download finished, all data is ready for taking effect.
-                    // Send movement tasks to BE, than transfer to COMMITTING
+        // Send movement tasks to BE, than transfer to COMMITTING
         COMMITTING, // wait all tasks finished. Transfer to FINISHED
         FINISHED,
         CANCELLED
@@ -231,9 +230,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
-            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
+                      ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
+                      boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
+                      boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -262,10 +261,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
-            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId,
-            BackupMeta backupMeta) {
+                      ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
+                      boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
+                      boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId,
+                      BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 reserveColocate, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
                 isAtomicRestore, env, repoId);
@@ -317,7 +316,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             Preconditions.checkState(task.getTabletId() == removedTabletId, removedTabletId);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                          info, unfinishedSignatureToId.size(), this, removedTabletId);
+                        info, unfinishedSignatureToId.size(), this, removedTabletId);
             }
             return true;
         }
@@ -336,7 +335,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             SnapshotInfo info = snapshotInfos.get(tabletId, task.getBackendId());
             if (info == null) {
                 LOG.warn("failed to find snapshot infos of tablet {} in be {}, {}",
-                          tabletId, task.getBackendId(), this);
+                        tabletId, task.getBackendId(), this);
                 return false;
             }
         }
@@ -427,7 +426,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -544,17 +543,17 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
      * Restore rules as follow:
      * OlapTable
      * A. Table already exist
-     *      A1. Partition already exist, generate file mapping
-     *      A2. Partition does not exist, add restored partition to the table.
-     *          Reset all index/tablet/replica id, and create replica on BE outside the table lock.
+     * A1. Partition already exist, generate file mapping
+     * A2. Partition does not exist, add restored partition to the table.
+     * Reset all index/tablet/replica id, and create replica on BE outside the table lock.
      * B. Table does not exist
-     *      B1. Add table to the db, reset all table/index/tablet/replica id,
-     *          and create replica on BE outside the db lock.
+     * B1. Add table to the db, reset all table/index/tablet/replica id,
+     * and create replica on BE outside the db lock.
      * View
-     *      * A. View already exist. The same signature is allowed.
-     *      * B. View does not exist.
+     * * A. View already exist. The same signature is allowed.
+     * * B. View does not exist.
      * All newly created table/partition/index/tablet/replica should be saved for rolling back.
-     *
+     * <p>
      * Step:
      * 1. download and deserialize backup meta from repository.
      * 2. set all existing restored table's state to RESTORE.
@@ -727,7 +726,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         if (!localTblSignature.equals(remoteTblSignature)) {
                             String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
                             LOG.warn("Table {} already exists but with different schema, "
-                                    + "local table: {}, remote table: {}",
+                                            + "local table: {}, remote table: {}",
                                     alias, localTblSignature, remoteTblSignature);
                             status = new Status(ErrCode.COMMON_ERROR, "Table "
                                     + alias + " already exist but with different schema");
@@ -788,7 +787,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         if (reserveReplica) {
                                             PartitionInfo remotePartInfo = remoteOlapTbl.getPartitionInfo();
                                             restoreReplicaAlloc = remotePartInfo.getReplicaAllocation(
-                                                remotePartition.getId());
+                                                    remotePartition.getId());
                                         }
                                         Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
                                                 partitionName,
@@ -837,7 +836,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
-                                                            replicaAlloc, isBeingSynced);
+                            replicaAlloc, isBeingSynced);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -1019,7 +1018,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (!(ok && createReplicaTasksLatch.getStatus().ok())) {
             // only show at most 10 results
             List<String> subList = createReplicaTasksLatch.getLeftMarks().stream().limit(10)
-                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = " + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
             String reason = "TIMEDOUT";
@@ -1146,7 +1145,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (schemaHash == -1) {
                         return new Status(ErrCode.COMMON_ERROR, String.format(
                                 "schema hash of local index %d is not found, remote table=%d, remote index=%d, "
-                                + "local table=%d, local index=%d", localIndexId, remoteOlapTbl.getId(), index.getId(),
+                                        + "local table=%d, local index=%d",
+                                localIndexId, remoteOlapTbl.getId(), index.getId(),
                                 localOlapTbl.getId(), localIndexId));
                     }
 
@@ -1154,8 +1154,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     List<Tablet> remoteTablets = index.getTablets();
                     if (localTablets.size() != remoteTablets.size()) {
                         LOG.warn("skip bind replicas because the size of local tablet {} is not equals to "
-                                + "the remote {}, is_atomic_restore=true, remote table={}, remote index={}, "
-                                + "local table={}, local index={}", localTablets.size(), remoteTablets.size(),
+                                        + "the remote {}, is_atomic_restore=true, remote table={}, remote index={}, "
+                                        + "local table={}, local index={}", localTablets.size(), remoteTablets.size(),
                                 remoteOlapTbl.getId(), index.getId(), localOlapTbl.getId(), localIndexId);
                         continue;
                     }
@@ -1165,9 +1165,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         List<Replica> localReplicas = localTablet.getReplicas();
                         List<Replica> remoteReplicas = remoteTablet.getReplicas();
                         if (localReplicas.size() != remoteReplicas.size()) {
-                            LOG.warn("skip bind replicas because the size of local replicas {} is not equals to "
-                                    + "the remote {}, is_atomic_restore=true, remote table={}, remote index={}, "
-                                    + "local table={}, local index={}, local tablet={}, remote tablet={}",
+                            LOG.warn("skip bind replicas because the size of local replicas {} is not"
+                                            + " equals to "
+                                            + "the remote {}, is_atomic_restore=true, remote table={}, remote index"
+                                            + "={}, "
+                                            + "local table={}, local index={}, local tablet={}, remote tablet={}",
                                     localReplicas.size(), remoteReplicas.size(), remoteOlapTbl.getId(),
                                     index.getId(), localOlapTbl.getId(), localIndexId, localTablet.getId(),
                                     remoteTablet.getId());
@@ -1284,8 +1286,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private boolean genFileMappingWhenBackupReplicasEqual(PartitionInfo localPartInfo, Partition localPartition,
-            Table localTbl, BackupPartitionInfo backupPartInfo, String partitionName, BackupOlapTableInfo tblInfo,
-            ReplicaAllocation remoteReplicaAlloc) {
+                                                          Table localTbl, BackupPartitionInfo backupPartInfo,
+                                                          String partitionName, BackupOlapTableInfo tblInfo,
+                                                          ReplicaAllocation remoteReplicaAlloc) {
         short restoreReplicaNum;
         short localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
         if (!reserveReplica) {
@@ -1315,7 +1318,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void createReplicas(Database db, AgentBatchTask batchTask, OlapTable localTbl, Partition restorePart,
-            Map<Long, TabletRef> tabletBases) {
+                                Map<Long, TabletRef> tabletBases) {
         Set<String> bfColumns = localTbl.getCopiedBfColumns();
         double bfFpp = localTbl.getBfFpp();
 
@@ -1331,7 +1334,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
-                                    ? localTbl.getCopiedIndexes() : null;
+                    ? localTbl.getCopiedIndexes() : null;
             List<Integer> clusterKeyUids = null;
             if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
                 clusterKeyUids = OlapTable.getClusterKeyUids(indexMeta.getSchema());
@@ -1470,12 +1473,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     // files in repo to files in local
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
-            BackupPartitionInfo backupPartInfo, boolean overwrite) {
+                                BackupPartitionInfo backupPartInfo, boolean overwrite) {
         genFileMapping(localTbl, localPartition, remoteTblId, backupPartInfo, overwrite, null);
     }
 
     private void genFileMapping(OlapTable localTbl, Partition localPartition, Long remoteTblId,
-            BackupPartitionInfo backupPartInfo, boolean overwrite, Map<Long, TabletRef> tabletBases) {
+                                BackupPartitionInfo backupPartInfo, boolean overwrite,
+                                Map<Long, TabletRef> tabletBases) {
         for (MaterializedIndex localIdx : localPartition.getMaterializedIndices(IndexExtState.VISIBLE)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get index id: {}, index name: {}", localIdx.getId(),
@@ -1807,7 +1811,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         long signature = env.getNextId();
                         DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
                                 brokerAddrs.get(0),
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                                repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                                 repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
@@ -2416,7 +2420,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             colocatePersistInfos.clear();
 
             LOG.info("finished to cancel restore job. current state: {}. is replay: {}. {}",
-                     curState.name(), isReplay, this);
+                    curState.name(), isReplay, this);
 
             // Send release snapshot tasks after log restore job, so that the snapshot won't be released
             // before the cancelled restore job is persisted.

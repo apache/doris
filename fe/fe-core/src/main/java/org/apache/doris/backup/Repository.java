@@ -30,6 +30,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.AzureFileSystem;
@@ -205,15 +206,8 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        if (this.fileSystem.properties.containsKey(PersistentFileSystem.STORAGE_TYPE)) {
-            type = StorageBackend.StorageType.valueOf(
-                    this.fileSystem.properties.get(PersistentFileSystem.STORAGE_TYPE));
-            this.fileSystem.properties.remove(PersistentFileSystem.STORAGE_TYPE);
-        }
-        this.fileSystem = FileSystemFactory.get(this.fileSystem.getName(),
-                type,
-                this.fileSystem.getProperties());
+        StorageProperties storageProperties = StorageProperties.createStorageProperties(this.fileSystem.properties);
+        this.fileSystem = FileSystemFactory.get(storageProperties);
     }
 
     public long getId() {

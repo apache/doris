@@ -56,8 +56,7 @@ public class COSPropertiesTest {
         origProps.put("cos.use_path_style", "true");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
-        Map<String, String> config = new HashMap<>();
-        cosProperties.toHadoopConfiguration(config);
+        Configuration config = cosProperties.getHadoopConfiguration();
 
         // Validate the configuration
         Assertions.assertEquals("https://cos.example.com", config.get("fs.cos.endpoint"));
@@ -123,12 +122,7 @@ public class COSPropertiesTest {
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
 
-        Map<String, String> hdfsParams = new HashMap<>();
-        cosProperties.toHadoopConfiguration(hdfsParams);
-        Configuration configuration = new Configuration(false);
-        for (Map.Entry<String, String> entry : hdfsParams.entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
+        Configuration configuration = cosProperties.getHadoopConfiguration();
         FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
         FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
         for (FileStatus status : fileStatuses) {

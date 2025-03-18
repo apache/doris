@@ -21,13 +21,18 @@ import org.apache.doris.common.CatalogConfigFileUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ConnectionProperties {
+public abstract class ConnectionProperties {
+    @Getter
+    @Setter
     protected Map<String, String> origProps;
 
     protected ConnectionProperties(Map<String, String> origProps) {
@@ -39,6 +44,7 @@ public class ConnectionProperties {
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         // 2. overwrite result properties with original properties
         allProps.putAll(origProps);
+        Map<String, String> matchParams = new HashMap<>();
         // 3. set fields from resultProps
         List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
@@ -49,6 +55,7 @@ public class ConnectionProperties {
                 if (allProps.containsKey(name)) {
                     try {
                         field.set(this, allProps.get(name));
+                        matchParams.put(name, allProps.get(name));
                     } catch (IllegalAccessException e) {
                         throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
                     }
@@ -58,6 +65,7 @@ public class ConnectionProperties {
         }
         // 3. check properties
         checkRequiredProperties();
+        setOrigProps(matchParams);
     }
 
     // Some properties may be loaded from file
