@@ -758,8 +758,10 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
         }
     }
     auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
+    // lock_id != -1 means this is in an explict txn
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get()));
+                                                            new_delete_bitmap.get(), txn_id,
+                                                            (lock_id != -1)));
     return Status::OK();
 }
 
