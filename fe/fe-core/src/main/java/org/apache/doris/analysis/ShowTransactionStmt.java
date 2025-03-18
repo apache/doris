@@ -77,17 +77,17 @@ public class ShowTransactionStmt extends ShowStmt implements NotFallbackInParser
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,Strings.isNullOrEmpty(dbName)?analyzer.getDefaultDb():dbName,PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                PrivPredicate.LOAD.getPrivs().toString());
-        }
-
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
+        }
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,Strings.isNullOrEmpty(dbName)?analyzer.getDefaultDb():dbName,PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                PrivPredicate.LOAD.getPrivs().toString());
         }
 
         if (whereClause == null) {
