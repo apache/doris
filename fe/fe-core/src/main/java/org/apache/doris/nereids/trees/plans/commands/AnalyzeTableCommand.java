@@ -159,6 +159,9 @@ public class AnalyzeTableCommand extends AnalyzeCommand {
         }
     }
 
+    /**
+     * checkAnalyzePrivilege
+     */
     public void checkAnalyzePrivilege(TableNameInfo tableNameInfo) throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         // means it a system analyze

@@ -19,10 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
