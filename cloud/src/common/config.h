@@ -264,4 +264,7 @@ CONF_Bool(enable_loopback_address_for_ms, "false");
 // Which vaults should be recycled. If empty, recycle all vaults.
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
+
+CONF_mBool(use_delete_bitmap_lock_new_way, "true");
+CONF_mBool(use_delete_bitmap_lock_random_way, "false");
 } // namespace doris::cloud::config
