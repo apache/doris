@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <fmt/core.h>
+#include <fmt/printf.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -66,6 +68,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/cast_type_to_either.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -4955,6 +4958,111 @@ private:
             }
         }
         return result;
+    }
+};
+
+class FunctionPrintf : public IFunction {
+public:
+    static constexpr auto name = "printf";
+
+    static FunctionPtr create() { return std::make_shared<FunctionPrintf>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return remove_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        size_t num_element = arguments.size();
+        auto result_col = block.get_by_position(result).type->create_column();
+
+        // first arg is format string, so it should be string type
+        auto format_str_type = block.get_by_position(arguments[0]).type;
+        if (format_str_type->get_type_id() != TypeIndex::String) {
+            return Status::InvalidArgument(
+                    "Argument 1 of function PRINTF must be string, but {} was found.",
+                    format_str_type->get_name());
+        }
+        const auto* format_str_column =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
+        std::vector<ColumnWithTypeAndName> format_arg_columns(num_element);
+
+        for (size_t i = 0; i < num_element; ++i) {
+            format_arg_columns[i] = block.get_by_position(arguments[i]);
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            fmt::dynamic_format_arg_store<fmt::printf_context> store;
+            for (int j = 1; j < num_element; ++j) {
+                auto data = format_arg_columns[j].column->get_data_at(i);
+                auto type = format_arg_columns[j].type;
+                RETURN_IF_ERROR(handle_format_arg(data, type, store));
+            }
+            auto format_str = format_str_column->get_data_at(i).to_string_view();
+            try {
+                auto formatted = fmt::vsprintf(format_str, store);
+                result_col->insert_data(formatted.data(), formatted.size());
+            } catch (const fmt::format_error& e) {
+                return Status::InvalidArgument("Failed to format string: {}, error: {}", format_str,
+                                               e.what());
+            }
+        }
+        block.replace_by_position(result, std::move(result_col));
+        return Status::OK();
+    }
+
+private:
+    static Status handle_format_arg(const StringRef& data, const DataTypePtr& type,
+                                    fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+        switch (type->get_type_id()) {
+        case TypeIndex::Int64:
+            store.push_back(get_value_from_data<int64_t>(data));
+            return Status::OK();
+        case TypeIndex::Int32:
+            store.push_back(get_value_from_data<int32_t>(data));
+            return Status::OK();
+        case TypeIndex::Int16:
+            store.push_back(get_value_from_data<int16_t>(data));
+            return Status::OK();
+        case TypeIndex::Int8:
+            store.push_back(get_value_from_data<int8_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt64:
+            store.push_back(get_value_from_data<uint64_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt32:
+            store.push_back(get_value_from_data<uint32_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt16:
+            store.push_back(get_value_from_data<uint16_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt8:
+            store.push_back(get_value_from_data<uint8_t>(data));
+            return Status::OK();
+        case TypeIndex::Float64:
+            store.push_back(get_value_from_data<double>(data));
+            return Status::OK();
+        case TypeIndex::Float32:
+            store.push_back(get_value_from_data<float>(data));
+            return Status::OK();
+        case TypeIndex::String:
+            store.push_back(data.to_string());
+            return Status::OK();
+        default:
+            return Status::InvalidArgument("Unsupported printf type: {}", type->get_name());
+        }
+    }
+
+    template <typename T>
+    static T get_value_from_data(const StringRef& data) {
+        T value;
+        memcpy(&value, data.data, sizeof(value));
+        return value;
     }
 };
 
