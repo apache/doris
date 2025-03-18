@@ -59,9 +59,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             local_state._shared_state->updatae_valid_element_in_hash_tbl(is_intersect);
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
-            if (_child_quantity == 1) {
-                local_state._dependency->set_ready_to_read();
-            }
+            DCHECK_GT(_child_quantity, 1);
         }
     }
     return Status::OK();
@@ -133,6 +131,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             result_col_id = block.columns() - 1;
         }
 
+        ///TODO: Here, the build block still retains the column before execution, but in fact, these blocks will no longer be used afterwards.
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
         local_state._shared_state->build_col_idx.insert({i, result_col_id});

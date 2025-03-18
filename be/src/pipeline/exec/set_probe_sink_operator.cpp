@@ -95,7 +95,11 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 local_state._shared_state->hash_table_variants->method_variant));
     }
 
-    if (eos && !state->get_task()->wake_up_early()) {
+    if (eos
+#ifndef BE_TEST
+        && !state->get_task()->wake_up_early()
+#endif
+    ) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -158,6 +162,7 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
             if (build_not_ignore_null[i]) { //same as build column
                 raw_ptrs[i] = nullable;
             } else {
+                /// TODO: maybe remove this
                 raw_ptrs[i] = &col_nested;
             }
 

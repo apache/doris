@@ -45,7 +45,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>()._row_descriptor);
+            _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
@@ -152,12 +152,17 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
     *eos = iter == hash_table_ctx.hash_table->end();
     if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
-        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
-        // If the hashmap can store nulldata, the return value is RowRefWithFlag, otherwise it is char*
-        static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
-                      std::is_same_v<char*, std::decay_t<decltype(value)>>);
-        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
-            add_result(value);
+        // Make sure the output data size does not exceed batch_size. If it has reached batch_size, set eos to false.
+        if (local_state._result_indexs.size() < batch_size) {
+            auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
+            // If the hashmap can store nulldata, the return value is RowRefWithFlag, otherwise it is char*
+            static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
+                          std::is_same_v<char*, std::decay_t<decltype(value)>>);
+            if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
+                add_result(value);
+            }
+        } else {
+            *eos = false;
         }
     }
 

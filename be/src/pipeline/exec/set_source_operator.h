@@ -42,6 +42,8 @@ public:
 
 private:
     void _add_result_columns();
+    Status _check_output_types(std::vector<vectorized::VExprContextSPtrs>& child_exprs_lists,
+                               vector<bool>& nullable_flags);
     friend class SetSourceOperatorX<is_intersect>;
     friend class OperatorX<SetSourceLocalState<is_intersect>>;
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
@@ -54,14 +56,16 @@ private:
 };
 
 template <bool is_intersect>
-class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_intersect>> {
+class SetSourceOperatorX MOCK_REMOVE(final) : public OperatorX<SetSourceLocalState<is_intersect>> {
 public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
     using OperatorXBase::operator_id;
     using Base::get_local_state;
     using typename Base::LocalState;
-
+#ifdef BE_TEST
+    SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
+#endif
     SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs),
