@@ -45,6 +45,9 @@ public class OBSProperties extends AbstractObjectStorageProperties {
         // Initialize fields from origProps
     }
 
+    protected static boolean guessIsMe(Map<String, String> origProps) {
+        return origProps.containsKey("obs.access_key");
+    }
 
 
     @Override

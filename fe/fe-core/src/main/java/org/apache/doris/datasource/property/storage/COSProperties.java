@@ -51,6 +51,10 @@ public class COSProperties extends AbstractObjectStorageProperties {
         super(Type.COS, origProps);
     }
 
+    protected static boolean guessIsMe(Map<String, String> origProps) {
+        return origProps.containsKey("cos.access_key");
+    }
+
     @Override
     public Configuration getHadoopConfiguration() {
         Configuration conf = new Configuration(false);

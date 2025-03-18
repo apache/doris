@@ -114,13 +114,13 @@ public abstract class StorageProperties extends ConnectionProperties {
         if (isFsSupport(origProps, FS_S3_SUPPORT) || S3Properties.guessIsMe(origProps)) {
             storageProperties = new S3Properties(origProps);
         }
-        if (isFsSupport(origProps, FS_OSS_SUPPORT)) {
+        if (isFsSupport(origProps, FS_OSS_SUPPORT) || OSSProperties.guessIsMe(origProps)) {
             storageProperties = new OSSProperties(origProps);
         }
-        if (isFsSupport(origProps, FS_OBS_SUPPORT)) {
+        if (isFsSupport(origProps, FS_OBS_SUPPORT) || OBSProperties.guessIsMe(origProps)) {
             storageProperties = new OBSProperties(origProps);
         }
-        if (isFsSupport(origProps, FS_COS_SUPPORT)) {
+        if (isFsSupport(origProps, FS_COS_SUPPORT) || COSProperties.guessIsMe(origProps)) {
             storageProperties = new COSProperties(origProps);
         }
         if (null == storageProperties) {

@@ -43,6 +43,10 @@ public class OSSProperties extends AbstractObjectStorageProperties {
         super(Type.OSS, origProps);
     }
 
+    protected static boolean guessIsMe(Map<String, String> origProps) {
+        return origProps.containsKey("oss.access_key");
+    }
+
     @Override
     public Configuration getHadoopConfiguration() {
         Configuration conf = new Configuration(false);
