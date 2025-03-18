@@ -265,8 +265,6 @@ public:
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
-    ThreadPool* get_memtable_flush_pool();
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
@@ -326,8 +324,6 @@ public:
     ObjectPool obj_pool;
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
-
-    std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -426,7 +422,6 @@ private:
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;

@@ -16,15 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <memory>
-#include <utility>
-
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/date_time_transforms.h"
@@ -35,6 +28,8 @@ namespace doris::vectorized {
 
 using FunctionYear = FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<Int64>>;
 using FunctionYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<UInt32>>;
+using FunctionYearOfWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearOfWeekImpl<UInt32>>;
 using FunctionQuarter = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<Int64>>;
 using FunctionQuarterV2 = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToQuarterImpl<UInt32>>;
 using FunctionMonth = FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMonthImpl<Int64>>;
@@ -102,6 +97,7 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionWeekV2>();
     factory.register_function<FunctionMonthV2>();
     factory.register_function<FunctionYearV2>();
+    factory.register_function<FunctionYearOfWeek>();
     factory.register_function<FunctionQuarterV2>();
     factory.register_function<FunctionToDaysV2>();
     factory.register_function<FunctionToDateV2>();

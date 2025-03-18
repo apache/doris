@@ -45,8 +45,8 @@ public:
 
     Status find_tablets(RuntimeState* state, vectorized::Block* block, int rows,
                         std::vector<VOlapTablePartition*>& partitions,
-                        std::vector<uint32_t>& tablet_index, bool& filtered,
-                        std::vector<bool>& skip, std::vector<int64_t>* miss_rows = nullptr);
+                        std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
+                        std::vector<int64_t>* miss_rows = nullptr);
 
     bool is_find_tablet_every_sink() {
         return _find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_SINK;

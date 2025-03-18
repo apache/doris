@@ -107,8 +107,30 @@ public class BinlogManager {
         }
     }
 
+    private boolean isAsyncMvBinlog(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to async materialized view, since we don't support async mv right now.
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isAsyncMvTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the async mv binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
+            return;
+        }
+
+        if (isAsyncMvBinlog(binlog)) {
             return;
         }
 
@@ -158,11 +180,7 @@ public class BinlogManager {
         if (tableIds != null) {
             for (long tableId : tableIds) {
                 boolean tableBinlogEnable = binlogConfigCache.isEnableTable(dbId, tableId);
-                if (tableIds.size() > 1) {
-                    anyEnable = anyEnable || tableBinlogEnable;
-                } else {
-                    anyEnable = tableBinlogEnable;
-                }
+                anyEnable = anyEnable || tableBinlogEnable;
                 if (anyEnable) {
                     break;
                 }
@@ -545,7 +563,7 @@ public class BinlogManager {
     }
 
     // get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions(long dbId) {
+    public List<Pair<Long, Long>> getDroppedPartitions(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -559,7 +577,7 @@ public class BinlogManager {
     }
 
     // get the dropped tables of the db.
-    public List<Long> getDroppedTables(long dbId) {
+    public List<Pair<Long, Long>> getDroppedTables(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -573,7 +591,7 @@ public class BinlogManager {
     }
 
     // get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes(long dbId) {
+    public List<Pair<Long, Long>> getDroppedIndexes(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
