@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.hint.DistributeHint;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,7 +49,17 @@ public class SelectHintLeading extends SelectHint {
 
     @Override
     public String toString() {
-        String leadingString = parameters
+        List<String> newParameters = new ArrayList<>();
+        for (String param : parameters) {
+            if (param.startsWith("shuffle")) {
+                newParameters.add("shuffle");
+            } else if (param.startsWith("broadcast")) {
+                newParameters.add("broadcast");
+            } else {
+                newParameters.add(param);
+            }
+        }
+        String leadingString = newParameters
                 .stream()
                 .collect(Collectors.joining(" "));
         return super.getHintName() + "(" + leadingString + ")";

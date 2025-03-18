@@ -177,7 +177,7 @@ public class LeadingHint extends Hint {
                 DistributeHint distributeHint = strToHint.get(parameter);
                 if (distributeHint.isSuccess()) {
                     out.append(distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)
-                            ? "shuffle" : "broadcast" + " ");
+                            ? "shuffle " : "broadcast ");
                 }
             } else if (parameter.equals("join")) {
                 continue;
@@ -508,6 +508,7 @@ public class LeadingHint extends Hint {
         if (!distributeJoinType.equals("join")) {
             distributeHint = strToHint.get(distributeJoinType);
         }
+        distributeHint.setSuccessInLeading(true);
         if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
             ConnectContext.get().getStatementContext().addHint(distributeHint);
         }
