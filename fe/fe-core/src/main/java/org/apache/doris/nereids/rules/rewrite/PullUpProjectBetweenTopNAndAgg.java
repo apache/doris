@@ -92,12 +92,8 @@ public class PullUpProjectBetweenTopNAndAgg extends OneRewriteRuleFactory {
         }
         if (match) {
             if (project.getProjects().size() >= project.getInputSlots().size()) {
-                LOG.info("$$$$ before: project.getProjects() = " + project.getProjects());
-                LOG.info("$$$$ before: project.getInputSlots() = " + project.getInputSlots());
-                LOG.info("$$$$ before: " + topN.treeString());
                 topN = topN.withChildren(project.children()).withOrderKeys(newOrderKeys);
                 project = (LogicalProject<Plan>) project.withChildren(topN);
-                LOG.info("$$$$ after:" + project.treeString());
                 return project;
             }
         }
