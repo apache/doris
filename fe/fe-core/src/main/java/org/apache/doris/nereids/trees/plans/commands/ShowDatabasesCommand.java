@@ -75,7 +75,7 @@ public class ShowDatabasesCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(catalog)) {
             catalog = ctx.getDefaultCatalog();
             if (Strings.isNullOrEmpty(catalog)) {
@@ -90,10 +90,10 @@ public class ShowDatabasesCommand extends ShowCommand {
                 if (equalTo.left() instanceof UnboundSlot && equalTo.right() instanceof Literal) {
                     dbName = ((Literal) equalTo.right()).getValue().toString();
                 } else {
-                    throw new AnalysisException("Only support where clause with schema_name");
+                    throw new AnalysisException("Only support where clause with schema_name = '{db_name}'");
                 }
             } else {
-                throw new AnalysisException("Only support where clause with schema_name");
+                throw new AnalysisException("Only support where clause with schema_name = '{db_name}'");
             }
         }
     }
