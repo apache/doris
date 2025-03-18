@@ -56,6 +56,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
@@ -63,6 +64,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.TableScanUtil;
@@ -100,6 +102,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPartitionedTable;
     private int formatVersion;
     private PreExecutionAuthenticator preExecutionAuthenticator;
+    private TableScan icebergTableScan;
 
     /**
      * External file scan node for Query iceberg table
@@ -249,6 +252,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private TableScan createTableScan() throws UserException {
+        if (icebergTableScan != null) {
+            return icebergTableScan;
+        }
+
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
@@ -270,9 +277,9 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
-        return scan;
+        return icebergTableScan;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
@@ -345,8 +352,27 @@ public class IcebergScanNode extends FileQueryScanNode {
                 return false;
             }
         }
-        // TODO Use a better judgment method to decide whether to use batch mode.
-        return sessionVariable.getNumPartitionsInBatchMode() > 1024;
+
+        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            return false;
+        }
+
+        try (CloseableIterator<ManifestFile> matchingManifest =
+                IcebergUtils.getMatchingManifest(
+                        createTableScan().snapshot().dataManifests(icebergTable.io()),
+                        icebergTable.specs(),
+                        createTableScan().filter()).iterator()) {
+            int cnt = 0;
+            while (matchingManifest.hasNext()) {
+                cnt += matchingManifest.next().addedFilesCount();
+                if (cnt >= sessionVariable.getNumPartitionsInBatchMode()) {
+                    return true;
+                }
+            }
+        } catch (UserException | IOException e) {
+            throw new RuntimeException(e);
+        }
+        return false;
     }
 
     public Long getSpecifiedSnapshot() throws UserException {
