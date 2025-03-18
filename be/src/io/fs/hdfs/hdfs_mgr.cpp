@@ -87,7 +87,7 @@ void HdfsMgr::_cleanup_loop() {
                                   << ", principal=" << entry.second->principal
                                   << ", fs_name=" << entry.second->fs_name
                                   << ", is_expired=" << is_expired;
-                                  // << ", is_krb_expire=" << is_krb_expired;
+                        // << ", is_krb_expire=" << is_krb_expired;
                         to_remove.push_back(entry.first);
                         handlers_to_cleanup.push_back(entry.second);
                     }
@@ -188,7 +188,7 @@ Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::
     *fs_handler = std::make_shared<HdfsHandler>(
             hdfs_fs, is_kerberos, is_kerberos ? hdfs_params.hdfs_kerberos_principal : "",
             is_kerberos ? hdfs_params.hdfs_kerberos_keytab : "", fs_name);
-            // builder.get_ticket_cache());
+    // builder.get_ticket_cache());
     return Status::OK();
 }
 

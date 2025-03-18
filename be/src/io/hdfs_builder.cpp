@@ -145,6 +145,7 @@ void HDFSCommonBuilder::set_hdfs_conf_to_hdfs_builder() {
     }
 }
 
+// This method is deprecated, will be removed later
 Status HDFSCommonBuilder::set_kerberos_ticket_cache() {
     // kerberos::KerberosConfig config;
     // config.set_principal_and_keytab(hdfs_kerberos_principal, hdfs_kerberos_keytab);
@@ -229,7 +230,8 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
         hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
         hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
-        hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled", "true");
+        hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled",
+                              "true");
         // RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());
     } else {
         if (hdfsParams.__isset.user) {

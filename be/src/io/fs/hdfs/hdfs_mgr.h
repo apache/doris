@@ -83,7 +83,7 @@ private:
 
     std::atomic<bool> _should_stop_cleanup_thread;
     std::unique_ptr<std::thread> _cleanup_thread;
-    int64_t _cleanup_interval_seconds = 300;  // Run cleanup every hour
+    int64_t _cleanup_interval_seconds = 3600;  // Run cleanup every hour
     int64_t _instance_timeout_seconds = 86400; // 24 hours timeout
 };
 
