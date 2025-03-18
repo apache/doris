@@ -3031,6 +3031,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -3076,6 +3085,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
