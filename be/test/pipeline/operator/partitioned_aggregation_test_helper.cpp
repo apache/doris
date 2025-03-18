@@ -198,8 +198,8 @@ PartitionedAggLocalState* PartitionedAggregationTestHelper::create_source_local_
     local_state->_shared_state = shared_state.get();
     shared_state->is_spilled = true;
 
-    ADD_TIMER(local_state->profile(), "ExecTime");
-    local_state->profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
+    ADD_TIMER(local_state->common_profile(), "ExecTime");
+    local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
     local_state->init_spill_read_counters();
     local_state->init_spill_write_counters();
     local_state->_copy_shared_spill_profile = false;
@@ -220,8 +220,8 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
     shared_state = std::make_shared<MockPartitionedAggSharedState>();
     local_state->init_spill_counters();
 
-    ADD_TIMER(local_state->profile(), "ExecTime");
-    local_state->profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
+    ADD_TIMER(local_state->common_profile(), "ExecTime");
+    local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
     local_state->_internal_runtime_profile = std::make_unique<RuntimeProfile>("inner_test");
 
     local_state->_dependency = shared_state->create_sink_dependency(
@@ -230,7 +230,7 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
 
     local_state->_spill_dependency =
             Dependency::create_shared(0, 0, "PartitionedHashJoinSinkOperatorTestSpillDep", true);
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
