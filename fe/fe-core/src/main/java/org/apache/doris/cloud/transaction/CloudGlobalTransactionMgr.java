@@ -364,7 +364,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     throw new UserException(
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
                 }
-                backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
+                backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null, transactionId);
             }
             commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
                     mowTableList, backendToPartitionInfos);
@@ -790,20 +790,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap) {
+    private Map<Long, Long> getPartitionVersions(Map<Long, Partition> partitionMap, Long transactionId)
+            throws UserException {
         Map<Long, Long> partitionToVersions = Maps.newHashMap();
-        partitionMap.forEach((key, value) -> {
+        for (Entry<Long, Partition> entry : partitionMap.entrySet()) {
+            Long key = entry.getKey();
+            Partition value = entry.getValue();
+            if (value == null) {
+                throw new UserException(
+                        "The partition=" + key + " is null, may be drop,txnid=" + transactionId);
+            }
             long visibleVersion = value.getVisibleVersion();
             long newVersion = visibleVersion <= 0 ? 2 : visibleVersion + 1;
             partitionToVersions.put(key, newVersion);
-        });
+        }
         return partitionToVersions;
     }
 
     private Map<Long, List<TCalcDeleteBitmapPartitionInfo>> getCalcDeleteBitmapInfo(
-            DeleteBitmapUpdateLockContext lockContext, Map<Long, List<Long>> partitionToSubTxnIds) {
+            DeleteBitmapUpdateLockContext lockContext, Map<Long, List<Long>> partitionToSubTxnIds, Long transactionId)
+            throws UserException {
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = Maps.newHashMap();
-        Map<Long, Long> partitionVersions = getPartitionVersions(lockContext.getPartitions());
+        Map<Long, Long> partitionVersions = getPartitionVersions(lockContext.getPartitions(), transactionId);
         for (Map.Entry<Long, Map<Long, Set<Long>>> entry : lockContext.getBackendToPartitionTablets().entrySet()) {
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos = Lists.newArrayList();
             for (Map.Entry<Long, Set<Long>> partitionToTablets : entry.getValue().entrySet()) {
@@ -1199,7 +1207,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         lockContext.getTableToTabletList(),
                         lockContext.getTabletToTabletMeta());
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(
-                        lockContext, partitionToSubTxnIds);
+                        lockContext, partitionToSubTxnIds, transactionId);
             }
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates, mowTableList,
                     backendToPartitionInfos);
@@ -1270,7 +1278,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
+            LOG.info("start commit txn=" + transactionId + ",table=" + tableId + ",timeoutMillis=" + timeoutMillis);
         }
         for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
             if (entry.getValue().get() > 5) {
