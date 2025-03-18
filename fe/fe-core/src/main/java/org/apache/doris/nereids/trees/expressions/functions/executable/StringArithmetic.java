@@ -678,7 +678,7 @@ public class StringArithmetic {
      * @return ArrayLiteral
      */
     public static Expression splitByGrapheme(StringLikeLiteral str) {
-        List<Literal> result =  Lists.newArrayListWithExpectedSize(str.getValue().length());
+        List<Literal> result = Lists.newArrayListWithExpectedSize(str.getValue().length());
         int length = str.getValue().length();
         for (int i = 0; i < length; ) {
             int codePoint = str.getValue().codePointAt(i);
@@ -703,7 +703,7 @@ public class StringArithmetic {
         String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
         List<Literal> items = new ArrayList<>();
         for (String s : result) {
-            items.add((Literal) castStringLikeLiteral(first, s));
+            items.add(castStringLikeLiteral(first, s));
         }
         return new ArrayLiteral(items);
     }
@@ -811,12 +811,12 @@ public class StringArithmetic {
         if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
             return originStr;
         } else {
-            if (len.getValue() < 0 || len.getValue() > (totalLength - len.getValue())) {
-                sb.append(substringImpl(originStr.getValue(), 0, pos.getValue()));
+            if (len.getValue() < 0 || len.getValue() > (totalLength - pos.getValue())) {
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
                 sb.append(insertStr.getValue());
                 return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(substringImpl(originStr.getValue(), 0, pos.getValue()));
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
                 sb.append(insertStr.getValue());
                 sb.append(substringImpl(originStr.getValue(), pos.getValue() + len.getValue(), totalLength));
                 return castStringLikeLiteral(originStr, sb.toString());
