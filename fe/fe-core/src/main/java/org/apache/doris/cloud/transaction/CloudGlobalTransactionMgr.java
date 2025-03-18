@@ -956,7 +956,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
-                lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                if (size4 > 0) {
+                    lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                }
             }
             totalRetryTime += retryTime;
         }
