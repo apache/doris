@@ -4596,57 +4596,69 @@ public:
             fmt::dynamic_format_arg_store<fmt::printf_context> store;
             for (int j = 1; j < num_element; ++j) {
                 auto data = format_arg_columns[j].column->get_data_at(i);
-                switch (format_arg_columns[j].type->get_type_id()) {
-                case TypeIndex::Int64: {
-                    int64_t value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::Int32: {
-                    int32_t value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::Int16: {
-                    int16_t value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::Int8: {
-                    int8_t value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::Float64: {
-                    double value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::Float32: {
-                    float value;
-                    memcpy(&value, data.data, sizeof(value));
-                    store.push_back(value);
-                    break;
-                }
-                case TypeIndex::String: {
-                    store.push_back(data.to_string());
-                    break;
-                }
-                default:
-                    break;
-                }
+                auto type = format_arg_columns[j].type;
+                RETURN_IF_ERROR(handle_format_arg(data, type, store));
             }
-            auto formatted =
-                    fmt::vsprintf(format_str_column->get_data_at(i).to_string_view(), store);
-            result_col->insert_data(formatted.data(), formatted.size());
+            auto format_str = format_str_column->get_data_at(i).to_string_view();
+            try {
+                auto formatted = fmt::vsprintf(format_str, store);
+                result_col->insert_data(formatted.data(), formatted.size());
+            } catch (const fmt::format_error& e) {
+                return Status::InvalidArgument("Failed to format string: {}, error: {}", format_str,
+                                               e.what());
+            }
         }
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
+    }
+
+private:
+    static Status handle_format_arg(const StringRef& data, const DataTypePtr& type,
+                                    fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+        switch (type->get_type_id()) {
+        case TypeIndex::Int64:
+            store.push_back(get_value_from_data<int64_t>(data));
+            return Status::OK();
+        case TypeIndex::Int32:
+            store.push_back(get_value_from_data<int32_t>(data));
+            return Status::OK();
+        case TypeIndex::Int16:
+            store.push_back(get_value_from_data<int16_t>(data));
+            return Status::OK();
+        case TypeIndex::Int8:
+            store.push_back(get_value_from_data<int8_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt64:
+            store.push_back(get_value_from_data<uint64_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt32:
+            store.push_back(get_value_from_data<uint32_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt16:
+            store.push_back(get_value_from_data<uint16_t>(data));
+            return Status::OK();
+        case TypeIndex::UInt8:
+            store.push_back(get_value_from_data<uint8_t>(data));
+            return Status::OK();
+        case TypeIndex::Float64:
+            store.push_back(get_value_from_data<double>(data));
+            return Status::OK();
+        case TypeIndex::Float32:
+            store.push_back(get_value_from_data<float>(data));
+            return Status::OK();
+        case TypeIndex::String:
+            store.push_back(data.to_string());
+            return Status::OK();
+        default:
+            return Status::InvalidArgument("Unsupported printf type: {}", type->get_name());
+        }
+    }
+
+    template <typename T>
+    static T get_value_from_data(const StringRef& data) {
+        T value;
+        memcpy(&value, data.data, sizeof(value));
+        return value;
     }
 };
 
