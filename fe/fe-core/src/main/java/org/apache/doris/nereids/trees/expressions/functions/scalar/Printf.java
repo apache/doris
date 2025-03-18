@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -31,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -66,7 +68,15 @@ public class Printf extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        List<DataType> argTypes = children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
+        Function<DataType, DataType> replaceDecimalWithDouble = dataType -> {
+            if (dataType.isDecimalLikeType()) {
+                return DoubleType.INSTANCE;
+            }
+            return dataType;
+        };
+        List<DataType> argTypes = children.stream().map(ExpressionTrait::getDataType)
+                .map(replaceDecimalWithDouble)
+                .collect(Collectors.toList());
         return ImmutableList.of(
                 FunctionSignature.ret(StringType.INSTANCE).args(argTypes.toArray(new DataType[0])));
     }
