@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
@@ -60,7 +61,7 @@ import java.util.regex.Pattern;
  * concat
  */
 public class StringArithmetic {
-    private static Expression castStringLikeLiteral(StringLikeLiteral first, String value) {
+    private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
             return new StringLiteral(value);
         } else if (first instanceof VarcharLiteral) {
@@ -79,7 +80,7 @@ public class StringArithmetic {
     }
 
     private static String substringImpl(String first, int second, int third) {
-        int stringLength = first.offsetByCodePoints(0, first.length());
+        int stringLength = first.codePointCount(0, first.length());
         if (stringLength == 0) {
             return "";
         }
@@ -102,8 +103,8 @@ public class StringArithmetic {
             rightIndex = third + leftIndex;
         }
         // at here leftIndex and rightIndex can not be exceeding boundary
-        int finalLeftIndex = first.offsetByCodePoints(0, (int) leftIndex);
-        int finalRightIndex = first.offsetByCodePoints(0, (int) rightIndex);
+        int finalLeftIndex = first.codePointCount(0, (int) leftIndex);
+        int finalRightIndex = first.codePointCount(0, (int) rightIndex);
         // left index and right index are in integer range because of definition, so we can safely cast it to int
         return first.substring(finalLeftIndex, finalRightIndex);
     }
@@ -296,13 +297,13 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "left")
     public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
-        int inputLength = first.getValue().offsetByCodePoints(0, first.getValue().length());
+        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > inputLength) {
+        } else if (second.getValue() >= inputLength) {
             return first;
         } else {
-            int index = first.getValue().offsetByCodePoints(0, second.getValue());
+            int index = first.getValue().codePointCount(0, second.getValue());
             return castStringLikeLiteral(first, first.getValue().substring(0, index));
         }
     }
@@ -312,17 +313,18 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "right")
     public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
-        int inputLength = first.getValue().offsetByCodePoints(0, first.getValue().length());
+        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
         if (second.getValue() < (- inputLength) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > inputLength) {
+        } else if (second.getValue() >= inputLength) {
             return first;
         } else {
-            int index = first.getValue().offsetByCodePoints(0, second.getValue());
-            if (second.getValue() > 0) {
+            if (second.getValue() >= 0) {
+                int index = first.getValue().codePointCount(0, second.getValue());
                 return castStringLikeLiteral(first, first.getValue().substring(
                     inputLength - index, inputLength));
             } else {
+                int index = first.getValue().codePointCount(Math.abs(second.getValue()) - 1, first.getValue().length());
                 return castStringLikeLiteral(first, first.getValue().substring(
                     Math.abs(index) - 1, inputLength));
             }
@@ -344,7 +346,7 @@ public class StringArithmetic {
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
         int result = second.getValue().indexOf(first.getValue()) + 1;
         if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().offsetByCodePoints(0, second.getValue().length())).contains(first.getValue())) {
+                second.getValue().codePointCount(0, second.getValue().length())).contains(first.getValue())) {
             result = 0;
         }
         return new IntegerLiteral(result);
@@ -672,23 +674,19 @@ public class StringArithmetic {
 
     /**
      * split by char by empty string considering emoji
-     * @param first input string to be split
+     * @param str input string to be split
      * @return ArrayLiteral
      */
-    public static Expression splitByGrapheme(StringLikeLiteral first) {
-        List<String> result = new ArrayList<>();
-        int length = first.getValue().length();
+    public static Expression splitByGrapheme(StringLikeLiteral str) {
+        List<Literal> result =  Lists.newArrayListWithExpectedSize(str.getValue().length());
+        int length = str.getValue().length();
         for (int i = 0; i < length; ) {
-            int codePoint = first.getValue().codePointAt(i);
+            int codePoint = str.getValue().codePointAt(i);
             int charCount = Character.charCount(codePoint);
-            result.add(first.getValue().substring(i, i + charCount));
+            result.add(castStringLikeLiteral(str, new String(new int[]{codePoint}, 0, 1)));
             i += charCount;
         }
-        List<Literal> items = new ArrayList<>();
-        for (String s : result) {
-            items.add((Literal) castStringLikeLiteral(first, s));
-        }
-        return new ArrayLiteral(items);
+        return new ArrayLiteral(result);
     }
 
     /**
@@ -809,7 +807,7 @@ public class StringArithmetic {
     public static Expression overlay(StringLikeLiteral originStr,
             IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
         StringBuilder sb = new StringBuilder();
-        int totalLength = originStr.getValue().offsetByCodePoints(0, originStr.getValue().length());
+        int totalLength = originStr.getValue().codePointCount(0, originStr.getValue().length());
         if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
             return originStr;
         } else {
@@ -942,7 +940,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
-        if (second.getValue().offsetByCodePoints(0, second.getValue().length()) != 1) {
+        if (second.getValue().codePointCount(0, second.getValue().length()) != 1) {
             return new NullLiteral(first.getDataType());
         }
         if (first.getValue().endsWith(second.getValue())) {
