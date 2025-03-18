@@ -480,7 +480,7 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
                                                        std::unique_ptr<Transaction>& txn,
                                                        std::string& instance_id, int64_t table_id,
                                                        int64_t tablet_id, int64_t lock_id,
-                                                       int64_t lock_initiator) {
+                                                       int64_t lock_initiator, bool use_new_way) {
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
@@ -506,7 +506,7 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+    if (use_new_way && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         // when upgrade ms, prevent old ms get delete bitmap update lock
         if (lock_info.initiators_size() > 0) {
             ss << "compaction lock has " << lock_info.initiators_size() << " initiators";
@@ -581,8 +581,8 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
 static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t tablet_id, int64_t lock_id,
-                                             int64_t lock_initiator) {
-    if (lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                                             int64_t lock_initiator, bool use_new_way) {
+    if (use_new_way && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
         std::string tablet_compaction_val;
@@ -649,6 +649,16 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                            << " initiators_size=" << lock_info.initiators_size();
         txn->put(lock_key, lock_val);
     }
+}
+
+static bool use_new_way_random() {
+    std::mt19937 gen {std::random_device {}()};
+    auto p = 0.5;
+    std::bernoulli_distribution inject_fault {p};
+    if (inject_fault(gen)) {
+        return true;
+    }
+    return false;
 }
 
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
@@ -726,9 +736,13 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
                            << " key=" << hex(job_key);
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            remove_delete_bitmap_update_lock(txn, instance_id, table_id, tablet_id,
-                                             COMPACTION_DELETE_BITMAP_LOCK_ID,
-                                             compaction.delete_bitmap_lock_initiator());
+            bool use_new_way = config::use_delete_bitmap_lock_new_way;
+            if (config::use_delete_bitmap_lock_random_way && !use_new_way_random()) {
+                use_new_way = false;
+            }
+            remove_delete_bitmap_update_lock(
+                    txn, instance_id, table_id, tablet_id, COMPACTION_DELETE_BITMAP_LOCK_ID,
+                    compaction.delete_bitmap_lock_initiator(), use_new_way);
         }
         need_commit = true;
         return;
@@ -878,9 +892,14 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     // remove delete bitmap update lock for MoW table
     if (compaction.has_delete_bitmap_lock_initiator()) {
+        bool use_new_way = config::use_delete_bitmap_lock_new_way;
+        if (config::use_delete_bitmap_lock_random_way && !use_new_way_random()) {
+            use_new_way = false;
+        }
         bool success = check_and_remove_delete_bitmap_update_lock(
                 code, msg, ss, txn, instance_id, table_id, tablet_id,
-                COMPACTION_DELETE_BITMAP_LOCK_ID, compaction.delete_bitmap_lock_initiator());
+                COMPACTION_DELETE_BITMAP_LOCK_ID, compaction.delete_bitmap_lock_initiator(),
+                use_new_way);
         if (!success) {
             return;
         }
@@ -1374,9 +1393,14 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     // process mow table, check lock
     if (new_tablet_meta.enable_unique_key_merge_on_write()) {
+        bool use_new_way = config::use_delete_bitmap_lock_new_way;
+        if (config::use_delete_bitmap_lock_random_way && !use_new_way_random()) {
+            use_new_way = false;
+        }
         bool success = check_and_remove_delete_bitmap_update_lock(
                 code, msg, ss, txn, instance_id, new_table_id, new_tablet_id,
-                SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, schema_change.delete_bitmap_lock_initiator());
+                SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, schema_change.delete_bitmap_lock_initiator(),
+                use_new_way);
         if (!success) {
             return;
         }
