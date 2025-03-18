@@ -20,22 +20,18 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Printf function
@@ -46,15 +42,6 @@ import java.util.List;
  */
 public class Printf extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, SmallIntType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, BigIntType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, LargeIntType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, FloatType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, DoubleType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE));
 
     /**
      * constructor with 1 or more arguments.
@@ -79,6 +66,8 @@ public class Printf extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        List<DataType> argTypes = children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList());
+        return ImmutableList.of(
+                FunctionSignature.ret(StringType.INSTANCE).args(argTypes.toArray(new DataType[0])));
     }
 }

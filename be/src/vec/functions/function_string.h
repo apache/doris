@@ -4576,7 +4576,7 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return remove_nullable(std::make_shared<DataTypeString>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -4594,9 +4594,9 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             fmt::dynamic_format_arg_store<fmt::printf_context> store;
-            for (int i = 1; i < num_element; ++i) {
-                auto data = format_arg_columns[i].column->get_data_at(i);
-                switch (format_arg_columns[i].type->get_type_id()) {
+            for (int j = 1; j < num_element; ++j) {
+                auto data = format_arg_columns[j].column->get_data_at(i);
+                switch (format_arg_columns[j].type->get_type_id()) {
                 case TypeIndex::Int64: {
                     int64_t value;
                     memcpy(&value, data.data, sizeof(value));
@@ -4645,6 +4645,7 @@ public:
                     fmt::vsprintf(format_str_column->get_data_at(i).to_string_view(), store);
             result_col->insert_data(formatted.data(), formatted.size());
         }
+        block.replace_by_position(result, std::move(result_col));
         return Status::OK();
     }
 };
