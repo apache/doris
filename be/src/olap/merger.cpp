@@ -52,6 +52,7 @@
 #include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "util/slice.h"
+#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/olap/block_reader.h"
 #include "vec/olap/vertical_block_reader.h"
@@ -120,6 +121,25 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
+#ifndef NDEBUG
+        if (auto* version_col = block.try_get_by_name(VERSION_COL); version_col != nullptr) {
+            auto* col = assert_cast<vectorized::ColumnInt64*>(
+                    version_col->column->assume_mutable().get());
+            int64_t max_version = tablet->max_version_unlocked();
+            for (auto val : col->get_data()) {
+                if (val > max_version) {
+                    auto msg = fmt::format(
+                            "[Merger::vmerge_rowsets] tablet={}, tablet's max_version={}, but "
+                            "found value={} in __DORIS_VERSION_COL__ when merge rowsets for "
+                            "version={}, reader_type={}",
+                            tablet->tablet_id(), max_version, val,
+                            reader_params.version.to_string(), reader_type);
+                    LOG_WARNING(msg);
+                    DCHECK(false) << msg;
+                }
+            }
+        }
+#endif
         RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&block),
                                        "failed to write block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
@@ -295,6 +315,25 @@ Status Merger::vertical_compact_one_group(
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
+#ifndef NDEBUG
+        if (auto* version_col = block.try_get_by_name(VERSION_COL); version_col != nullptr) {
+            auto* col = assert_cast<vectorized::ColumnInt64*>(
+                    version_col->column->assume_mutable().get());
+            int64_t max_version = tablet->max_version_unlocked();
+            for (auto val : col->get_data()) {
+                if (val > max_version) {
+                    auto msg = fmt::format(
+                            "[Merger::vertical_compact_one_group] tablet={}, tablet's "
+                            "max_version={}, but found value={} in __DORIS_VERSION_COL__ when "
+                            "merge rowsets for version={}, reader_type={}",
+                            tablet->tablet_id(), max_version, val,
+                            reader_params.version.to_string(), reader_type);
+                    LOG_WARNING(msg);
+                    DCHECK(false) << msg;
+                }
+            }
+        }
+#endif
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment,
                                                has_cluster_key),
