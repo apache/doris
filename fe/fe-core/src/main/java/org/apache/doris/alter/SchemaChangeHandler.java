@@ -2113,7 +2113,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                     continue;
                                 }
                                 // variant type column can not support for building index
-                                for (String indexColumn : indexDef.getColumns()) {
+                                for (String indexColumn : existedIdx.getColumns()) {
                                     if (column.getName().equalsIgnoreCase(indexColumn)) {
                                         throw new DdlException("BUILD INDEX operation failed: The "
                                                 + indexDef.getIndexName() + " index can not be built on the "
