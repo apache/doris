@@ -2777,13 +2777,24 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                 // find, use it stage prefix and id
                 found = true;
                 // get from internal stage
-                int idx = stoi(s.obj_info().id());
-                if (idx > instance.obj_info().size() || idx < 1) {
-                    LOG(WARNING) << "invalid idx: " << idx;
-                    code = MetaServiceCode::UNDEFINED_ERR;
-                    msg = "impossible, id invalid";
+                try {
+                    int idx = stoi(s.obj_info().id());
+                    if (idx > instance.obj_info().size() || idx < 1) {
+                        LOG(WARNING) << "invalid idx: " << idx;
+                        code = MetaServiceCode::UNDEFINED_ERR;
+                        msg = "impossible, id invalid";
+                        return;
+                    }
+                } catch (const std::invalid_argument& e) {
+                    LOG(WARNING) << "Invalid idx format: " << s.obj_info().id()
+                                 << ", error: " << e.what();
+                    return;
+                } catch (const std::out_of_range& e) {
+                    LOG(WARNING) << "Idx value out of range: " << s.obj_info().id()
+                                 << ", error: " << e.what();
                     return;
                 }
+
                 auto& old_obj = instance.obj_info()[idx - 1];
 
                 stage_pb.mutable_obj_info()->set_ak(old_obj.ak());

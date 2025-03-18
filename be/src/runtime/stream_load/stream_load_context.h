@@ -157,7 +157,7 @@ public:
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;
-    int64_t timeout_second = -1;
+    int32_t timeout_second = -1;
     AuthInfo auth;
     bool two_phase_commit = false;
     std::string load_comment;

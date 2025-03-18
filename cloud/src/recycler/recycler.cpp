@@ -3109,10 +3109,22 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         if (stage.type() == StagePB::EXTERNAL) {
             continue;
         }
-        int idx = stoi(stage.obj_info().id());
-        if (idx > instance_info_.obj_info().size() || idx < 1) {
-            LOG(WARNING) << "invalid idx: " << idx << ", id: " << stage.obj_info().id();
-            continue;
+        try {
+            int idx = stoi(stage.obj_info().id());
+            if (idx > instance_info_.obj_info().size() || idx < 1) {
+                LOG(WARNING) << "invalid idx: " << idx << ", id: " << stage.obj_info().id();
+                continue;
+            }
+            catch (const std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid idx format: " << stage.obj_info().id()
+                             << ", skipping, error: " << e.what();
+                continue;
+            }
+            catch (const std::out_of_range& e) {
+                LOG(WARNING) << "Idx value out of range: " << stage.obj_info().id()
+                             << ", skipping, error: " << e.what();
+                continue;
+            }
         }
 
         const auto& old_obj = instance_info_.obj_info()[idx - 1];

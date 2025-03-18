@@ -210,9 +210,19 @@ Status SemanticVersion::parse(const std::string& version,
         return Status::InternalError(version + " does not match format");
     }
 
-    int major = std::stoi(match[1].str());
-    int minor = std::stoi(match[2].str());
-    int patch = std::stoi(match[3].str());
+    int major = 0, minor = 0, patch = 0;
+    try {
+        major = std::stoi(match[1].str());
+        minor = std::stoi(match[2].str());
+        patch = std::stoi(match[3].str());
+    } catch (const std::invalid_argument& e) {
+        LOG(WARNING) << "Invalid version number format: " << match[1].str() << "." << match[2].str()
+                     << "." << match[3].str() << e.what();
+    } catch (const std::out_of_range& e) {
+        LOG(WARNING) << "Version number out of range: " << match[1].str() << "." << match[2].str()
+                     << "." << match[3].str() << e.what();
+    }
+
     std::optional<std::string> unknown =
             match[4].str().empty() ? std::nullopt : std::optional<std::string>(match[4].str());
     std::optional<std::string> prerelease =

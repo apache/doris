@@ -267,15 +267,28 @@ public:
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
-        if (_properties.contains("gram_size")) {
-            return std::stoi(_properties.at("gram_size"));
+        try {
+            if (_properties.contains("gram_size")) {
+                return std::stoi(_properties.at("gram_size"));
+            }
+        } catch (const std::invalid_argument& e) {
+            LOG(WARNING) << "Invalid gram_size format: " << e.what();
+        } catch (const std::out_of_range& e) {
+            LOG(WARNING) << "gram_size value out of range: " << e.what();
         }
-
         return 0;
     }
     int32_t get_gram_bf_size() const {
-        if (_properties.contains("bf_size")) {
-            return std::stoi(_properties.at("bf_size"));
+        try {
+            if (_properties.contains("bf_size")) {
+                return std::stoi(_properties.at("bf_size"));
+            }
+        } catch (const std::invalid_argument& e) {
+            LOG(WARNING) << "Invalid bf_size format: " << _properties.at("bf_size")
+                         << ", using default, error: " << e.what();
+        } catch (const std::out_of_range& e) {
+            LOG(WARNING) << "bf_size value out of range: " << _properties.at("bf_size")
+                         << ", using default, error: " << e.what();
         }
 
         return 0;

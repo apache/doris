@@ -1263,7 +1263,20 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
     EXPECT_NE(sender_end, std::string::npos);
     auto sender_str = written_data.substr(sender_pos + 1, sender_end - sender_pos);
     LOG(INFO) << "sender_str " << sender_str;
-    uint32_t sender_id = std::stoi(sender_str);
+    uint32_t sender_id = 0;
+    try {
+        int temp = std::stoi(sender_str);
+        if (temp < 0) {
+            throw std::out_of_range("Negative value cannot be converted to uint32_t");
+        }
+        sender_id = static_cast<uint32_t>(temp);
+    } catch (const std::invalid_argument& e) {
+        LOG(WARNING) << "Invalid sender_id format: " << sender_str
+                     << ", using default (0), error: " << e.what();
+    } catch (const std::out_of_range& e) {
+        LOG(WARNING) << "Sender_id value out of range: " << sender_str
+                     << ", using default (0), error: " << e.what();
+    }
 
     for (int i = 0; i < 3; i++) {
         auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, i);

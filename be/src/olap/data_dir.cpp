@@ -85,7 +85,13 @@ Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) 
             size_t bytes_read = 0;
             RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
             DCHECK_EQ(fsize, bytes_read);
-            *cluster_id = std::stoi(content);
+            try {
+                *cluster_id = std::stoi(content);
+            } catch (std::invalid_argument&) {
+                LOG(WARNING) << "Invalid cluster_id value: " << content;
+            } catch (std::out_of_range&) {
+                LOG(WARNING) << "cluster_id value out of range: " << content;
+            }
         }
     }
     return Status::OK();

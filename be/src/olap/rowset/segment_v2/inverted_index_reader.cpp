@@ -410,11 +410,19 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
     // If the written value exceeds ignore_above, it will be written as null.
     // The queried value exceeds ignore_above means the written value cannot be found.
     // The query needs to be downgraded to read from the segment file.
-    if (int ignore_above =
+    try {
+        int ignore_above =
                 std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
-        act_len > ignore_above) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "query value is too long, evaluate skipped.");
+        if (act_len > ignore_above) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "query value is too long, evaluate skipped.");
+        }
+    } catch (const std::invalid_argument& e) {
+        LOG(WARNING) << "Invalid ignore_above value: "
+                     << ", error: " << e.what();
+    } catch (const std::out_of_range& e) {
+        LOG(WARNING) << "ignore_above value out of range: "
+                     << ",error: " << e.what();
     }
 
     std::string search_str(search_query->data, act_len);

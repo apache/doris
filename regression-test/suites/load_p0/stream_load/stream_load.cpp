@@ -337,8 +337,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid timeout format, {}", e.what());
-        } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("Timeout value out of range, {}", e.what());
         }
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
@@ -635,17 +633,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
-        try {
-            int skip_lines = std::stoi(http_req->header(HTTP_SKIP_LINES));
-            request.__set_skip_lines(skip_lines);
-        } catch (const std::invalid_argument& e) {
-            LOG(WARNING) << "Invalid HTTP_SKIP_LINES format: " << http_req->header(HTTP_SKIP_LINES)
-                         << ", using default (0), error: " << e.what();
-        } catch (const std::out_of_range& e) {
-            LOG(WARNING) << "HTTP_SKIP_LINES value out of range: "
-                         << http_req->header(HTTP_SKIP_LINES)
-                         << ", using default (0), error: " << e.what();
-        }
+        request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
         if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
@@ -728,16 +716,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
-        try {
-            int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
-            request.__set_stream_per_node(value);
-        } catch (const std::invalid_argument&) {
-            LOG(WARNING) << "Invalid HTTP_LOAD_STREAM_PER_NODE value: "
-                         << http_req->header(HTTP_LOAD_STREAM_PER_NODE);
-        } catch (const std::out_of_range&) {
-            LOG(WARNING) << "HTTP_LOAD_STREAM_PER_NODE value out of range: "
-                         << http_req->header(HTTP_LOAD_STREAM_PER_NODE);
-        }
+        int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
+        request.__set_stream_per_node(value);
     }
     if (ctx->group_commit) {
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
@@ -752,6 +732,44 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
+    if (config::enable_stream_load_mysql) {
+        std::string table_name = ctx->table;
+        std::string database_name = ctx->db;
+        std::string columns = http_req->header(HTTP_COLUMNS);
+        std::string where_clause;
+        std::string column_separator = http_req->header(HTTP_COLUMN_SEPARATOR).empty()
+                                               ? ","
+                                               : http_req->header(HTTP_COLUMN_SEPARATOR);
+        std::string format = "csv";
+        std::vector<std::string> sql_parts;
+
+        sql_parts.emplace_back("SELECT *");
+
+        std::string http_stream_params = "http_stream('format' = '" + format +
+                                         "', 'column_separator' = '" + column_separator + "')";
+
+        sql_parts.emplace_back("FROM " + http_stream_params);
+
+        if (!http_req->header(HTTP_WHERE).empty()) {
+            where_clause = "WHERE " + http_req->header(HTTP_WHERE);
+            sql_parts.emplace_back(where_clause);
+        }
+
+        std::vector<std::string> column_vector = split(columns, std::string(","));
+        std::string column_list = "(" + join(column_vector, ", ") + ")";
+
+        std::string full_sql =
+                "INSERT INTO " + database_name + "." + table_name + " " + column_list + " ";
+        for (size_t i = 0; i < sql_parts.size(); i++) {
+            full_sql += sql_parts[i];
+            if (i != sql_parts.size() - 1) full_sql += " ";
+        }
+
+        ctx->sql_str = full_sql;
+        LOG(INFO) << "Generated SQL: " << full_sql << ctx->to_json();
+        request.__set_load_sql(full_sql);
+
+    }
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
@@ -879,12 +897,7 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
                            iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
     auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
-    auto update_mode =
-            !req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
-            (iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FIXED_COLUMNS") ||
-             iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FLEXIBLE_COLUMNS"));
-    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit &&
-        !update_mode) {
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
             return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }

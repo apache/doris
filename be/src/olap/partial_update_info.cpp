@@ -255,7 +255,15 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
                     default_value = dtv.debug_string();
                 } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    int precision = 0;
+                    try {
+                        precision = std::stoi(column.default_value().substr(pos + 1));
+                    } catch (const std::invalid_argument& e) {
+                        LOG(WARNING) << "Invalid precision format: " << e.what();
+                    } catch (const std::out_of_range& e) {
+                        LOG(WARNING) << "Precision value out of range: " << e.what();
+                    }
+
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     default_value = dtv.debug_string();
