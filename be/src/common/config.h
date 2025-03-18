@@ -1276,6 +1276,8 @@ DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 DECLARE_mInt32(publish_version_gap_logging_threshold);
 // get agg by cache for mow table
 DECLARE_mBool(enable_mow_get_agg_by_cache);
+// get agg correctness check for mow table
+DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
