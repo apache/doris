@@ -591,11 +591,6 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 
         //9. when load hold delete bitmap lock, compaction and schema change will fail and retry
         setFeConfigTemporary(customFeConfig5) {
-//            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "AAA", 15);"""
-//            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (2, "BBB", 25);"""
-//            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (3, "CCC", 35);"""
-//            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (4, "DDD", 45);"""
-//            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (5, "EEE", 55);"""
             GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", [percent: "1.0", sleep: "10"])
             Thread.startDaemon {
                 do_insert_into()
