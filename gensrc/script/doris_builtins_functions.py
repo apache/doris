@@ -1440,10 +1440,6 @@ visible_functions = {
         [['round_bankers'], 'DECIMAL128', ['DECIMAL128'], ''],
         [['round_bankers'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
         [['round_bankers', 'round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
-        [['format_round'], 'STRING', ['DOUBLE', 'INT'], ''],
-        [['format_round'], 'STRING', ['DECIMAL32', 'INT'], ''],
-        [['format_round'], 'STRING', ['DECIMAL64', 'INT'], ''],
-        [['format_round'], 'STRING', ['DECIMAL128', 'INT'], ''],
 
         [['sign'], 'TINYINT', ['DOUBLE'], ''],
         [['sin'], 'DOUBLE', ['DOUBLE'], ''],  

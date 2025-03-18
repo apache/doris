@@ -1253,7 +1253,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
-    factory.register_alias(FunctionStringDoubleFormatRound::name, "format_round");
 }
 
 } // namespace doris::vectorized
