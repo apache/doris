@@ -4736,6 +4736,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableLocalMergeSort;
     }
 
+    public void setEnableHiveMetastoreCache(boolean enableHiveMetastoreCache) {
+        this.enableHiveMetastoreCache = enableHiveMetastoreCache;
+    }
+
     public boolean getEnableHiveMetastoreCache() {
         return enableHiveMetastoreCache;
     }

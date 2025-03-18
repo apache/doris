@@ -242,7 +242,7 @@ public class HiveMetaStoreCache {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(fileCacheGauge);
     }
 
-    private HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
+    public HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
         // partition name format: nation=cn/city=beijing,`listPartitionNames` returned string is the encoded string.
         List<String> partitionNames = catalog.getClient().listPartitionNames(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
@@ -296,7 +296,7 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private HivePartition loadPartition(PartitionCacheKey key) {
+    public HivePartition loadPartition(PartitionCacheKey key) {
         Partition partition = catalog.getClient().getPartition(key.dbName, key.tblName, key.values);
         StorageDescriptor sd = partition.getSd();
         if (LOG.isDebugEnabled()) {
@@ -394,7 +394,7 @@ public class HiveMetaStoreCache {
         return result;
     }
 
-    private FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
+    public FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());

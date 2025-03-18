@@ -17,15 +17,20 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.qe.SessionVariable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveMetaStoreCacheTest {
@@ -91,4 +96,80 @@ public class HiveMetaStoreCacheTest {
         partitionValuesCache.put(partitionValueCacheKey, new HiveMetaStoreCache.HivePartitionValues());
 
     }
+
+    @Test
+    public void testGetPartitionValuesWithCacheEnabled() {
+
+        new MockUp<HiveMetaStoreCache>() {
+            @Mock
+            public HiveMetaStoreCache.HivePartitionValues loadPartitionValues(
+                    HiveMetaStoreCache.PartitionValueCacheKey key) {
+                return new HiveMetaStoreCache.HivePartitionValues();
+            }
+
+            @Mock
+            public HivePartition loadPartition(HiveMetaStoreCache.PartitionCacheKey key) {
+                return new HivePartition("", "", true, "", "", new ArrayList<>(), new HashMap<>());
+            }
+
+            @Mock
+            public HiveMetaStoreCache.FileCacheValue loadFiles(HiveMetaStoreCache.FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
+                return new HiveMetaStoreCache.FileCacheValue();
+            }
+        };
+
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+
+        SessionVariable sv = new SessionVariable();
+        HiveMetaStoreCache hiveMetaStoreCache = new HiveMetaStoreCache(
+                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null),
+                executor, listExecutor, sv);
+
+        LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache = hiveMetaStoreCache.getFileCacheRef().get();
+        LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache = hiveMetaStoreCache.getPartitionCache();
+        LoadingCache<HiveMetaStoreCache.PartitionValueCacheKey, HiveMetaStoreCache.HivePartitionValues> partitionValuesCache = hiveMetaStoreCache.getPartitionValuesCache();
+
+        sv.setEnableHiveMetastoreCache(true);
+        getValuesFromCache(hiveMetaStoreCache);
+        Assertions.assertEquals(2, partitionValuesCache.asMap().size());
+        Assertions.assertEquals(2, partitionCache.asMap().size());
+        Assertions.assertEquals(2, fileCache.asMap().size());
+
+        partitionValuesCache.invalidateAll();
+        partitionCache.invalidateAll();
+        fileCache.invalidateAll();
+
+        sv.setEnableHiveMetastoreCache(false);
+        getValuesFromCache(hiveMetaStoreCache);
+        Assertions.assertEquals(0, partitionValuesCache.asMap().size());
+        Assertions.assertEquals(0, partitionCache.asMap().size());
+        Assertions.assertEquals(0, fileCache.asMap().size());
+    }
+
+    private void getValuesFromCache(HiveMetaStoreCache hiveMetaStoreCache) {
+        String dbName = "db";
+        String tbName = "tb";
+        String tbName2 = "tb2";
+
+        HiveMetaStoreCache.PartitionValueCacheKey pvck1 = new HiveMetaStoreCache.PartitionValueCacheKey(dbName, tbName, new ArrayList<>());
+        HiveMetaStoreCache.PartitionValueCacheKey pvck2 = new HiveMetaStoreCache.PartitionValueCacheKey(dbName, tbName2, new ArrayList<>());
+        hiveMetaStoreCache.getPartitionValues(pvck1);
+        hiveMetaStoreCache.getPartitionValues(pvck2);
+
+        hiveMetaStoreCache.getHivePartition(dbName, tbName, new ArrayList<>());
+        hiveMetaStoreCache.getHivePartition(dbName, tbName2, new ArrayList<>());
+
+        HivePartition hpk1 = new HivePartition(dbName, tbName, true, "", "", new ArrayList<>(), new HashMap<>());
+        HivePartition hpk2 = new HivePartition(dbName, tbName2, true, "", "", new ArrayList<>(), new HashMap<>());
+        List<HivePartition> partitions = new ArrayList<HivePartition>() {{
+                add(hpk1);
+                add(hpk2);
+            }};
+        hiveMetaStoreCache.getFilesByPartitions(partitions, true, false, null, null, null);
+
+    }
+
 }
