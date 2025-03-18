@@ -830,9 +830,6 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
-            if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
-            }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
