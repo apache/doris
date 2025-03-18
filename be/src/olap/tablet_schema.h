@@ -122,7 +122,6 @@ public:
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
-    void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
