@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -867,6 +868,34 @@ public class AnalysisManager implements Writable {
                 StatisticsUtil.getAnalyzeTimeout()));
     }
 
+    public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
+        Set<String> cols = dropStatsCommand.getColumnNames();
+        PartitionNames partitionNames = dropStatsCommand.getOpPartitionNames();
+        long catalogId = dropStatsCommand.getCatalogId();
+        long dbId = dropStatsCommand.getDbId();
+        long tblId = dropStatsCommand.getTblId();
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
+        // Remove tableMetaStats if drop whole table stats.
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
+                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+            removeTableStats(tblId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+        }
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
+        // Drop stats ddl is master only operation.
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
+    }
+
+    public void dropExpiredStats() {
+        Env.getCurrentEnv().getStatisticsCleaner().clear();
+    }
+
     public void dropCachedStats(DropCachedStatsStmt stmt) {
         long catalogId = stmt.getCatalogIdId();
         long dbId = stmt.getDbId();
@@ -1005,7 +1034,7 @@ public class AnalysisManager implements Writable {
                                      TableStatsMeta tableStats, PartitionNames partitionNames) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
-        if (columns == null) {
+        if (columns == null || columns.isEmpty()) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
