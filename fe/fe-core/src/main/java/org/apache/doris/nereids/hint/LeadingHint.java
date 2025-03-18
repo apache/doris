@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -506,6 +507,9 @@ public class LeadingHint extends Hint {
         DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
         if (!distributeJoinType.equals("join")) {
             distributeHint = strToHint.get(distributeJoinType);
+        }
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
         }
         List<Expression> conditions = getJoinConditions(
                 getFilters(), leftChild, rightChild);
