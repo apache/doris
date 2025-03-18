@@ -1065,17 +1065,6 @@ public class NumericArithmetic {
     }
 
     /**
-     * dlog1
-     */
-    @ExecFunction(name = "dlog1")
-    public static Expression dlog1(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
-        return checkOutputBoundary(new DoubleLiteral(Math.log1p(first.getValue())));
-    }
-
-    /**
      * dlog10
      */
     @ExecFunction(name = "dlog10")
