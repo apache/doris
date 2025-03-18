@@ -104,7 +104,6 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     }
     if (current_eos) {
         // current sort have eos, so get next idx
-        local_state._shared_state->partition_sorts[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
     }
 
