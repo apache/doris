@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <fmt/printf.h>
 #include <sys/types.h>
 
@@ -4580,127 +4581,71 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 2);
-        bool valid =
-                cast_type(block.get_by_position(arguments[1]).type.get(), [&](const auto& type) {
-                    using DataType = std::decay_t<decltype(type)>;
-                    using T = typename DataType::FieldType;
-                    using ColVecData =
-                            std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
-                    if (auto col = check_and_get_column<ColVecData>(
-                                           block.get_by_position(arguments[1]).column.get()) ||
-                                   is_column_const(*block.get_by_position(arguments[1]).column)) {
-                        execute_inner<ColVecData, T>(block, arguments, result, input_rows_count);
-                        return true;
-                    }
-                    return false;
-                });
-        if (!valid) {
-            return Status::RuntimeError(
-                    "{}'s argument does not match the expected data type, type: {}, column: {}",
-                    get_name(), block.get_by_position(arguments[1]).type->get_name(),
-                    block.get_by_position(arguments[1]).column->dump_structure());
+        size_t num_element = arguments.size();
+        auto result_col = block.get_by_position(result).type->create_column();
+
+        const auto* format_str_column =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
+        std::vector<ColumnWithTypeAndName> format_arg_columns(num_element);
+
+        for (size_t i = 0; i < num_element; ++i) {
+            format_arg_columns[i] = block.get_by_position(arguments[i]);
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            fmt::dynamic_format_arg_store<fmt::printf_context> store;
+            for (int i = 1; i < num_element; ++i) {
+                auto data = format_arg_columns[i].column->get_data_at(i);
+                switch (format_arg_columns[i].type->get_type_id()) {
+                case TypeIndex::Int64: {
+                    int64_t value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::Int32: {
+                    int32_t value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::Int16: {
+                    int16_t value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::Int8: {
+                    int8_t value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::Float64: {
+                    double value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::Float32: {
+                    float value;
+                    memcpy(&value, data.data, sizeof(value));
+                    store.push_back(value);
+                    break;
+                }
+                case TypeIndex::String: {
+                    store.push_back(data.to_string());
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
+            auto formatted =
+                    fmt::vsprintf(format_str_column->get_data_at(i).to_string_view(), store);
+            result_col->insert_data(formatted.data(), formatted.size());
         }
         return Status::OK();
-    }
-
-    template <typename F>
-    static bool cast_type(const IDataType* type, F&& f) {
-        return cast_type_to_either<DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
-                                   DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                                   DataTypeString>(type, std::forward<F>(f));
-    }
-
-    template <typename ColVecData, typename T>
-    void execute_inner(Block& block, const ColumnNumbers& arguments, uint32_t result,
-                       size_t input_rows_count) const {
-        size_t argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-        auto result_column = ColumnString::create();
-
-        // maybe most user is printf(const, column), so only handle this case const column
-        if (argument_size == 2) {
-            std::vector<uint8_t> is_consts(argument_size);
-            std::tie(argument_columns[0], is_consts[0]) =
-                    unpack_if_const(block.get_by_position(arguments[0]).column);
-            std::tie(argument_columns[1], is_consts[1]) =
-                    unpack_if_const(block.get_by_position(arguments[1]).column);
-            execute_for_two_argument<ColVecData, T>(argument_columns, is_consts,
-                                                    assert_cast<ColumnString*>(result_column.get()),
-                                                    input_rows_count);
-        } else {
-            for (size_t i = 0; i < argument_size; ++i) {
-                argument_columns[i] = block.get_by_position(arguments[i])
-                                              .column->convert_to_full_column_if_const();
-            }
-            execute_for_others_arg<ColVecData, T>(argument_columns,
-                                                  assert_cast<ColumnString*>(result_column.get()),
-                                                  argument_size, input_rows_count);
-        }
-
-        block.replace_by_position(result, std::move(result_column));
-    }
-
-    template <typename ColVecData, typename T>
-    void execute_for_two_argument(std::vector<ColumnPtr>& argument_columns,
-                                  std::vector<uint8_t>& is_consts, ColumnString* result_data_column,
-                                  size_t input_rows_count) const {
-        const auto& format_column = assert_cast<const ColumnString&>(*argument_columns[0].get());
-        const auto& value_column = assert_cast<const ColVecData&>(*argument_columns[1].get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            auto format =
-                    format_column.get_data_at(index_check_const(i, is_consts[0])).to_string_view();
-            std::string res;
-            try {
-                if constexpr (std::is_same_v<ColVecData, ColumnString>) {
-                    auto value = value_column.get_data_at(index_check_const(i, is_consts[1]));
-                    res = fmt::sprintf(format, value);
-                } else {
-                    auto value = value_column.get_data()[i];
-                    res = fmt::sprintf(format, value);
-                }
-            } catch (const std::exception& e) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "Invalid Input argument \"{}\" of function printf, error: {}", format,
-                        e.what());
-            }
-            result_data_column->insert_data(res.data(), res.length());
-        }
-    }
-
-    template <typename ColVecData, typename T>
-    void execute_for_others_arg(std::vector<ColumnPtr>& argument_columns,
-                                ColumnString* result_data_column, size_t argument_size,
-                                size_t input_rows_count) const {
-        const auto& format_column = assert_cast<const ColumnString&>(*argument_columns[0].get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            auto format = format_column.get_data_at(i).to_string_view();
-            std::string res;
-            fmt::dynamic_format_arg_store<fmt::format_context> args;
-            if constexpr (std::is_same_v<ColVecData, ColumnString>) {
-                for (int col = 1; col < argument_size; ++col) {
-                    const auto& arg_column_data =
-                            assert_cast<const ColVecData&>(*argument_columns[col].get());
-                    args.push_back(arg_column_data.get_data_at(i).to_string());
-                }
-            } else {
-                for (int col = 1; col < argument_size; ++col) {
-                    const auto& arg_column_data =
-                            assert_cast<const ColVecData&>(*argument_columns[col].get()).get_data();
-                    args.push_back(arg_column_data[i]);
-                }
-            }
-            try {
-                res = fmt::sprintf(format, args);
-            } catch (const std::exception& e) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "Invalid Input argument \"{}\" of function printf, error: {}", format,
-                        e.what());
-            }
-            result_data_column->insert_data(res.data(), res.length());
-        }
     }
 };
 
