@@ -178,13 +178,17 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
                     buffer->data() + concrete_array->value_offset(offset_i));
             const auto raw_data_len = concrete_array->value_length(offset_i);
 
-            IPv6 ipv6_val;
-            if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "parse number fail, string: '{}'",
-                                       std::string(raw_data, raw_data_len).c_str());
+            if (raw_data_len == 0) {
+                col_data.emplace_back(0);
+            } else {
+                IPv6 ipv6_val;
+                if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "parse number fail, string: '{}'",
+                                           std::string(raw_data, raw_data_len).c_str());
+                }
+                col_data.emplace_back(ipv6_val);
             }
-            col_data.emplace_back(ipv6_val);
         } else {
             col_data.emplace_back(0);
         }

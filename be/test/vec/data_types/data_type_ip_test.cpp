@@ -257,7 +257,7 @@ TEST_F(DataTypeIPTest, SerdeMysqlAndArrowTest) {
     CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
                                         CommonDataTypeSerdeTest::assert_mysql_format);
 
-    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, serde, {dt_ipv4, dt_ipv6});
+    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, {dt_ipv4, dt_ipv6});
 }
 
 TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
