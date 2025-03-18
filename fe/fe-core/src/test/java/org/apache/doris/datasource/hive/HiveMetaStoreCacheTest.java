@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.qe.SessionVariable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.junit.jupiter.api.Assertions;
@@ -37,7 +38,8 @@ public class HiveMetaStoreCacheTest {
                 1, 1, "file", 1, false);
 
         HiveMetaStoreCache hiveMetaStoreCache = new HiveMetaStoreCache(
-                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
+                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor,
+                new SessionVariable());
 
         LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache = hiveMetaStoreCache.getFileCacheRef().get();
         LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache = hiveMetaStoreCache.getPartitionCache();

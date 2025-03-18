@@ -38,6 +38,8 @@ import org.apache.doris.datasource.paimon.PaimonMetadataCache;
 import org.apache.doris.datasource.paimon.PaimonMetadataCacheMgr;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.RemovalListener;
@@ -98,6 +100,7 @@ public class ExternalMetaCacheMgr {
     private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
+    private final SessionVariable sv = ConnectContext.get().getSessionVariable();
 
     public ExternalMetaCacheMgr() {
         rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -145,7 +148,7 @@ public class ExternalMetaCacheMgr {
             synchronized (cacheMap) {
                 if (!cacheMap.containsKey(catalog.getId())) {
                     cacheMap.put(catalog.getId(),
-                            new HiveMetaStoreCache(catalog, commonRefreshExecutor, fileListingExecutor));
+                            new HiveMetaStoreCache(catalog, commonRefreshExecutor, fileListingExecutor, sv));
                 }
                 cache = cacheMap.get(catalog.getId());
             }

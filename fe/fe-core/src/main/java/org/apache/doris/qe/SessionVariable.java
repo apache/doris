@@ -2192,6 +2192,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
+    public static final String ENABLE_HIVE_METASTORE_CACHE = "enable_hive_metastore_cache";
+    @VariableMgr.VarAttr(name = ENABLE_HIVE_METASTORE_CACHE,
+            description = {"使用hivemetastore的cache功能", "Use the cache function of the Hive Metastore.\n"})
+    public boolean enableHiveMetastoreCache = true;
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -4729,5 +4734,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
+    }
+
+    public boolean getEnableHiveMetastoreCache() {
+        return enableHiveMetastoreCache;
     }
 }
