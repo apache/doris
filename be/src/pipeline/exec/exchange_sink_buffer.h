@@ -335,6 +335,7 @@ private:
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
     phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
+    bool _send_multi_blocks = false;
 };
 
 } // namespace pipeline

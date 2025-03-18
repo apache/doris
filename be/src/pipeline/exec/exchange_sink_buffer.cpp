@@ -100,7 +100,8 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
-          _exchange_sink_num(sender_ins_ids.size()) {
+          _exchange_sink_num(sender_ins_ids.size()),
+          _send_multi_blocks(state->query_options().enable_exchange_multi_blocks) {
     for (auto sender_ins_id : sender_ins_ids) {
         _queue_deps.emplace(sender_ins_id, nullptr);
         _parents.emplace(sender_ins_id, nullptr);
@@ -255,7 +256,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     if (q_ptr && !q_ptr->empty()) {
         auto& q = *q_ptr;
 
-        std::vector<TransmitInfo> requests(q.size());
+        std::vector<TransmitInfo> requests(_send_multi_blocks ? q.size() : 1);
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = std::move(q.front());
             q.pop();
@@ -270,11 +271,18 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_be_number(request.channel->_parent->be_number());
 
         auto mem_byte = 0;
-        for (auto& req : requests) {
-            if (req.block && !req.block->column_metas().empty()) {
-                auto add_block = brpc_request->add_blocks();
-                add_block->Swap(req.block.get());
-                mem_byte += add_block->ByteSizeLong();
+
+        if (_send_multi_blocks) {
+            for (auto& req : requests) {
+                if (req.block && !req.block->column_metas().empty()) {
+                    auto add_block = brpc_request->add_blocks();
+                    add_block->Swap(req.block.get());
+                    mem_byte += add_block->ByteSizeLong();
+                }
+            }
+        } else {
+            if (request.block && !request.block->column_metas().empty()) {
+                brpc_request->set_allocated_block(request.block.get());
             }
         }
         if (!requests.back().exec_status.ok()) {
@@ -360,7 +368,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     } else if (broadcast_q_ptr && !broadcast_q_ptr->empty()) {
         auto& broadcast_q = *broadcast_q_ptr;
         // If we have data to shuffle which is broadcasted
-        std::vector<BroadcastTransmitInfo> requests(broadcast_q.size());
+        std::vector<BroadcastTransmitInfo> requests(_send_multi_blocks ? broadcast_q.size() : 1);
+        std::vector<int> keep_block_mem(_send_multi_blocks ? broadcast_q.size() : 1);
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = broadcast_q.front();
             broadcast_q.pop();
@@ -373,11 +382,27 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
 
-        for (auto& req : requests) {
-            if (req.block_holder->get_block() &&
-                !req.block_holder->get_block()->column_metas().empty()) {
-                auto add_block = brpc_request->add_blocks();
-                add_block->Swap(req.block_holder->get_block());
+        if (_send_multi_blocks) {
+            for (int i = 0; i < requests.size(); i++) {
+                auto& req = requests[i];
+                if (auto block = req.block_holder->get_block();
+                    block && !block->column_metas().empty()) {
+                    auto add_block = brpc_request->add_blocks();
+                    for (int j = 0; j < block->column_metas_size(); ++j) {
+                        add_block->add_column_metas()->CopyFrom(block->column_metas(j));
+                    }
+                    add_block->set_be_exec_version(block->be_exec_version());
+                    add_block->set_compressed(block->compressed());
+                    add_block->set_compression_type(block->compression_type());
+                    add_block->set_uncompressed_size(block->uncompressed_size());
+                    add_block->set_allocated_column_values(
+                            const_cast<std::string*>(&block->column_values()));
+                }
+            }
+        } else {
+            if (request.block_holder->get_block() &&
+                !request.block_holder->get_block()->column_metas().empty()) {
+                brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
         auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
@@ -445,7 +470,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                  std::move(send_remote_block_closure));
             }
         }
-        brpc_request->clear_blocks();
+        if (!_send_multi_blocks && request.block_holder->get_block()) {
+            static_cast<void>(brpc_request->release_block());
+        } else {
+            for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
+                static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
+            }
+            brpc_request->clear_blocks();
+        }
     } else {
         _rpc_channel_is_idle[id] = true;
     }
