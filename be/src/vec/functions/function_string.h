@@ -4584,6 +4584,13 @@ public:
         size_t num_element = arguments.size();
         auto result_col = block.get_by_position(result).type->create_column();
 
+        // first arg is format string, so it should be string type
+        auto format_str_type = block.get_by_position(arguments[0]).type;
+        if (format_str_type->get_type_id() != TypeIndex::String) {
+            return Status::InvalidArgument(
+                    "Argument 1 of function PRINTF must be string, but {} was found.",
+                    format_str_type->get_name());
+        }
         const auto* format_str_column =
                 assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
         std::vector<ColumnWithTypeAndName> format_arg_columns(num_element);
