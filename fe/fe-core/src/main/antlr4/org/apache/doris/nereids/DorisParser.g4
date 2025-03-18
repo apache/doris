@@ -743,14 +743,14 @@ supportedStatsStatement
         MODIFY COLUMN columnName=identifier
         SET STATS LEFT_PAREN propertyItemList RIGHT_PAREN partitionSpec?        #alterColumnStats
     | SHOW INDEX STATS tableName=multipartIdentifier indexId=identifier         #showIndexStats
-    ;
-
-unsupportedStatsStatement
-    : DROP STATS tableName=multipartIdentifier
+    | DROP STATS tableName=multipartIdentifier
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
-    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
+    ;
+
+unsupportedStatsStatement
+    : DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
     | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
