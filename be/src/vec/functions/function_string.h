@@ -162,8 +162,9 @@ struct StringOP {
     }
 };
 
+template <bool is_for_zero = false>
 struct SubstringUtil {
-    static constexpr auto name = "substring";
+    static constexpr auto name = is_for_zero ? "substring_for_zero" : "substring";
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
@@ -220,7 +221,7 @@ private:
         PMR::vector<size_t> index {&pool};
 
         if constexpr (is_const) {
-            if (start[0] == 0 || len[0] <= 0) {
+            if ((!is_for_zero && start[0] == 0) || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -237,9 +238,15 @@ private:
             int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
             // return empty string if start > src.length
             // Here, start_value is compared against the length of the character.
-            if (start_value > char_len || str_size == 0 || start_value == 0 || len_value <= 0) {
+            if (start_value > char_len || str_size == 0 || (!is_for_zero && start_value == 0) ||
+                len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
+            }
+
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            if (is_for_zero && start_value == 0) {
+                start_value = 1;
             }
 
             size_t byte_pos = 0;
@@ -287,7 +294,7 @@ private:
         res_offsets.resize(size);
 
         if constexpr (is_const) {
-            if (start[0] == 0 || len[0] <= 0) {
+            if ((!is_for_zero && start[0] == 0) || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -304,6 +311,11 @@ private:
 
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
+
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            if (is_for_zero && start_value == 0) {
+                start_value = 1;
+            }
 
             if (start_value > str_size || start_value < -str_size || str_size == 0 ||
                 len_value <= 0) {
@@ -616,7 +628,7 @@ private:
 template <typename Impl>
 class FunctionSubstring : public IFunction {
 public:
-    static constexpr auto name = SubstringUtil::name;
+    static constexpr auto name = Impl::name;
     String get_name() const override { return name; }
     static FunctionPtr create() { return std::make_shared<FunctionSubstring<Impl>>(); }
 
@@ -636,7 +648,9 @@ public:
     }
 };
 
+template <bool is_for_zero = false>
 struct Substr3Impl {
+    static constexpr auto name = SubstringUtil<is_for_zero>::name;
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>(),
                 std::make_shared<DataTypeInt32>()};
@@ -645,12 +659,14 @@ struct Substr3Impl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
+        SubstringUtil<is_for_zero>::substring_execute(block, arguments, result, input_rows_count);
         return Status::OK();
     }
 };
 
+template <bool is_for_zero = false>
 struct Substr2Impl {
+    static constexpr auto name = SubstringUtil<is_for_zero>::name;
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
     }
@@ -679,7 +695,8 @@ struct Substr2Impl {
         block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<is_for_zero>::substring_execute(block, temp_arguments, result,
+                                                      input_rows_count);
         return Status::OK();
     }
 };
@@ -891,7 +908,7 @@ public:
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<false>::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -940,7 +957,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil<>::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
