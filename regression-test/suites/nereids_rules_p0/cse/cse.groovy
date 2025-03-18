@@ -67,6 +67,26 @@ suite("cse") {
             """
         contains("l1([k1#0, d#1, i#2, (k1 >= i)#9, cast(d as TEXT)#10, unix_timestamp(cast(d as TEXT)#10, '%Y%m%d') AS `unix_timestamp(cast(d as TEXT), '%Y%m%d')`#11])")
     }
+
+    // cse should not extract expression use for lambda, such as ArrayItemSlot and ArrayItemReference
+    sql """
+        drop table if exists array_cse;
+    """
+    sql """
+        create table array_cse(c1 int, c2 array<varchar(255)>) PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    sql """
+        insert into array_cse values(1, [1,2,3]);
+    """
+    sql """
+        sync
+    """
+    sql """
+        SELECT array_map(x-> if(left(x, 5) = '12345', x, left(x, 5)), c2) FROM array_cse;
+    """
+    sql """
+        SELECT c0, c0 FROM (SELECT ARRAY_MAP(x-> if(left(x, 5), x, left(x, 5)), `c2`) as `c0` FROM array_cse) t
+    """
     
 }
 
