@@ -56,6 +56,7 @@ SchemaProcessListScanner::~SchemaProcessListScanner() = default;
 Status SchemaProcessListScanner::start(RuntimeState* state) {
     TShowProcessListRequest request;
     request.__set_show_full_sql(true);
+    request.__set_time_zone(state->timezone_obj().name());
 
     for (const auto& fe_addr : _param->common_param->fe_addr_list) {
         TShowProcessListResult tmp_ret;

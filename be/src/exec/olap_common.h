@@ -123,8 +123,6 @@ public:
 
     bool is_range_value_convertible() const;
 
-    size_t get_convertible_fixed_value_size() const;
-
     void convert_to_fixed_value();
 
     void convert_to_range_value();
@@ -560,15 +558,6 @@ bool ColumnValueRange<primitive_type>::is_range_value_convertible() const {
     }
 
     return true;
-}
-
-template <PrimitiveType primitive_type>
-size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() const {
-    if (!is_fixed_value_convertible()) {
-        return 0;
-    }
-
-    return _high_value - _low_value;
 }
 
 // The return value indicates whether eos.

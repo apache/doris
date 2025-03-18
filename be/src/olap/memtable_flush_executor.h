@@ -158,6 +158,8 @@ public:
 
     void dec_flushing_task() { _flushing_task_count--; }
 
+    ThreadPool* flush_pool() { return _flush_pool.get(); }
+
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;

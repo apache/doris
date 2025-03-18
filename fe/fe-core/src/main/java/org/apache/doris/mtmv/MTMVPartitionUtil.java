@@ -325,6 +325,12 @@ public class MTMVPartitionUtil {
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
                     .getPartitionSnapshot(relatedPartitionName, context, MvccUtil.getSnapshotFromContext(relatedTable));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("isSyncWithPartitions mvName is %s\n, mtmvPartitionName is %s\n, "
+                                + "mtmv refreshSnapshot is %s\n, relatedPartitionName is %s\n, "
+                                + "relatedPartitionCurrentSnapshot is %s", mtmv.getName(), mtmvPartitionName,
+                        mtmv.getRefreshSnapshot(), relatedPartitionName, relatedPartitionCurrentSnapshot));
+            }
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
