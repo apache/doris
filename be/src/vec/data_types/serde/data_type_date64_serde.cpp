@@ -38,6 +38,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
     if (options.date_olap_format) {
         tm time_tm;
@@ -56,6 +59,9 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -69,6 +75,9 @@ Status DataTypeDate64SerDe::deserialize_column_from_json_vector(
 Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
@@ -156,14 +165,20 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     return Status::OK();
 }
 
+void DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
+    _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
+}
+
 void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const auto* time_val = (const VecDateTimeValue*)(&col_data[i]);
+        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
@@ -195,9 +210,10 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
     }
 }
 
-void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+template <bool is_date>
+void DataTypeDate64SerDe::_read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                  int64_t start, int64_t end,
+                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -236,18 +252,26 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         }
     } else if (arrow_array->type()->id() == arrow::Type::STRING) {
         // to be compatible with old version, we use string type for date.
-        auto concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
-        for (size_t value_i = start; value_i < end; ++value_i) {
-            Int64 val = 0;
+        const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto val_str = concrete_array->GetString(value_i);
-            ReadBuffer rb(val_str.data(), val_str.size());
-            read_datetime_text_impl(val, rb, ctz);
-            col_data.emplace_back(val);
+            VecDateTimeValue v;
+            v.from_date_str(val_str.c_str(), val_str.length(), ctz);
+            if constexpr (is_date) {
+                v.cast_to_date();
+            }
+            col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "Unsupported Arrow Type: " + arrow_array->type()->name());
     }
+}
+
+void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                 int64_t start, int64_t end,
+                                                 const cctz::time_zone& ctz) const {
+    _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
 
 template <bool is_binary_format>

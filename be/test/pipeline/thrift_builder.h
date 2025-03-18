@@ -69,10 +69,6 @@ public:
         _query_options.__set_runtime_filter_wait_infinitely(runtime_filter_wait_infinitely);
         return *this;
     }
-    TQueryOptionsBuilder& set_enable_local_merge_sort(bool enable_local_merge_sort) {
-        _query_options.__set_enable_local_merge_sort(enable_local_merge_sort);
-        return *this;
-    }
     TQueryOptionsBuilder& set_runtime_filter_max_in_num(int64_t runtime_filter_max_in_num) {
         _query_options.__set_runtime_filter_max_in_num(runtime_filter_max_in_num);
         return *this;

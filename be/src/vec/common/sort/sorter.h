@@ -110,6 +110,15 @@ public:
               _is_asc_order(is_asc_order),
               _nulls_first(nulls_first),
               _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()) {}
+#ifdef BE_TEST
+    VSortExecExprs mock_vsort_exec_exprs;
+    std::vector<bool> mock_is_asc_order;
+    std::vector<bool> mock_nulls_first;
+    Sorter()
+            : _vsort_exec_exprs(mock_vsort_exec_exprs),
+              _is_asc_order(mock_is_asc_order),
+              _nulls_first(mock_nulls_first) {}
+#endif
 
     virtual ~Sorter() = default;
 
@@ -126,6 +135,8 @@ public:
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
 
     virtual size_t data_size() const = 0;
+
+    virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) const { return 0; }
 
     // for topn runtime predicate
     const SortDescription& get_sort_description() const { return _sort_description; }
@@ -178,6 +189,8 @@ public:
 
     size_t data_size() const override;
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
+
     Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                      int batch_size, bool* eos) override;
     void reset() override;
@@ -194,6 +207,12 @@ private:
     std::unique_ptr<MergeSorterState> _state;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 * 1024 * 1024;
+
+    static constexpr size_t SPILL_BUFFERED_BLOCK_SIZE = 4 * 1024 * 1024;
+    static constexpr size_t SPILL_BUFFERED_BLOCK_BYTES = 256 << 20;
+
+    size_t _buffered_block_size = SPILL_BUFFERED_BLOCK_SIZE;
+    size_t _buffered_block_bytes = SPILL_BUFFERED_BLOCK_BYTES;
 };
 
 #include "common/compile_check_end.h"

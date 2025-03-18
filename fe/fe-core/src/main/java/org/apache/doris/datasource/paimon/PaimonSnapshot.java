@@ -17,13 +17,18 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.paimon.table.Table;
+
 public class PaimonSnapshot {
+    public static long INVALID_SNAPSHOT_ID = -1;
     private final long snapshotId;
     private final long schemaId;
+    private final Table table;
 
-    public PaimonSnapshot(long snapshotId, long schemaId) {
+    public PaimonSnapshot(long snapshotId, long schemaId, Table table) {
         this.snapshotId = snapshotId;
         this.schemaId = schemaId;
+        this.table = table;
     }
 
     public long getSnapshotId() {
@@ -32,5 +37,9 @@ public class PaimonSnapshot {
 
     public long getSchemaId() {
         return schemaId;
+    }
+
+    public Table getTable() {
+        return table;
     }
 }

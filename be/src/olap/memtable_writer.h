@@ -69,7 +69,7 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -105,6 +105,14 @@ public:
     const FlushStatistic& get_flush_token_stats();
 
     uint64_t flush_running_count() const;
+
+    uint64_t workload_group_id() const {
+        auto wg = _resource_ctx->workload_group();
+        if (wg != nullptr) {
+            return wg->id();
+        }
+        return 0;
+    }
 
 private:
     // push a full memtable to flush executor

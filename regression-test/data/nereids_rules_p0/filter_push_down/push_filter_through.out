@@ -10,7 +10,7 @@ PhysicalResultSink
 
 -- !filter_project_arithmetic --
 PhysicalResultSink
---filter((cast(id as BIGINT) = 1))
+--filter((t1.id = 1))
 ----PhysicalOlapScan[t1]
 
 -- !filter_order_by --

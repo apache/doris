@@ -82,7 +82,6 @@ public:
     }
 
     std::string get_name() const override;
-    bool is_column_struct() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }

@@ -212,6 +212,10 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         return createTableInfo;
     }
 
+    public Optional<LogicalPlan> getCtasQuery() {
+        return ctasQuery;
+    }
+
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_low_bucket") {
-    sql "set enable_join_spill = false" // spill will cause rf not_ready
+    sql "set enable_spill = false" // spill will cause rf not_ready
     sql "set runtime_filter_wait_infinitely = true"
     sql "set parallel_pipeline_task_num = 4"
 

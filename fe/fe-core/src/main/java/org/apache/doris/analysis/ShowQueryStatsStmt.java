@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -137,7 +138,14 @@ public class ShowQueryStatsStmt extends ShowStmt implements NotFallbackInParser 
             stats.forEach((tableName, queryHit) -> {
                 if (Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), ctlName, dbName, tableName, PrivPredicate.SHOW)) {
-                    totalRows.add(Arrays.asList(tableName, String.valueOf(queryHit)));
+                    if (Util.isTempTable(tableName)) {
+                        if (Util.isTempTableInCurrentSession(tableName)) {
+                            totalRows.add(Arrays.asList(Util.getTempTableDisplayName(tableName),
+                                    String.valueOf(queryHit)));
+                        }
+                    } else {
+                        totalRows.add(Arrays.asList(tableName, String.valueOf(queryHit)));
+                    }
                 }
             });
         } else {

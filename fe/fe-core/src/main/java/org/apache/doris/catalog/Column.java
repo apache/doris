@@ -883,6 +883,10 @@ public class Column implements GsonPostProcessable {
             }
         }
 
+        if (type.isStringType() && other.type.isStringType()) {
+            ColumnType.checkForTypeLengthChange(type, other.type);
+        }
+
         // Nested types only support changing the order and increasing the length of the nested char type
         // Char-type only support length growing
         ColumnType.checkSupportSchemaChangeForComplexType(type, other.type, false);
@@ -997,15 +1001,14 @@ public class Column implements GsonPostProcessable {
         if (isAutoInc) {
             sb.append(" AUTO_INCREMENT(").append(autoIncInitValue).append(")");
         }
-        if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP
-                && getDataType() != PrimitiveType.DOUBLE) {
+        if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
-        if ((getDataType() == PrimitiveType.BITMAP || getDataType() == PrimitiveType.DOUBLE) && defaultValue != null) {
+        if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
             }

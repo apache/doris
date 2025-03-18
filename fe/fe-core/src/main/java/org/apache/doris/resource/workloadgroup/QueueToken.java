@@ -54,6 +54,7 @@ public class QueueToken implements Comparable<QueueToken> {
 
     private long queueStartTime = -1;
     private long queueEndTime = -1;
+    private final int querySlotCount;
 
     private volatile String queueMsg = "";
 
@@ -62,10 +63,11 @@ public class QueueToken implements Comparable<QueueToken> {
     // Object is just a placeholder, it's meaningless now
     private CompletableFuture<Object> future;
 
-    public QueueToken(long queueWaitTimeout, QueryQueue queryQueue) {
+    public QueueToken(long queueWaitTimeout, int querySlotCount, QueryQueue queryQueue) {
         this.tokenId = tokenIdGenerator.addAndGet(1);
         this.queueWaitTimeout = queueWaitTimeout;
         this.queueStartTime = System.currentTimeMillis();
+        this.querySlotCount = querySlotCount;
         this.queryQueue = queryQueue;
         this.future = new CompletableFuture<>();
     }
@@ -145,5 +147,9 @@ public class QueueToken implements Comparable<QueueToken> {
 
     public long getTokenId() {
         return tokenId;
+    }
+
+    public int getQuerySlotCount() {
+        return querySlotCount;
     }
 }

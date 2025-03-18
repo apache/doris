@@ -33,6 +33,10 @@ void ResourceContext::to_pb_query_statistics(PQueryStatistics* statistics) const
     statistics->set_max_peak_memory_bytes(memory_context()->max_peak_memory_bytes());
     statistics->set_scan_bytes_from_remote_storage(io_context()->scan_bytes_from_remote_storage());
     statistics->set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
+    statistics->set_spill_write_bytes_to_local_storage(
+            io_context_->spill_write_bytes_to_local_storage());
+    statistics->set_spill_read_bytes_from_local_storage(
+            io_context_->spill_read_bytes_from_local_storage());
 }
 
 void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) const {
@@ -48,11 +52,17 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
     statistics->__set_scan_bytes_from_remote_storage(
             io_context()->scan_bytes_from_remote_storage());
     statistics->__set_scan_bytes_from_local_storage(io_context()->scan_bytes_from_local_storage());
+
     if (workload_group() != nullptr) {
         statistics->__set_workload_group_id(workload_group()->id());
     } else {
         statistics->__set_workload_group_id(-1);
     }
+
+    statistics->__set_spill_write_bytes_to_local_storage(
+            io_context_->spill_write_bytes_to_local_storage());
+    statistics->__set_spill_read_bytes_from_local_storage(
+            io_context_->spill_read_bytes_from_local_storage());
 }
 
 } // namespace doris

@@ -21,7 +21,7 @@ suite ("test_minio_storage_vault") {
         logger.warn("skip this test, because this case only run in cloud mode")
     }
     if (!enableStoragevault()) {
-        logger.info("skip this test case")
+        logger.info("skip this test case, because enableStoragevault = false")
         return
     }
     String enabled = context.config.otherConfigs.get("enableExternalMinioTest")
@@ -35,10 +35,13 @@ suite ("test_minio_storage_vault") {
     String extMinioRegion = context.config.otherConfigs.get("extMinioRegion")
     String extMinioBucket = context.config.otherConfigs.get("extMinioBucket")
 
+    // **********************************************************************
+    // *      case 1: test MinIO as Storage Vault using S3 Path Style       *
+    // **********************************************************************
     String suffix = UUID.randomUUID().toString().split("-")[0]
     String vaultName = "minio_vault_" + suffix
 
-    sql """
+    multi_sql """
          CREATE STORAGE VAULT IF NOT EXISTS ${vaultName}
          PROPERTIES (
              "type"="S3",
@@ -48,24 +51,51 @@ suite ("test_minio_storage_vault") {
              "s3.region" = "${extMinioRegion}",
              "s3.root.path" = "test_${suffix}",
              "s3.bucket" = "${extMinioBucket}",
-             "provider" = "S3"
+             "provider" = "S3",
+             "use_path_style" = "true"
          );
-    """
-
-    sql """ drop table if exists user"""
-    sql """
-        CREATE TABLE `user` (
+         drop table if exists user;
+         CREATE TABLE `user` (
           `id` int NULL,
           `name` varchar(32) NULL
         ) 
         PROPERTIES (
             "storage_vault_name" = "${vaultName}"
         );
-    """
-
-    sql """
         insert into user values (1,'Tom'), (2, 'Jelly'), (3, 'Spike'), (4, 'Tuffy');
     """
 
     order_qt_sql "select * from user"
+
+    // **********************************************************************
+    // *  case 2: test MinIO as Storage Vault using S3 Virtual Host Style   *
+    // **********************************************************************
+    String extMinioDomain = context.config.otherConfigs.get("extMinioDomain")
+    cmd "echo -ne '\\n${extMinioHost} ${extMinioBucket}.${extMinioDomain}' >> /etc/hosts"
+    String vaultNameHostStyle = "minio_host_style_vault_" + suffix
+    multi_sql """
+        CREATE STORAGE VAULT IF NOT EXISTS ${vaultNameHostStyle}
+         PROPERTIES (
+             "type"="S3",
+             "s3.endpoint"="${extMinioDomain}:${extMinioPort}",
+             "s3.access_key" = "${extMinioAk}",
+             "s3.secret_key" = "${extMinioSk}",
+             "s3.region" = "${extMinioRegion}",
+             "s3.root.path" = "test2_${suffix}",
+             "s3.bucket" = "${extMinioBucket}",
+             "provider" = "S3",
+             "use_path_style" = "false"
+         );
+         drop table if exists user2;
+         CREATE TABLE `user2` (
+          `id` int NULL,
+          `name` varchar(32) NULL
+        ) 
+        PROPERTIES (
+            "storage_vault_name" = "${vaultNameHostStyle}"
+        );
+        insert into user2 values (1,'Tom'), (2, 'Jelly'), (3, 'Spike'), (4, 'Tuffy');
+    """
+
+    order_qt_sql "select * from user2"
 }

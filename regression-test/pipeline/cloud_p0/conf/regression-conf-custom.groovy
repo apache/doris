@@ -47,6 +47,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_topn_fault_injection," +
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
+    "test_nereids_show_backup," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -76,3 +77,4 @@ enableKafkaTest=true
 enableTrinoConnectorTest = false
 
 s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"

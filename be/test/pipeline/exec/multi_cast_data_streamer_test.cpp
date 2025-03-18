@@ -31,17 +31,26 @@ public:
     ~MultiCastDataStreamerTest() override = default;
     void SetUp() override {
         multi_cast_data_streamer =
-                std::make_unique<MultiCastDataStreamer>(&pool, cast_sender_count);
+                std::make_unique<MultiCastDataStreamer>(nullptr, &pool, cast_sender_count, 0);
         for (int i = 0; i < cast_sender_count; i++) {
             auto dep = Dependency::create_shared(1, 1, "MultiCastDataStreamerTest", true);
             deps.push_back(dep);
             multi_cast_data_streamer->set_dep_by_sender_idx(i, dep.get());
         }
+
+        write_dependency =
+                Dependency::create_shared(1, 1, "MultiCastDataStreamerTestWriteDep", true);
+
+        multi_cast_data_streamer->set_write_dependency(write_dependency.get());
+
+        // TODO: support testing with spill
+        EXPECT_EQ(state.enable_spill(), false);
     }
 
     ObjectPool pool;
     std::unique_ptr<MultiCastDataStreamer> multi_cast_data_streamer = nullptr;
     std::vector<std::shared_ptr<Dependency>> deps;
+    std::shared_ptr<Dependency> write_dependency;
     int cast_sender_count = 3;
     MockRuntimeState state;
 };
@@ -72,13 +81,13 @@ TEST_F(MultiCastDataStreamerTest, NormTest) {
         for (int id = 0; id < cast_sender_count; id++) {
             Block block1;
             bool eos = false;
-            EXPECT_TRUE(multi_cast_data_streamer->pull(id, &block1, &eos).ok());
+            EXPECT_TRUE(multi_cast_data_streamer->pull(&state, id, &block1, &eos).ok());
             EXPECT_FALSE(eos);
             EXPECT_TRUE(ColumnHelper::block_equal(
                     block1, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3})));
 
             Block block2;
-            EXPECT_TRUE(multi_cast_data_streamer->pull(id, &block2, &eos).ok());
+            EXPECT_TRUE(multi_cast_data_streamer->pull(&state, id, &block2, &eos).ok());
             EXPECT_TRUE(eos);
             EXPECT_TRUE(ColumnHelper::block_equal(
                     block2, ColumnHelper::create_block<DataTypeString>({"a", "b", "c"})));
@@ -107,7 +116,7 @@ TEST_F(MultiCastDataStreamerTest, MultiTest) {
             bool eos = false;
             Block block;
             if (deps[id]->ready()) {
-                EXPECT_TRUE(multi_cast_data_streamer->pull(id, &block, &eos).ok());
+                EXPECT_TRUE(multi_cast_data_streamer->pull(&state, id, &block, &eos).ok());
                 output_blocks[id].push_back(block);
             }
             if (eos) {

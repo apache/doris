@@ -29,4 +29,23 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select substr(current_date(), 1, 10);")
     testFoldConst("select substr(current_timestamp(), 1, 10);")
     testFoldConst("select substr(current_timestamp(3), 1, 10);")
+
+    testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%h');")
+    testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%I');")
+    testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%l');")
+    testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%r');")
+    testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%h');")
+    testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%I');")
+    testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%l');")
+    testFoldConst("SELECT date_format('2020-12-01 12:00:30.01', '%r');")
+    
+    testFoldConst("select str_to_date('2023-02-29', '%Y-%m-%d') AS result;")
+    testFoldConst("select str_to_date('1900-02-29', '%Y-%m-%d') AS result;")
+    testFoldConst("select str_to_date('2025-04-31', '%Y-%m-%d') AS result;")
+    testFoldConst("select str_to_date('31-12-2020 23:59:59', '%d-%m-%Y %H:%i:%s');")
+    testFoldConst("select str_to_date('2020-12-31T23:59:59', '%Y-%m-%dT%H:%i:%s');")
+    testFoldConst("select str_to_date('20201231235959', '%Y%m%d%H%i%s');")
+    testFoldConst("select str_to_date('31/12/2020 23:59', '%d/%m/%Y %H:%i');")
+    testFoldConst("select str_to_date('31/12/2020 11:59 PM', '%d/%m/%Y %h:%i %p');")
+    testFoldConst("select str_to_date('20201231T235959', '%Y%m%dT%H%i%s');")
 }

@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStatusCode;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -565,17 +567,24 @@ public class SystemInfoService {
         return sb.toString();
     }
 
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+        return selectBackendIdsByPolicy(policy, number, getAllClusterBackendsNoException().values().asList());
+    }
+
     /**
      * Select a set of backends by the given policy.
      *
      * @param policy if policy is enableRoundRobin, will update its nextRoundRobinIndex
      * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
-     * or empty set if no backends match the policy, or the number of matched backends is less than "number";
+     *         or empty set if no backends match the policy, or the number of matched backends is less than "number";
      */
-    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number,
+            List<Backend> backendList) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = policy.getCandidateBackends(getAllClusterBackendsNoException().values());
+
+        List<Backend> candidates = policy.getCandidateBackends(backendList);
+
         if (candidates.size() < number || candidates.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
@@ -905,6 +914,20 @@ public class SystemInfoService {
         }
     }
 
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(srcHost, srcPort);
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(srcHost, srcPort) + "]");
+        }
+        if (be.getHost().equals(destHost)) {
+            // no need to modify
+            return;
+        }
+        be.setHost(destHost);
+        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+    }
+
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
@@ -973,6 +996,60 @@ public class SystemInfoService {
         }
     }
 
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        List<HostInfo> hostInfos = op.getHostInfos();
+        List<Backend> backends = Lists.newArrayList();
+        if (hostInfos.isEmpty()) {
+            List<String> ids = op.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
+            }
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                          "backend does not exists[" + NetUtils
+                                  .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
+                backends.add(be);
+            }
+        }
+
+        for (Backend be : backends) {
+            boolean shouldModify = false;
+            Map<String, String> tagMap = op.getTagMap();
+            if (!tagMap.isEmpty()) {
+                be.setTagMap(tagMap);
+                shouldModify = true;
+            }
+
+            if (op.isQueryDisabled() != null) {
+                if (!op.isQueryDisabled().equals(be.isQueryDisabled())) {
+                    be.setQueryDisabled(op.isQueryDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (op.isLoadDisabled() != null) {
+                if (!op.isLoadDisabled().equals(be.isLoadDisabled())) {
+                    be.setLoadDisabled(op.isLoadDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (shouldModify) {
+                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+                LOG.info("finished to modify backend {} ", be);
+            }
+        }
+    }
+
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
         memBe.setTagMap(backend.getTagMap());
@@ -1016,6 +1093,16 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
+    public ImmutableList<Backend> getBackendListByComputeGroup(Set<String> cgSet) {
+        List<Backend> result = new ArrayList<>();
+        for (Backend be : idToBackendRef.values()) {
+            if (cgSet.contains(be.getLocationTag().value)) {
+                result.add(be);
+            }
+        }
+        return ImmutableList.copyOf(result);
+    }
+
     // Cloud and NonCloud get all bes
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return idToBackendRef;
@@ -1047,16 +1134,6 @@ public class SystemInfoService {
     // CloudSystemInfoService override
     public int getTabletNumByBackendId(long beId) {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
-    }
-
-    public List<Backend> getBackendsByPolicy(BeSelectionPolicy beSelectionPolicy) {
-        try {
-            return beSelectionPolicy.getCandidateBackends(Env.getCurrentSystemInfo()
-                    .getBackendsByCurrentCluster().values().asList());
-        } catch (Throwable t) {
-            LOG.warn("get backends by policy failed, policy: {}", beSelectionPolicy.toString());
-        }
-        return Lists.newArrayList();
     }
 
 }

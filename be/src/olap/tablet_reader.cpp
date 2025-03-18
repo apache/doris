@@ -657,7 +657,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // Delete sign could not be applied when delete on cumu compaction is enabled, bucause it is meant for delete with predicates.
     // If delete design is applied on cumu compaction, it will lose effect when doing base compaction.
     // `_delete_sign_available` indicates the condition where we could apply delete signs to data.
-    _delete_sign_available = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+    _delete_sign_available = ((read_params.reader_type == ReaderType::READER_BASE_COMPACTION &&
+                               config::enable_prune_delete_sign_when_base_compaction) ||
                               read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                               read_params.reader_type == ReaderType::READER_CHECKSUM);
 

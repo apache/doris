@@ -46,17 +46,6 @@ suite("test_hudi_schema_evolution", "p2,external,hudi,external_remote,external_r
     qt_altering_complex_columns_table """ select * from altering_complex_columns_table order by id """
     // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
     // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
-
-    sql """set hudi_jni_scanner='spark';"""
-    qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
-    qt_altering_simple_columns_table """ select * from altering_simple_columns_table order by id """
-    // qt_deleting_simple_columns_table """ select * from deleting_simple_columns_table order by id """
-    // qt_renaming_simple_columns_table """ select * from renaming_simple_columns_table order by id """
-
-    qt_adding_complex_columns_table """ select * from adding_complex_columns_table order by id """
-    qt_altering_complex_columns_table """ select * from altering_complex_columns_table order by id """
-    // qt_deleting_complex_columns_table """ select * from deleting_complex_columns_table order by id """
-    // qt_renaming_complex_columns_table """ select * from renaming_complex_columns_table order by id """
     
    sql """set force_jni_scanner = false;"""
     qt_adding_simple_columns_table """ select * from adding_simple_columns_table order by id """
