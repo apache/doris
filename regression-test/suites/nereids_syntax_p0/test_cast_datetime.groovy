@@ -461,6 +461,34 @@ suite("test_cast_datetime") {
         }
 
         test {
+            sql "select to_monday('1969-12-31')"
+            result([[Date.valueOf('1969-12-29')]])
+        }
+
+        test {
+            sql "select to_monday('1969-12-31 23:59:59.999999')"
+            result([[Date.valueOf('1969-12-29')]])
+        }
+
+        // to_monday(1970-01-01 ~ 170-01-04) will return 1970-01-01
+        for (def s : ['1970-01-01', '1970-01-01 00:00:00.000001', '1970-01-02 12:00:00', '1970-01-01', '1970-01-04 23:59:59.999999']) {
+            test {
+                sql "select to_monday('${s}')"
+                result([[Date.valueOf('1970-01-01')]])
+            }
+        }
+
+        test {
+            sql "select to_monday('1970-01-05')"
+            result([[Date.valueOf('1970-01-05')]])
+        }
+
+        test {
+            sql "select to_monday('1970-01-05 00:00:00.000001')"
+            result([[Date.valueOf('1970-01-05')]])
+        }
+
+        test {
             sql "select cast('123.123' as datetime)"
             result([[LocalDateTime.parse('2012-03-12T03:00:00')]])
         }
@@ -544,6 +572,5 @@ suite("test_cast_datetime") {
             sql "select date_add('2023-11-05 01:30:00 America/New_York', INTERVAL 1 DAY)"
             result([[LocalDateTime.parse('2023-11-06T01:30:00')]])
         }
-
     }
 }
