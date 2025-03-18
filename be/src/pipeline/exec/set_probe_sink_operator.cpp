@@ -158,6 +158,7 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
                 raw_ptrs[i] = nullable;
             } else {
                 raw_ptrs[i] = &col_nested;
+                return Status::InternalError("Not Implemented");    
             }
 
         } else {
