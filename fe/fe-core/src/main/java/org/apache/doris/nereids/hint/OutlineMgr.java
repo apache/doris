@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Writable;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,20 +30,70 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Outline manager used to manage read write and cached of outline
  */
 public class OutlineMgr implements Writable {
     public static final OutlineMgr INSTANCE = new OutlineMgr();
+    private static final Logger LOG = LogManager.getLogger(OutlineMgr.class);
     private static final Map<String, OutlineInfo> outlineMap = new HashMap<>();
 
-    public static Optional<OutlineInfo> getOutline(String outlineName) {
-        return Optional.of(outlineMap.get(outlineName));
+    private static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    private void readLock() {
+        lock.readLock().lock();
     }
 
-    public static void addOutline(String outlineName, OutlineInfo outlineInfo) {
-        outlineMap.put(outlineName, outlineInfo);
+    private void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private static void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private static void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
+    public static Optional<OutlineInfo> getOutline(String outlineName) {
+        if (outlineMap.containsKey(outlineName)) {
+            return Optional.of(outlineMap.get(outlineName));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * createOutlineInternal
+     * @param outlineInfo outline info used to create outline
+     * @param ignoreIfExists if we add or replace to create outline statement, it would be true
+     * @param isReplay when it is replay mode, editlog would not be written
+     * @throws DdlException should throw exception when meeting problem
+     */
+    public static void createOutlineInternal(OutlineInfo outlineInfo, boolean ignoreIfExists, boolean isReplay)
+            throws DdlException {
+        writeLock();
+        try {
+            if (!ignoreIfExists && OutlineMgr.getOutline(outlineInfo.getOutlineName()).isPresent()) {
+                LOG.info("outline already exists, ignored to create outline: {}, is replay: {}",
+                        outlineInfo.getOutlineName(), isReplay);
+                throw new DdlException("outline already exists, is replay: " + isReplay);
+            }
+
+            createOutline(outlineInfo);
+            if (!isReplay) {
+                Env.getCurrentEnv().getEditLog().logCreateOutline(outlineInfo);
+            }
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("finished to create outline: {}, is replay: {}", outlineInfo.getOutlineName(), isReplay);
+    }
+
+    private static void createOutline(OutlineInfo outlineInfo) {
+        outlineMap.put(outlineInfo.getOutlineName(), outlineInfo);
     }
 
     @Override

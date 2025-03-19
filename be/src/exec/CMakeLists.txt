@@ -26,6 +26,8 @@ file(GLOB_RECURSE EXEC_FILES CONFIGURE_DEPENDS *.cpp)
 if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}
         lzo_decompressor.cpp
+            schema_scanner/schema_sch_optimizer_sql_plan_outline_scanner.cpp
+            schema_scanner/schema_sch_optimizer_sql_plan_outline_scanner.h
     )
 endif()
 

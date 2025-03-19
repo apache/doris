@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.hint.OutlineInfo;
+import org.apache.doris.nereids.hint.OutlineMgr;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.persist.CreateOutlineInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -33,16 +34,19 @@ import org.apache.logging.log4j.Logger;
 public class CreateOutlineCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateOutlineCommand.class);
 
-    private final CreateOutlineInfo createOutlineInfo;
+    private final OutlineInfo outlineInfo;
 
-    public CreateOutlineCommand(CreateOutlineInfo createOutlineInfo) {
+    private final Boolean ignoreExist;
+
+    public CreateOutlineCommand(OutlineInfo outlineInfo, boolean ignoreExist) {
         super(PlanType.CREATE_OUTLINE_COMMAND);
-        this.createOutlineInfo = createOutlineInfo;
+        this.outlineInfo = outlineInfo;
+        this.ignoreExist = ignoreExist;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-
+        OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 
     @Override
