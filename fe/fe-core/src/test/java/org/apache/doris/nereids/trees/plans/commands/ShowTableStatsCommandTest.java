@@ -114,7 +114,7 @@ public class ShowTableStatsCommandTest {
         TableNameInfo tableNameInfo =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
-                ImmutableList.of(CatalogMocker.TEST_PARTITION1_NAME));
+                ImmutableList.of(CatalogMocker.TEST_SINGLE_PARTITION_NAME));
         List<String> columns = new ArrayList<>(getColumns());
         ShowTableStatsCommand command2 = new ShowTableStatsCommand(tableNameInfo, columns, partitionNamesInfo);
         Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
@@ -126,7 +126,7 @@ public class ShowTableStatsCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> command3.validate(connectContext),
                 "Table: " + tableNotExist + " not exists");
 
-        //test partitionNmae is not exist
+        //test partitionName is not exist
         PartitionNamesInfo partitionNamesInfo2 = new PartitionNamesInfo(false,
                 ImmutableList.of(partitionNotExist));
         ShowTableStatsCommand command4 = new ShowTableStatsCommand(tableNameInfo, columns, partitionNamesInfo2);
@@ -166,7 +166,7 @@ public class ShowTableStatsCommandTest {
         TableNameInfo tableNameInfo2 =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME);
         PartitionNamesInfo partitionNamesInfo2 = new PartitionNamesInfo(false,
-                ImmutableList.of(CatalogMocker.TEST_PARTITION2_NAME));
+                ImmutableList.of(CatalogMocker.TEST_PARTITION1_NAME));
         List<String> columns = new ArrayList<>(getColumns());
         ShowTableStatsCommand command2 = new ShowTableStatsCommand(tableNameInfo2, columns, partitionNamesInfo2);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
