@@ -25,7 +25,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "common/kerberos/kerberos_ticket_cache.h"
+// #include "common/kerberos/kerberos_ticket_cache.h"
 #include "common/status.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
@@ -47,19 +47,21 @@ public:
     std::string principal;
     std::string keytab_path;
     std::string fs_name;
+    uint64_t create_time;
     std::atomic<uint64_t> last_access_time;
-    std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
+    // std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache;
 
     HdfsHandler(hdfsFS fs, bool is_kerberos, const std::string& principal_,
-                const std::string& keytab_path_, const std::string& fs_name_,
-                std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache_)
+                const std::string& keytab_path_, const std::string& fs_name_)
+            // std::shared_ptr<kerberos::KerberosTicketCache> ticket_cache_)
             : hdfs_fs(fs),
               is_kerberos_auth(is_kerberos),
               principal(principal_),
               keytab_path(keytab_path_),
               fs_name(fs_name_),
-              last_access_time(std::time(nullptr)),
-              ticket_cache(ticket_cache_) {}
+              create_time(std::time(nullptr)),
+              last_access_time(std::time(nullptr)) {}
+    // ticket_cache(ticket_cache_) {}
 
     ~HdfsHandler() {
         // The ticket_cache will be automatically released when the last reference is gone
