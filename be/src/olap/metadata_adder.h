@@ -152,7 +152,13 @@ protected:
 
     void update_metadata_size();
 
-    MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
+    MetadataAdder<T>& operator=(const MetadataAdder<T>& other) {
+        int64_t old_size = _current_meta_size;
+        _current_meta_size = other._current_meta_size;
+        int64_t size_diff = _current_meta_size - old_size;
+        add_mem_size(size_diff);
+        return *this;
+    }
 
     int64_t _current_meta_size {0};
 
@@ -185,6 +191,7 @@ template <typename T>
 void MetadataAdder<T>::update_metadata_size() {
     int64_t old_size = _current_meta_size;
     _current_meta_size = get_metadata_size();
+    DCHECK(_current_meta_size > 0);
     int64_t size_diff = _current_meta_size - old_size;
 
     add_mem_size(size_diff);
