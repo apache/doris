@@ -558,8 +558,7 @@ private:
     std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
-    std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
-            _field_path_to_index;
+    std::unordered_map<vectorized::PathInDataRef, int32_t> _field_path_to_index;
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
