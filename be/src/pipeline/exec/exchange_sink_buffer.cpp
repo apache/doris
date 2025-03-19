@@ -265,13 +265,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         // If we have data to shuffle which is not broadcasted
         auto& request = requests[0];
         auto& brpc_request = _instance_to_request[id];
-        brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
 
         auto mem_byte = 0;
-
         if (_send_multi_blocks) {
             for (auto& req : requests) {
                 if (req.block && !req.block->column_metas().empty()) {
@@ -279,17 +276,25 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                     add_block->Swap(req.block.get());
                     mem_byte += add_block->ByteSizeLong();
                 }
+
+                if (!req.exec_status.ok()) {
+                    req.exec_status.to_protobuf(brpc_request->mutable_exec_status());
+                    break;
+                }
             }
         } else {
             if (request.block && !request.block->column_metas().empty()) {
                 brpc_request->set_allocated_block(request.block.get());
             }
+            if (!request.exec_status.ok()) {
+                request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
+            }
         }
-        if (!requests.back().exec_status.ok()) {
-            requests.back().exec_status.to_protobuf(brpc_request->mutable_exec_status());
-        }
-        auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
 
+        _instance_to_seq[id] += requests.size();
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
+        brpc_request->set_eos(requests.back().eos);
+        auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
@@ -354,7 +359,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
 
-        brpc_request->clear_blocks();
+        if (!_send_multi_blocks && request.block) {
+            static_cast<void>(brpc_request->release_block());
+        } else {
+            brpc_request->clear_blocks();
+        }
         if (mem_byte) {
             COUNTER_UPDATE(request.channel->_parent->memory_used_counter(), -mem_byte);
         }
@@ -369,7 +378,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& broadcast_q = *broadcast_q_ptr;
         // If we have data to shuffle which is broadcasted
         std::vector<BroadcastTransmitInfo> requests(_send_multi_blocks ? broadcast_q.size() : 1);
-        std::vector<int> keep_block_mem(_send_multi_blocks ? broadcast_q.size() : 1);
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = broadcast_q.front();
             broadcast_q.pop();
@@ -377,8 +385,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 
         auto& request = requests[0];
         auto& brpc_request = _instance_to_request[id];
-        brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
 
@@ -405,6 +411,13 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
+        //        if (request.channel->_parent->parent()->node_id() == 10) {
+        //            LOG(INFO) << "happen lee dst_id:" << id << " channel: " << request.channel << " sender_id: " << request.channel->_parent->sender_id()
+        //                  << " be_number: " << request.channel->_parent->be_number() << " block count: " << (_send_multi_blocks ? brpc_request->blocks_size() : (brpc_request->has_block() ? 1 : 0));
+        //        }
+        _instance_to_seq[id] += requests.size();
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
+        brpc_request->set_eos(requests.back().eos);
         auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
