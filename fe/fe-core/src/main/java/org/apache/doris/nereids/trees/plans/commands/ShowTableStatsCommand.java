@@ -136,7 +136,7 @@ public class ShowTableStatsCommand extends ShowCommand {
         if (useTableId) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP());
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(), tableId);
             }
             return;
         }
