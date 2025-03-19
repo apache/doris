@@ -271,9 +271,9 @@ bool PipelineTask::_is_blocked() {
 
 void PipelineTask::terminate() {
     // We use a lock to assure all dependencies are not deconstructed here.
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     if (!is_finalized()) {
         DCHECK(_wake_up_early || _fragment_context->is_canceled());
-        std::unique_lock<std::mutex> lc(_dependency_lock);
         for (auto* dep : _spill_dependencies) {
             dep->set_always_ready();
         }
@@ -574,8 +574,8 @@ Status PipelineTask::execute(bool* done) {
 }
 
 Status PipelineTask::finalize() {
-    RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     std::unique_lock<std::mutex> lc(_dependency_lock);
+    RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _le_state_map.clear();
