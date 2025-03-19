@@ -128,7 +128,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        try {
+            // delete not need select priv
+            ctx.setSkipAuth(true);
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        } finally {
+            ctx.setSkipAuth(false);
+        }
+
         executor.setPlanner(planner);
         executor.checkBlockRules();
         // if fe could do fold constant to get delete will do nothing for table, just return.
