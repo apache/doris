@@ -82,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
@@ -287,6 +288,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateOutlineCommand(CreateOutlineCommand createOutlineCommand, C context) {
         return visitCommand(createOutlineCommand, context);
+    }
+
+    default R visitDropOutlineCommand(DropOutlineCommand dropOutlineCommand, C context) {
+        return visitCommand(dropOutlineCommand, context);
     }
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
