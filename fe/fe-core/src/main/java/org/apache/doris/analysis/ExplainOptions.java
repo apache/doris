@@ -53,6 +53,10 @@ public class ExplainOptions {
         return explainLevel == ExplainLevel.GRAPH || isGraph;
     }
 
+    public boolean isConversion() {
+        return explainLevel == ExplainLevel.CONVERSION;
+    }
+
     public boolean hasExplainLevel() {
         return explainLevel != null;
     }

@@ -273,11 +273,6 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        if (sessionVariable.showConvertedStmt) {
-            executor = new StmtExecutor(ctx, convertedStmt);
-            executor.handleShowConvertedStmt();
-            return;
-        }
         boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
         long parseSqlStartTime = System.currentTimeMillis();

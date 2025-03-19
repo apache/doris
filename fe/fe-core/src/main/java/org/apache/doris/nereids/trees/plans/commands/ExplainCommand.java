@@ -45,6 +45,7 @@ public class ExplainCommand extends Command implements NoForward {
         VERBOSE(false),
         TREE(false),
         GRAPH(false),
+        CONVERSION(false),
         PARSED_PLAN(true),
         ANALYZED_PLAN(true),
         REWRITTEN_PLAN(true),
@@ -92,6 +93,11 @@ public class ExplainCommand extends Command implements NoForward {
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
             ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
+        if (explainOptions.isConversion()) {
+            executor.handleShowConvertedStmt();
+            return;
+        }
+
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
         executor.checkBlockRules();
