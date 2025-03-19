@@ -79,6 +79,13 @@ public:
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
                                             : tnode.except_node.result_expr_lists[child_id]) {}
+#ifdef BE_TEST
+    SetSinkOperatorX(int _child_quantity)
+            : _cur_child_id(0),
+              _child_quantity(_child_quantity),
+              _is_colocate(false),
+              _partition_exprs() {}
+#endif
     ~SetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",

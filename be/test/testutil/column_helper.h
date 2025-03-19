@@ -79,6 +79,33 @@ public:
         return true;
     }
 
+    static bool block_equal_with_sort(const Block& block1, const Block& block2) {
+        if (block1.columns() != block2.columns()) {
+            return false;
+        }
+        for (size_t i = 0; i < block1.columns(); i++) {
+            auto column1 = block1.get_by_position(i).column;
+            auto column2 = block2.get_by_position(i).column;
+            auto type1 = block1.get_by_position(i).type;
+            auto type2 = block2.get_by_position(i).type;
+
+            std::vector<std::string> output_string1;
+            std::vector<std::string> output_string2;
+
+            for (size_t j = 0; j < column1->size(); j++) {
+                output_string1.push_back(type1->to_string(*column1, j));
+                output_string2.push_back(type2->to_string(*column2, j));
+            }
+
+            std::sort(output_string1.begin(), output_string1.end());
+            std::sort(output_string2.begin(), output_string2.end());
+            if (output_string1 != output_string2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     template <typename DataType>
     static Block create_block(const std::vector<typename DataType::FieldType>& data) {
         auto column = create_column<DataType>(data);

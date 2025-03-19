@@ -75,6 +75,32 @@ public:
         return ctxs;
     }
 
+    template <typename DataType>
+    static VExprContextSPtr create_const(typename DataType::FieldType value, size_t size) {
+        ColumnPtr column_const =
+                ColumnConst::create(ColumnHelper::create_column<DataType>({value}), size);
+
+        ColumnWithTypeAndName data;
+        data.type = std::make_shared<DataType>();
+        data.column = column_const;
+        data.name = "MockLiteral Const";
+
+        auto ctx = VExprContext::create_shared(std::make_shared<MockLiteral>(data));
+        ctx->_prepared = true;
+        ctx->_opened = true;
+        return ctx;
+    }
+
+    template <typename DataType>
+    static VExprContextSPtrs create_const(const std::vector<typename DataType::FieldType>& values,
+                                          size_t size) {
+        VExprContextSPtrs ctxs;
+        for (const auto& value : values) {
+            ctxs.push_back(create_const<DataType>(value, size));
+        }
+        return ctxs;
+    }
+
 private:
     const std::string _name = "MockLiteral";
 };

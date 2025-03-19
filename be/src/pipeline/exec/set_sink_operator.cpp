@@ -37,7 +37,6 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     auto& build_block = local_state._shared_state->build_block;
-    auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
         {
@@ -57,23 +56,10 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            if constexpr (is_intersect) {
-                valid_element_in_hash_tbl = 0;
-            } else {
-                std::visit(
-                        [&](auto&& arg) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                valid_element_in_hash_tbl = arg.hash_table->size();
-                            }
-                        },
-                        local_state._shared_state->hash_table_variants->method_variant);
-            }
+            local_state._shared_state->updatae_valid_element_in_hash_tbl(is_intersect);
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
-            if (_child_quantity == 1) {
-                local_state._dependency->set_ready_to_read();
-            }
+            DCHECK_GT(_child_quantity, 1);
         }
     }
     return Status::OK();
@@ -113,16 +99,18 @@ template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
-    std::vector<int> result_locs(_child_exprs.size(), -1);
+    // use local state child exprs
+    auto& child_expr = local_state._child_exprs;
+    std::vector<int> result_locs(child_expr.size(), -1);
     bool is_all_const = true;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_locs[i]));
+    for (size_t i = 0; i < child_expr.size(); ++i) {
+        RETURN_IF_ERROR(child_expr[i]->execute(&block, &result_locs[i]));
         is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
     }
     rows = is_all_const ? 1 : rows;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+    for (size_t i = 0; i < child_expr.size(); ++i) {
         size_t result_col_id = result_locs[i];
 
         if (is_all_const) {
@@ -143,6 +131,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
             result_col_id = block.columns() - 1;
         }
 
+        ///TODO: Here, the build block still retains the column before execution, but in fact, these blocks will no longer be used afterwards.
         raw_ptrs[i] = block.get_by_position(result_col_id).column.get();
         DCHECK_GE(result_col_id, 0);
         local_state._shared_state->build_col_idx.insert({i, result_col_id});
