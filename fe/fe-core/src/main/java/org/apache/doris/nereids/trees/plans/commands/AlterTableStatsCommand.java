@@ -104,7 +104,7 @@ public class AlterTableStatsCommand extends AlterCommand {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                 tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
