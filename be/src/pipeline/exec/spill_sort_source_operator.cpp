@@ -173,7 +173,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     });
 
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile,
                                                    _shared_state->shared_from_this(),
                                                    exception_catch_func));
 }

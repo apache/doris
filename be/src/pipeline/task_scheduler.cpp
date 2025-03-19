@@ -70,32 +70,32 @@ Status TaskScheduler::start() {
     return Status::OK();
 }
 
-Status TaskScheduler::schedule_task(PipelineTask* task) {
+Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
     return _task_queue.push_back(task);
 }
 
 // after close_task, task maybe destructed.
-void close_task(PipelineTask* task, Status exec_status) {
+void close_task(PipelineTask* task, PipelineFragmentContext* fragment_context, Status exec_status) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
     if (!exec_status.ok()) {
-        task->fragment_context()->cancel(exec_status);
+        fragment_context->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
                                     print_id(task->query_context()->query_id()),
                                     exec_status.to_string());
     }
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        task->fragment_context()->cancel(status);
+        fragment_context->cancel(status);
     }
     task->finalize();
 }
 
 void TaskScheduler::_do_work(int index) {
     while (!_need_to_stop) {
-        auto* task = _task_queue.take(index);
+        auto task = _task_queue.take(index);
         if (!task) {
             continue;
         }
@@ -110,6 +110,8 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
+        std::shared_ptr<PipelineFragmentContext> fragment_context = task->fragment_context();
+        DCHECK(fragment_context);
         task->set_running(true);
         bool done = false;
         auto status = Status::OK();
@@ -118,10 +120,9 @@ void TaskScheduler::_do_work(int index) {
             if (done || !status.ok()) {
                 // decrement_running_task may delete fragment context and will core in some defer
                 // code, because the defer code will access fragment context itself.
-                auto lock_for_context = task->fragment_context()->shared_from_this();
-                close_task(task, status);
+                close_task(task.get(), fragment_context.get(), status);
                 task->set_running(false);
-                task->fragment_context()->decrement_running_task(task->pipeline_id());
+                fragment_context->decrement_running_task(task->pipeline_id());
             } else {
                 task->set_running(false);
             }
@@ -129,12 +130,11 @@ void TaskScheduler::_do_work(int index) {
         task->set_task_queue(&_task_queue);
         task->log_detail_if_need();
 
-        auto* fragment_ctx = task->fragment_context();
-        bool canceled = fragment_ctx->is_canceled();
+        bool canceled = fragment_context->is_canceled();
 
         // Close task if canceled
         if (canceled) {
-            status = fragment_ctx->get_query_ctx()->exec_status();
+            status = fragment_context->get_query_ctx()->exec_status();
             DCHECK(!status.ok());
             continue;
         }
@@ -159,7 +159,7 @@ void TaskScheduler::_do_work(int index) {
                              start_time, end_time});
                 } else { status = task->execute(&done); },
                 status);
-        fragment_ctx->trigger_report_if_necessary();
+        fragment_context->trigger_report_if_necessary();
     }
 }
 

@@ -238,17 +238,17 @@ inline uint32_t get_map_id(std::pair<TUniqueId, int> key, size_t capacity) {
     return value % capacity;
 }
 
-template <typename Key, typename Value, typename ValueType>
-ConcurrentContextMap<Key, Value, ValueType>::ConcurrentContextMap() {
+template <typename Key, typename ValueType>
+ConcurrentContextMap<Key, ValueType>::ConcurrentContextMap() {
     _internal_map.resize(config::num_query_ctx_map_partitions);
     for (size_t i = 0; i < config::num_query_ctx_map_partitions; i++) {
         _internal_map[i] = {std::make_unique<std::shared_mutex>(),
-                            phmap::flat_hash_map<Key, Value>()};
+                            phmap::flat_hash_map<Key, std::weak_ptr<ValueType>>()};
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-Value ConcurrentContextMap<Key, Value, ValueType>::find(const Key& query_id) {
+template <typename Key, typename ValueType>
+std::weak_ptr<ValueType> ConcurrentContextMap<Key, ValueType>::find(const Key& query_id) {
     auto id = get_map_id(query_id, _internal_map.size());
     {
         std::shared_lock lock(*_internal_map[id].first);
@@ -261,8 +261,8 @@ Value ConcurrentContextMap<Key, Value, ValueType>::find(const Key& query_id) {
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-Status ConcurrentContextMap<Key, Value, ValueType>::apply_if_not_exists(
+template <typename Key, typename ValueType>
+Status ConcurrentContextMap<Key, ValueType>::apply_if_not_exists(
         const Key& query_id, std::shared_ptr<ValueType>& query_ctx, ApplyFunction&& function) {
     auto id = get_map_id(query_id, _internal_map.size());
     {
@@ -279,8 +279,8 @@ Status ConcurrentContextMap<Key, Value, ValueType>::apply_if_not_exists(
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-void ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
+template <typename Key, typename ValueType>
+void ConcurrentContextMap<Key, ValueType>::erase(const Key& query_id) {
     auto id = get_map_id(query_id, _internal_map.size());
     {
         std::unique_lock lock(*_internal_map[id].first);
@@ -289,9 +289,9 @@ void ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-void ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
-                                                         std::shared_ptr<ValueType> query_ctx) {
+template <typename Key, typename ValueType>
+void ConcurrentContextMap<Key, ValueType>::insert(const Key& query_id,
+                                                  std::shared_ptr<ValueType> query_ctx) {
     auto id = get_map_id(query_id, _internal_map.size());
     {
         std::unique_lock lock(*_internal_map[id].first);
@@ -300,8 +300,8 @@ void ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
     }
 }
 
-template <typename Key, typename Value, typename ValueType>
-void ConcurrentContextMap<Key, Value, ValueType>::clear() {
+template <typename Key, typename ValueType>
+void ConcurrentContextMap<Key, ValueType>::clear() {
     for (auto& pair : _internal_map) {
         std::unique_lock lock(*pair.first);
         auto& map = pair.second;
@@ -785,26 +785,32 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        _pipeline_map.apply([&](phmap::flat_hash_map<
-                                    std::pair<TUniqueId, int>,
-                                    std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
-                                    -> Status {
-            for (auto& it : map) {
-                auto elapsed = it.second->elapsed_time() / 1000000000.0;
-                if (elapsed < duration) {
-                    // Only display tasks which has been running for more than {duration} seconds.
-                    continue;
-                }
-                auto timeout_second = it.second->timeout_second();
-                fmt::format_to(
-                        debug_string_buffer,
-                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}) : {}\n",
-                        i, elapsed, timeout_second, it.second->is_timeout(now),
-                        it.second->debug_string());
-                i++;
-            }
-            return Status::OK();
-        });
+        _pipeline_map.apply(
+                [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
+                                         std::weak_ptr<pipeline::PipelineFragmentContext>>& map)
+                        -> Status {
+                    for (auto it = map.begin(); it != map.end();) {
+                        if (auto f_ctx = it->second.lock()) {
+                            auto elapsed = f_ctx->elapsed_time() / 1000000000.0;
+                            if (elapsed < duration) {
+                                // Only display tasks which has been running for more than {duration} seconds.
+                                continue;
+                            }
+                            auto timeout_second = f_ctx->timeout_second();
+                            fmt::format_to(debug_string_buffer,
+                                           "No.{} (elapse_second={}s, query_timeout_second={}s, "
+                                           "is_timeout={}) : {}\n",
+                                           i, elapsed, timeout_second, f_ctx->is_timeout(now),
+                                           f_ctx->debug_string());
+                            i++;
+                            ++it;
+                        } else {
+                            it = map.erase(it);
+                        }
+                    }
+
+                    return Status::OK();
+                });
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -828,20 +834,51 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
+    // 1. Get QueryContext
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(
             _get_or_create_query_ctx(params, params.query_id, true, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get());
-    int64_t duration_ns = 0;
+
+    // 2. Create PipelineFragmentContext
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
                     query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                     std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                       this, std::placeholders::_1, std::placeholders::_2));
+    // 3. Update QueryContext using PipelineFragmentContext
+    {
+        query_ctx->set_pipeline_context(params.fragment_id, context);
+        if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
+            query_ctx->set_ready_to_execute_only();
+        }
+    }
+
+    // 4. Update Fragment Map
+    {
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_executing_count << 1;
+        g_fragment_last_active_time.set_value(now);
+
+        // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
+        auto res = _pipeline_map.find({params.query_id, params.fragment_id});
+        if (res.lock() != nullptr) {
+            return Status::InternalError(
+                    "exec_plan_fragment query_id({}) input duplicated fragment_id({})",
+                    print_id(params.query_id), params.fragment_id);
+        }
+        _pipeline_map.insert({params.query_id, params.fragment_id}, context);
+    }
+
+    // 5. Prepare PipelineFragmentContext
+    int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get()),
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get(),
+                                                                       &_runtimefilter_controller),
                                          prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
@@ -852,39 +889,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
-            params.local_params[0], params.query_id, params.query_options, &handler,
-            RuntimeFilterParamsContext::create(context->get_runtime_state())));
-    if (handler) {
-        query_ctx->set_merge_controller_handler(handler);
-    }
-
-    {
-        int64 now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_executing_count << 1;
-        g_fragment_last_active_time.set_value(now);
-
-        // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
-        auto res = _pipeline_map.find({params.query_id, params.fragment_id});
-        if (res != nullptr) {
-            return Status::InternalError(
-                    "exec_plan_fragment query_id({}) input duplicated fragment_id({})",
-                    print_id(params.query_id), params.fragment_id);
-        }
-        _pipeline_map.insert({params.query_id, params.fragment_id}, context);
-    }
-
-    if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
-        query_ctx->set_ready_to_execute_only();
-    }
-
-    query_ctx->set_pipeline_context(params.fragment_id, context);
-
-    RETURN_IF_ERROR(context->submit());
     return Status::OK();
 }
 
@@ -947,11 +951,16 @@ void FragmentMgr::cancel_worker() {
         std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
         _pipeline_map.apply(
                 [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                         std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
+                                         std::weak_ptr<pipeline::PipelineFragmentContext>>& map)
                         -> Status {
                     ctx.reserve(ctx.size() + map.size());
-                    for (auto& pipeline_itr : map) {
-                        ctx.push_back(pipeline_itr.second);
+                    for (auto it = map.begin(); it != map.end();) {
+                        if (auto f_ctx = it->second.lock()) {
+                            ctx.push_back(f_ctx);
+                            ++it;
+                        } else {
+                            it = map.erase(it);
+                        }
                     }
                     return Status::OK();
                 });
@@ -1279,8 +1288,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     {
         for (auto fragment_id : fragment_ids) {
             pip_context =
-                    _pipeline_map.find({UniqueId(request->query_id()).to_thrift(), fragment_id});
-            if (pip_context == nullptr) {
+                    _pipeline_map.find({UniqueId(request->query_id()).to_thrift(), fragment_id})
+                            .lock();
+            if (!pip_context) {
                 continue;
             }
 

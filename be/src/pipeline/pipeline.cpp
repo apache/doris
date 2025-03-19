@@ -27,11 +27,6 @@
 
 namespace doris::pipeline {
 
-void Pipeline::_init_profile() {
-    auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
-    _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
-}
-
 bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distribution,
                                       const int idx) const {
     if (!target_data_distribution.need_local_exchange()) {
@@ -71,6 +66,12 @@ bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distrib
                !(is_hash_exchange(_data_distribution.distribution_type) &&
                  is_hash_exchange(target_data_distribution.distribution_type));
     }
+}
+
+Pipeline::~Pipeline() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
+    _operators.clear();
+    _sink.reset();
 }
 
 Status Pipeline::add_operator(OperatorPtr& op, const int parallelism) {

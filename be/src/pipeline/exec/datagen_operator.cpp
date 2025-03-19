@@ -98,7 +98,7 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         std::shared_ptr<IRuntimeFilter> runtime_filter;
         RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, p.is_serial_operator(),
                                                                 p.node_id(), &runtime_filter));
-        runtime_filter->init_profile(_runtime_profile.get());
+        runtime_filter->init_profile(_runtime_profile);
     }
     return Status::OK();
 }

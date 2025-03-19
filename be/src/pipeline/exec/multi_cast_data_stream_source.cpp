@@ -38,8 +38,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id,
-                                                                _runtime_profile.get());
+    _shared_state->multi_cast_data_streamer->set_source_profile(p._consumer_id, _runtime_profile);
     _shared_state->multi_cast_data_streamer->set_dep_by_sender_idx(p._consumer_id, _dependency);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
