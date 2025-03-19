@@ -1143,8 +1143,8 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
-DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
 DEFINE_Int64(max_external_file_meta_cache_num, "1000");
 DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 // Apply delete pred in cumu compaction
@@ -1157,7 +1157,8 @@ DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
-DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
+// Deprecated
+DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
