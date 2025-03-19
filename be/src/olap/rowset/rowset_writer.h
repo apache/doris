@@ -108,7 +108,7 @@ public:
         }
         std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 _context.segment_path(segment_id))};
-        if (_context.write_type == DataWriteType::TYPE_COMPACTION &&
+        if (_context.compaction_type == ReaderType::READER_BASE_COMPACTION &&
             !config::inverted_index_ram_dir_enable_when_compaction) {
             *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                     _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
