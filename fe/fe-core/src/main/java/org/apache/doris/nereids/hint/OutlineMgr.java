@@ -96,6 +96,38 @@ public class OutlineMgr implements Writable {
         outlineMap.put(outlineInfo.getOutlineName(), outlineInfo);
     }
 
+    /**
+     * createOutlineInternal
+     * @param outlineName outline info used to create outline
+     * @param ifExists if we add if exists to create outline statement, it would be true
+     * @param isReplay when it is replay mode, editlog would not be written
+     * @throws DdlException should throw exception when meeting problem
+     */
+    public static void dropOutlineInternal(String outlineName, boolean ifExists, boolean isReplay)
+        throws DdlException {
+        writeLock();
+        try {
+            if (!ifExists && !OutlineMgr.getOutline(outlineName).isPresent()) {
+                LOG.info("outline not exists, ignored to drop outline: {}, is replay: {}",
+                        outlineName, isReplay);
+                throw new DdlException("outline already exists, is replay: " + isReplay);
+            }
+
+            OutlineInfo outlineInfo = outlineMap.get(outlineName);
+            dropOutline(outlineName);
+            if (!isReplay) {
+                Env.getCurrentEnv().getEditLog().logDropOutline(outlineInfo);
+            }
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("finished to create outline: {}, is replay: {}", outlineName, isReplay);
+    }
+
+    private static void dropOutline(String outlineName) {
+        outlineMap.remove(outlineName);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(outlineMap.size());

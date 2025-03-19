@@ -542,6 +542,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_OUTLINE: {
+                    OutlineInfo outlineInfo = (OutlineInfo) journal.getData();
+                    env.getOutlineMgr().dropOutlineInternal(outlineInfo.getOutlineName(), true, true);
                     break;
                 }
                 case OperationType.OP_UPDATE_USER_PROPERTY: {
@@ -1634,6 +1636,10 @@ public class EditLog {
 
     public void logCreateOutline(OutlineInfo info) {
         logEdit(OperationType.OP_CREATE_OUTLINE, info);
+    }
+
+    public void logDropOutline(OutlineInfo info) {
+        logEdit(OperationType.OP_DROP_OUTLINE, info);
     }
 
     public void logDropRole(PrivInfo info) {

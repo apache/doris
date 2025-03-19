@@ -587,6 +587,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -1875,6 +1876,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         OutlineInfo info = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
                 "sqlText", "outlineTarget", "outlineData");
         return new CreateOutlineCommand(info, isReplace);
+    }
+
+    @Override
+    public Command visitDropOutline(DorisParser.DropOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isExists = ctx.EXISTS() != null;
+        return new DropOutlineCommand(isExists, outlineName);
     }
 
     @Override
