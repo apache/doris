@@ -3159,6 +3159,13 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             TPlanFragment fragmentThrift = fragment.toThrift();
             fragmentThrift.query_cache_param = fragment.queryCacheParam;
+
+            List<TTopnFilterDesc> filterDescs = new ArrayList<>();
+            if (!topnFilters.isEmpty()) {
+                for (TopnFilter filter : topnFilters) {
+                    filterDescs.add(filter.toThrift());
+                }
+            }
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
@@ -3219,12 +3226,8 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilters.isEmpty() && params.getLocalParams().isEmpty()) {
+                if (!filterDescs.isEmpty() && params.getLocalParams().isEmpty()) {
                     // only set topn filter for the first instance.
-                    List<TTopnFilterDesc> filterDescs = new ArrayList<>();
-                    for (TopnFilter filter : topnFilters) {
-                        filterDescs.add(filter.toThrift());
-                    }
                     localParams.setTopnFilterDescs(filterDescs);
                 }
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
