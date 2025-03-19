@@ -1086,7 +1086,7 @@ public class HiveMetaStoreCache {
     private boolean getEnableHiveMetastoreCache() {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
-            return false;
+            return true;
         }
         return connectContext.getSessionVariable().getEnableHiveMetastoreCache();
     }
