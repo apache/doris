@@ -20,9 +20,12 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/unistr.h>
+#include <unicode/ustream.h>
 
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 #include "common/cast_set.h"
@@ -448,19 +451,60 @@ struct TransferImpl {
             return Status::OK();
         }
 
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
         res_offsets.resize(offset_size);
-        memcpy_small_allow_read_write_overflow15(
-                res_offsets.data(), offsets.data(),
-                offset_size * sizeof(ColumnString::Offsets::value_type));
+        if (is_ascii) {
+            memcpy_small_allow_read_write_overflow15(
+                    res_offsets.data(), offsets.data(),
+                    offset_size * sizeof(ColumnString::Offsets::value_type));
 
-        size_t data_length = data.size();
-        res_data.resize(data_length);
-        if constexpr (std::is_same_v<OpName, NameToUpper>) {
-            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
-        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            size_t data_length = data.size();
+            res_data.resize(data_length);
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            }
+        } else {
+            execute_utf8(data, offsets, res_data, res_offsets);
         }
+
         return Status::OK();
+    }
+
+    static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+            std::string res;
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                res = to_upper_utf8(begin, size);
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                res = to_lower_utf8(begin, size);
+            }
+            StringOP::push_value_string(res, i, res_data, res_offsets);
+        }
+    }
+
+    static std::string to_upper_utf8(const char* data, uint32_t size) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toUpper();
+        std::string output;
+        unicode_str.toUTF8String(output);
+        return output;
+    }
+
+    static std::string to_lower_utf8(const char* data, uint32_t size) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        std::string output;
+        unicode_str.toUTF8String(output);
+        return output;
     }
 };
 
