@@ -417,6 +417,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -561,6 +562,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -1864,7 +1866,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabelInfo, tableName,
                 loadPropertyMap, properties, type, customProperties, mergeType, comment);
         return new CreateRoutineLoadCommand(createRoutineLoadInfo);
+    }
 
+    @Override
+    public Command visitCreateOutline(DorisParser.CreateOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isReplace = ctx.REPLACE() != null;
+        OutlineInfo info = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
+                "sqlText", "outlineTarget", "outlineData");
+        return new CreateOutlineCommand(info, isReplace);
     }
 
     @Override

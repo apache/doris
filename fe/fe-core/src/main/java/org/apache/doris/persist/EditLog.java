@@ -81,6 +81,7 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -533,6 +534,14 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayDropRole(privInfo);
+                    break;
+                }
+                case OperationType.OP_CREATE_OUTLINE: {
+                    OutlineInfo outlineInfo = (OutlineInfo) journal.getData();
+                    env.getOutlineMgr().createOutlineInternal(outlineInfo, true, true);
+                    break;
+                }
+                case OperationType.OP_DROP_OUTLINE: {
                     break;
                 }
                 case OperationType.OP_UPDATE_USER_PROPERTY: {
@@ -1621,6 +1630,10 @@ public class EditLog {
 
     public void logAlterRole(PrivInfo info) {
         logEdit(OperationType.OP_ALTER_ROLE, info);
+    }
+
+    public void logCreateOutline(OutlineInfo info) {
+        logEdit(OperationType.OP_CREATE_OUTLINE, info);
     }
 
     public void logDropRole(PrivInfo info) {
