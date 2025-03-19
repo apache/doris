@@ -407,6 +407,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("test txn conflict");
         }
     });
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.fail.before.commit_job", {
+        LOG_INFO("inject retryable error before commit sc job, tablet={}",
+                 _new_tablet->tablet_id());
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("injected retryable error");
+    });
     auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
