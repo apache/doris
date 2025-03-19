@@ -399,14 +399,13 @@ public:
         return res;
     }
 
-    ~ThreadPool() {
+    void stop_and_wait() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             stop = true;
         }
         condition.notify_all();
 
-        // Safely wait for all threads to complete
         for (auto& worker : workers) {
             try {
                 if (worker.joinable()) {
@@ -414,6 +413,16 @@ public:
                 }
             } catch (const std::system_error& e) {
                 LOG(WARNING) << "Failed to join thread: " << e.what();
+            }
+        }
+    }
+
+    ~ThreadPool() {
+        if (!stop) {
+            try {
+                stop_and_wait();
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Error stopping thread pool: " << e.what();
             }
         }
     }
@@ -890,7 +899,7 @@ public:
 
     void stop() {
         LOG(INFO) << "Stopping JobManager and waiting for all jobs to complete";
-        _job_executor_pool.~ThreadPool();
+        _job_executor_pool.stop_and_wait();
         LOG(INFO) << "JobManager stopped";
     }
 
