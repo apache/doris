@@ -136,6 +136,8 @@ public class ExternalMetaCacheMgr {
             boolean needRegisterMetric) {
         String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";
         String realPoolName = executorNamePrefix + poolName;
+        // Business threads require a fixed size thread pool and use queues to store unprocessed tasks.
+        // Checkpoint threads have almost no business and need to be released in a timely manner to avoid thread leakage
         if (isCheckpointCatalog) {
             return ThreadPoolManager.newDaemonCacheThreadPool(numThread, realPoolName, needRegisterMetric);
         } else {
