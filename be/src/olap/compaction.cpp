@@ -1088,6 +1088,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.compaction_type = compaction_type();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
