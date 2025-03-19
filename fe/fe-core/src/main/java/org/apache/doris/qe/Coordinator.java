@@ -3219,7 +3219,8 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (!topnFilters.isEmpty()) {
+                if (!topnFilters.isEmpty() && params.getLocalParams().isEmpty()) {
+                    // only set topn filter for the first instance.
                     List<TTopnFilterDesc> filterDescs = new ArrayList<>();
                     for (TopnFilter filter : topnFilters) {
                         filterDescs.add(filter.toThrift());
