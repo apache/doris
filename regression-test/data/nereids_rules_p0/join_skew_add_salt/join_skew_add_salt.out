@@ -419,7 +419,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(alias2 t1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !shape_leading_inner_subquery_switch --
@@ -439,6 +439,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 alias2 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
