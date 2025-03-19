@@ -28,6 +28,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -183,7 +186,8 @@ public abstract class ColumnType {
         }
         if (srcTypeLen > dstTypeLen) {
             throw new DdlException(
-                String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(), dst.toSql()));
+                    String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(),
+                            dst.toSql()));
         }
     }
 
@@ -201,6 +205,24 @@ public abstract class ColumnType {
         }
     }
 
+    private static void validateStructFieldCompatibility(StructField originalField, StructField newField)
+            throws DdlException {
+        // check field name
+        if (!originalField.getName().equals(newField.getName())) {
+            throw new DdlException(
+                    "Cannot rename struct field from '" + originalField.getName() + "' to '" + newField.getName()
+                            + "'");
+        }
+
+        Type originalType = originalField.getType();
+        Type newType = newField.getType();
+
+        // deal with type change
+        if (!originalType.equals(newType)) {
+            checkSupportSchemaChangeForComplexType(originalType, newType, true);
+        }
+    }
+
     // This method defines the complex type which is struct, array, map if nested char-type
     // to support the schema-change behavior of length growth.
     public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
@@ -208,12 +230,33 @@ public abstract class ColumnType {
         if (checkType.isStructType() && other.isStructType()) {
             StructType thisStructType = (StructType) checkType;
             StructType otherStructType = (StructType) other;
-            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
-                throw new DdlException("Cannot change struct type with different field size");
+
+            // now we only support add new field for struct type
+            if (thisStructType.getFields().size() > otherStructType.getFields().size()) {
+                throw new DdlException("Cannot reduce struct fields from " + checkType.toSql() + " to "
+                        + other.toSql());
             }
-            for (int i = 0; i < thisStructType.getFields().size(); i++) {
-                checkSupportSchemaChangeForComplexType(thisStructType.getFields().get(i).getType(),
-                        otherStructType.getFields().get(i).getType(), true);
+
+            Set<String> existingNames = new HashSet<>();
+            List<StructField> originalFields = thisStructType.getFields();
+            List<StructField> newFields = otherStructType.getFields();
+
+            // check each original field compatibility
+            for (int i = 0; i < originalFields.size(); i++) {
+                StructField originalField = originalFields.get(i);
+                StructField newField = newFields.get(i);
+
+                validateStructFieldCompatibility(originalField, newField);
+                existingNames.add(originalField.getName());
+            }
+
+            // check new field name is not conflict with old field name
+            for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
+                // to check new field name is not conflict with old field name
+                String newFieldName = otherStructType.getFields().get(i).getName();
+                if (existingNames.contains(newFieldName)) {
+                    throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
+                }
             }
         } else if (checkType.isArrayType()) {
             if (!other.isArrayType()) {

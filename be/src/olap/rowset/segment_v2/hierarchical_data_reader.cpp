@@ -56,7 +56,7 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     // like {"a" : "b" : {"e" : 1.1}} in jsonb format
     if (read_type == ReadType::MERGE_SPARSE) {
         ColumnIterator* it;
-        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it, nullptr));
         stream_iter->set_root(std::make_unique<SubstreamIterator>(
                 root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
                 root->data.file_column_type));
@@ -132,7 +132,7 @@ Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* no
     }
     CHECK(node);
     ColumnIterator* it;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(node->data.reader->new_iterator(&it, nullptr));
     std::unique_ptr<ColumnIterator> it_ptr;
     it_ptr.reset(it);
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
