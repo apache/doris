@@ -66,6 +66,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -393,7 +394,9 @@ public class NereidsStreamLoadPlanner {
 
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
+        ConnectContext ctx = ConnectContext.get();
         try {
+            ctx.getSessionVariable().setDebugSkipFoldConstant(true);
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                     ImmutableList.of(Rewriter.bottomUp(new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
@@ -402,6 +405,8 @@ public class NereidsStreamLoadPlanner {
                     .execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());
+        } finally {
+            ctx.getSessionVariable().setDebugSkipFoldConstant(false);
         }
 
         Plan boundPlan = cascadesContext.getRewritePlan();
