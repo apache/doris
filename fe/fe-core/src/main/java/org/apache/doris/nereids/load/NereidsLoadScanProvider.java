@@ -245,12 +245,9 @@ public class NereidsLoadScanProvider {
 
         HashMap<String, Type> colToType = new HashMap<>();
         // check default value and auto-increment column
-        for (Column column : tbl.getFullSchema()) {
+        for (Column column : tbl.getBaseSchema()) {
             if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
                     && !partialUpdateInputColumns.contains(column.getName())) {
-                continue;
-            }
-            if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
                 continue;
             }
             String columnName = column.getName();
