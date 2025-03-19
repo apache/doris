@@ -22,7 +22,7 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
             String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String catalog_name = "test_iceberg_rest_catalog"
+            String catalog_name = "test_iceberg_statistics"
             String db_name = "format_v2"
 
             sql """drop catalog if exists ${catalog_name}"""
