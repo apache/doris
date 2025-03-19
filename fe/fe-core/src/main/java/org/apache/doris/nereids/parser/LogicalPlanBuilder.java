@@ -6216,6 +6216,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    @Override
     public LogicalPlan visitDropStats(DorisParser.DropStatsContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
 
