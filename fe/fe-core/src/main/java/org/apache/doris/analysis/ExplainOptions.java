@@ -54,7 +54,7 @@ public class ExplainOptions {
     }
 
     public boolean isConversion() {
-        return explainLevel == ExplainLevel.CONVERSION;
+        return explainLevel == ExplainLevel.CONVERT;
     }
 
     public boolean hasExplainLevel() {

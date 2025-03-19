@@ -3769,7 +3769,7 @@ public class StmtExecutor {
      */
     public void handleShowConvertedStmt() throws IOException {
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Converted Statement", ScalarType.createVarchar(20)))
+                .addColumn(new Column("ConvertedStatement", ScalarType.STRING))
                 .build();
         if (context.getConnectType() == ConnectType.MYSQL) {
             sendMetaData(metaData);
