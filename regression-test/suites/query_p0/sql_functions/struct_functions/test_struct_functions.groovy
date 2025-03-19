@@ -54,5 +54,5 @@ suite("test_struct_functions") {
     sql """ insert into t01 values (123.321, named_struct('col', 1, 'col1', 345.24));"""
     qt_sql_before """ select named_struct("col_11", a, "col_12", d) from t01; """
     sql """ insert into t01 values (123.331, named_struct('col', 1, 'col1', 12345.24));"""
-    qt_sql_after """ select named_struct("col_11", a, "col_12", d) from t01; """
+    qt_sql_after """ select named_struct("col_11", a, "col_12", d) from t01 order by a; """
 }
