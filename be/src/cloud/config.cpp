@@ -31,7 +31,7 @@ DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
 DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
 DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
-DEFINE_mInt32(meta_service_rpc_retry_times, "200");
+DEFINE_mInt32(meta_service_rpc_retry_times, "20");
 DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
 DEFINE_mInt32(meta_service_rpc_timeout_retry_times, "1");
 
@@ -82,5 +82,7 @@ DEFINE_mBool(enable_cloud_tablet_report, "true");
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "5000");
+
+DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
 #include "common/compile_check_end.h"
 } // namespace doris::config

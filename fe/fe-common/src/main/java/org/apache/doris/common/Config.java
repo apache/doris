@@ -3090,7 +3090,7 @@ public class Config extends ConfigBase {
     public static int meta_service_connection_pool_size = 20;
 
     @ConfField(mutable = true)
-    public static int meta_service_rpc_retry_times = 200;
+    public static int meta_service_rpc_retry_times = 20;
 
     public static int metaServiceRpcRetryTimes() {
         if (isCloudMode() && enable_check_compatibility_mode) {
@@ -3360,6 +3360,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认200ms",
             "Connection timeout for FE connecting to meta service in cloud mode., default is 200ms."})
     public static int meta_service_brpc_connect_timeout_ms = 200;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE请求meta service超时的重试次数，默认1次",
+            "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
+    public static int meta_service_rpc_timeout_retry_times = 1;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

@@ -407,7 +407,9 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         ++retry_times;
         if (retry_times > config::meta_service_rpc_retry_times ||
             (retry_times > config::meta_service_rpc_timeout_retry_times &&
-             error_code == brpc::ERPCTIMEDOUT)) {
+             error_code == brpc::ERPCTIMEDOUT) ||
+            (retry_times > config::meta_service_conflict_error_retry_times &&
+             res->status().code() == MetaServiceCode::KV_TXN_CONFLICT)) {
             break;
         }
 

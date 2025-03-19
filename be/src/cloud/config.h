@@ -116,5 +116,7 @@ DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
 
+DECLARE_mInt32(meta_service_conflict_error_retry_times);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
