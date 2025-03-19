@@ -4627,12 +4627,12 @@ public:
                                                result.description());
             }
 
-            pugi::xml_node node = doc.child(xpath_str.to_string_view().data());
+            pugi::xpath_node node = doc.select_node(xpath_str.to_string_view().data());
             if (!node) {
                 col_res->insert_default();
                 continue;
             }
-            std::string_view text {node.text().as_string()};
+            std::string_view text {node.node().text().as_string()};
             col_res->insert_data(text.data(), text.size());
         }
         block.get_by_position(result).column = std::move(col_res);
