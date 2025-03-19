@@ -199,7 +199,9 @@ public class RelationMapping extends Mapping {
             boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results,
             int maxMappingCount) {
         if (results.size() >= maxMappingCount) {
-            LOG.warn("queryToViewTableMappings is over limit and be intercepted");
+            LOG.warn(String.format("queryToViewTableMappings is over limit and be intercepted, "
+                            + "results size is %s,\n MappedRelation left is %s,\n MappedRelation right is %s \n",
+                    results.size(), Arrays.toString(left), Arrays.toString(right)));
             return;
         }
         if (index == left.length) {
