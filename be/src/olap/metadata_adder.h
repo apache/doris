@@ -143,6 +143,8 @@ public:
         return g_segment_estimate_mem_bytes.get_value();
     }
 
+    friend class MetadataAdderTest;
+
 protected:
     MetadataAdder(const MetadataAdder& other);
 
