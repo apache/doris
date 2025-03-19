@@ -76,7 +76,7 @@ private:
                 parent ? std::min(parent->num_tasks(), num_instances) : num_instances,
                 parent ? parent->num_tasks() : num_instances);
         _pipelines.push_back(pip);
-        _pipeline_tasks.push_back(std::vector<std::unique_ptr<PipelineTask>> {});
+        _pipeline_tasks.push_back(std::vector<std::shared_ptr<PipelineTask>> {});
         _runtime_states.push_back(std::vector<std::unique_ptr<RuntimeState>> {});
         _pipeline_profiles.push_back(nullptr);
         if (parent) {
@@ -155,7 +155,7 @@ private:
 
     // Task Level
     // Fragment0[Pipeline0[Task0] -> Pipeline1[Task0]] -> Fragment1[Pipeline2[Task0] -> Pipeline3[Task0]]
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _pipeline_tasks;
+    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _pipeline_tasks;
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _runtime_states;
 
     // Instance level
@@ -274,7 +274,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
         std::map<int,
                  std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
                 le_state_map;
-        auto task = std::make_unique<PipelineTask>(
+        auto task = std::make_shared<PipelineTask>(
                 cur_pipe, task_id, local_runtime_state.get(), _context.back(),
                 _pipeline_profiles[cur_pipe->id()].get(), le_state_map, task_id);
         cur_pipe->incr_created_tasks(task_id, task.get());
@@ -961,7 +961,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                         std::shared_ptr<Dependency>>>
                         le_state_map;
-                auto task = std::make_unique<PipelineTask>(
+                auto task = std::make_shared<PipelineTask>(
                         _pipelines[i], task_id, local_runtime_state.get(), _context.back(),
                         _pipeline_profiles[_pipelines[i]->id()].get(), le_state_map, j);
                 _pipelines[i]->incr_created_tasks(j, task.get());
