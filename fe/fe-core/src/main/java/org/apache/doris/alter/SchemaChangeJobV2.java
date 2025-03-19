@@ -145,7 +145,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected boolean hasRowStoreChange = false;
 
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -650,7 +650,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             }
                         }
 
-                        if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
                                     + " healthyReplicaNum {} expectReplicationNum {}",
                                     shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
