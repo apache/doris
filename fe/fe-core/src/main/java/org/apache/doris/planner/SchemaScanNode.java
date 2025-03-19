@@ -184,7 +184,7 @@ public class SchemaScanNode extends ScanNode {
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(getRuntimeFilterExplainString());
         }
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));

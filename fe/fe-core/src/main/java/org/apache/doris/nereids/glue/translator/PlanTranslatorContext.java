@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -72,7 +73,6 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
-    private final RunTimeFilterTranslatorV2 rfTranslatorV2;
 
     private final TopnFilterContext topnFilterContext;
     /**
@@ -115,20 +115,21 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+    private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
-        this.rfTranslatorV2 = new RunTimeFilterTranslatorV2(ctx.getRuntimeFilterV2Context());
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.translator = null;
-        this.rfTranslatorV2 = null;
         this.topnFilterContext = new TopnFilterContext();
+        this.runtimeFilterV2Context = null;
     }
 
     /**
@@ -342,7 +343,7 @@ public class PlanTranslatorContext {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 
-    public RunTimeFilterTranslatorV2 getRunTimeFilterTranslatorV2() {
-        return rfTranslatorV2;
+    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
+        return runtimeFilterV2Context;
     }
 }

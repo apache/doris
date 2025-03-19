@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.post.runtimeFilterV2;
+package org.apache.doris.nereids.processor.post.runtimefilterv2;
 
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -39,6 +39,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * PushDownVisitor
+ */
 public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
     public static PushDownVisitor INSTANCE = new PushDownVisitor();
 
@@ -60,11 +63,13 @@ public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
         }
         Slot targetSlot = ctx.getTargetExpression().getInputSlots().iterator().next();
         if (relation.getOutputSet().contains(targetSlot)) {
-            for (TRuntimeFilterType type: ctx.getRFContext().getTypes()) {
+            for (TRuntimeFilterType type : ctx.getRFContext().getTypes()) {
                 RuntimeFilterV2 rfV2 = new RuntimeFilterV2(
                         ctx.getRFContext().nextId(),
                         ctx.getSourceNode(),
                         ctx.getSourceExpression(),
+                        ctx.getBuildNdvOrRowCount(),
+                        ctx.getExprOrder(),
                         relation,
                         ctx.getTargetExpression(),
                         type);

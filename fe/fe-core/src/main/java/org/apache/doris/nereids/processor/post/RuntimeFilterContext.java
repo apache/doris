@@ -128,6 +128,7 @@ public class RuntimeFilterContext {
 
     private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
     private final IdGenerator<RuntimeFilterId> runtimeFilterIdGen;
+
     /**
      * info about expand rf by inner join
      */

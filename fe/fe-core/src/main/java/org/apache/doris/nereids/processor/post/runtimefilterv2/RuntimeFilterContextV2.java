@@ -15,17 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.post.runtimeFilterV2;
+package org.apache.doris.nereids.processor.post.runtimefilterv2;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
-public class RuntimeFilterV2Context {
+/**
+ * RuntimeFilterContextV2
+ */
+public class RuntimeFilterContextV2 {
 
     private final List<RuntimeFilterV2> rfsV2 = new ArrayList<>();
 
@@ -33,11 +38,10 @@ public class RuntimeFilterV2Context {
 
     private final IdGenerator<RuntimeFilterId> idGenerator;
 
-    public void addRuntimeFilterV2(RuntimeFilterV2 rfv2) {
-        rfsV2.add(rfv2);
-    }
-
-    public RuntimeFilterV2Context(IdGenerator<RuntimeFilterId> runtimeFilterIdGen) {
+    /**
+     * constr
+     */
+    public RuntimeFilterContextV2(IdGenerator<RuntimeFilterId> runtimeFilterIdGen) {
         int typesInt = 2;
         if (ConnectContext.get() != null) {
             typesInt = ConnectContext.get().getSessionVariable().getRuntimeFilterType();
@@ -56,6 +60,16 @@ public class RuntimeFilterV2Context {
 
     public List<TRuntimeFilterType> getTypes() {
         return types;
+    }
+
+    public List<RuntimeFilterV2> getRuntimeFilterV2ByTargetPlan(AbstractPhysicalPlan targetPlan) {
+        return rfsV2.stream()
+                .filter(rf -> rf.getTargetNode().equals(targetPlan))
+                .collect(Collectors.toList());
+    }
+
+    public void addRuntimeFilterV2(RuntimeFilterV2 rfv2) {
+        rfsV2.add(rfv2);
     }
 
 }

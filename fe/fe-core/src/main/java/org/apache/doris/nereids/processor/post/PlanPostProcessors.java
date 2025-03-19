@@ -17,11 +17,9 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.processor.post.runtimeFilterV2.RuntimeFilterV2Generator;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2Generator;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 

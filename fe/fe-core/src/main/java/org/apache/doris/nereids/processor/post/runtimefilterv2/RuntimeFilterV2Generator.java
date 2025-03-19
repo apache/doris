@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.post.runtimeFilterV2;
+package org.apache.doris.nereids.processor.post.runtimefilterv2;
 
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
-import org.apache.doris.planner.RuntimeFilterId;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+/**
+ * RuntimeFilterV2Generator
+ */
 public class RuntimeFilterV2Generator extends PlanPostProcessor {
 
     public RuntimeFilterV2Generator() {
@@ -40,10 +42,21 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
         for (int slotIdx : chooseSourceSlots(intersect)) {
             for (int childId = 1; childId < intersect.children().size(); childId++) {
                 Plan child = intersect.children().get(childId);
+                Statistics stats = ((AbstractPlan) intersect.child(0)).getStats();
+                long buildNdvOrRowCount = -1;
+                if (stats != null) {
+                    buildNdvOrRowCount = (long) stats.getRowCount();
+                    ColumnStatistic colStats = stats.findColumnStatistics(
+                            intersect.child(0).getOutput().get(slotIdx));
+                    if (colStats != null && !colStats.isUnKnown) {
+                        buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
+                    }
+                }
                 PushDownContext pushDownContext = new PushDownContext(
                         context.getRuntimeFilterV2Context(),
                         intersect,
                         intersect.child(0).getOutput().get(slotIdx),
+                        buildNdvOrRowCount,
                         slotIdx,
                         intersect.child(childId).getOutput().get(slotIdx));
                 child.accept(PushDownVisitor.INSTANCE, pushDownContext);

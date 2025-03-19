@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.runtimeFilterV2.RuntimeFilterV2;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -41,8 +41,9 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
     protected final PhysicalProperties physicalProperties;
-    private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
     protected final List<RuntimeFilterV2> runtimeFiltersV2 = Lists.newArrayList();
+    private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
+
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
         this(type, Optional.empty(), logicalProperties, children);
     }
@@ -88,6 +89,10 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
     public void addRuntimeFilterV2(RuntimeFilterV2 filter) {
         runtimeFiltersV2.add(filter);
+    }
+
+    public List<RuntimeFilterV2> getRuntimeFiltersV2() {
+        return runtimeFiltersV2;
     }
 
     public void removeAppliedRuntimeFilter(org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter) {
