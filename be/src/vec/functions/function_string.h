@@ -4614,22 +4614,22 @@ public:
                                            : block.get_by_position(arguments[0]).column;
         default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
 
-        const auto* col_xpath = assert_cast<const ColumnString*>(argument_columns[0].get());
-        const auto* col_xml = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* col_xml = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* col_xpath = assert_cast<const ColumnString*>(argument_columns[1].get());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& xpath_str = col_xpath->get_data_at(i);
             const auto& xml_str = col_xml->get_data_at(i);
+            const auto& xpath_str = col_xpath->get_data_at(i);
             pugi::xml_document doc;
             pugi::xml_parse_result result = doc.load_string(xml_str.to_string_view().data());
             if (!result) {
-                col_res->insert_data(nullptr, 0);
-                continue;
+                return Status::InvalidArgument("Failed to parse XML string: {}",
+                                               result.description());
             }
 
             pugi::xml_node node = doc.child(xpath_str.to_string_view().data());
             if (!node) {
-                col_res->insert_data(nullptr, 0);
+                col_res->insert_default();
                 continue;
             }
             std::string_view text {node.text().as_string()};
