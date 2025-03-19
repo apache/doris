@@ -273,7 +273,6 @@ void PipelineTask::terminate() {
     // We use a lock to assure all dependencies are not deconstructed here.
     if (!is_finalized()) {
         DCHECK(_wake_up_early || _fragment_context->is_canceled());
-        _eos = true;
         std::unique_lock<std::mutex> lc(_dependency_lock);
         for (auto* dep : _spill_dependencies) {
             dep->set_always_ready();
