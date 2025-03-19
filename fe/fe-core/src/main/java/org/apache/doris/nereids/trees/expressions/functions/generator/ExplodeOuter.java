@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -60,16 +60,6 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        for (Expression child : children) {
-            if (!child.isNullLiteral() && !(child.getDataType() instanceof ArrayType)) {
-                throw new AnalysisException("only support array type for explode_outer function but got "
-                    + child.getDataType());
-            }
-        }
-    }
-
-    @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         return signature;
     }
@@ -79,15 +69,17 @@ public class ExplodeOuter extends TableGeneratingFunction implements CustomSigna
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < children.size(); i++) {
-            if (children.get(i).isNullLiteral()) {
+            if (children.get(i).getDataType().isNullType()) {
                 arguments.add(ArrayType.of(NullType.INSTANCE));
                 structFields.add(
                     new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));
-            } else {
+            } else if (children.get(i).getDataType().isArrayType()) {
                 structFields.add(
                     new StructField("col" + (i + 1),
                         ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
                 arguments.add(children.get(i).getDataType());
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }
         }
         return FunctionSignature.of(new StructType(structFields.build()), arguments);

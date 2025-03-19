@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
@@ -60,16 +60,6 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        for (Expression child : children) {
-            if (!(child.getDataType() instanceof VariantType)) {
-                throw new AnalysisException("only support variant type for explode_variant_array function but got "
-                        + child.getDataType());
-            }
-        }
-    }
-
-    @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         return signature;
     }
@@ -79,9 +69,13 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements
         List<DataType> arguments = new ArrayList<>();
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
         for (int i = 0; i < children.size(); i++) {
-            structFields.add(
-                new StructField("col" + (i + 1), VariantType.INSTANCE, true, ""));
-            arguments.add(VariantType.INSTANCE);
+            if (children.get(i).getDataType() instanceof VariantType) {
+                structFields.add(
+                    new StructField("col" + (i + 1), VariantType.INSTANCE, true, ""));
+                arguments.add(VariantType.INSTANCE);
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
         }
         return FunctionSignature.of(new StructType(structFields.build()), arguments);
     }

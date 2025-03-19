@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 
@@ -55,27 +53,4 @@ public class ExplodeVariantArrayTest {
         Assertions.assertEquals(VariantType.INSTANCE, returnType.getFields().get(1).getDataType());
     }
 
-    /////////////////////////////////////////
-    // checkLegalityBeforeTypeCoercion
-    /////////////////////////////////////////
-
-    @Test
-    public void testCheckLegalityBeforeTypeCoercionWithInvalidArgument() {
-        // build explode(int)
-        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
-        ExplodeVariantArray explode = new ExplodeVariantArray(args);
-
-        // type check
-        Assertions.assertThrows(AnalysisException.class, () -> explode.checkLegalityBeforeTypeCoercion());
-    }
-
-    @Test
-    public void testCheckLegalityBeforeTypeCoercionWithValidArgument() {
-        // build explode(variant, variant) expression
-        Expression[] args = { SlotReference.of("int", VariantType.INSTANCE), SlotReference.of("int", VariantType.INSTANCE) };
-        ExplodeVariantArray explode = new ExplodeVariantArray(args);
-
-        // type check
-        explode.checkLegalityBeforeTypeCoercion();
-    }
 }

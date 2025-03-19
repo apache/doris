@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.ArrayType;
@@ -55,29 +54,4 @@ public class ExplodeTest {
         Assertions.assertEquals(IntegerType.INSTANCE, returnType.getFields().get(1).getDataType());
     }
 
-
-    /////////////////////////////////////////
-    // checkLegalityBeforeTypeCoercion
-    /////////////////////////////////////////
-
-    @Test
-    public void testCheckLegalityBeforeTypeCoercionWithInvalidArgument() {
-        // build explode(int)
-        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
-        Explode explode = new Explode(args);
-
-        // type check
-        Assertions.assertThrows(AnalysisException.class, () -> explode.checkLegalityBeforeTypeCoercion());
-    }
-
-    @Test
-    public void testCheckLegalityBeforeTypeCoercionWithValidArgument() {
-        // build explode(array<int>, array<int>)
-        Expression[] args = { SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)),
-            SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
-        Explode explode = new Explode(args);
-
-        // type check
-        explode.checkLegalityBeforeTypeCoercion();
-    }
 }
