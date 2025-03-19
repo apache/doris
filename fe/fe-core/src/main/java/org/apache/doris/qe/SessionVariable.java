@@ -662,6 +662,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
+    public static final String SHOW_CONVERTED_STMT = "show_converted_stmt";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -2466,6 +2468,12 @@ public class SessionVariable implements Serializable, Writable {
             "Skip checking transactional hive version file '_orc_acid_version.'"
     })
     public boolean skipCheckingAcidVersionFile = false;
+
+    @VariableMgr.VarAttr(name = SHOW_CONVERTED_STMT, description = {
+            "是否仅返回转换后的 SQL，用于检测 SQL Convertor 的转换结果",
+            "Whether to only return the converted SQL. Used to check the result of SQL Convertor"
+    })
+    public boolean showConvertedStmt = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
