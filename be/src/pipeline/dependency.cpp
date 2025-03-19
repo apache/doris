@@ -68,32 +68,42 @@ void Dependency::set_ready() {
         local_block_task.swap(_blocked_task);
     }
     for (auto* task : local_block_task) {
-        task->wake_up();
+        {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            DCHECK_EQ(task->_blocked_dep, this)
+                    << "dep : " << debug_string(0) << "task: " << debug_string();
+            task->_blocked_dep = nullptr;
+            THROW_IF_ERROR(task->_state_transition(PipelineTask::State::RUNNABLE));
+        }
+        task->wake_up(this);
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineTask* task) {
+bool Dependency::is_blocked_by(PipelineTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
+        DCHECK_EQ(task->_blocked_dep, nullptr) << "task: " << task->debug_string();
+        task->_blocked_dep = this;
+        start_watcher();
+        THROW_IF_ERROR(task->_state_transition(PipelineTask::State::BLOCKED));
     }
-    return ready ? nullptr : this;
+    return !ready;
 }
 
-Dependency* QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
+bool QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
     if (task && task->wake_up_early()) {
-        return nullptr;
+        return false;
     }
     return Dependency::is_blocked_by(task);
 }
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
-                   _blocked_task.size(), _ready, _always_ready);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -159,7 +169,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by(nullptr)) {
+                    if (it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
