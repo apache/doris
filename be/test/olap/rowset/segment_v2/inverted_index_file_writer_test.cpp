@@ -145,6 +145,61 @@ TEST_F(InvertedIndexFileWriterTest, OpenTest) {
     ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
 }
 
+TEST_F(InvertedIndexFileWriterTest, OpenWithoutRamDirTest) {
+    // This test verifies that when _can_use_ram_dir is set to false,
+    // the directory created by InvertedIndexFileWriter::open is not a RAM directory
+    config::inverted_index_ram_dir_enable_when_compaction = true;
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2, nullptr, false);
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_no_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = false
+    auto open_result = writer.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+
+    // Verify the directory is a regular DorisFSDirectory and not a DorisRAMFSDirectory
+    // This confirms that _can_use_ram_dir = false works as expected
+    ASSERT_STREQ(dir->getObjectName(), "DorisFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisRAMFSDirectory");
+
+    // Also check that the directory is properly inserted into the _indices_dirs map
+    auto key = std::make_pair(index_id, index_suffix);
+    ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
+    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
+}
+
+TEST_F(InvertedIndexFileWriterTest, OpenWithRamDirTest) {
+    // This test verifies the behavior when _can_use_ram_dir is set to true
+    // Note: In a test environment, whether a RAM directory is actually used depends on
+    // various factors like available memory, file size, etc.
+    config::inverted_index_ram_dir_enable_when_compaction = true;
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2, nullptr, true);
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_with_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = true
+    auto open_result = writer.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+    // Verify the directory is a regular DorisFSDirectory and not a DorisRAMFSDirectory
+    ASSERT_STREQ(dir->getObjectName(), "DorisRAMFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisFSDirectory");
+    auto key = std::make_pair(index_id, index_suffix);
+    ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
+    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
+}
+
 TEST_F(InvertedIndexFileWriterTest, DeleteIndexTest) {
     InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                                    InvertedIndexStorageFormatPB::V2);
