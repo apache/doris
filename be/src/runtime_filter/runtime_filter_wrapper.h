@@ -24,6 +24,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class BloomFilterFuncBase;
 namespace vectorized {
 class VRuntimeFilterWrapper;
@@ -139,5 +140,5 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
     std::string _reason;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

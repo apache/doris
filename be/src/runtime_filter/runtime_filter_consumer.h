@@ -25,6 +25,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // Work on ScanNode or MultiCastDataStreamSource, RuntimeFilterConsumerHelper will manage all RuntimeFilterConsumer
 // Used to create VRuntimeFilterWrapper to filter data
 class RuntimeFilterConsumer : public RuntimeFilter {
@@ -136,5 +137,5 @@ private:
 
     friend class RuntimeFilterProducer;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -21,7 +21,7 @@
 #include "runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
         : RuntimeFilterWrapper(params->column_return_type, params->filter_type, params->filter_id,
                                State::UNINITED, params->max_in_num) {

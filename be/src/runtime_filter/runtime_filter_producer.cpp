@@ -26,7 +26,7 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
                                                       RuntimeFilter* merger_filter) {
     TNetworkAddress addr;

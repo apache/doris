@@ -21,7 +21,7 @@
 #include "runtime_filter/runtime_filter_consumer.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const int32_t _node_id, const std::vector<TRuntimeFilterDesc>& runtime_filters,
         const RowDescriptor& row_descriptor)
@@ -45,8 +45,8 @@ Status RuntimeFilterConsumerHelper::init(
 }
 
 Status RuntimeFilterConsumerHelper::_register_runtime_filter(bool need_local_merge) {
-    int filter_size = _runtime_filter_descs.size();
-    for (int i = 0; i < filter_size; ++i) {
+    size_t filter_size = _runtime_filter_descs.size();
+    for (size_t i = 0; i < filter_size; ++i) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(
                 _runtime_filter_descs[i], need_local_merge, _node_id, &filter, _profile.get()));
@@ -117,7 +117,7 @@ Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
 Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
         int* arrived_rf_num, vectorized::VExprContextSPtrs& conjuncts) {
     if (_is_all_rf_applied) {
-        *arrived_rf_num = _runtime_filter_descs.size();
+        *arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
     }
 
@@ -125,7 +125,7 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     // So need to add lock
     std::unique_lock l(_rf_locks);
     if (_is_all_rf_applied) {
-        *arrived_rf_num = _runtime_filter_descs.size();
+        *arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
     }
 

@@ -26,6 +26,7 @@
 #include "runtime_filter/utils.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeFilterWrapper;
 class RuntimeProfile;
 
@@ -128,5 +129,5 @@ protected:
     friend class RuntimeFilterConsumer;
     friend class RuntimeFilterMerger;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

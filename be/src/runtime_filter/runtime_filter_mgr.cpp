@@ -45,7 +45,7 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state,
                                    const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker,
                                    const bool is_global)
@@ -118,7 +118,7 @@ Status LocalMergeContext::register_producer(RuntimeFilterParamsContext* state,
         RETURN_IF_ERROR(RuntimeFilterMerger::create(state, desc, &merger, parent_profile));
     }
     producers.emplace_back(producer);
-    merger->set_expected_producer_num(producers.size());
+    merger->set_expected_producer_num(cast_set<int>(producers.size()));
     return Status::OK();
 }
 

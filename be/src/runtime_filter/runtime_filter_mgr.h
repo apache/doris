@@ -42,6 +42,7 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class RuntimeFilterMerger;
@@ -172,5 +173,5 @@ private:
     std::map<int, GlobalMergeContext> _filter_map;
     RuntimeFilterParamsContext* _state = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

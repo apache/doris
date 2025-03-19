@@ -23,6 +23,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // The merger is divided into local merger and global merger
 // Which are used to merge backend level rf and global rf respectively.
 // The local merger will also be used to handle local shuffle situations
@@ -122,5 +123,5 @@ private:
 
     friend class RuntimeFilterProducer;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

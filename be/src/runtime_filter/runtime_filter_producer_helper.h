@@ -28,6 +28,7 @@
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // this class used in hash join node
 /**
  * init -> (skip_runtime_filters ->) send_filter_size -> process
@@ -83,5 +84,5 @@ protected:
 
     std::vector<std::shared_ptr<vectorized::VExprContext>> _filter_expr_contexts;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

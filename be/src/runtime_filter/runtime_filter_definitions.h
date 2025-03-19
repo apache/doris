@@ -23,7 +23,7 @@
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 enum class RuntimeFilterType {
     UNKNOWN_FILTER,
     IN_FILTER,
@@ -96,5 +96,5 @@ private:
     QueryContext* _query_ctx;
     RuntimeState* _state;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

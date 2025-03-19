@@ -24,7 +24,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 Status RuntimeFilterConsumer::_apply_ready_expr(
         std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
     _check_state({State::READY});

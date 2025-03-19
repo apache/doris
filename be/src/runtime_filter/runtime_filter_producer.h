@@ -25,7 +25,7 @@
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Work on (hash/corss) join build sink node, RuntimeFilterProducerHelper will manage all RuntimeFilterProducer
 // Used to generate specific predicate and publish it to consumer/merger
 /**
@@ -169,5 +169,5 @@ private:
     std::unique_ptr<RuntimeProfile> _profile;
     std::mutex _mtx;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

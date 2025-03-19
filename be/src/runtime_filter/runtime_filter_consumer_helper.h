@@ -21,7 +21,7 @@
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // this class used in ScanNode or MultiCastDataStreamSource
 /**
  * init -> acquire_runtime_filter -> try_append_late_arrival_runtime_filter
@@ -73,5 +73,5 @@ private:
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     std::unique_ptr<RuntimeProfile> _profile;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
