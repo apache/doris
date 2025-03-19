@@ -91,7 +91,7 @@ private:
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
-    bool _need_to_setup_internal_operators {true};
+    std::atomic<bool> _need_to_setup_internal_operators {true};
 
     std::shared_ptr<Dependency> _spill_dependency;
 
