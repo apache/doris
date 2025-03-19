@@ -107,7 +107,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] virtual bool is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read() {
@@ -809,7 +809,7 @@ class QueryGlobalDependency final : public Dependency {
     ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
     QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
     ~QueryGlobalDependency() override = default;
-    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
+    bool is_blocked_by(PipelineTask* task) override;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
