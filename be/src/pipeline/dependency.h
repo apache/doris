@@ -107,7 +107,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] virtual Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read() {
@@ -145,7 +145,7 @@ public:
     }
 
 protected:
-    void _add_block_task(PipelineTask* task);
+    void _add_block_task(std::shared_ptr<PipelineTask> task);
 
     const int _id;
     const int _node_id;
@@ -156,7 +156,7 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::mutex _task_lock;
-    std::vector<PipelineTask*> _blocked_task;
+    std::vector<std::shared_ptr<PipelineTask>> _blocked_task;
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;
@@ -809,7 +809,7 @@ class QueryGlobalDependency final : public Dependency {
     ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
     QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
     ~QueryGlobalDependency() override = default;
-    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
+    Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr) override;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

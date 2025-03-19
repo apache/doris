@@ -55,7 +55,7 @@ namespace doris::pipeline {
 
 PipelineTask::PipelineTask(
         PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-        PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+        std::shared_ptr<PipelineFragmentContext> fragment_context, RuntimeProfile* parent_profile,
         std::map<int,
                  std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
                 le_state_map,
@@ -232,14 +232,14 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    _blocked_dep = _execution_dep->is_blocked_by(this);
+    _blocked_dep = _execution_dep->is_blocked_by(shared_from_this());
     if (_blocked_dep != nullptr) {
         _blocked_dep->start_watcher();
         return true;
     }
 
     for (auto* op_dep : _filter_dependencies) {
-        _blocked_dep = op_dep->is_blocked_by(this);
+        _blocked_dep = op_dep->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
@@ -256,7 +256,7 @@ bool PipelineTask::_is_pending_finish() {
         }
     });
     for (auto* fin_dep : _finish_dependencies) {
-        _blocked_dep = fin_dep->is_blocked_by(this);
+        _blocked_dep = fin_dep->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
@@ -274,14 +274,14 @@ bool PipelineTask::_is_blocked() {
     });
 
     for (auto* spill_dependency : _spill_dependencies) {
-        _blocked_dep = spill_dependency->is_blocked_by(this);
+        _blocked_dep = spill_dependency->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
         }
     }
 
-    _blocked_dep = _memory_sufficient_dependency->is_blocked_by(this);
+    _blocked_dep = _memory_sufficient_dependency->is_blocked_by(shared_from_this());
     if (_blocked_dep != nullptr) {
         _blocked_dep->start_watcher();
         return true;
@@ -292,7 +292,7 @@ bool PipelineTask::_is_blocked() {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
-                _blocked_dep = dep->is_blocked_by(this);
+                _blocked_dep = dep->is_blocked_by(shared_from_this());
                 if (_blocked_dep != nullptr) {
                     _blocked_dep->start_watcher();
                     return true;
@@ -305,7 +305,7 @@ bool PipelineTask::_is_blocked() {
         }
     }
     for (auto* op_dep : _write_dependencies) {
-        _blocked_dep = op_dep->is_blocked_by(this);
+        _blocked_dep = op_dep->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
@@ -318,7 +318,7 @@ void PipelineTask::terminate() {
     // We use a lock to assure all dependencies are not deconstructed here.
     std::unique_lock<std::mutex> lc(_dependency_lock);
     if (!_finalized) {
-        DCHECK(_wake_up_early || _fragment_context->is_canceled());
+        DCHECK(_wake_up_early || _fragment_context.lock()->is_canceled());
         _eos = true;
         for (auto* dep : _spill_dependencies) {
             dep->set_always_ready();
@@ -363,7 +363,7 @@ Status PipelineTask::execute(bool* done) {
             _state_change_watcher.reset();
             _state_change_watcher.start();
         }
-        if (_eos && (_fragment_context->is_canceled() || !_is_pending_finish())) {
+        if (_eos && (_fragment_context.lock()->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
     }};
@@ -399,7 +399,7 @@ Status PipelineTask::execute(bool* done) {
     }
 
     // The status must be runnable
-    if (!_opened && !_fragment_context->is_canceled()) {
+    if (!_opened && !_fragment_context.lock()->is_canceled()) {
         DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
             auto required_pipeline_id =
                     DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -430,7 +430,7 @@ Status PipelineTask::execute(bool* done) {
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
 
-    while (!_fragment_context->is_canceled()) {
+    while (!_fragment_context.lock()->is_canceled()) {
         if (_is_blocked()) {
             return Status::OK();
         }
@@ -438,7 +438,7 @@ Status PipelineTask::execute(bool* done) {
         /// When a task is cancelled,
         /// its blocking state will be cleared and it will transition to a ready state (though it is not truly ready).
         /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
-        if (_fragment_context->is_canceled()) {
+        if (_fragment_context.lock()->is_canceled()) {
             break;
         }
 
@@ -626,7 +626,7 @@ Status PipelineTask::execute(bool* done) {
         }
     }
 
-    RETURN_IF_ERROR(get_task_queue()->push_back(this));
+    RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
     return Status::OK();
 }
 
@@ -678,7 +678,7 @@ std::string PipelineTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     auto* cur_blocked_dep = _blocked_dep;
-    auto elapsed = _fragment_context->elapsed_time() / NANOS_PER_SEC;
+    auto elapsed = _fragment_context.lock()->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
                    "{}, elapse time = {}s, _wake_up_early = {}], time elapsed since last state "
@@ -764,10 +764,10 @@ void PipelineTask::wake_up() {
     // blocking change to runnable
     _state_change_watcher.reset();
     _state_change_watcher.start();
-    static_cast<void>(get_task_queue()->push_back(this));
+    static_cast<void>(get_task_queue()->push_back(shared_from_this()));
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_ctx();
+    return _fragment_context.lock()->get_query_ctx();
 }
 } // namespace doris::pipeline
