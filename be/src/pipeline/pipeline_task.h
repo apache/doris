@@ -44,10 +44,11 @@ class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
-class PipelineTask {
+class PipelineTask : public std::enable_shared_from_this<PipelineTask> {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                 std::shared_ptr<PipelineFragmentContext> fragment_context,
+                 RuntimeProfile* parent_profile,
                  std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                          std::shared_ptr<Dependency>>>
                          le_state_map,
@@ -62,7 +63,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status, bool close_sink = true);
 
-    PipelineFragmentContext* fragment_context() { return _fragment_context; }
+    std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
 
@@ -151,7 +152,7 @@ public:
     bool is_running() { return _running.load(); }
     bool is_revoking() {
         for (auto* dep : _spill_dependencies) {
-            if (dep->is_blocked_by(nullptr) != nullptr) {
+            if (dep->is_blocked_by() != nullptr) {
                 return true;
             }
         }
@@ -234,7 +235,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
-    PipelineFragmentContext* _fragment_context = nullptr;
+    std::weak_ptr<PipelineFragmentContext> _fragment_context;
     MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
@@ -316,5 +317,7 @@ private:
     State _exec_state = State::NORMAL;
     MonotonicStopWatch _state_change_watcher;
 };
+
+using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
 
 } // namespace doris::pipeline
