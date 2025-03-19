@@ -124,9 +124,7 @@ public:
 
     void update_statistics(PipelineTask* task, int64_t time_spent);
 
-    int cores() const {
-        return _core_size;
-    }
+    int cores() const { return _core_size; }
 
 private:
     PipelineTaskSPtr _steal_take(int core_id);
