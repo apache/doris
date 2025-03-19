@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 #include "arrow/array/array_base.h"
 #include "arrow/type.h"
@@ -326,10 +327,18 @@ public:
     }
 
     // assert arrow serialize
-    static void assert_arrow_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
-                                    DataTypes types) {
+    static void assert_arrow_format(MutableColumns& load_cols, DataTypes types) {
         // make a block to write to arrow
         auto block = std::make_shared<Block>();
+        build_block(block, load_cols, types);
+        auto record_batch = serialize_arrow(block);
+        auto assert_block = std::make_shared<Block>(block->clone_empty());
+        deserialize_arrow(assert_block, record_batch);
+        compare_two_blocks(block, assert_block);
+    }
+
+    static void build_block(const std::shared_ptr<Block>& block, MutableColumns& load_cols,
+                            DataTypes types) {
         // maybe these load_cols has different size, so we keep it same
         size_t max_row_size = load_cols[0]->size();
         for (size_t i = 1; i < load_cols.size(); ++i) {
@@ -338,11 +347,11 @@ public:
             }
         }
         // keep same rows
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            if (load_cols[i]->size() < max_row_size) {
-                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
-            } else if (load_cols[i]->size() > max_row_size) {
-                load_cols[i]->resize(max_row_size);
+        for (auto& load_col : load_cols) {
+            if (load_col->size() < max_row_size) {
+                load_col->insert_many_defaults(max_row_size - load_col->size());
+            } else if (load_col->size() > max_row_size) {
+                load_col->resize(max_row_size);
             }
         }
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -350,7 +359,19 @@ public:
             block->insert(ColumnWithTypeAndName(std::move(col), types[i], types[i]->get_name()));
         }
         // print block
-        std::cout << "block: " << block->dump_structure() << std::endl;
+        std::cout << "build block structure: " << block->dump_structure() << std::endl;
+        std::cout << "build block data: "
+                  << block->dump_data(0, std::min(max_row_size, static_cast<size_t>(5)))
+                  << std::endl;
+        for (int i = 0; i < block->columns(); i++) {
+            auto col = block->get_by_position(i);
+            std::cout << "col: " << i << ", " << col.column->get_name() << ", "
+                      << col.type->get_name() << ", " << col.to_string(0) << std::endl;
+        }
+    }
+
+    static std::shared_ptr<arrow::RecordBatch> serialize_arrow(
+            const std::shared_ptr<Block>& block) {
         std::shared_ptr<arrow::Schema> block_arrow_schema;
         EXPECT_EQ(get_arrow_schema_from_block(*block, &block_arrow_schema, "UTC"), Status::OK());
         std::cout << "schema: " << block_arrow_schema->ToString(true) << std::endl;
@@ -360,37 +381,60 @@ public:
         Status stt = convert_to_arrow_batch(*block, block_arrow_schema,
                                             arrow::default_memory_pool(), &result, _timezone_obj);
         EXPECT_EQ(Status::OK(), stt) << "convert block to arrow failed" << stt.to_string();
+        std::cout << "arrow serialize result: " << result->num_columns() << ", "
+                  << result->num_rows() << std::endl;
+        return result;
+    }
 
+    static void deserialize_arrow(const std::shared_ptr<Block>& new_block,
+                                  std::shared_ptr<arrow::RecordBatch> record_batch) {
         // deserialize arrow to block
-        auto assert_block = block->clone_empty();
-        auto rows = block->rows();
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto array = result->column(i);
-            std::cout << array.get()->ToString() << std::endl;
-            auto& column_with_type_and_name = assert_block.get_by_position(i);
-            std::cout << "now we are testing column: "
-                      << column_with_type_and_name.column->get_name() << std::endl;
-            auto ret = arrow_column_to_doris_column(
-                    array.get(), 0, column_with_type_and_name.column,
-                    column_with_type_and_name.type, rows, _timezone_obj);
-            // do check data
-            std::cout << "arrow_column_to_doris_column done: "
-                      << column_with_type_and_name.column->get_name()
-                      << " with column size: " << column_with_type_and_name.column->size()
+        auto rows = record_batch->num_rows();
+        for (size_t i = 0; i < record_batch->num_columns(); ++i) {
+            auto array = record_batch->column(i);
+            std::cout << "arrow record_batch pos: " << i << ", array: " << array->ToString()
                       << std::endl;
+            auto& column_with_type_and_name = new_block->get_by_position(i);
+            std::cout << "now we are testing column: "
+                      << column_with_type_and_name.column->get_name()
+                      << ", type: " << column_with_type_and_name.type->get_name() << std::endl;
+            auto ret =
+                    arrow_column_to_doris_column(array.get(), 0, column_with_type_and_name.column,
+                                                 column_with_type_and_name.type, rows, "UTC");
+            // do check data
+            std::cout << "arrow_column_to_doris_column done, column data: "
+                      << column_with_type_and_name.to_string(0)
+                      << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
-            auto& col = block->get_by_position(i).column;
-            auto& assert_col = column_with_type_and_name.column;
-            std::cout << "column: " << col->get_name() << " size: " << col->size()
-                      << " assert size: " << assert_col->size() << std::endl;
+        }
+        std::cout << "arrow deserialize block structure: " << new_block->dump_structure()
+                  << std::endl;
+        std::cout << "arrow deserialize block data: "
+                  << new_block->dump_data(
+                             0, std::min(static_cast<size_t>(rows), static_cast<size_t>(5)))
+                  << std::endl;
+    }
+
+    static void compare_two_blocks(const std::shared_ptr<Block>& frist_block,
+                                   const std::shared_ptr<Block>& second_block) {
+        for (size_t i = 0; i < frist_block->columns(); ++i) {
+            EXPECT_EQ(frist_block->get_by_position(i).type, second_block->get_by_position(i).type);
+            auto& col = frist_block->get_by_position(i).column;
+            auto& assert_col = second_block->get_by_position(i).column;
+            std::cout << "compare_two_blocks, column: " << col->get_name()
+                      << ", type: " << frist_block->get_by_position(i).type->get_name()
+                      << ", size: " << col->size() << ", assert size: " << assert_col->size()
+                      << std::endl;
             EXPECT_EQ(assert_col->size(), col->size());
             for (size_t j = 0; j < assert_col->size(); ++j) {
+                EXPECT_EQ(frist_block->get_by_position(i).to_string(j),
+                          second_block->get_by_position(i).to_string(j));
                 auto cell = col->operator[](j);
                 auto assert_cell = assert_col->operator[](j);
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
-        std::cout << "assert block: " << assert_block.dump_structure() << std::endl;
+        EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
     }
 
     // assert rapidjson format

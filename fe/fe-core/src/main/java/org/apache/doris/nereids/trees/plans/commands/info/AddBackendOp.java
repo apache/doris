@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -70,11 +68,6 @@ public class AddBackendOp extends BackendOp {
     @Override
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new AddBackendClause(ids, hostInfos, tagMap);
     }
 
     public Map<String, String> getTagMap() {

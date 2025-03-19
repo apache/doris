@@ -6,6 +6,10 @@ This file contains version of the third-party dependency libraries in the build-
 
 - Added: pugixml 1.15, a C++ XML processing library.
 
+## 20250318
+
+- Modified: hadoop-libs 3.3.6.5 -> 3.3.6.6
+
 ## 20250225
 
 - Modified: hadoop-libs 3.3.6.4 -> 3.3.6.5

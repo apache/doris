@@ -410,11 +410,16 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
               << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
               << PrettyPrinter::print_bytes(block.allocated_bytes());
-
-    block.replace_if_overflow();
+    // 1. Dispose the overflow of ColumnString
+    // 2. Finalize the ColumnObject to speed up
+    for (auto& data : block) {
+        data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
+        if (p._need_finalize_variant_column) {
+            std::move(*data.column).mutate()->finalize();
+        }
+    }
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
-
     vectorized::ColumnUInt8::MutablePtr null_map_val;
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
@@ -587,9 +592,11 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
-                        _hash_output_slot_ids.empty() ||
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
+                if (output_slot_flags.back() && slot_desc->type().is_variant_type()) {
+                    _need_finalize_variant_column = true;
+                }
             }
         }
     };

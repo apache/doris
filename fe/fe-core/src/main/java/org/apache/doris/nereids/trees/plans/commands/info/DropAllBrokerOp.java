@@ -17,20 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.ModifyBrokerClause;
-
 /**
  * DropAllBrokerOp
  */
 public class DropAllBrokerOp extends BrokerOp {
     public DropAllBrokerOp(String brokerName) {
         super(ModifyOp.OP_DROP_ALL, brokerName, null);
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new ModifyBrokerClause(ModifyBrokerClause.ModifyOp.OP_DROP_ALL,
-                getBrokerName(), getHostPorts(), getHostPortPairs());
     }
 }

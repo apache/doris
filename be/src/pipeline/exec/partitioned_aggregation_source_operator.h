@@ -30,7 +30,8 @@ namespace pipeline {
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 
-class PartitionedAggLocalState final : public PipelineXSpillLocalState<PartitionedAggSharedState> {
+class PartitionedAggLocalState MOCK_REMOVE(final)
+        : public PipelineXSpillLocalState<PartitionedAggSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(PartitionedAggLocalState);
     using Base = PipelineXSpillLocalState<PartitionedAggSharedState>;

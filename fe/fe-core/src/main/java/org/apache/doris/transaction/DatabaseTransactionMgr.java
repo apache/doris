@@ -2260,10 +2260,11 @@ public class DatabaseTransactionMgr {
                             if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
                                 index.setRowCountReported(false);
                             }
-                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendIdWithoutException());
+                            long beId = replica.getBackendIdWithoutException();
+                            Set<Long> partitionIds = backendPartitions.get(beId);
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();
-                                backendPartitions.put(replica.getBackendIdWithoutException(), partitionIds);
+                                backendPartitions.put(beId, partitionIds);
                             }
                             partitionIds.add(partitionId);
                         }

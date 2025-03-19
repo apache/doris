@@ -61,6 +61,7 @@ public class RoutineLoadStatistic {
     public long committedTaskNum = 0;
     @SerializedName(value = "abortedTaskNum")
     public long abortedTaskNum = 0;
+    public int currentAbortedTaskNum = 0;
 
     // Save all transactions current running. Including PREPARE, COMMITTED.
     // No need to persist, only for tracing txn of routine load job.

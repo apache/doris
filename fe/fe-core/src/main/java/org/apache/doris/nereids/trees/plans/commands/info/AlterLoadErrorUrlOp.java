@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 
 import java.util.Map;
@@ -38,11 +36,6 @@ public class AlterLoadErrorUrlOp extends AlterSystemOp {
     @Override
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() throws UserException {
-        return null;
     }
 
     @Override
