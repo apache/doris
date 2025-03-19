@@ -90,7 +90,10 @@ void close_task(PipelineTask* task, Status exec_status) {
     if (!status.ok()) {
         task->fragment_context()->cancel(status);
     }
-    task->finalize();
+    status = task->finalize();
+    if (!status.ok()) {
+        task->fragment_context()->cancel(status);
+    }
 }
 
 void TaskScheduler::_do_work(int index) {

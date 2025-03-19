@@ -332,7 +332,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
     VLOG_DEBUG << fmt::format("Query:{}, hash join sink:{}, task:{}, revoke_memory, eos:{}",
                               print_id(state->query_id()), _parent->node_id(), state->task_id(),
                               _child_eos);
-    CHECK_EQ(_spill_dependency->is_blocked_by(nullptr), nullptr);
+    CHECK_EQ(_spill_dependency->is_blocked_by(), false);
 
     if (!_shared_state->need_to_spill) {
         profile()->add_info_string("Spilled", "true");
@@ -596,7 +596,7 @@ static bool is_revocable_mem_high_watermark(RuntimeState* state, size_t revocabl
 Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
-    CHECK_EQ(local_state._spill_dependency->is_blocked_by(nullptr), nullptr);
+    CHECK_EQ(local_state._spill_dependency->is_blocked_by(), false);
     SCOPED_TIMER(local_state.exec_time_counter());
 
     local_state._child_eos = eos;
