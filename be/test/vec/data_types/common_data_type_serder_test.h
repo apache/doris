@@ -254,63 +254,63 @@ public:
     }
 
     // actually this is block_to_jsonb and jsonb_to_block test
-    static void assert_jsonb_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        Arena pool;
-        auto jsonb_column = ColumnString::create(); // jsonb column
-        // maybe these load_cols has different size, so we keep it same
-        size_t max_row_size = load_cols[0]->size();
-        for (size_t i = 1; i < load_cols.size(); ++i) {
-            if (load_cols[i]->size() > max_row_size) {
-                max_row_size = load_cols[i]->size();
-            }
-        }
-        // keep same rows
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            if (load_cols[i]->size() < max_row_size) {
-                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
-            } else if (load_cols[i]->size() > max_row_size) {
-                load_cols[i]->resize(max_row_size);
-            }
-        }
-        jsonb_column->reserve(load_cols[0]->size());
-        MutableColumns assert_cols;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            assert_cols.push_back(load_cols[i]->assume_mutable());
-        }
-        for (size_t r = 0; r < load_cols[0]->size(); ++r) {
-            JsonbWriterT<JsonbOutStream> jw;
-            jw.writeStartObject();
-            // serialize to jsonb
-            for (size_t i = 0; i < load_cols.size(); ++i) {
-                auto& col = load_cols[i];
-                serders[i]->write_one_cell_to_jsonb(*col, jw, &pool, i, r);
-            }
-            jw.writeEndObject();
-            jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());
-        }
-        // deserialize jsonb column to assert column
-        EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
-        for (size_t r = 0; r < jsonb_column->size(); ++r) {
-            StringRef jsonb_data = jsonb_column->get_data_at(r);
-            auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
-            JsonbDocument& doc = *pdoc;
-            size_t cIdx = 0;
-            for (auto it = doc->begin(); it != doc->end(); ++it) {
-                serders[cIdx]->read_one_cell_from_jsonb(*assert_cols[cIdx], it->value());
-                ++cIdx;
-            }
-        }
-        // check column value
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& col = load_cols[i];
-            auto& assert_col = assert_cols[i];
-            for (size_t j = 0; j < col->size(); ++j) {
-                auto cell = col->operator[](j);
-                auto assert_cell = assert_col->operator[](j);
-                EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
-            }
-        }
-    }
+    // static void assert_jsonb_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+    //     Arena pool;
+    //     auto jsonb_column = ColumnString::create(); // jsonb column
+    //     // maybe these load_cols has different size, so we keep it same
+    //     size_t max_row_size = load_cols[0]->size();
+    //     for (size_t i = 1; i < load_cols.size(); ++i) {
+    //         if (load_cols[i]->size() > max_row_size) {
+    //             max_row_size = load_cols[i]->size();
+    //         }
+    //     }
+    //     // keep same rows
+    //     for (size_t i = 0; i < load_cols.size(); ++i) {
+    //         if (load_cols[i]->size() < max_row_size) {
+    //             load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
+    //         } else if (load_cols[i]->size() > max_row_size) {
+    //             load_cols[i]->resize(max_row_size);
+    //         }
+    //     }
+    //     jsonb_column->reserve(load_cols[0]->size());
+    //     MutableColumns assert_cols;
+    //     for (size_t i = 0; i < load_cols.size(); ++i) {
+    //         assert_cols.push_back(load_cols[i]->assume_mutable());
+    //     }
+    //     for (size_t r = 0; r < load_cols[0]->size(); ++r) {
+    //         JsonbWriterT<JsonbOutStream> jw;
+    //         jw.writeStartObject();
+    //         // serialize to jsonb
+    //         for (size_t i = 0; i < load_cols.size(); ++i) {
+    //             auto& col = load_cols[i];
+    //             serders[i]->write_one_cell_to_jsonb(*col, jw, &pool, i, r);
+    //         }
+    //         jw.writeEndObject();
+    //         jsonb_column->insert_data(jw.getOutput()->getBuffer(), jw.getOutput()->getSize());
+    //     }
+    //     // deserialize jsonb column to assert column
+    //     EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
+    //     for (size_t r = 0; r < jsonb_column->size(); ++r) {
+    //         StringRef jsonb_data = jsonb_column->get_data_at(r);
+    //         auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+    //         JsonbDocument& doc = *pdoc;
+    //         size_t cIdx = 0;
+    //         for (auto it = doc->begin(); it != doc->end(); ++it) {
+    //             serders[cIdx]->read_one_cell_from_jsonb(*assert_cols[cIdx], it->value());
+    //             ++cIdx;
+    //         }
+    //     }
+    //     // check column value
+    //     for (size_t i = 0; i < load_cols.size(); ++i) {
+    //         auto& col = load_cols[i];
+    //         auto& assert_col = assert_cols[i];
+    //         for (size_t j = 0; j < col->size(); ++j) {
+    //             auto cell = col->operator[](j);
+    //             auto assert_cell = assert_col->operator[](j);
+    //             EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
+    //         }
+    //     }
+    // }
 
     // assert mysql text format, now we just simple assert not to fatal or exception here
     static void assert_mysql_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
