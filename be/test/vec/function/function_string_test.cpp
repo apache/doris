@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/functions/function_string.h"
+
+#include <gtest/gtest.h>
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -23,7 +27,9 @@
 
 #include "function_test_util.h"
 #include "gutil/integral_types.h"
+#include "testutil/column_helper.h"
 #include "util/encryption_util.h"
+#include "vec/columns/column_string.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
@@ -3362,4 +3368,44 @@ TEST(function_string_test, function_rpad_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, sub_replace_overflow) {
+    const size_t count = 128;
+    std::vector<std::string> datas;
+    datas.reserve(count);
+    datas.emplace_back("a");
+    for (size_t i = 1; i != count; ++i) {
+        datas.emplace_back("");
+    }
+
+    auto block = ColumnHelper::create_block<DataTypeString>(datas);
+
+    block.insert(ColumnHelper::create_const_column_with_name<DataTypeString>("ab", count));
+    block.insert(ColumnHelper::create_const_column_with_name<DataTypeInt32>(0, count));
+    block.insert(ColumnHelper::create_const_column_with_name<DataTypeInt32>(10, count));
+    block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>({}, {}));
+
+    const auto& string_column = assert_cast<const ColumnString&>(*block.get_by_position(0).column);
+    ASSERT_LT(string_column.get_chars().allocated_bytes(), string_column.size());
+
+    ColumnNumbers args {0, 1, 2, 3};
+
+    auto st = SubReplaceImpl::replace_execute(block, args, 4, count);
+    ASSERT_TRUE(st.ok());
+
+    const auto& result_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(4).column);
+
+    ASSERT_EQ(result_column.size(), count);
+    for (size_t i = 0; i != count; ++i) {
+        if (i == 0) {
+            ASSERT_FALSE(result_column.is_null_at(i));
+            Field field;
+            result_column.get(i, field);
+            ASSERT_FALSE(field.is_null());
+            ASSERT_EQ(field.get<std::string>(), std::string("ab"));
+        } else {
+            ASSERT_TRUE(result_column.is_null_at(i));
+        }
+    }
+}
 } // namespace doris::vectorized
