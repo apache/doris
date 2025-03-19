@@ -79,14 +79,15 @@ public:
 
     Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id,
                    const DataTypePtr& result_type, const VExprSPtrs& children) override {
-        LambdaArgs args;
+        LambdaArgs args_info;
         // collect used slot ref in lambda function body
-        _collect_slot_ref_column_id(children[0], args);
+        std::vector<int>& output_slot_ref_indexs = args_info.output_slot_ref_indexs;
+        _collect_slot_ref_column_id(children[0], output_slot_ref_indexs);
 
         int gap = 0;
-        if (!args.output_slot_ref_indexs.empty()) {
-            auto max_id = std::max_element(args.output_slot_ref_indexs.begin(),
-                                           args.output_slot_ref_indexs.end());
+        if (!output_slot_ref_indexs.empty()) {
+            auto max_id =
+                    std::max_element(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end());
             gap = *max_id + 1;
             _set_column_ref_column_id(children[0], gap);
         }
@@ -95,7 +96,7 @@ public:
         DataTypes data_types(gap);
 
         for (int i = 0; i < gap; ++i) {
-            if (_contains_column_id(args, i)) {
+            if (_contains_column_id(output_slot_ref_indexs, i)) {
                 names[i] = block->get_by_position(i).name;
                 data_types[i] = block->get_by_position(i).type;
             } else {
@@ -159,7 +160,7 @@ public:
                 const auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
-                args.offsets_ptr = &col_array.get_offsets();
+                args_info.offsets_ptr = &col_array.get_offsets();
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
@@ -188,20 +189,21 @@ public:
         std::string res_name;
 
         //process first row
-        args.array_start = (*args.offsets_ptr)[args.current_row_idx - 1];
-        args.cur_size = (*args.offsets_ptr)[args.current_row_idx] - args.array_start;
+        args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
+        args_info.cur_size =
+                (*args_info.offsets_ptr)[args_info.current_row_idx] - args_info.array_start;
 
         // lambda block to exectute the lambda, and reuse the memory
         Block lambda_block;
         auto column_size = names.size();
         MutableColumns columns(column_size);
-        while (args.current_row_idx < block->rows()) {
+        while (args_info.current_row_idx < block->rows()) {
             bool mem_reuse = lambda_block.mem_reuse();
             for (int i = 0; i < column_size; i++) {
                 if (mem_reuse) {
                     columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
                 } else {
-                    if (_contains_column_id(args, i) || i >= gap) {
+                    if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                         // TODO: maybe could create const column, so not insert_many_from when extand data
                         // but now here handle batch_size of array nested data every time, so maybe have different rows
                         columns[i] = data_types[i]->create_column();
@@ -212,30 +214,34 @@ public:
                     }
                 }
             }
-
+            // batch_size of array nested data every time inorder to avoid memory overflow
             while (columns[gap]->size() < batch_size) {
                 long max_step = batch_size - columns[gap]->size();
-                long current_step =
-                        std::min(max_step, (long)(args.cur_size - args.current_offset_in_array));
-                size_t pos = args.array_start + args.current_offset_in_array;
+                long current_step = std::min(
+                        max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
+                size_t pos = args_info.array_start + args_info.current_offset_in_array;
                 for (int i = 0; i < arguments.size(); ++i) {
                     columns[gap + i]->insert_range_from(*lambda_datas[i], pos, current_step);
                 }
-                args.current_offset_in_array += current_step;
-                args.current_repeat_times += current_step;
-                if (args.current_offset_in_array >= args.cur_size) {
-                    args.current_row_eos = true;
+                args_info.current_offset_in_array += current_step;
+                args_info.current_repeat_times += current_step;
+                if (args_info.current_offset_in_array >= args_info.cur_size) {
+                    args_info.current_row_eos = true;
                 }
-                _extend_data(columns, block, args, gap);
-                if (args.current_row_eos) {
-                    args.current_row_idx++;
-                    args.current_offset_in_array = 0;
-                    if (args.current_row_idx >= block->rows()) {
+                _extend_data(columns, block, args_info.current_repeat_times, gap,
+                             args_info.current_row_idx, output_slot_ref_indexs);
+                args_info.current_repeat_times = 0;
+                if (args_info.current_row_eos) {
+                    //current row is end of array, move to next row
+                    args_info.current_row_idx++;
+                    args_info.current_offset_in_array = 0;
+                    if (args_info.current_row_idx >= block->rows()) {
                         break;
                     }
-                    args.current_row_eos = false;
-                    args.array_start = (*args.offsets_ptr)[args.current_row_idx - 1];
-                    args.cur_size = (*args.offsets_ptr)[args.current_row_idx] - args.array_start;
+                    args_info.current_row_eos = false;
+                    args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
+                    args_info.cur_size = (*args_info.offsets_ptr)[args_info.current_row_idx] -
+                                         args_info.array_start;
                 }
             }
 
@@ -244,10 +250,7 @@ public:
                     lambda_block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[i]),
                                                                           data_types[i], names[i]));
                 }
-            } else {
-                columns.clear();
             }
-
             //3. child[0]->execute(new_block)
             RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
 
@@ -304,10 +307,9 @@ public:
     }
 
 private:
-    bool _contains_column_id(LambdaArgs& args, int id) {
-        const auto it = std::find(args.output_slot_ref_indexs.begin(),
-                                  args.output_slot_ref_indexs.end(), id);
-        return it != args.output_slot_ref_indexs.end();
+    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) {
+        const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
+        return it != output_slot_ref_indexs.end();
     }
 
     void _set_column_ref_column_id(VExprSPtr expr, int gap) {
@@ -321,35 +323,34 @@ private:
         }
     }
 
-    void _collect_slot_ref_column_id(VExprSPtr expr, LambdaArgs& args) {
+    void _collect_slot_ref_column_id(VExprSPtr expr, std::vector<int>& output_slot_ref_indexs) {
         for (const auto& child : expr->children()) {
             if (child->is_slot_ref()) {
                 const auto* ref = static_cast<VSlotRef*>(child.get());
-                args.output_slot_ref_indexs.push_back(ref->column_id());
+                output_slot_ref_indexs.push_back(ref->column_id());
             } else {
-                _collect_slot_ref_column_id(child, args);
+                _collect_slot_ref_column_id(child, output_slot_ref_indexs);
             }
         }
     }
 
-    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block, LambdaArgs& args,
-                      int size) {
-        if (!args.current_repeat_times || !size) {
+    void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
+                      int current_repeat_times, int size, int64_t current_row_idx,
+                      const std::vector<int>& output_slot_ref_indexs) {
+        if (!current_repeat_times || !size) {
             return;
         }
         for (int i = 0; i < size; i++) {
-            if (_contains_column_id(args, i)) {
+            if (_contains_column_id(output_slot_ref_indexs, i)) {
                 auto src_column =
                         block->get_by_position(i).column->convert_to_full_column_if_const();
-                columns[i]->insert_many_from(*src_column, args.current_row_idx,
-                                             args.current_repeat_times);
+                columns[i]->insert_many_from(*src_column, current_row_idx, current_repeat_times);
             } else {
                 // must be column const
                 DCHECK(is_column_const(*columns[i]));
-                columns[i]->resize(columns[i]->size() + args.current_repeat_times);
+                columns[i]->resize(columns[i]->size() + current_repeat_times);
             }
         }
-        args.current_repeat_times = 0;
     }
 };
 
