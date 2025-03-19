@@ -174,14 +174,7 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
     return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
 }
 
-int64_t Segment::get_metadata_size() const {
-    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
-    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
-           (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
-}
-
 void Segment::update_metadata_size() {
-    MetadataAdder::update_metadata_size();
     g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
     _tracked_meta_mem_usage = _meta_mem_usage;
 }

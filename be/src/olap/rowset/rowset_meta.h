@@ -367,8 +367,6 @@ public:
     void add_inverted_index_files_info(
             const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
 
-    int64_t get_metadata_size() const override;
-
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;

@@ -278,10 +278,6 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
 
 ColumnReader::~ColumnReader() = default;
 
-int64_t ColumnReader::get_metadata_size() const {
-    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
-}
-
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
 
@@ -319,7 +315,6 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                                       _file_reader->path().native(), index_meta.type());
         }
     }
-    update_metadata_size();
 
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.

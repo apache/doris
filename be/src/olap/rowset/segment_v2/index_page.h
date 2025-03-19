@@ -111,14 +111,11 @@ public:
     void reset();
 
 private:
-    int64_t get_metadata_size() const override;
-
     bool _parsed;
 
     IndexPageFooterPB _footer;
     std::vector<Slice> _keys;
     std::vector<PagePointer> _values;
-    int64_t _vl_field_mem_size {0};
 };
 
 class IndexPageIterator {

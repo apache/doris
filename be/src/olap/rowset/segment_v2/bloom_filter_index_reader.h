@@ -61,8 +61,6 @@ public:
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, OlapReaderStatistics* index_load_stats);
 
-    int64_t get_metadata_size() const override;
-
 private:
     friend class BloomFilterIndexIterator;
 

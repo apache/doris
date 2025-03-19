@@ -539,8 +539,6 @@ public:
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
-    int64_t get_metadata_size() const override;
-
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -595,7 +593,6 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _enable_variant_flatten_nested = false;
-    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

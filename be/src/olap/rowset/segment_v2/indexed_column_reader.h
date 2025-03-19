@@ -79,8 +79,6 @@ private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader,
                            OlapReaderStatistics* index_load_stats);
 
-    int64_t get_metadata_size() const override;
-
     friend class IndexedColumnIterator;
 
     io::FileReaderSPtr _file_reader;
