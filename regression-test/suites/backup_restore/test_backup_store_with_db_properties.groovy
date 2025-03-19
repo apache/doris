@@ -96,7 +96,7 @@ suite("test_backup_store_with_db_properties","backup_restore") {
     assertEquals(result_kv_restore, result_kv_origin);
 
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

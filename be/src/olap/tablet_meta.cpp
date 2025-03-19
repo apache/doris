@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <set>
 #include <utility>
 
@@ -325,7 +326,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
 
     if (tablet_schema.__isset.variant_enable_flatten_nested) {
-        schema->set_variant_enable_flatten_nested(tablet_schema.variant_enable_flatten_nested);
+        schema->set_enable_variant_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }
 
     if (tablet_schema.__isset.enable_single_replica_compaction) {
@@ -928,6 +929,7 @@ void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap
 }
 
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
+    size_t rowset_cache_version_size = 0;
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
         if ((*it)->version() == version) {
@@ -935,10 +937,24 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
                 // remove rowset delete bitmap
                 delete_bitmap().remove({(*it)->rowset_id(), 0, 0},
                                        {(*it)->rowset_id(), UINT32_MAX, 0});
+                rowset_cache_version_size =
+                        delete_bitmap().remove_rowset_cache_version((*it)->rowset_id());
             }
             it = _stale_rs_metas.erase(it);
         } else {
             it++;
+        }
+    }
+    if (_enable_unique_key_merge_on_write &&
+        rowset_cache_version_size > _rs_metas.size() + _stale_rs_metas.size()) {
+        std::string err_msg = fmt::format(
+                ". tablet: {}, rowset_cache_version size: {}, "
+                "_rs_metas size: {}, _stale_rs_metas size: {}",
+                _tablet_id, rowset_cache_version_size, _rs_metas.size(), _stale_rs_metas.size());
+        if (config::enable_mow_get_agg_correctness_check_core) {
+            CHECK(false) << err_msg;
+        } else {
+            DCHECK(false) << err_msg;
         }
     }
 }
@@ -1283,6 +1299,24 @@ bool DeleteBitmap::has_calculated_for_multi_segments(const RowsetId& rowset_id) 
     return contains({rowset_id, INVALID_SEGMENT_ID, TEMP_VERSION_COMMON}, ROWSET_SENTINEL_MARK);
 }
 
+size_t DeleteBitmap::remove_rowset_cache_version(const RowsetId& rowset_id) {
+    std::lock_guard l(_rowset_cache_version_lock);
+    _rowset_cache_version.erase(rowset_id);
+    return _rowset_cache_version.size();
+}
+
+DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& bmk) const {
+    std::shared_lock l(_rowset_cache_version_lock);
+    if (auto it = _rowset_cache_version.find(std::get<0>(bmk)); it != _rowset_cache_version.end()) {
+        auto& segment_cache_version = it->second;
+        if (auto it1 = segment_cache_version.find(std::get<1>(bmk));
+            it1 != segment_cache_version.end()) {
+            return it1->second;
+        }
+    }
+    return 0;
+}
+
 // We cannot just copy the underlying memory to construct a string
 // due to equivalent objects may have different padding bytes.
 // Reading padding bytes is undefined behavior, neither copy nor
@@ -1314,9 +1348,41 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
     //        of cache entries in some cases?
     if (val == nullptr) { // Renew if needed, put a new Value to cache
         val = new AggCache::Value();
+        Version start_version =
+                config::enable_mow_get_agg_by_cache ? _get_rowset_cache_version(bmk) : 0;
+        if (start_version > 0) {
+            Cache::Handle* handle2 = _agg_cache->repr()->lookup(
+                    agg_cache_key(_tablet_id, {std::get<0>(bmk), std::get<1>(bmk), start_version}));
+
+            DBUG_EXECUTE_IF("DeleteBitmap::get_agg.cache_miss", {
+                if (handle2 != nullptr) {
+                    auto p = dp->param("percent", 0.3);
+                    std::mt19937 gen {std::random_device {}()};
+                    std::bernoulli_distribution inject_fault {p};
+                    if (inject_fault(gen)) {
+                        LOG_INFO("injection DeleteBitmap::get_agg.cache_miss, tablet_id={}",
+                                 _tablet_id);
+                        handle2 = nullptr;
+                    }
+                }
+            });
+            if (handle2 == nullptr || start_version > std::get<2>(bmk)) {
+                start_version = 0;
+            } else {
+                val->bitmap |=
+                        reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle2))
+                                ->bitmap;
+                _agg_cache->repr()->release(handle2);
+                VLOG_DEBUG << "get agg cache version=" << start_version
+                           << " for tablet=" << _tablet_id
+                           << ", rowset=" << std::get<0>(bmk).to_string()
+                           << ", segment=" << std::get<1>(bmk);
+                start_version += 1;
+            }
+        }
         {
             std::shared_lock l(lock);
-            DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+            DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), start_version};
             for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
                 auto& [k, bm] = *it;
                 if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
@@ -1328,11 +1394,48 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
         }
         size_t charge = val->bitmap.getSizeInBytes() + sizeof(AggCache::Value);
         handle = _agg_cache->repr()->insert(key, val, charge, charge, CachePriority::NORMAL);
+        if (config::enable_mow_get_agg_by_cache && !val->bitmap.isEmpty()) {
+            std::lock_guard l(_rowset_cache_version_lock);
+            // this version is already agg
+            _rowset_cache_version[std::get<0>(bmk)][std::get<1>(bmk)] = std::get<2>(bmk);
+            VLOG_DEBUG << "set agg cache version=" << std::get<2>(bmk)
+                       << " for tablet=" << _tablet_id
+                       << ", rowset=" << std::get<0>(bmk).to_string()
+                       << ", segment=" << std::get<1>(bmk);
+        }
+        if (start_version > 0 && config::enable_mow_get_agg_correctness_check_core) {
+            std::shared_ptr<roaring::Roaring> bitmap = get_agg_without_cache(bmk);
+            if (val->bitmap != *bitmap) {
+                CHECK(false) << ". get agg correctness check failed for tablet=" << _tablet_id
+                             << ", rowset=" << std::get<0>(bmk).to_string()
+                             << ", segment=" << std::get<1>(bmk) << ", version=" << std::get<2>(bmk)
+                             << ". start_version from cache=" << start_version
+                             << ", delete_bitmap cardinality with cache="
+                             << val->bitmap.cardinality()
+                             << ", delete_bitmap cardinality without cache="
+                             << bitmap->cardinality();
+            }
+        }
     }
 
     // It is natural for the cache to reclaim the underlying memory
     return std::shared_ptr<roaring::Roaring>(
             &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
+}
+
+std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg_without_cache(const BitmapKey& bmk) const {
+    std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+    std::shared_lock l(lock);
+    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+        auto& [k, bm] = *it;
+        if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
+            std::get<2>(k) > std::get<2>(bmk)) {
+            break;
+        }
+        *bitmap |= bm;
+    }
+    return bitmap;
 }
 
 std::atomic<DeleteBitmap::AggCachePolicy*> DeleteBitmap::AggCache::s_repr {nullptr};

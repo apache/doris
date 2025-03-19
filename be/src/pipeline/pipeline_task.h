@@ -56,7 +56,7 @@ public:
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink, QueryContext* query_ctx);
 
-    Status execute(bool* eos);
+    Status execute(bool* done);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
@@ -80,17 +80,6 @@ public:
     void finalize();
 
     std::string debug_string();
-
-    bool is_pending_finish() {
-        for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return true;
-            }
-        }
-        return false;
-    }
 
     std::shared_ptr<BasicSharedState> get_source_shared_state() {
         return _op_shared_states.contains(_source->operator_id())
@@ -134,30 +123,8 @@ public:
 
     void set_wake_up_early() { _wake_up_early = true; }
 
-    void clear_blocking_state() {
-        // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finalized) {
-            for (auto* dep : _spill_dependencies) {
-                dep->set_always_ready();
-            }
-
-            for (auto* dep : _filter_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto& deps : _read_dependencies) {
-                for (auto* dep : deps) {
-                    dep->set_always_ready();
-                }
-            }
-            for (auto* dep : _write_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto* dep : _finish_dependencies) {
-                dep->set_always_ready();
-            }
-        }
-    }
+    // Execution phase should be terminated. This is called if this task is canceled or waken up early.
+    void terminate();
 
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
@@ -224,9 +191,11 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    // TODO: Maybe we do not need this safe code anymore
     void stop_if_finished() {
         if (_sink->is_finished(_state)) {
-            clear_blocking_state();
+            set_wake_up_early();
+            terminate();
         }
     }
 
@@ -244,8 +213,12 @@ public:
 
 private:
     friend class RuntimeFilterDependency;
-    bool _is_blocked();
+    // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
+    // Whether this task is blocked during execution (read dependency, write dependency)
+    bool _is_blocked();
+    // Whether this task is blocked after execution (pending finish dependency)
+    bool _is_pending_finish();
 
     Status _extract_dependencies();
     void _init_profile();
@@ -341,6 +314,7 @@ private:
     };
 
     State _exec_state = State::NORMAL;
+    MonotonicStopWatch _state_change_watcher;
 };
 
 } // namespace doris::pipeline

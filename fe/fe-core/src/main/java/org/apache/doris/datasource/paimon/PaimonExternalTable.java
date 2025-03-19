@@ -251,7 +251,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                     partitionColumns.add(column);
                 }
             }
-            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns));
+            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
         } catch (Exception e) {
             throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
                     null, getCatalog().getName(), key.getDbName(), key.getTblName(),

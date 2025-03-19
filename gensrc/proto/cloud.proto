@@ -1419,6 +1419,9 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
+    // to determine whether this is in an explicit txn and whether it's the first sub txn
+    optional bool is_explicit_txn = 12;
+    optional int64 txn_id = 13;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1467,6 +1470,10 @@ message DeleteBitmapUpdateLockPB {
     optional int64 lock_id = 1;
     optional int64 expiration = 2;
     repeated int64 initiators = 3;
+}
+
+message MowTabletCompactionPB {
+    optional int64 expiration = 1;
 }
 
 message GetDeleteBitmapUpdateLockRequest {
