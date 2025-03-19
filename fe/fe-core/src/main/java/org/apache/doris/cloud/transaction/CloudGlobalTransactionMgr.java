@@ -971,9 +971,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
-                            "Failed to get delete bitmap lock due to confilct");
+                            "Failed to get delete bitmap lock due to conflict");
                 }
-                throw new UserException("Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
+                throw new UserException(
+                        "Failed to get delete bitmap lock, msg: " + response.getStatus().getMsg() + ", code: "
+                                + response.getStatus().getCode());
             }
 
             // record tablet's latest compaction stats from meta service and send them to BEs
@@ -998,7 +1000,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
-                lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                if (size4 > 0) {
+                    lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                }
             }
             totalRetryTime += retryTime;
         }
