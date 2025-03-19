@@ -327,9 +327,6 @@ Status PipelineTask::execute(bool* done) {
         if (_eos && !_spilling && (_fragment_context->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
-        if (*done) {
-            THROW_IF_ERROR(_state_transition(State::FINISHED));
-        }
         // If this run is pended by a spilling request, the block will be output in next run.
         if (!_spilling) {
             _block->clear_column_data(_root->row_desc().num_materialized_slots());
@@ -338,7 +335,7 @@ Status PipelineTask::execute(bool* done) {
     const auto query_id = _state->query_id();
     // If this task is already EOS and block is empty (which means we already output all blocks),
     // just return here.
-    if (_eos && _block->empty()) {
+    if (_eos && !_spilling) {
         return Status::OK();
     }
     // If this task is blocked by a spilling request and waken up immediately, the spilling
@@ -613,6 +610,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     if (_task_queue) {
         _task_queue->update_statistics(this, close_ns);
     }
+    RETURN_IF_ERROR(_state_transition(State::FINISHED));
     return s;
 }
 
