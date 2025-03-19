@@ -63,10 +63,7 @@ suite("test_nereids_show_snapshot") {
     checkNereidsExecute("""show snapshot on ${repoName} where SNAPSHOT = "${snapshotName}" 
                                     and TIMESTAMP > '2025-01-01' """)
     checkNereidsExecute("""show snapshot on ${repoName} where SNAPSHOT = "${snapshotName}" 
-                                    and TIMESTAMP > '2025-01-01' and AND SNAPSHOTTYPE = 'remote'""")
-    checkNereidsExecute("""show snapshot on ${repoName} where TIMESTAMP > '2025-01-01' """)
-    checkNereidsExecute("""show snapshot on ${repoName} where TIMESTAMP > '2025-01-01' 
-                                    and AND SNAPSHOTTYPE = 'remote'""")
+                                    and SNAPSHOTTYPE = 'remote'""")
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"

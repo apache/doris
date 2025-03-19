@@ -30,7 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -115,25 +115,25 @@ public class ShowSnapshotCommand extends ShowCommand {
         if (!(key instanceof UnboundSlot)) {
             return false;
         }
-        if (!(val instanceof StringLiteral)) {
+        if (!(val instanceof StringLikeLiteral)) {
             return false;
         }
 
         String name = ((UnboundSlot) key).getName();
         if (name.equalsIgnoreCase("snapshot")) {
-            snapshotName = ((StringLiteral) val).getStringValue();
+            snapshotName = ((StringLikeLiteral) val).getStringValue();
             if (Strings.isNullOrEmpty(snapshotName)) {
                 return false;
             }
             return true;
         } else if (name.equalsIgnoreCase("timestamp")) {
-            timestamp = ((StringLiteral) val).getStringValue();
+            timestamp = ((StringLikeLiteral) val).getStringValue();
             if (Strings.isNullOrEmpty(timestamp)) {
                 return false;
             }
             return true;
         } else if (name.equalsIgnoreCase("snapshotType")) {
-            String snapshotTypeVal = ((StringLiteral) val).getStringValue();
+            String snapshotTypeVal = ((StringLikeLiteral) val).getStringValue();
             if (Strings.isNullOrEmpty(snapshotTypeVal)) {
                 return false;
             }
@@ -209,7 +209,7 @@ public class ShowSnapshotCommand extends ShowCommand {
         if (repo == null) {
             throw new AnalysisException("Repository " + repoName + " does not exist");
         }
-        List<List<String>> snapshotInfos = repo.getSnapshotInfos(repoName, timestamp);
+        List<List<String>> snapshotInfos = repo.getSnapshotInfos(snapshotName, timestamp);
         return new ShowResultSet(getMetaData(), snapshotInfos);
     }
 
