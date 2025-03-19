@@ -235,7 +235,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        if (!join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        if (!ctx.builderNode.equals(join)
+                && !join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
         boolean pushed = false;
