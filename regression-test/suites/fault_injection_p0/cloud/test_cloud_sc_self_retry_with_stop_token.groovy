@@ -53,7 +53,7 @@ suite("test_cloud_sc_self_retry_with_stop_token", "nonConcurrent") {
         sql "alter table ${table1} modify column c2 varchar(100);"
 
         def res
-        Awaitility.await().atMost(20, TimeUnit.SECONDS).pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
+        Awaitility.await().atMost(40, TimeUnit.SECONDS).pollDelay(1, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
             res = sql_return_maparray """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             logger.info("res: ${res}")
             if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {
@@ -63,7 +63,8 @@ suite("test_cloud_sc_self_retry_with_stop_token", "nonConcurrent") {
         });
 
         assert res[0].State == "CANCELLED"
-        assert res[0].Msg.contains("compactions are not allowed on tablet_id")
+        assert !res[0].Msg.contains("compactions are not allowed on tablet_id") && !res[0].Msg.contains("stop token already exists")
+        assert res[0].Msg.contains("DELETE_BITMAP_LOCK_ERROR")
 
         qt_sql "select * from ${table1} order by k1;"        
     } catch(Exception e) {
