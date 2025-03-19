@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -4632,11 +4633,28 @@ public:
                 col_res->insert_default();
                 continue;
             }
-            std::string_view text {node.node().text().as_string()};
+            auto text = get_text(node.node());
             col_res->insert_data(text.data(), text.size());
         }
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
+    }
+
+private:
+    // Build the text of the node and all its children.
+    static std::string get_text(const pugi::xml_node& node) {
+        std::string result;
+        build_text(node, result);
+        return result;
+    }
+
+    static void build_text(const pugi::xml_node& node, std::string& builder) {
+        if (node.first_child().type() == pugi::node_pcdata) {
+            builder += node.text().as_string();
+        }
+        for (pugi::xml_node child : node.children()) {
+            build_text(child, builder);
+        }
     }
 };
 
