@@ -348,7 +348,6 @@ Status PipelineTask::execute(bool* done) {
                   << PrettyPrinter::print_bytes(_block->allocated_bytes());
         DCHECK(_spilling);
     }
-    _spilling = false;
 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
@@ -431,6 +430,7 @@ Status PipelineTask::execute(bool* done) {
 
         // `_dry_run` means sink operator need no more data
         _eos = wake_up_early() || _dry_run || _eos;
+        _spilling = false;
         auto workload_group = _state->get_query_ctx()->workload_group();
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
         // run, so we will resume execution using the block.
