@@ -366,15 +366,16 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
                                                 std::vector<int32_t>* col_attributes,
-                                                std::string attribute, bool& exist_attribute) {
+                                                const std::string& attribute,
+                                                bool* exist_attribute) {
     RETURN_IF_ERROR(_create_file_reader());
-    exist_attribute = true;
+    *exist_attribute = true;
     const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
 
         if (!root_type.getSubtype(i)->hasAttributeKey(attribute)) {
-            exist_attribute = false;
+            *exist_attribute = false;
             return Status::OK();
         }
         col_attributes->emplace_back(

@@ -561,8 +561,8 @@ Status IcebergOrcReader::get_file_col_id_to_name(
 
     std::vector<std::string> col_names;
     std::vector<int32_t> col_ids;
-    RETURN_IF_ERROR(orc_reader->get_schema_col_name_attribute(&col_names, &col_ids,
-                                                              ICEBERG_ORC_ATTRIBUTE, exist_schema));
+    RETURN_IF_ERROR(orc_reader->get_schema_col_name_attribute(
+            &col_names, &col_ids, ICEBERG_ORC_ATTRIBUTE, &exist_schema));
     if (!exist_schema) {
         return Status::OK();
     }

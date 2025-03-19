@@ -179,7 +179,7 @@ public:
 
     Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
                                          std::vector<int32_t>* col_attributes,
-                                         std::string attribute, bool& exist_attribute);
+                                         const std::string& attribute, bool* exist_attribute);
     void set_table_col_to_file_col(
             std::unordered_map<std::string, std::string> table_col_to_file_col) {
         _table_col_to_file_col = table_col_to_file_col;

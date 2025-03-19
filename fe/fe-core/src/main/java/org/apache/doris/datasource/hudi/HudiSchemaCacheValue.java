@@ -23,27 +23,17 @@ import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.internal.schema.InternalSchema;
-import org.apache.hudi.internal.schema.utils.InternalSchemaUtils;
 
 import java.util.List;
-import java.util.TreeMap;
 
 public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
 
     private List<String> colTypes;
-
     boolean enableSchemaEvolution;
 
-    TreeMap<Long, InternalSchema> historySchemaCache;
-    // schema version id (timestamp) =>  hudi internal schema.
-
-    public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
-            HoodieTableMetaClient hudiClient, boolean enableSchemaEvolution) {
+    public HudiSchemaCacheValue(List<Column> schema, List<Column> partitionColumns, boolean enableSchemaEvolution) {
         super(schema, partitionColumns);
         this.enableSchemaEvolution = enableSchemaEvolution;
-        if (enableSchemaEvolution) {
-            historySchemaCache = InternalSchemaCache.getHistoricalSchemas(hudiClient);
-        }
     }
 
     public List<String> getColTypes() {
@@ -54,10 +44,8 @@ public class HudiSchemaCacheValue extends HMSSchemaCacheValue {
         this.colTypes = colTypes;
     }
 
-
-    public InternalSchema getCommitInstantInternalSchema(Long commitInstantTime) {
-        // return the InternalSchema corresponding to the largest key that is smaller than commitInstantTime(timestamp)
-        return InternalSchemaUtils.searchSchema(commitInstantTime, historySchemaCache);
+    public InternalSchema getCommitInstantInternalSchema(HoodieTableMetaClient metaClient, Long commitInstantTime) {
+        return InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient, true);
     }
 
     public boolean isEnableSchemaEvolution() {

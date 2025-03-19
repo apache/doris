@@ -623,7 +623,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         List<Column> partitionColumns = initPartitionColumns(tmpSchema);
         HudiSchemaCacheValue hudiSchemaCacheValue =
-                new HudiSchemaCacheValue(tmpSchema, partitionColumns, getHudiClient(), enableSchemaEvolution[0]);
+                new HudiSchemaCacheValue(tmpSchema, partitionColumns, enableSchemaEvolution[0]);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
     }

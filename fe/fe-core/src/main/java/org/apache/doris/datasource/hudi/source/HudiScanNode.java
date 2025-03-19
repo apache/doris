@@ -274,7 +274,8 @@ public class HudiScanNode extends HiveScanNode {
             if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
                 long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
                         new File(hudiSplit.getPath().get()).getName()));
-                InternalSchema internalSchema = hudiSchemaCacheValue.getCommitInstantInternalSchema(commitInstantTime);
+                InternalSchema internalSchema = hudiSchemaCacheValue
+                        .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
                 params.history_schema_info.computeIfAbsent(
                         internalSchema.schemaId(),
                         k -> HudiUtils.getSchemaInfo(internalSchema));
