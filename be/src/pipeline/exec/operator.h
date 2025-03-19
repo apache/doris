@@ -69,8 +69,8 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams>& scan_ranges;
     BasicSharedState* shared_state;
-    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                  std::shared_ptr<Dependency>>>& le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
     const int task_idx;
 };
 
@@ -80,8 +80,8 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     BasicSharedState* shared_state;
-    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                  std::shared_ptr<Dependency>>>& le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
     const TDataSink& tsink;
 };
 
@@ -178,7 +178,7 @@ public:
     void clear_origin_block();
 
     void reached_limit(vectorized::Block* block, bool* eos);
-    RuntimeProfile* profile() { return _runtime_profile.get(); }
+    RuntimeProfile* profile() { return _runtime_profile; }
 
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
@@ -196,6 +196,7 @@ public:
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
+    Dependency* spill_dependency() { return _spill_dependency.get(); }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
@@ -223,7 +224,8 @@ protected:
     int64_t _num_rows_returned {0};
     int64_t _estimate_memory_usage {0};
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    RuntimeProfile* _runtime_profile;
+    std::shared_ptr<Dependency> _spill_dependency = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -466,6 +468,7 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
+    Dependency* spill_dependency() { return _spill_dependency.get(); }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -473,6 +476,7 @@ protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency = nullptr;
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
@@ -518,7 +522,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 };
 

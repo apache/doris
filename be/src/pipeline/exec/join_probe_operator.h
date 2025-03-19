@@ -65,6 +65,7 @@ public:
         return *_output_row_desc;
     }
 
+    void _init_join_op();
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
     }
@@ -100,6 +101,7 @@ protected:
     const bool _is_left_semi_anti;
     const bool _is_outer_join;
     const bool _is_mark_join;
+    JoinOpVariants _join_op_variants;
 
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;

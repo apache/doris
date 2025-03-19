@@ -35,7 +35,8 @@ namespace doris {
 class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
-        _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
+        _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM,
+                                                         _query_ctx.get());
         _op.reset(new pipeline::MockOperatorX());
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->add_operator(_op, 2));
 

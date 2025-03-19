@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "pipeline/common/join_utils.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h"
@@ -47,48 +48,16 @@ namespace vectorized {
 class Arena;
 
 struct SharedHashTableContext {
-    SharedHashTableContext()
-            : hash_table_variants(nullptr), block(std::make_shared<vectorized::Block>()) {}
-
     Status status;
-    std::shared_ptr<Arena> arena;
-    std::shared_ptr<void> hash_table_variants;
-    std::shared_ptr<Block> block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     std::atomic<bool> signaled = false;
-    bool short_circuit_for_null_in_probe_side = false;
+
+    std::mutex mutex;
+    std::vector<std::shared_ptr<pipeline::Dependency>> finish_dependencies;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
-
-class SharedHashTableController {
-public:
-    /// set hash table builder's fragment instance id and consumers' fragment instance id
-    void set_builder_and_consumers(TUniqueId builder, int node_id);
-    TUniqueId get_builder_fragment_instance_id(int my_node_id);
-    SharedHashTableContextPtr get_context(int my_node_id);
-    void signal_finish(int my_node_id);
-    void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
-                           std::shared_ptr<pipeline::Dependency> finish_dep) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (!_dependencies.contains(node_id)) {
-            _dependencies.insert({node_id, {}});
-            _finish_dependencies.insert({node_id, {}});
-        }
-        _dependencies[node_id].push_back(dep);
-        _finish_dependencies[node_id].push_back(finish_dep);
-    }
-
-private:
-    std::mutex _mutex;
-    // For pipelineX, we update all dependencies once hash table is built;
-    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
-    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>>
-            _finish_dependencies;
-    std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
-    std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
-};
 
 } // namespace vectorized
 } // namespace doris

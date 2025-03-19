@@ -56,8 +56,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "HashJoinProbeSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     init_counters();
     return Status::OK();
 }
@@ -86,7 +84,7 @@ void PartitionedHashJoinProbeLocalState::init_counters() {
 }
 
 #define UPDATE_COUNTER_FROM_INNER(name) \
-    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
+    update_profile_from_inner_profile<spilled>(name, _runtime_profile, child_profile)
 
 template <bool spilled>
 void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
@@ -178,7 +176,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, spilling_stream, print_id(state->query_id()), "hash_probe",
                         _parent->node_id(), std::numeric_limits<int32_t>::max(),
-                        std::numeric_limits<size_t>::max(), _runtime_profile.get()));
+                        std::numeric_limits<size_t>::max(), _runtime_profile));
             }
 
             auto merged_block = vectorized::MutableBlock::create_unique(std::move(blocks.back()));
@@ -234,7 +232,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
     });
 
     auto spill_runnable = std::make_shared<SpillNonSinkRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
+            state, _spill_dependency, _runtime_profile, _shared_state->shared_from_this(),
             exception_catch_func);
     return spill_io_pool->submit(std::move(spill_runnable));
 }
@@ -361,7 +359,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
                     });
 
     auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
+            state, _spill_dependency, _runtime_profile, _shared_state->shared_from_this(),
             exception_catch_func);
     return spill_io_pool->submit(std::move(spill_runnable));
 }
@@ -469,7 +467,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
                                 "recovery_probe_blocks submit_func failed");
                     });
     return spill_io_pool->submit(std::make_shared<SpillRecoverRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
+            state, _spill_dependency, _runtime_profile, _shared_state->shared_from_this(),
             exception_catch_func));
 }
 

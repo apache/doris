@@ -75,12 +75,13 @@ public:
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
+    void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
     int timeout_second() const { return _timeout; }
 
-    PipelinePtr add_pipeline(PipelinePtr parent = nullptr, int idx = -1);
+    PipelinePtr add_pipeline(Pipelines& pipelines, PipelinePtr parent = nullptr, int idx = -1);
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
@@ -88,8 +89,6 @@ public:
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
     Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
-
-    Status submit();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -116,54 +115,53 @@ public:
 
     [[nodiscard]] size_t get_revocable_size(bool* has_running_task) const;
 
-    [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
-
-    void clear_finished_tasks() {
-        for (size_t j = 0; j < _tasks.size(); j++) {
-            for (size_t i = 0; i < _tasks[j].size(); i++) {
-                _tasks[j][i]->stop_if_finished();
-            }
-        }
-    }
+    [[nodiscard]] std::vector<std::shared_ptr<PipelineTask>> get_revocable_tasks() const;
 
 private:
+    Status _submit(std::vector<std::vector<PipelineTaskSPtr>>& tasks);
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
+                            const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe,
+                            Pipelines& pipelines);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
                                const DescriptorTbl& descs, OperatorPtr parent, int* node_idx,
                                OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
-                               const bool followed_by_shuffled_join);
+                               const bool followed_by_shuffled_join, Pipelines& pipelines);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
+                            int parent_idx, int child_idx, const bool followed_by_shuffled_join,
+                            Pipelines& pipelines);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
                                                    int child_idx,
-                                                   const doris::TPipelineFragmentParams& request);
+                                                   const doris::TPipelineFragmentParams& request,
+                                                   Pipelines& pipelines);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
-                             PipelineId cur_pipeline_id);
+                             PipelineId cur_pipeline_id, Pipelines& pipelines);
     Status _plan_local_exchange(int num_buckets,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
-                                const std::map<int, int>& shuffle_idx_to_instance_idx);
+                                const std::map<int, int>& shuffle_idx_to_instance_idx,
+                                Pipelines& pipelines);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
-                                const std::map<int, int>& shuffle_idx_to_instance_idx);
+                                const std::map<int, int>& shuffle_idx_to_instance_idx,
+                                Pipelines& pipelines);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
-                               const std::map<int, int>& shuffle_idx_to_instance_idx);
+                               const std::map<int, int>& shuffle_idx_to_instance_idx,
+                               Pipelines& pipelines);
     Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
                                     PipelinePtr new_pip, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
@@ -171,7 +169,8 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                 ThreadPool* thread_pool);
+                                 std::vector<std::vector<PipelineTaskSPtr>>& tasks,
+                                 ThreadPool* thread_pool, Pipelines& pipelines);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -183,8 +182,6 @@ private:
 
     std::atomic_bool _prepared = false;
     bool _submitted = false;
-
-    Pipelines _pipelines;
     PipelineId _next_pipeline_id = 0;
     std::mutex _task_mutex;
     int _closed_tasks = 0;
@@ -206,6 +203,7 @@ private:
     RuntimeProfile::Counter* _plan_local_exchanger_timer = nullptr;
     RuntimeProfile::Counter* _prepare_all_pipelines_timer = nullptr;
     RuntimeProfile::Counter* _build_tasks_timer = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     bool _is_fragment_instance_closed = false;
@@ -234,7 +232,7 @@ private:
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
+    std::vector<std::vector<PipelineTaskWPtr>> _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -279,10 +277,24 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            _op_id_to_le_state;
+    /**
+     * Some states are shared by tasks in different instances (e.g. local exchange , broadcast join).
+     *
+     * local exchange sink 0 ->                               -> local exchange source 0
+     *                            LocalExchangeSharedState
+     * local exchange sink 1 ->                               -> local exchange source 1
+     *
+     * hash join build sink 0 ->                               -> hash join build source 0
+     *                              HashJoinSharedState
+     * hash join build sink 1 ->                               -> hash join build source 1
+     *
+     * So we should keep states here.
+     */
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            _op_id_to_shared_state;
 
-    std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
+    std::map<PipelineId, std::weak_ptr<Pipeline>> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
     //Here are two types of runtime states:

@@ -44,13 +44,15 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineFragmentContext;
 
 public:
-    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent)
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent,
+                      QueryContext* query_ctx)
             : _pipeline_id(pipeline_id),
               _num_tasks(num_tasks),
-              _num_tasks_of_parent(num_tasks_of_parent) {
-        _init_profile();
-        _tasks.resize(_num_tasks, nullptr);
+              _num_tasks_of_parent(num_tasks_of_parent),
+              _query_ctx(query_ctx) {
+        _tasks.resize(_num_tasks, std::shared_ptr<PipelineTask>(nullptr));
     }
+    ~Pipeline();
 
     // Add operators for pipelineX
     Status add_operator(OperatorPtr& op, const int parallelism);
@@ -97,7 +99,7 @@ public:
         _children = std::move(children);
     }
 
-    void incr_created_tasks(int i, PipelineTask* task) {
+    void incr_created_tasks(int i, std::shared_ptr<PipelineTask> task) {
         _num_tasks_created++;
         _num_tasks_running++;
         DCHECK_LT(i, _tasks.size());
@@ -108,7 +110,7 @@ public:
 
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
-        _tasks.resize(_num_tasks, nullptr);
+        _tasks.resize(_num_tasks, std::shared_ptr<PipelineTask>(nullptr));
         for (auto& op : _operators) {
             op->set_parallel_tasks(_num_tasks);
         }
@@ -140,8 +142,6 @@ public:
     int num_tasks_of_parent() const { return _num_tasks_of_parent; }
 
 private:
-    void _init_profile();
-
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
     std::vector<std::pair<int, std::shared_ptr<Pipeline>>> _dependencies;
 
@@ -149,12 +149,10 @@ private:
 
     PipelineId _pipeline_id;
 
-    // pipline id + operator names. init when:
+    // pipeline id + operator names. init when:
     //  build_operators(), if pipeline;
     //  _build_pipelines() and _create_tree_helper(), if pipelineX.
     std::string _name;
-
-    std::unique_ptr<RuntimeProfile> _pipeline_profile;
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
@@ -174,9 +172,10 @@ private:
     // How many tasks are already created and not finished?
     std::atomic<int> _num_tasks_running = 0;
     // Tasks in this pipeline.
-    std::vector<PipelineTask*> _tasks;
+    std::vector<std::weak_ptr<PipelineTask>> _tasks;
     // Parallelism of parent pipeline.
     const int _num_tasks_of_parent;
+    QueryContext* _query_ctx;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
