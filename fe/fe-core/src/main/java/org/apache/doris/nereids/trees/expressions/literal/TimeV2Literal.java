@@ -220,7 +220,7 @@ public class TimeV2Literal extends Literal {
             sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
         if (((TimeV2Type) dataType).getScale() > 0) {
-            sb.append(String.format(".%0" + ((TimeV2Type) dataType).getScale() + "d", microsecond));
+            sb.append(String.format(".%" + ((TimeV2Type) dataType).getScale() + "d", microsecond));
         }
         return sb.toString();
     }
