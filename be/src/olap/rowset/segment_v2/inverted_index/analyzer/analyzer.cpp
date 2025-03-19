@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<lucene::util::Reader> InvertedIndexAnalyzer::create_reader(
         CharFilterMap& char_filter_map) {
@@ -135,8 +136,9 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
     auto analyzer = create_analyzer(inverted_index_ctx.get());
     inverted_index_ctx->analyzer = analyzer.get();
     auto reader = create_reader(inverted_index_ctx->char_filter_map);
-    reader->init(search_str.data(), search_str.size(), true);
+    reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader.get(), analyzer.get(), field_name, query_type);
 }
 
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"
