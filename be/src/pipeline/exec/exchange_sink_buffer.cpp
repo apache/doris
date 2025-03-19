@@ -101,10 +101,14 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()),
-          _send_multi_blocks(state->query_options().enable_exchange_multi_blocks) {
+          _send_multi_blocks(state->query_options().__isset.exchange_multi_blocks_byte_size &&
+                             state->query_options().exchange_multi_blocks_byte_size > 0) {
     for (auto sender_ins_id : sender_ins_ids) {
         _queue_deps.emplace(sender_ins_id, nullptr);
         _parents.emplace(sender_ins_id, nullptr);
+    }
+    if (_send_multi_blocks) {
+        _send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
     }
 }
 
@@ -253,6 +257,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         return Status::OK();
     }
 
+    auto mem_byte = 0;
     if (q_ptr && !q_ptr->empty()) {
         auto& q = *q_ptr;
 
@@ -260,6 +265,15 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = std::move(q.front());
             q.pop();
+
+            if (requests[i].block) {
+                // make sure rpc byte size under the _send_multi_blocks_bytes_size
+                mem_byte += requests[i].block->ByteSizeLong();
+                if (_send_multi_blocks && mem_byte > _send_multi_blocks_byte_size) {
+                    requests.resize(i + 1);
+                    break;
+                }
+            }
         }
 
         // If we have data to shuffle which is not broadcasted
@@ -268,13 +282,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
 
-        auto mem_byte = 0;
         if (_send_multi_blocks) {
             for (auto& req : requests) {
                 if (req.block && !req.block->column_metas().empty()) {
                     auto add_block = brpc_request->add_blocks();
                     add_block->Swap(req.block.get());
-                    mem_byte += add_block->ByteSizeLong();
                 }
 
                 if (!req.exec_status.ok()) {
@@ -381,6 +393,15 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         for (int i = 0; i < requests.size(); i++) {
             requests[i] = broadcast_q.front();
             broadcast_q.pop();
+
+            if (requests[i].block_holder->get_block()) {
+                // make sure rpc byte size under the _send_multi_blocks_bytes_size
+                mem_byte += requests[i].block_holder->get_block()->ByteSizeLong();
+                if (_send_multi_blocks && mem_byte > _send_multi_blocks_byte_size) {
+                    requests.resize(i + 1);
+                    break;
+                }
+            }
         }
 
         auto& request = requests[0];
@@ -411,10 +432,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
-        //        if (request.channel->_parent->parent()->node_id() == 10) {
-        //            LOG(INFO) << "happen lee dst_id:" << id << " channel: " << request.channel << " sender_id: " << request.channel->_parent->sender_id()
-        //                  << " be_number: " << request.channel->_parent->be_number() << " block count: " << (_send_multi_blocks ? brpc_request->blocks_size() : (brpc_request->has_block() ? 1 : 0));
-        //        }
         _instance_to_seq[id] += requests.size();
         brpc_request->set_packet_seq(_instance_to_seq[id]);
         brpc_request->set_eos(requests.back().eos);

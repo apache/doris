@@ -336,6 +336,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
     bool _send_multi_blocks = false;
+    int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
 } // namespace pipeline
