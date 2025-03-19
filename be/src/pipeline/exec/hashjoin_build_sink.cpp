@@ -112,15 +112,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-
-#ifndef NDEBUG
-    // if (state->fuzzy_disable_runtime_filter_in_be()) {
-    //     if ((_parent->operator_id() + random()) % 2 == 0) {
-    //         RETURN_IF_ERROR(disable_runtime_filters(state));
-    //     }
-    // }
-#endif
-
     return Status::OK();
 }
 

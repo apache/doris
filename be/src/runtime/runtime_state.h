@@ -128,20 +128,12 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
-    int wait_full_block_schedule_times() const {
-        return _query_options.wait_full_block_schedule_times;
-    }
-    bool abort_on_error() const { return _query_options.abort_on_error; }
-    bool abort_on_default_limit_exceeded() const {
-        return _query_options.abort_on_default_limit_exceeded;
-    }
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
     }
-    int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
@@ -491,11 +483,6 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
-    bool enable_hash_join_early_start_probe() const {
-        return _query_options.__isset.enable_hash_join_early_start_probe &&
-               _query_options.enable_hash_join_early_start_probe;
-    }
-
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
@@ -530,11 +517,6 @@ public:
     }
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
-
-    inline bool enable_delete_sub_pred_v2() const {
-        return _query_options.__isset.enable_delete_sub_predicate_v2 &&
-               _query_options.enable_delete_sub_predicate_v2;
-    }
 
     using LocalState = doris::pipeline::PipelineXLocalStateBase;
     using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
@@ -636,11 +618,6 @@ public:
     MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
-    }
-
-    bool fuzzy_disable_runtime_filter_in_be() const {
-        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
-               _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
     size_t minimum_operator_memory_required_bytes() const {
