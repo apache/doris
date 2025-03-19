@@ -29,7 +29,6 @@ import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -94,8 +93,7 @@ public class ListPartitionPrunerV2Test {
         ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 10, 10, "mgr", 120, false);
         HiveMetaStoreCache cache = new HiveMetaStoreCache(
-                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor,
-                new SessionVariable());
+                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
         ArrayList<Type> types = new ArrayList<>();
         types.add(ScalarType.DOUBLE);
 

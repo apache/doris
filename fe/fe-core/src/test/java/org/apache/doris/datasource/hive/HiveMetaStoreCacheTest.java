@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -43,8 +44,7 @@ public class HiveMetaStoreCacheTest {
                 1, 1, "file", 1, false);
 
         HiveMetaStoreCache hiveMetaStoreCache = new HiveMetaStoreCache(
-                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor,
-                new SessionVariable());
+                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
 
         LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache = hiveMetaStoreCache.getFileCacheRef().get();
         LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache = hiveMetaStoreCache.getPartitionCache();
@@ -124,9 +124,12 @@ public class HiveMetaStoreCacheTest {
                 1, 1, "file", 1, false);
 
         SessionVariable sv = new SessionVariable();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        connectContext.setSessionVariable(sv);
         HiveMetaStoreCache hiveMetaStoreCache = new HiveMetaStoreCache(
                 new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null),
-                executor, listExecutor, sv);
+                executor, listExecutor);
 
         LoadingCache<HiveMetaStoreCache.FileCacheKey, HiveMetaStoreCache.FileCacheValue> fileCache = hiveMetaStoreCache.getFileCacheRef().get();
         LoadingCache<HiveMetaStoreCache.PartitionCacheKey, HivePartition> partitionCache = hiveMetaStoreCache.getPartitionCache();

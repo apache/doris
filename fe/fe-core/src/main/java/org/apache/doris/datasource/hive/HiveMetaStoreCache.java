@@ -54,7 +54,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -117,16 +117,13 @@ public class HiveMetaStoreCache {
     // Other thread may reset this cache, so use AtomicReference to wrap it.
     private volatile AtomicReference<LoadingCache<FileCacheKey, FileCacheValue>> fileCacheRef
             = new AtomicReference<>();
-    private final SessionVariable sv;
 
     public HiveMetaStoreCache(HMSExternalCatalog catalog,
                               ExecutorService refreshExecutor,
-                              ExecutorService fileListingExecutor,
-                              SessionVariable sv) {
+                              ExecutorService fileListingExecutor) {
         this.catalog = catalog;
         this.refreshExecutor = refreshExecutor;
         this.fileListingExecutor = fileListingExecutor;
-        this.sv = sv;
         init();
         initMetrics();
     }
@@ -466,7 +463,7 @@ public class HiveMetaStoreCache {
     }
 
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
-        if (sv.getEnableHiveMetastoreCache()) {
+        if (getEnableHiveMetastoreCache()) {
             return partitionValuesCache.get(key);
         } else {
             return loadPartitionValues(key);
@@ -503,7 +500,7 @@ public class HiveMetaStoreCache {
 
         List<FileCacheValue> fileLists;
         try {
-            if (withCache && sv.getEnableHiveMetastoreCache()) {
+            if (withCache && getEnableHiveMetastoreCache()) {
                 fileLists = new ArrayList<>(fileCacheRef.get().getAll(keys).values());
             } else {
                 if (concurrent) {
@@ -537,7 +534,7 @@ public class HiveMetaStoreCache {
 
     public HivePartition getHivePartition(String dbName, String name, List<String> partitionValues) {
         PartitionCacheKey partitionCacheKey = new PartitionCacheKey(dbName, name, partitionValues);
-        if (sv.getEnableHiveMetastoreCache()) {
+        if (getEnableHiveMetastoreCache()) {
             return partitionCache.get(partitionCacheKey);
         } else {
             return loadPartition(partitionCacheKey);
@@ -562,7 +559,7 @@ public class HiveMetaStoreCache {
                 .collect(Collectors.toList());
 
         List<HivePartition> partitions;
-        if (withCache && sv.getEnableHiveMetastoreCache()) {
+        if (withCache && getEnableHiveMetastoreCache()) {
             partitions = partitionCache.getAll(keys).values().stream().collect(Collectors.toList());
         } else {
             Map<PartitionCacheKey, HivePartition> map = loadPartitions(keys);
@@ -1084,5 +1081,13 @@ public class HiveMetaStoreCache {
         res.put("hive_file_cache",
                 ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
         return res;
+    }
+
+    private boolean getEnableHiveMetastoreCache() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().getEnableHiveMetastoreCache();
     }
 }
