@@ -23,16 +23,15 @@
 #include "gutil/hash/city.h"
 #include "gutil/strings/substitute.h"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 NGramBloomFilter::NGramBloomFilter(size_t size)
         : _size(size),
           words((size + sizeof(UnderType) - 1) / sizeof(UnderType)),
           filter(words, 0) {}
 
 // for read
-Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+Status NGramBloomFilter::init(const char* buf, size_t size, HashStrategyPB strategy) {
     if (size == 0) {
         return Status::InvalidArgument(strings::Substitute("invalid size:$0", size));
     }
@@ -43,7 +42,7 @@ Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB str
     }
     words = (_size + sizeof(UnderType) - 1) / sizeof(UnderType);
     filter.reserve(words);
-    const UnderType* from = reinterpret_cast<const UnderType*>(buf);
+    const auto* from = reinterpret_cast<const UnderType*>(buf);
     for (size_t i = 0; i < words; ++i) {
         filter[i] = from[i];
     }
@@ -51,7 +50,7 @@ Status NGramBloomFilter::init(const char* buf, uint32_t size, HashStrategyPB str
     return Status::OK();
 }
 
-void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
+void NGramBloomFilter::add_bytes(const char* data, size_t len) {
     size_t hash1 = util_hash::CityHash64WithSeed(data, len, 0);
     size_t hash2 = util_hash::CityHash64WithSeed(data, len, SEED_GEN);
 
@@ -62,7 +61,7 @@ void NGramBloomFilter::add_bytes(const char* data, uint32_t len) {
 }
 
 bool NGramBloomFilter::contains(const BloomFilter& bf_) const {
-    const NGramBloomFilter& bf = static_cast<const NGramBloomFilter&>(bf_);
+    const auto& bf = static_cast<const NGramBloomFilter&>(bf_);
     for (size_t i = 0; i < words; ++i) {
         if ((filter[i] & bf.filter[i]) != bf.filter[i]) {
             return false;
@@ -70,6 +69,5 @@ bool NGramBloomFilter::contains(const BloomFilter& bf_) const {
     }
     return true;
 }
-
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

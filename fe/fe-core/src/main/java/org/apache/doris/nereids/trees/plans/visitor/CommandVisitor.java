@@ -126,6 +126,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
@@ -146,6 +147,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
@@ -555,6 +557,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showRepositoriesCommand, context);
     }
 
+    default R visitShowRestoreCommand(ShowRestoreCommand showRestoreCommand, C context) {
+        return visitCommand(showRestoreCommand, context);
+    }
+
     default R visitShowRolesCommand(ShowRolesCommand showRolesCommand, C context) {
         return visitCommand(showRolesCommand, context);
     }
@@ -847,6 +853,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableStatusCommand(ShowTableStatusCommand showTableStatusCommand, C context) {
         return visitCommand(showTableStatusCommand, context);
+    }
+
+    default R visitShowDatabasesCommand(ShowDatabasesCommand showDatabasesCommand, C context) {
+        return visitCommand(showDatabasesCommand, context);
     }
 
     default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
