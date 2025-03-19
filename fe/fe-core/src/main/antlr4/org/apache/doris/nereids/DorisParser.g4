@@ -342,6 +342,7 @@ supportedShowStatement
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
+    | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     ;
 
 supportedLoadStatement
@@ -387,7 +388,6 @@ unsupportedShowStatement
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
-    | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
