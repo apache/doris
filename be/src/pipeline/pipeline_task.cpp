@@ -610,7 +610,9 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     if (_task_queue) {
         _task_queue->update_statistics(this, close_ns);
     }
-    RETURN_IF_ERROR(_state_transition(State::FINISHED));
+    if (close_sink) {
+        RETURN_IF_ERROR(_state_transition(State::FINISHED));
+    }
     return s;
 }
 
