@@ -217,4 +217,78 @@ public class LocationPathTest {
         LocationPath p3 = new LocationPath("file://authority/abc/def", props);
         Assertions.assertEquals(Scheme.LOCAL, p3.getScheme());
     }
+
+    @Test
+    public void testNormalizedHdfsPath() {
+        // Test case 1: Path with special characters that need encoding
+        // Input: Path with spaces and special characters
+        // Expected: Characters are properly encoded while preserving / and :
+        String location = "hdfs://namenode/path with spaces/<special>chars";
+        String host = "";
+        boolean enableOssRootPolicy = false;
+        String result = LocationPath.normalizedHdfsPath(location, host, enableOssRootPolicy);
+        Assertions.assertEquals("hdfs://namenode/path with spaces/<special>chars", result);
+
+        // Test case 2: Empty host in URI with host parameter provided
+        // Input: hdfs:///, host = nameservice
+        // Expected: hdfs://nameservice/
+        location = "hdfs:///path/to/file";
+        host = "nameservice";
+        result = LocationPath.normalizedHdfsPath(location, host, false);
+        Assertions.assertEquals("hdfs://nameservice//path/to/file", result);
+
+        // Test case 3: Broken prefix case (hdfs:/ instead of hdfs://)
+        // Input: hdfs:/path, host = nameservice
+        // Expected: hdfs://nameservice/path
+        location = "hdfs:/path/to/file";
+        host = "nameservice";
+        result = LocationPath.normalizedHdfsPath(location, host, false);
+        Assertions.assertEquals("hdfs://nameservice/path/to/file", result);
+
+        // Test case 4: Empty host parameter with enableOssRootPolicy=true
+        // Input: hdfs://customized_host/path
+        // Expected: hdfs://customized_host/path (unchanged)
+        location = "hdfs://customized_host/path/to/file";
+        host = "";
+        result = LocationPath.normalizedHdfsPath(location, host, true);
+        Assertions.assertEquals("hdfs://customized_host/path/to/file", result);
+
+        // Test case 5: Empty host parameter with enableOssRootPolicy=false
+        // Input: hdfs://host/path
+        // Expected: /path
+        location = "hdfs://customized_host/path/to/file";
+        host = "";
+        result = LocationPath.normalizedHdfsPath(location, host, false);
+        Assertions.assertEquals("/customized_host/path/to/file", result);
+
+        // Test case 6: hdfs:/// with empty host parameter
+        // Input: hdfs:///path
+        // Expected: Exception since this format is not supported
+        location = "hdfs:///path/to/file";
+        host = "";
+        boolean exceptionThrown = false;
+        try {
+            LocationPath.normalizedHdfsPath(location, host, false);
+        } catch (RuntimeException e) {
+            exceptionThrown = true;
+            Assertions.assertTrue(e.getMessage().contains("Invalid location with empty host"));
+        }
+        Assertions.assertTrue(exceptionThrown);
+
+        // Test case 7: Non-empty host in URI (regular case)
+        // Input: hdfs://existinghost/path
+        // Expected: hdfs://existinghost/path (unchanged)
+        location = "hdfs://existinghost/path/to/file";
+        host = "nameservice";
+        result = LocationPath.normalizedHdfsPath(location, host, false);
+        Assertions.assertEquals("hdfs://existinghost/path/to/file", result);
+
+        // Test case 8: No valid host name
+        // Input: hdfs://hdfs_host/path
+        // Expected: hdfs://existinghost/path (unchanged)
+        location = "hdfs://hdfs_host/path/to/file";
+        host = "nameservice";
+        result = LocationPath.normalizedHdfsPath(location, host, false);
+        Assertions.assertEquals("hdfs://nameservice/hdfs_host/path/to/file", result);
+    }
 }

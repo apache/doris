@@ -120,6 +120,9 @@ public abstract class ExternalCatalog
     public static final String FOUND_CONFLICTING = "Found conflicting";
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
 
+    // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
+    public static final String OOS_ROOT_POLICY = "oss.root_policy";
+
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,

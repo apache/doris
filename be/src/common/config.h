@@ -1532,6 +1532,8 @@ DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
 
+DECLARE_mBool(enable_oss_jindofs);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

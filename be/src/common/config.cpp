@@ -1457,6 +1457,11 @@ DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
+// Some when using jindofs to access oss-hdfs,
+// some method may not compatible with open source hdfs filesystem.
+// Set this to true to NOT calling these methods.
+DEFINE_mBool(enable_oss_jindofs, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
