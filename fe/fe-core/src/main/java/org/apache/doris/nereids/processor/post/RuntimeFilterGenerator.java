@@ -97,7 +97,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             PhysicalHashJoin.class
     );
 
-    private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
+    public RuntimeFilterGenerator() {
+    }
 
     @Override
     public Plan processRoot(Plan plan, CascadesContext ctx) {
@@ -282,7 +283,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (equalTo.left().getInputSlots().size() == 1) {
                     RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                             RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForHashJoin(
-                                    equalTo.right(), equalTo.left(), ctx, generator, type, join,
+                                    equalTo.right(), equalTo.left(), ctx, ctx.getRuntimeFilterIdGen(), type, join,
                                     context.getStatementContext().isHasUnknownColStats(), buildSideNdv, i);
                     // pushDownContext is not valid, if the target is an agg result.
                     // Currently, we only apply RF on PhysicalScan. So skip this rf.
@@ -355,7 +356,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
             RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                     RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForBitMapFilter(
-                            bitmapContains.child(0), bitmapContains.child(1), ctx, generator, join,
+                            bitmapContains.child(0), bitmapContains.child(1),
+                            ctx, ctx.getRuntimeFilterIdGen(), join,
                             -1, i, isNot);
             if (pushDownContext.isValid()) {
                 join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
@@ -430,7 +432,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 Preconditions.checkState(olapScanSlot != null && scan != null);
                 RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                         RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContextForNljMinMaxFilter(
-                                compare.child(1), compare.child(0), ctx, generator, join,
+                                compare.child(1), compare.child(0),
+                                ctx, ctx.getRuntimeFilterIdGen(), join,
                                 exprOrder, getMinMaxType(compare));
                 if (pushDownContext.isValid()) {
                     join.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
@@ -588,7 +591,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (targetList.isEmpty()) {
                     return false;
                 }
-                RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                RuntimeFilter filter = new RuntimeFilter(ctx.getRuntimeFilterIdGen().getNextId(),
                         rf.getSrcExpr(), targetList, targetExpressions, rf.getType(), rf.getExprOrder(),
                         rf.getBuilderNode(), buildSideNdv, rf.isBloomFilterSizeCalculatedByNdv(),
                         rf.gettMinMaxType(), cteNode);
