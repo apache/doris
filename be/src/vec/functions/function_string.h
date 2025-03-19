@@ -83,6 +83,7 @@
 #include <string_view>
 
 #include "exprs/math_functions.h"
+#include "pugixml.hpp"
 #include "udf/udf.h"
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
@@ -4585,6 +4586,57 @@ private:
             }
         }
         return result;
+    }
+};
+
+class FunctionXPathString : public IFunction {
+public:
+    static constexpr auto name = "xpath_string";
+    static FunctionPtr create() { return std::make_shared<FunctionXPathString>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 2);
+        auto col_res = ColumnString::create();
+        bool col_const[2];
+        ColumnPtr argument_columns[2];
+        for (int i = 0; i < 2; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+        default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
+
+        const auto* col_xpath = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* col_xml = assert_cast<const ColumnString*>(argument_columns[1].get());
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto& xpath_str = col_xpath->get_data_at(i);
+            const auto& xml_str = col_xml->get_data_at(i);
+            pugi::xml_document doc;
+            pugi::xml_parse_result result = doc.load_string(xml_str.to_string_view().data());
+            if (!result) {
+                col_res->insert_data(nullptr, 0);
+                continue;
+            }
+
+            pugi::xml_node node = doc.child(xpath_str.to_string_view().data());
+            if (!node) {
+                col_res->insert_data(nullptr, 0);
+                continue;
+            }
+            std::string_view text {node.text().as_string()};
+            col_res->insert_data(text.data(), text.size());
+        }
+        block.get_by_position(result).column = std::move(col_res);
+        return Status::OK();
     }
 };
 
