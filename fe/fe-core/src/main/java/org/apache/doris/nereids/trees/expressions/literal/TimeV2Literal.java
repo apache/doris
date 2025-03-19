@@ -41,10 +41,6 @@ public class TimeV2Literal extends Literal {
     protected int microsecond;
     protected boolean negative;
 
-    public TimeV2Literal(String s) {
-        this(TimeV2Type.of(0), s);
-    }
-
     public TimeV2Literal(TimeV2Type dataType, String s) {
         super(dataType);
         init(s);
