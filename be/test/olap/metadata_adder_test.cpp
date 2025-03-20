@@ -80,9 +80,9 @@ TEST_F(MetadataAdderTest, metadata_adder_test) {
                     (t1_mem_size + tablet_schema_size));
 
         t2 = t1;
-        std::cout << "final=" << MetadataAdder<TabletMeta>::get_all_tablets_size()
-                  << std::endl;
-        ASSERT_TRUE(MetadataAdder<TabletMeta>::get_all_tablets_size() == (t1_mem_size * 2));
+        std::cout << "final=" << MetadataAdder<TabletMeta>::get_all_tablets_size() << std::endl;
+        ASSERT_TRUE(MetadataAdder<TabletMeta>::get_all_tablets_size() ==
+                    (tablet_col_size + col_memory_size * 2 + tablet_schema_size * 2));
     }
 
     ASSERT_TRUE(MetadataAdder<TabletMeta>::get_all_tablets_size() == 0);
