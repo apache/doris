@@ -338,14 +338,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Deprecated
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
 
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
@@ -574,7 +574,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
             LOG.info("debug point FE.mow.commit.exception, throw e");
-            throw new UserException("debug point FE.mow.commit.exception");
+            throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
@@ -615,7 +615,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
                         transactionId, callbackId, txnState);
                 cb.afterCommitted(txnState, txnOperated);
-                cb.afterVisible(txnState, txnOperated);
+                // do not exectue afterVisible if commit txn fail in cloud mode
+                if (txnOperated) {
+                    cb.afterVisible(txnState, txnOperated);
+                }
             }
         }
     }
@@ -895,6 +898,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}", transactionId,
                             retryTime, e);
                 }
+                if (DebugPointUtil.isEnable("FE.mow.check.lock.release")
+                        && response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check delete bitmap lock release fail,response is " + response
+                                    + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
+                }
                 // sleep random millis [20, 300] ms, avoid txn conflict
                 int randomMillis = 20 + (int) (Math.random() * (300 - 20));
                 if (LOG.isDebugEnabled()) {
@@ -908,6 +917,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             Preconditions.checkNotNull(response);
             Preconditions.checkNotNull(response.getStatus());
+            if (DebugPointUtil.isEnable("FE.mow.get_delete_bitmap_lock.fail")) {
+                throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                        "test get_delete_bitmap_lock fail");
+            }
             if (response.getStatus().getCode() != MetaServiceCode.OK) {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}", transactionId,
                         retryTime, response);
@@ -943,7 +956,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
-                lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                if (size4 > 0) {
+                    lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                }
             }
             totalRetryTime += retryTime;
         }
@@ -1172,6 +1187,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        // There is no publish in cloud mode
+        commitAndPublishTransaction(
+                db, tableList, transactionId, tabletCommitInfos, timeoutMillis, txnCommitAttachment);
+    }
+
+    @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
@@ -1188,6 +1212,28 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
         increaseWaitingLockCount(tablesToLock);
+        if (!tablesToLock.isEmpty() && DebugPointUtil.isEnable("FE.mow.check.lock.release")) {
+            for (int i = 0; i < tablesToLock.size(); i++) {
+                if (tablesToLock.get(i).getCommitLockOwner() != null) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check lock release fail,lock owner is " + tablesToLock.get(i).getCommitLockOwner()
+                                    + ", tableList=(" + StringUtils.join(tablesToLock, ",") + ")");
+                }
+            }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.timeout")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.tryCommitLock.timeout");
+            int t = debugPoint.param("sleep_time", 5);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+            throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                    "test get table cloud commit lock timeout, tableList=("
+                            + StringUtils.join(tablesToLock, ",") + ")");
+        }
         if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(tablesToLock);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
@@ -1197,7 +1243,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             decreaseWaitingLockCount(tablesToLock);
             MetaLockUtils.commitUnlockTables(tablesToLock);

@@ -92,8 +92,9 @@ public:
 
             if (type_array->is_nullable()) {
                 // get the nullmap of nullable column
-                const auto& column_array_nullmap =
-                        assert_cast<const ColumnNullable&>(*column_array).get_null_map_column();
+                // hold the null column instead of a reference 'cause `column_array` will be assigned and freed below.
+                auto column_array_nullmap =
+                        assert_cast<const ColumnNullable&>(*column_array).get_null_map_column_ptr();
 
                 // get the array column from nullable column
                 column_array = assert_cast<const ColumnNullable*>(column_array.get())
@@ -104,8 +105,9 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(outside_null_map->get_data(),
-                                                 column_array_nullmap.get_data());
+                VectorizedUtils::update_null_map(
+                        outside_null_map->get_data(),
+                        assert_cast<const ColumnUInt8&>(*column_array_nullmap).get_data());
             }
 
             // here is the array column

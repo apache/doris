@@ -101,6 +101,9 @@ public:
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
+        block.replace_by_position(
+                arguments[0],
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
         auto col_left = block.get_by_position(arguments[0]);
         if (col_left.column->is_nullable()) {
             auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
@@ -328,7 +331,7 @@ private:
                                 const UInt8* src_null_map, UInt8* dst_null_map) const {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
+        const auto& array_column = assert_cast<const ColumnArray&>(*left_column);
         const auto& offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
         const UInt8* nested_null_map = nullptr;

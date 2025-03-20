@@ -867,6 +867,7 @@ struct TCommitTxnRequest {
     // used for ccr
     13: optional bool txn_insert
     14: optional list<TSubTxnInfo> sub_txn_infos
+    15: optional bool only_commit   // only commit txn, without waiting txn publish
 }
 
 struct TCommitTxnResult {
@@ -1497,6 +1498,8 @@ struct TGetBinlogLagResult {
     5: optional i64 last_commit_seq
     6: optional i64 first_binlog_timestamp
     7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
@@ -1649,9 +1652,12 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
-    4: optional list<i64> dropped_partitions
-    5: optional list<i64> dropped_tables
-    6: optional list<i64> dropped_indexes
+    4: optional list<i64> dropped_partitions    // DEPRECATED
+    5: optional list<i64> dropped_tables        // DEPRECATED
+    6: optional list<i64> dropped_indexes       // DEPRECATED
+    7: optional map<i64, i64> dropped_partition_map     // id -> commit seq
+    8: optional map<i64, i64> dropped_table_map         // id -> commit seq
+    9: optional map<i64, i64> dropped_index_map         // id -> commit seq
 }
 
 struct TGetMetaResult {

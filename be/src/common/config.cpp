@@ -1211,6 +1211,10 @@ DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
+// get agg by cache for mow table
+DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
+// get agg correctness check for mow table
+DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1456,6 +1460,10 @@ DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 // clang-format off
 #ifdef BE_TEST

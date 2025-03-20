@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
@@ -27,6 +28,9 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -161,6 +165,15 @@ public class FunctionRegistry {
             throw new AnalysisException("Can not found function '" + qualifiedName
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
+        if (!Config.enable_java_udf) {
+            candidateBuilders = candidateBuilders.stream()
+                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
+                            || fb instanceof JavaUdtfBuilder))
+                    .collect(Collectors.toList());
+            if (candidateBuilders.isEmpty()) {
+                throw new AnalysisException("java_udf has been disabled.");
+            }
+        }
         if (candidateBuilders.size() > 1) {
             boolean needChooseOne = true;
             List<FunctionSignature> signatures = Lists.newArrayListWithCapacity(candidateBuilders.size());
@@ -213,7 +226,6 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
-                    FunctionUtil.checkEnableJavaUdfForNereids();
                     return candidate;
                 }
             }

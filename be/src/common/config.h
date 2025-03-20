@@ -1274,6 +1274,10 @@ DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DECLARE_mInt32(publish_version_gap_logging_threshold);
+// get agg by cache for mow table
+DECLARE_mBool(enable_mow_get_agg_by_cache);
+// get agg correctness check for mow table
+DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1529,6 +1533,10 @@ DECLARE_mInt32(check_tablet_delete_bitmap_score_top_n);
 DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 
 DECLARE_mBool(enable_mow_verbose_log);
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 #ifdef BE_TEST
 // test s3

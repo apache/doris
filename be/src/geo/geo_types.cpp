@@ -57,7 +57,7 @@ GeoCircle::~GeoCircle() = default;
 
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
-    os << std::setprecision(12) << coord.lng().degrees() << " " << coord.lat().degrees();
+    os << std::setprecision(15) << coord.lng().degrees() << " " << coord.lat().degrees();
 }
 
 static inline bool is_valid_lng_lat(double lng, double lat) {

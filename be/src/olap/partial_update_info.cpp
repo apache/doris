@@ -339,7 +339,7 @@ Status PartialUpdateReadPlan::fill_missing_columns(
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    missing_col->insert_default();
+                    missing_col->insert(tablet_column.get_vec_type()->get_default());
                 }
                 // clang-format on
             }
