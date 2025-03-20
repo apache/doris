@@ -1289,7 +1289,7 @@ void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
                               download_request.__isset.location ? download_request.location : "",
                               download_request.vault_id);
         if (status.ok()) {
-            status = loader->download(download_request.cloud_src_dest_map, &transferred_tablet_ids);
+            status = loader->download(download_request.src_dest_map, &transferred_tablet_ids);
         }
 
         if (!status.ok()) {

@@ -18,7 +18,7 @@
 suite("test_validate_restore_inverted_idx", "validate_restore") {
     def runValidateRestoreInvertedIdx = { String version ->
         String validateSuiteName = "test_backup_restore_inverted_idx"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableName = "${validateSuiteName}_table"
 
@@ -150,8 +150,8 @@ suite("test_validate_restore_inverted_idx", "validate_restore") {
                 sql """ ADMIN SET FRONTEND CONFIG ("restore_reset_index_id" = "true") """
             }
         } finally {
-            //sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
-            //sql "DROP DATABASE ${dbName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
+            sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }
     }

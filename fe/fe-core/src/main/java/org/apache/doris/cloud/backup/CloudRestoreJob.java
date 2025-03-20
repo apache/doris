@@ -47,25 +47,18 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -137,7 +130,7 @@ public class CloudRestoreJob extends RestoreJob {
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
         if (Strings.isNullOrEmpty(cloudClusterName)) {
-            throw new UserException("cloud cluster name is not set.");
+            throw new UserException("compute group name is not set.");
         }
         if (ConnectContext.get() == null) {
             ConnectContext ctx = new ConnectContext();
@@ -166,7 +159,7 @@ public class CloudRestoreJob extends RestoreJob {
         super.checkIfNeedCancel();
         if ((cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(
                 cloudClusterName)) == null) {
-            status = new Status(Status.ErrCode.NOT_FOUND, "cluster " + cloudClusterName
+            status = new Status(Status.ErrCode.NOT_FOUND, "compute group " + cloudClusterName
                     + " has been removed");
         }
     }
@@ -277,121 +270,16 @@ public class CloudRestoreJob extends RestoreJob {
     }
 
     @Override
-    public void downloadRemoteSnapshots() {
-        // Categorize snapshot infos by db id.
-        ArrayListMultimap<Long, SnapshotInfo> dbToSnapshotInfos = ArrayListMultimap.create();
-        for (SnapshotInfo info : snapshotInfos.values()) {
-            dbToSnapshotInfos.put(info.getDbId(), info);
+    protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
+                                              Map<String, String> srcToDest, FsBroker brokerAddr) {
+        if (storageVaultId == null) {
+            storageVaultId = snapshotInfos.values().iterator().next().getStorageVaultId();
+            Preconditions.checkState(storageVaultId != null && !storageVaultId.isEmpty(),
+                    "Storage vault ID cannot be null or empty");
         }
-
-        // Send download tasks
-        unfinishedSignatureToId.clear();
-        taskProgress.clear();
-        taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
-        for (long dbId : dbToSnapshotInfos.keySet()) {
-            List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
-
-            Database db = env.getInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                status = new Status(Status.ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
-                return;
-            }
-
-            // We classify the snapshot info by backend
-            ArrayListMultimap<Long, SnapshotInfo> beToSnapshots = ArrayListMultimap.create();
-            for (SnapshotInfo info : infos) {
-                beToSnapshots.put(info.getBeId(), info);
-            }
-
-            db.readLock();
-            try {
-                for (Long beId : beToSnapshots.keySet()) {
-                    List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
-
-                    // We classify the snapshot info by storage vault id
-                    ArrayListMultimap<String, SnapshotInfo> vaultToSnapshots = ArrayListMultimap.create();
-                    for (SnapshotInfo info : beSnapshotInfos) {
-                        vaultToSnapshots.put(info.getStorageVaultId(), info);
-                    }
-
-                    for (String storageVaultId : vaultToSnapshots.keySet()) {
-                        List<SnapshotInfo> vaultSnapshotInfos = vaultToSnapshots.get(storageVaultId);
-
-                        int totalNum = vaultSnapshotInfos.size();
-                        // each task contains several upload sub tasks
-                        int taskNumPerBatch = Config.restore_download_snapshot_batch_size;
-                        LOG.info("backend {} has total {} snapshots, per task batch size {}, {}",
-                                beId, totalNum, taskNumPerBatch, this);
-
-                        List<FsBroker> brokerAddrs = null;
-                        brokerAddrs = Lists.newArrayList();
-                        Status st = repo.getBrokerAddress(beId, env, brokerAddrs);
-                        if (!st.ok()) {
-                            status = st;
-                            return;
-                        }
-                        Preconditions.checkState(brokerAddrs.size() == 1);
-
-                        for (int index = 0; index < totalNum; index += taskNumPerBatch) {
-                            Map<String, String> cloudSrcToDestMap = Maps.newHashMap();
-                            for (int j = 0; j < taskNumPerBatch && index + j < totalNum; j++) {
-                                SnapshotInfo info = vaultSnapshotInfos.get(index + j);
-                                Table tbl = db.getTableNullable(info.getTblId());
-                                if (tbl == null) {
-                                    status = new Status(Status.ErrCode.NOT_FOUND, "restored table "
-                                            + info.getTabletId() + " does not exist");
-                                    return;
-                                }
-                                OlapTable olapTbl = (OlapTable) tbl;
-                                olapTbl.readLock();
-                                try {
-                                    Pair<IdChain, IdChain> result = getFileMappingForSnapshots(olapTbl, info);
-                                    if (!status.ok() || result == null) {
-                                        return;
-                                    }
-                                    String repoTabletPath = jobInfo.getFilePath(result.second);
-                                    // eg:
-                                    // bos://location/__palo_repository_my_repo/_ss_my_ss/_ss_content/__db_10000/
-                                    // __tbl_10001/__part_10002/_idx_10001/__10003
-                                    String src = repo.getRepoPath(label, repoTabletPath);
-                                    if (src == null) {
-                                        status = new Status(Status.ErrCode.COMMON_ERROR, "invalid src path: "
-                                                + repoTabletPath);
-                                        return;
-                                    }
-                                    SnapshotInfo snapshotInfo = snapshotInfos.get(info.getTabletId(), info.getBeId());
-                                    Preconditions.checkNotNull(snapshotInfo, info.getTabletId() + "-"
-                                            + info.getBeId());
-                                    // download to cloud tablet id
-                                    cloudSrcToDestMap.put(src, Long.toString(snapshotInfo.getTabletId()));
-                                } finally {
-                                    olapTbl.readUnlock();
-                                }
-                            }
-                            long signature = env.getNextId();
-                            DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId,
-                                    brokerAddrs.get(0),
-                                    S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
-                                    repo.getRemoteFileSystem().getStorageType(), repo.getLocation(),
-                                    cloudSrcToDestMap, storageVaultId);
-                            batchTask.addTask(task);
-                            unfinishedSignatureToId.put(signature, beId);
-                        }
-                    }
-                }
-            } finally {
-                db.readUnlock();
-            }
-        }
-
-        // send task
-        for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
-        }
-        AgentTaskExecutor.submit(batchTask);
-
-        state = RestoreJobState.DOWNLOADING;
+        return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
+            brokerAddr, S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), storageVaultId);
     }
 
     public void downloadLocalSnapshots() {

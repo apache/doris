@@ -20,7 +20,7 @@ suite("test_validate_restore_alias", "validate_restore") {
             sql """
             RESTORE SNAPSHOT ${dbName}.${snapshotName}
             FROM `${repoName}`
-            ON ( `${tableName}` AS `${tableName}`)
+            ON ( `${tableName}`)
             PROPERTIES
             (
                 "backup_timestamp" = "${snapshot}",
@@ -53,7 +53,7 @@ suite("test_validate_restore_alias", "validate_restore") {
             qt_select "SELECT * FROM ${dbName}.${aliasName} ORDER BY id"
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

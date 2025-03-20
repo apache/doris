@@ -18,7 +18,7 @@
 suite("test_unique_validate_restore", "validate_restore") {
     def runUniqueValidateRestore = { String version ->
         String validateSuiteName = "test_unique_backup_restore"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "test_unique_backup_restore_table"
         String snapshotName = "test_unique_backup_restore_snapshot"
 
@@ -94,7 +94,7 @@ suite("test_unique_validate_restore", "validate_restore") {
             qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

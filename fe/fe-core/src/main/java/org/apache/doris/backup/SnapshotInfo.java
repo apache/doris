@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -130,6 +131,9 @@ public class SnapshotInfo implements Writable {
     }
 
     public String getTabletPath() {
+        if (Config.isCloudMode()) {
+            return Long.toString(getTabletId());
+        }
         String basePath = Joiner.on("/").join(path, tabletId, schemaHash);
         return basePath;
     }

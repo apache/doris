@@ -18,7 +18,7 @@
 suite("test_validate_restore_dup_without_default_keys", "validate_restore") {
     def runValidateRestoreDupWithoutDefaultKeys = { String version ->
         String validateSuiteName = "test_backup_restore_dup_without_default_keys"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "dup_without_keys_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 
@@ -57,7 +57,7 @@ suite("test_validate_restore_dup_without_default_keys", "validate_restore") {
 
             qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }
