@@ -82,4 +82,5 @@ suite("test_validate_restore_diff_repo_same_snapshot", "validate_restore") {
     }
 
     runValidateRestoreDiffRepoSameSnapshot("3.0")
+    runValidateRestoreDiffRepoSameSnapshot("2.1")
 }

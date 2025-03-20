@@ -63,5 +63,6 @@ suite("test_validate_restore_bloom_filter", "validate_restore") {
     }
 
     runValidateRestoreBloomFilter("3.0")
+    runValidateRestoreBloomFilter("2.1")
 }
 

@@ -57,5 +57,6 @@ suite("test_validate_restore_with_two_phase_fetch_opt", "validate_restore") {
     }
 
     runValidateRestoreWithTwoPhaseFetchOpt("3.0")
+    runValidateRestoreWithTwoPhaseFetchOpt("2.1")
 }
 

@@ -1187,25 +1187,6 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     return status;
 }
 
-Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,
-                                          std::string* new_file_name) {
-    // eg:
-    // 10007.hdr
-    // 10007_2_2_0_0.idx
-    // 10007_2_2_0_0.dat
-    if (_end_with(file_name, ".hdr")) {
-        std::stringstream ss;
-        ss << tablet_id << ".hdr";
-        *new_file_name = ss.str();
-        return Status::OK();
-    } else if (_end_with(file_name, ".idx") || _end_with(file_name, ".dat")) {
-        *new_file_name = file_name;
-        return Status::OK();
-    } else {
-        return Status::InternalError("invalid tablet file name: {}", file_name);
-    }
-}
-
 Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
                                                                      int64_t* tablet_id,
                                                                      int32_t* schema_hash) {

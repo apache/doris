@@ -58,4 +58,5 @@ suite("test_validate_restore_backup_temp_partition", "validate_restore") {
     }
 
     runValidateRestoreBackupTempPartition("3.0")
+    runValidateRestoreBackupTempPartition("2.1")
 }
