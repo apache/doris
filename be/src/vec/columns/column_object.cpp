@@ -387,7 +387,7 @@ ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root
           num_rows(size_) {}
 
 size_t ColumnObject::Subcolumn::Subcolumn::size() const {
-    return num_rows;
+    return num_rows + current_num_of_defaults;
 }
 
 size_t ColumnObject::Subcolumn::Subcolumn::byteSize() const {
@@ -636,7 +636,7 @@ void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t sta
 }
 
 bool ColumnObject::Subcolumn::is_finalized() const {
-    return num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
+    return  current_num_of_defaults == 0 && num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
 }
 
 template <typename Func>
@@ -683,6 +683,10 @@ void ColumnObject::resize(size_t n) {
 }
 
 void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
+    if (current_num_of_defaults) {
+        insert_many_defaults(current_num_of_defaults);
+        current_num_of_defaults = 0;
+    }
     if (!is_root && data.size() == 1 && num_of_defaults_in_prefix == 0) {
         data[0] = data[0]->convert_to_full_column_if_const();
         return;
@@ -695,6 +699,10 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
         least_common_type = LeastCommonType {to_type, is_root};
     }
     auto result_column = to_type->create_column();
+    if (current_num_of_defaults) {
+        insert_many_defaults(current_num_of_defaults);
+        current_num_of_defaults = 0;
+    }
     if (num_of_defaults_in_prefix) {
         result_column->insert_many_defaults(num_of_defaults_in_prefix);
     }
