@@ -458,7 +458,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                               [](const auto& dep) { return dep->ready(); }),
                   true);
         EXPECT_EQ(eos, true);
-        EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->_is_pending_finish(), false);
+        EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->is_pending_finish(), false);
         EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->close(Status::OK()), Status::OK());
     }
     {
@@ -1122,7 +1122,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
                               ->_runtime_filter_type,
                       RuntimeFilterType::IN_OR_BLOOM_FILTER);
-            EXPECT_EQ(_pipeline_tasks[1][j]->_is_pending_finish(), false);
+            EXPECT_EQ(_pipeline_tasks[1][j]->is_pending_finish(), false);
             EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
             EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
@@ -1169,7 +1169,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             EXPECT_EQ(_pipeline_tasks[0][j]->execute(&eos), Status::OK());
             EXPECT_EQ(_pipeline_tasks[0][j]->_is_blocked(), false);
             EXPECT_EQ(eos, true);
-            EXPECT_EQ(_pipeline_tasks[0][j]->_is_pending_finish(), false);
+            EXPECT_EQ(_pipeline_tasks[0][j]->is_pending_finish(), false);
             EXPECT_EQ(_pipeline_tasks[0][j]->close(Status::OK()), Status::OK());
         }
     }

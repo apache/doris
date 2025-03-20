@@ -129,7 +129,7 @@ void Pipeline::make_all_runnable() {
         }
         for (auto* task : _tasks) {
             if (task) {
-                task->terminate();
+                task->clear_blocking_state();
             }
         }
     }
