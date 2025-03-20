@@ -316,7 +316,7 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
