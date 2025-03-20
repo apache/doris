@@ -178,7 +178,7 @@ public:
     void clear_origin_block();
 
     void reached_limit(vectorized::Block* block, bool* eos);
-    RuntimeProfile* profile() { return _runtime_profile.get(); }
+    RuntimeProfile* profile() { return _runtime_profile; }
 
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
@@ -223,7 +223,7 @@ protected:
     int64_t _num_rows_returned {0};
     int64_t _estimate_memory_usage {0};
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    RuntimeProfile* _runtime_profile;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -551,7 +551,9 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override {
+        return Status::OK();
+    }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -569,7 +571,9 @@ public:
         return state->minimum_operator_memory_required_bytes();
     }
 
-    [[nodiscard]] bool is_spillable() const { return _spillable; }
+    [[nodiscard]] bool is_spillable() const {
+        return _spillable;
+    }
 
     template <class TARGET>
     TARGET& cast() {
@@ -597,7 +601,9 @@ public:
     [[nodiscard]] virtual std::string debug_string(RuntimeState* state,
                                                    int indentation_level) const;
 
-    [[nodiscard]] bool is_sink() const override { return true; }
+    [[nodiscard]] bool is_sink() const override {
+        return true;
+    }
 
     static Status close(RuntimeState* state, Status exec_status) {
         auto result = state->get_sink_local_state_result();
@@ -607,19 +613,33 @@ public:
         return result.value()->close(state, exec_status);
     }
 
-    [[nodiscard]] int operator_id() const { return _operator_id; }
+    [[nodiscard]] int operator_id() const {
+        return _operator_id;
+    }
 
-    [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
+    [[nodiscard]] const std::vector<int>& dests_id() const {
+        return _dests_id;
+    }
 
-    [[nodiscard]] int nereids_id() const { return _nereids_id; }
+    [[nodiscard]] int nereids_id() const {
+        return _nereids_id;
+    }
 
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const {
+        return _node_id;
+    }
 
-    [[nodiscard]] std::string get_name() const override { return _name; }
+    [[nodiscard]] std::string get_name() const override {
+        return _name;
+    }
 
-    virtual bool should_dry_run(RuntimeState* state) { return false; }
+    virtual bool should_dry_run(RuntimeState* state) {
+        return false;
+    }
 
-    [[nodiscard]] virtual bool count_down_destination() { return true; }
+    [[nodiscard]] virtual bool count_down_destination() {
+        return true;
+    }
 
 protected:
     template <typename Writer, typename Parent>
@@ -806,11 +826,17 @@ public:
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
-    [[nodiscard]] std::string get_name() const override { return _op_name; }
-    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
+    [[nodiscard]] std::string get_name() const override {
+        return _op_name;
+    }
+    [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const {
+        return true;
+    }
 
     // Tablets should be hold before open phase.
-    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
+    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) {
+        return Status::OK();
+    }
     Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -868,16 +894,30 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    [[nodiscard]] OperatorPtr get_child() { return _child; }
+    [[nodiscard]] OperatorPtr get_child() {
+        return _child;
+    }
 
-    [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
-    [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
+    [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() {
+        return _conjuncts;
+    }
+    [[nodiscard]] virtual RowDescriptor& row_descriptor() {
+        return _row_descriptor;
+    }
 
-    [[nodiscard]] int operator_id() const { return _operator_id; }
-    [[nodiscard]] int node_id() const { return _node_id; }
-    [[nodiscard]] int nereids_id() const { return _nereids_id; }
+    [[nodiscard]] int operator_id() const {
+        return _operator_id;
+    }
+    [[nodiscard]] int node_id() const {
+        return _node_id;
+    }
+    [[nodiscard]] int nereids_id() const {
+        return _nereids_id;
+    }
 
-    [[nodiscard]] int64_t limit() const { return _limit; }
+    [[nodiscard]] int64_t limit() const {
+        return _limit;
+    }
 
     [[nodiscard]] const RowDescriptor& row_desc() const override {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
@@ -887,7 +927,9 @@ public:
         return _output_row_descriptor.get();
     }
 
-    bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
+    bool has_output_row_desc() const {
+        return _output_row_descriptor != nullptr;
+    }
 
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
                                                           vectorized::Block* block, bool* eos);
@@ -895,11 +937,17 @@ public:
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
                           vectorized::Block* output_block) const;
-    void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
-    int parallel_tasks() const { return _parallel_tasks; }
+    void set_parallel_tasks(int parallel_tasks) {
+        _parallel_tasks = parallel_tasks;
+    }
+    int parallel_tasks() const {
+        return _parallel_tasks;
+    }
 
     // To keep compatibility with older FE
-    void set_serial_operator() { _is_serial_operator = true; }
+    void set_serial_operator() {
+        _is_serial_operator = true;
+    }
 
     virtual void reset_reserve_mem_size(RuntimeState* state) {}
 
@@ -1038,7 +1086,9 @@ public:
                                       bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, vectorized::Block* input_block,
                                       bool eos) const = 0;
-    bool need_more_input_data(RuntimeState* state) const override { return true; }
+    bool need_more_input_data(RuntimeState* state) const override {
+        return true;
+    }
 };
 
 template <typename Writer, typename Parent>

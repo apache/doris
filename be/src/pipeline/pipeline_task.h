@@ -44,7 +44,7 @@ class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
-class PipelineTask : public std::enable_shared_from_this<PipelineTask> {
+class PipelineTask : public TaskExecutionContext {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                  std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -54,6 +54,7 @@ public:
                          le_state_map,
                  int task_idx);
 
+    ~PipelineTask();
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink, QueryContext* query_ctx);
 
@@ -63,7 +64,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status, bool close_sink = true);
 
-    std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
+    std::shared_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
 
@@ -188,7 +189,7 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
-    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+    RuntimeProfile* get_task_profile() const { return _task_profile; }
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
@@ -235,7 +236,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
-    std::weak_ptr<PipelineFragmentContext> _fragment_context;
+    std::shared_ptr<PipelineFragmentContext> _fragment_context;
     MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
@@ -249,7 +250,7 @@ private:
     int _queue_level = 0;
 
     RuntimeProfile* _parent_profile = nullptr;
-    std::unique_ptr<RuntimeProfile> _task_profile;
+    RuntimeProfile* _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -319,5 +320,6 @@ private:
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
+using PipelineTaskWPtr = std::weak_ptr<PipelineTask>;
 
 } // namespace doris::pipeline

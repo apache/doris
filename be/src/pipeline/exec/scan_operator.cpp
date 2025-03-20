@@ -87,7 +87,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     set_scan_ranges(state, info.scan_ranges);
     // if you want to add some profile in scan node, even it have not new Scanner object
     // could add here, not in the _init_profile() function
-    _prepare_rf_timer(_runtime_profile.get());
+    _prepare_rf_timer(_runtime_profile);
 
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();

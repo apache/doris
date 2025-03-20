@@ -110,12 +110,8 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
-        std::shared_ptr<PipelineFragmentContext> fragment_context = task->fragment_context().lock();
-        if (!fragment_context) {
-            continue;
-        }
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                fragment_context->get_query_ctx()->query_mem_tracker());
+        std::shared_ptr<PipelineFragmentContext> fragment_context = task->fragment_context();
+        DCHECK(fragment_context);
         task->set_running(true);
         bool done = false;
         auto status = Status::OK();

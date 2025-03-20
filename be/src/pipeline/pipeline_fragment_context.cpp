@@ -139,16 +139,17 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
-    _query_ctx.reset();
-    for (size_t i = 0; i < _tasks.size(); i++) {
-        if (!_tasks[i].empty()) {
-            _call_back(_tasks[i].front()->runtime_state(), &st);
-        }
-    }
     _tasks.clear();
-    for (auto& runtime_states : _task_runtime_states) {
-        for (auto& runtime_state : runtime_states) {
-            runtime_state.reset();
+    if (!_task_runtime_states.empty()) {
+        for (size_t i = 0; i < _task_runtime_states.front().size(); i++) {
+            if (_task_runtime_states.front()[i]) {
+                _call_back(_task_runtime_states.front()[i].get(), &st);
+            }
+        }
+        for (auto& runtime_states : _task_runtime_states) {
+            for (auto& runtime_state : runtime_states) {
+                runtime_state.reset();
+            }
         }
     }
     _dag.clear();
@@ -160,6 +161,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     _runtime_filter_states.clear();
     _runtime_filter_mgr_map.clear();
     _op_id_to_le_state.clear();
+    _query_ctx.reset();
 }
 
 bool PipelineFragmentContext::is_timeout(timespec now) const {
@@ -217,8 +219,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
 
     for (auto& tasks : _tasks) {
-        for (auto& task : tasks) {
-            task->terminate();
+        for (auto& task_wptr : tasks) {
+            if (auto task = task_wptr.lock()) {
+                task->terminate();
+            }
         }
     }
 }
@@ -227,7 +231,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
             id, parent ? std::min(parent->num_tasks(), _num_instances) : _num_instances,
-            parent ? parent->num_tasks() : _num_instances);
+            parent ? parent->num_tasks() : _num_instances, _query_ctx.get());
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
     } else {
@@ -240,7 +244,8 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
 }
 
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
-                                        ThreadPool* thread_pool) {
+                                        ThreadPool* thread_pool,
+                                        RuntimeFilterMergeController* controller) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -300,6 +305,14 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _runtime_state->set_total_load_streams(request.total_load_streams);
         _runtime_state->set_num_local_sink(request.num_local_sink);
 
+        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        RETURN_IF_ERROR(controller->add_entity(
+                request.local_params[0], request.query_id, request.query_options, &handler,
+                RuntimeFilterParamsContext::create(_runtime_state.get())));
+        if (handler) {
+            _query_ctx->set_merge_controller_handler(handler);
+        }
+
         const auto& local_params = request.local_params[0];
         if (local_params.__isset.runtime_filter_params) {
             _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
@@ -356,23 +369,26 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
 
+    std::vector<std::vector<PipelineTaskSPtr>> tasks;
     {
         SCOPED_TIMER(_build_tasks_timer);
         // 6. Build pipeline tasks and initialize local state.
-        RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool));
+        RETURN_IF_ERROR(_build_pipeline_tasks(request, tasks, thread_pool));
     }
-
     _init_next_report_time();
-
     _prepared = true;
+    // 7. Submit tasks
+    RETURN_IF_ERROR(_submit(tasks));
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                                      ThreadPool* thread_pool) {
+Status PipelineFragmentContext::_build_pipeline_tasks(
+        const doris::TPipelineFragmentParams& request,
+        std::vector<std::vector<PipelineTaskSPtr>>& tasks, ThreadPool* thread_pool) {
     _total_tasks = 0;
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
+    tasks.resize(target_size);
     _runtime_filter_states.resize(target_size);
     _runtime_filter_mgr_map.resize(target_size);
     _task_runtime_states.resize(_pipelines.size());
@@ -424,8 +440,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 {
                     // Initialize runtime state for this task
                     task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
-
-                    task_runtime_state->set_task_execution_context(shared_from_this());
                     task_runtime_state->set_be_number(local_params.backend_num);
 
                     if (request.__isset.backend_id) {
@@ -463,10 +477,13 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
                         pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
                         i);
+
+                task_runtime_state->set_task_execution_context(task);
                 pipeline->incr_created_tasks(i, task.get());
                 task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
-                _tasks[i].emplace_back(std::move(task));
+                tasks[i].emplace_back(std::move(task));
+                _tasks[i].emplace_back(tasks[i].back());
             }
         }
 
@@ -1679,7 +1696,7 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
     return Status::OK();
 }
 
-Status PipelineFragmentContext::submit() {
+Status PipelineFragmentContext::_submit(std::vector<std::vector<PipelineTaskSPtr>>& tasks) {
     if (_submitted) {
         return Status::InternalError("submitted");
     }
@@ -1688,7 +1705,7 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
-    for (auto& task : _tasks) {
+    for (auto& task : tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t);
             if (!st) {
@@ -1774,6 +1791,16 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
+void PipelineFragmentContext::clear_finished_tasks() {
+    for (size_t j = 0; j < _tasks.size(); j++) {
+        for (size_t i = 0; i < _tasks[j].size(); i++) {
+            if (auto task = _tasks[j][i].lock()) {
+                task->stop_if_finished();
+            }
+        }
+    }
+}
+
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     // If all tasks of this pipeline has been closed, upstream tasks is never needed, and we just make those runnable here
     DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
@@ -1841,20 +1868,22 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
     // _tasks will be cleared during ~PipelineFragmentContext, so that it's safe
     // here to traverse the vector.
     for (const auto& task_instances : _tasks) {
-        for (const auto& task : task_instances) {
-            if (task->is_running() || task->is_revoking()) {
-                LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
-                                      << " is running, task: " << (void*)task.get()
-                                      << ", is_revoking: " << task->is_revoking()
-                                      << ", is_running: " << task->is_running()
-                                      << ", task info: " << task->debug_string();
-                *has_running_task = true;
-                return 0;
-            }
+        for (const auto& task_wptr : task_instances) {
+            if (auto task = task_wptr.lock()) {
+                if (task->is_running() || task->is_revoking()) {
+                    LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
+                                          << " is running, task: " << (void*)task.get()
+                                          << ", is_revoking: " << task->is_revoking()
+                                          << ", is_running: " << task->is_running()
+                                          << ", task info: " << task->debug_string();
+                    *has_running_task = true;
+                    return 0;
+                }
 
-            size_t revocable_size = task->get_revocable_size();
-            if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                res += revocable_size;
+                size_t revocable_size = task->get_revocable_size();
+                if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                    res += revocable_size;
+                }
             }
         }
     }
@@ -1864,10 +1893,12 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
 std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const {
     std::vector<PipelineTask*> revocable_tasks;
     for (const auto& task_instances : _tasks) {
-        for (const auto& task : task_instances) {
-            size_t revocable_size_ = task->get_revocable_size();
-            if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                revocable_tasks.emplace_back(task.get());
+        for (const auto& task_wptr : task_instances) {
+            if (auto task = task_wptr.lock()) {
+                size_t revocable_size_ = task->get_revocable_size();
+                if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+                    revocable_tasks.emplace_back(task.get());
+                }
             }
         }
     }
@@ -1880,7 +1911,9 @@ std::string PipelineFragmentContext::debug_string() {
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
-            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, _tasks[j][i]->debug_string());
+            if (auto task = _tasks[j][i].lock()) {
+                fmt::format_to(debug_string_buffer, "Task {}: {}\n", i, task->debug_string());
+            }
         }
     }
 
