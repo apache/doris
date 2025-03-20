@@ -30,12 +30,11 @@ suite("test_show_create_materialized_view", "query,arrow_flight_sql") {
             DISTRIBUTED BY HASH(id) BUCKETS 5
             PROPERTIES ("replication_num" = "1");
         """
-        
-        createMV("""CREATE MATERIALIZED VIEW ${mvName} AS
+
+        create_sync_mv(context.dbName, tableName, mvName, """
             SELECT id, name, SUM(value) AS total_value
             FROM ${tableName}
-            GROUP BY id, name;
-        """)
+            GROUP BY id, name""")
         
         checkNereidsExecute("""SHOW CREATE MATERIALIZED VIEW ${mvName} ON ${tableName};""")
         qt_cmd("""SHOW CREATE MATERIALIZED VIEW ${mvName} ON ${tableName};""")

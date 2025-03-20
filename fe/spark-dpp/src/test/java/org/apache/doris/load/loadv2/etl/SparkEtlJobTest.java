@@ -68,9 +68,9 @@ public class SparkEtlJobTest {
         EtlColumn k1 = new EtlColumn("k1", "INT", false, true, "NONE", "0", 0, 0, 0);
         EtlColumn k2 = new EtlColumn("k2", "VARCHAR", false, true, "NONE", "0", 10, 0, 0);
         EtlColumn v1 = new EtlColumn("v1", "BIGINT", false, false, "NONE", "0", 0, 0, 0);
-        EtlIndex index1 = new EtlIndex(index1Id, Lists.newArrayList(k1, k2, v1), 666666, "DUPLICATE", true);
+        EtlIndex index1 = new EtlIndex(index1Id, Lists.newArrayList(k1, k2, v1), 666666, "DUPLICATE", true, 1);
         v1 = new EtlColumn("v1", "BIGINT", false, false, "SUM", "0", 0, 0, 0);
-        EtlIndex index2 = new EtlIndex(index2Id, Lists.newArrayList(k1, v1), 888888, "AGGREGATE", true);
+        EtlIndex index2 = new EtlIndex(index2Id, Lists.newArrayList(k1, v1), 888888, "AGGREGATE", true, 1);
         List<EtlIndex> indexes = Lists.newArrayList(index1, index2);
         // partition info
         List<EtlPartition> partitions = Lists.newArrayList();

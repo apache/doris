@@ -107,7 +107,6 @@ public:
                                                 std::shared_ptr<IRuntimeFilter> producer_filter);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
-    LocalMergeFilters* get_local_merge_producer_filters(int filter_id);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     std::shared_ptr<IRuntimeFilter>* producer_filter);
@@ -192,12 +191,7 @@ public:
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
                            const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
-                           const int producer_size);
-
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
-                           const TQueryOptions* query_options,
-                           const std::vector<doris::TRuntimeFilterTargetParamsV2>* target_info,
+                           const std::vector<doris::TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
     UniqueId _query_id;

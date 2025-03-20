@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -35,7 +36,8 @@ import java.util.List;
  * ScalarFunction 'MicroSeconds_add'.
  */
 public class MicroSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.MAX)
@@ -65,5 +67,10 @@ public class MicroSecondsAdd extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMicroSecondsAdd(this, context);
+    }
+
+    @Override
+    public Expression withConstantArgs(Expression literal) {
+        return new MicroSecondsAdd(literal, child(1));
     }
 }

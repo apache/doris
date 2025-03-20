@@ -20,14 +20,11 @@
 
 #pragma once
 
-#include <string>
 #include <type_traits>
-#include <typeindex>
 #include <typeinfo>
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "vec/common/demangle.h"
 
 /** Checks type by comparing typeid.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.

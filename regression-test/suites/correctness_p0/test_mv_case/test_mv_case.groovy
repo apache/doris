@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_mv_case") {
+
     sql """drop table if exists test_table_aaa2;"""
     sql """CREATE TABLE `test_table_aaa2` (
             `ordernum` varchar(65533) NOT NULL ,
@@ -29,10 +30,10 @@ suite("test_mv_case") {
             "replication_allocation" = "tag.location.default: 1"
             );"""
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa2;"""
-    sql """create materialized view ods_zn_dnt_max1 as
+    create_sync_mv(context.dbName, "test_table_aaa2", "ods_zn_dnt_max1", """
             select ordernum,max(dnt) as dnt from test_table_aaa2
             group by ordernum
-            ORDER BY ordernum;"""
+            ORDER BY ordernum;""")
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}' ;"""
     sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}' ;"""
@@ -92,7 +93,7 @@ suite("test_mv_case") {
         )
     """
     sql """insert into tb1 select id,map_agg(a, b) from(select 123 id,3 a,'5' b union all select 123 id, 6 a, '8' b) aa group by id"""
-    createMV ("""CREATE MATERIALIZED VIEW mv1 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
+    sql"""CREATE MATERIALIZED VIEW mv1 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
@@ -112,8 +113,9 @@ suite("test_mv_case") {
         cast(a.id as bigint) info_id,
         map_infos
         from
-        tb1 a;""")
-    createMV ("""CREATE MATERIALIZED VIEW mv2 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
+        tb1 a;"""
+    waitingMTMVTaskFinishedByMvName("mv1")
+    sql """CREATE MATERIALIZED VIEW mv2 BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 MINUTE DUPLICATE KEY(info_id) DISTRIBUTED BY HASH(`info_id`) BUCKETS 2 PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
@@ -132,6 +134,9 @@ suite("test_mv_case") {
         info_id,
         map_infos
         from
-        mv1 a;""")
+        mv1 a;"""
+    waitingMTMVTaskFinishedByMvName("mv2")
     qt_select_mv """ select * from mv2 """
+    sql "drop MATERIALIZED VIEW mv1"
+    sql "drop MATERIALIZED VIEW mv2"
 }

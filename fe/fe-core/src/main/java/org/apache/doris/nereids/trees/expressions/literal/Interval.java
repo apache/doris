@@ -19,27 +19,31 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.EnumUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
  * Interval for timestamp calculation.
  */
-public class Interval extends Expression implements LeafExpression, AlwaysNotNullable {
-    private final Expression value;
+public class Interval extends Expression implements UnaryExpression, AlwaysNotNullable {
     private final TimeUnit timeUnit;
 
     public Interval(Expression value, String desc) {
-        super(ImmutableList.of());
-        this.value = value;
-        this.timeUnit = TimeUnit.valueOf(desc.toUpperCase());
+        this(value, TimeUnit.valueOf(desc.toUpperCase()));
+    }
+
+    public Interval(Expression value, TimeUnit timeUnit) {
+        super(ImmutableList.of(value));
+        this.timeUnit = timeUnit;
     }
 
     @Override
@@ -48,11 +52,17 @@ public class Interval extends Expression implements LeafExpression, AlwaysNotNul
     }
 
     public Expression value() {
-        return value;
+        return child();
     }
 
     public TimeUnit timeUnit() {
         return timeUnit;
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Interval(children.get(0), timeUnit);
     }
 
     @Override

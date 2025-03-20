@@ -20,7 +20,6 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,8 +38,8 @@ import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -52,8 +51,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.Deflater;
-import java.util.zip.Inflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 /**
  * Profile is a class to record the execution time of a query. It has the
@@ -80,35 +80,32 @@ public class Profile {
     private static final int MergedProfileLevel = 1;
     // profile file name format: time_id
     private static final String SEPERATOR = "_";
+    private static final String PROFILE_ENTRY_SUFFIX = ".profile";
 
-    // id will be assgined to id of SummaryProfile.
-    // For broker load, its SummaryPRofile id is a string representation of a long integer,
-    // for others, it is queryID
-    private String id = "";
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
     private SummaryProfile summaryProfile = new SummaryProfile();
-    // executionProfiles will be stored to storage as text, when geting profile content, we will read
+    // executionProfiles will be stored to storage as text, when getting profile content, we will read
     // from storage directly.
-    private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
+    List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     // profileStoragePath will only be assigned when:
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
-    // isQueryFinished means the coordinator or stmtexecutor is finished.
+    // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
-    private boolean isQueryFinished = false;
+    boolean isQueryFinished = false;
     // when coordinator finishes, it will mark finish time.
     // we will wait for about 5 seconds to see if all profiles have been reported.
     // if not, we will store the profile to storage, and release the memory,
-    // futher report will be ignored.
+    // further report will be ignored.
     // why MAX_VALUE? So that we can use PriorityQueue to sort profile by finish time decreasing order.
     private long queryFinishTimestamp = Long.MAX_VALUE;
     private Map<Integer, String> planNodeMap = Maps.newHashMap();
     private int profileLevel = MergedProfileLevel;
-    private long autoProfileDurationMs = -1;
+    protected long autoProfileDurationMs = -1;
     // Profile size is the size of profile file
     private long profileSize = 0;
 
@@ -131,7 +128,7 @@ public class Profile {
 
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
-    private static FileInputStream createPorfileFileInputStream(String path) {
+    static FileInputStream createPorfileFileInputStream(String path) {
         File profileFile = new File(path);
         if (!profileFile.isFile()) {
             LOG.warn("Profile storage path {} is invalid, its not a file.", profileFile.getAbsolutePath());
@@ -154,7 +151,7 @@ public class Profile {
         try {
             profileMetaFileInputStream = new FileInputStream(path);
         } catch (Exception e) {
-            LOG.warn("open profile file {} failed", path, e);
+            LOG.warn("Open profile file {} failed", path, e);
         }
 
         return profileMetaFileInputStream;
@@ -162,6 +159,13 @@ public class Profile {
 
     // For normal profile, the profile id is a TUniqueId, but for broker load, the profile id is a long.
     public static String[] parseProfileFileName(String profileFileName) {
+        if (!profileFileName.endsWith(".zip")) {
+            LOG.warn("Invalid profile name {}", profileFileName);
+            return null;
+        } else {
+            profileFileName = profileFileName.substring(0, profileFileName.length() - 4);
+        }
+
         String [] timeAndID = profileFileName.split(SEPERATOR);
         if (timeAndID.length != 2) {
             return null;
@@ -170,7 +174,9 @@ public class Profile {
         try {
             DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
         } catch (NumberFormatException e) {
-            if (Long.valueOf(timeAndID[1]) == null) {
+            try {
+                Long.parseLong(timeAndID[1]);
+            } catch (NumberFormatException e2) {
                 return null;
             }
         }
@@ -178,40 +184,56 @@ public class Profile {
         return timeAndID;
     }
 
-    // read method will only read summary profile, and return a Profile object
+
     public static Profile read(String path) {
-        FileInputStream profileFileInputStream = null;
+        FileInputStream fileInputStream = null;
         try {
-            profileFileInputStream = createPorfileFileInputStream(path);
-            // Maybe profile path is invalid
-            if (profileFileInputStream == null) {
-                return null;
-            }
+            fileInputStream = new FileInputStream(path);
             File profileFile = new File(path);
             long fileSize = profileFile.length();
-            // read method will move the cursor to the end of the summary profile
-            DataInput dataInput = new DataInputStream(profileFileInputStream);
+
+            ZipInputStream zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            if (entry == null) {
+                LOG.error("Invalid zip profile file, {}", path);
+                return null;
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
             Profile res = new Profile();
-            res.summaryProfile = SummaryProfile.read(dataInput);
-            res.setId(res.summaryProfile.getProfileId());
+            res.summaryProfile = SummaryProfile.read(memoryDataInput);
             res.profileStoragePath = path;
             res.isQueryFinished = true;
             res.profileSize = fileSize;
+
             String[] parts = path.split(File.separator);
-            String queryFinishTimeStr = parseProfileFileName(parts[parts.length - 1])[0];
-            // queryFinishTime is used for sorting profile by finish time.
+            String filename = parts[parts.length - 1];
+            String queryFinishTimeStr = parseProfileFileName(filename)[0];
             res.queryFinishTimestamp = Long.valueOf(queryFinishTimeStr);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Read profile from storage: {}", res.summaryProfile.getProfileId());
             }
             return res;
+
         } catch (Exception exception) {
             LOG.error("read profile failed", exception);
             return null;
         } finally {
-            if (profileFileInputStream != null) {
+            if (fileInputStream != null) {
                 try {
-                    profileFileInputStream.close();
+                    fileInputStream.close();
                 } catch (Exception e) {
                     LOG.warn("close profile file {} failed", path, e);
                 }
@@ -219,50 +241,10 @@ public class Profile {
         }
     }
 
-    // Method to compress a string using Deflater
-    public static byte[] compressExecutionProfile(String str) throws IOException {
-        byte[] data = str.getBytes(StandardCharsets.UTF_8);
-        Deflater deflater = new Deflater();
-        deflater.setInput(data);
-        deflater.finish();
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
-        byte[] buffer = new byte[1024];
-        while (!deflater.finished()) {
-            int count = deflater.deflate(buffer);
-            outputStream.write(buffer, 0, count);
-        }
-        deflater.end();
-        outputStream.close();
-        return outputStream.toByteArray();
-    }
-
-    // Method to decompress a byte array using Inflater
-    public static String decompressExecutionProfile(byte[] data) throws IOException {
-        Inflater inflater = new Inflater();
-        inflater.setInput(data, 0, data.length);
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(data.length);
-        byte[] buffer = new byte[1024];
-        try {
-            while (!inflater.finished()) {
-                int count = inflater.inflate(buffer);
-                outputStream.write(buffer, 0, count);
-            }
-            inflater.end();
-        } catch (Exception e) {
-            throw new IOException("Failed to decompress data", e);
-        } finally {
-            outputStream.close();
-        }
-
-        return new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
-    }
-
     // For load task, the profile contains many execution profiles
     public void addExecutionProfile(ExecutionProfile executionProfile) {
         if (executionProfile == null) {
-            LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
+            LOG.warn("try to set a null execution profile, it is abnormal", new Exception());
             return;
         }
         executionProfile.setSummaryProfile(summaryProfile);
@@ -274,7 +256,7 @@ public class Profile {
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
-    // isFinished ONLY means the coordinator or stmtexecutor is finished.
+    // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
         try {
@@ -282,7 +264,7 @@ public class Profile {
                 return;
             }
 
-            if (planner instanceof NereidsPlanner) {
+            if (planner != null && planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 physicalPlan = nereidsPlanner.getPhysicalPlan();
                 physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
@@ -298,18 +280,30 @@ public class Profile {
             }
 
             summaryProfile.update(summaryInfo);
-            this.setId(summaryProfile.getProfileId());
 
             if (isFinished) {
-                this.markQueryFinished(System.currentTimeMillis());
+                this.markQueryFinished();
+                long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
+                // Duration ls less than autoProfileDuration, remove it from memory.
+                long durationThreshold = executionProfiles.isEmpty()
+                                    ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
+                if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
+                    ProfileManager.getInstance().removeProfile(this.getId());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Removed profile {} because it's costs {} is less than {}", this.getId(),
+                                durationMs, autoProfileDurationMs * this.executionProfiles.size());
+                    }
+                    return;
+                }
             }
-            // Nerids native insert not set planner, so it is null
+
+            // Nereids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
             }
             ProfileManager.getInstance().pushProfile(this);
         } catch (Throwable t) {
-            LOG.warn("update profile {} failed", id, t);
+            LOG.warn("update profile {} failed", getId(), t);
             throw t;
         }
     }
@@ -352,11 +346,11 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-        RuntimeProfile rootProfile = new RuntimeProfile(id);
-        rootProfile.addChild(summaryProfile.getSummary());
-        rootProfile.addChild(summaryProfile.getExecutionSummary());
+        RuntimeProfile rootProfile = new RuntimeProfile(getId());
+        rootProfile.addChild(summaryProfile.getSummary(), true);
+        rootProfile.addChild(summaryProfile.getExecutionSummary(), true);
         for (ExecutionProfile executionProfile : executionProfiles) {
-            rootProfile.addChild(executionProfile.getRoot());
+            rootProfile.addChild(executionProfile.getRoot(), true);
         }
         rootProfile.computeTimeInProfile();
         return rootProfile;
@@ -378,10 +372,9 @@ public class Profile {
             return;
         }
 
-        // Only generate merged profile for select, insert into select.
-        // Not support broker load now.
+        // For broker load, if it has more than one execution profile, we will not generate merged profile.
         RuntimeProfile mergedProfile = null;
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             try {
                 mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
                 this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
@@ -389,7 +382,7 @@ public class Profile {
                     updateActualRowCountOnPhysicalPlan(physicalPlan);
                 }
             } catch (Throwable aggProfileException) {
-                LOG.warn("build merged simple profile {} failed", this.id, aggProfileException);
+                LOG.warn("build merged simple profile {} failed", getId(), aggProfileException);
             }
         }
 
@@ -408,7 +401,7 @@ public class Profile {
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
 
-        if (this.profileLevel == MergedProfileLevel && this.executionProfiles.size() == 1) {
+        if (this.executionProfiles.size() == 1) {
             builder.append("\nMergedProfile \n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
@@ -433,10 +426,6 @@ public class Profile {
         return this.queryFinishTimestamp;
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
     // For UT
     public void setSummaryProfile(SummaryProfile summaryProfile) {
         this.summaryProfile = summaryProfile;
@@ -456,52 +445,19 @@ public class Profile {
             return false;
         }
 
-        // below is the case where query has finished
-        boolean hasReportingProfile = false;
-
-        if (this.executionProfiles.isEmpty()) {
-            // Query finished, but no execution profile.
-            // 1. Query is executed on FE.
-            // 2. Not a SELECT query, just a DDL.
-            return false;
-        }
-
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            if (!executionProfile.isCompleted()) {
-                hasReportingProfile = true;
-                break;
-            }
-        }
-
-        if (!hasReportingProfile) {
-            // query finished and no flying profile
-            // I do want to use TotalTime in summary profile, but it is an encoded string,
-            // it is hard to write a parse function.
-            long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
-            // time cost of this query is large enough.
-            if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs
-                    > (this.executionProfiles.size() * autoProfileDurationMs)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Query/LoadJob {} costs {} ms, begin {} finish {}, need store its profile",
-                            id, durationMs, summaryProfile.getQueryBeginTime(), this.queryFinishTimestamp);
-                }
-                return true;
-            }
-            return false;
-        }
-
         if (this.queryFinishTimestamp == Long.MAX_VALUE) {
-            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", id);
+            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
             return false;
         }
 
         long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && (currentTimeMillis - this.queryFinishTimestamp)
-                        > Config.profile_waiting_time_for_spill_seconds * 1000) {
+                && (currentTimeMillis - this.queryFinishTimestamp)
+                > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
                     + " since it has been waiting for {} ms, current time {} query finished time: {}",
-                    id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
+                    getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
+                    this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
@@ -523,10 +479,10 @@ public class Profile {
     }
 
     // Profile IO threads races with Coordinator threads.
-    public void markQueryFinished(long queryFinishTime) {
+    public void markQueryFinished() {
         try {
             if (this.profileHasBeenStored()) {
-                LOG.error("Logical error, profile {} has already been stored to storage", this.id);
+                LOG.error("Logical error, profile {} has already been stored to storage", getId());
                 return;
             }
 
@@ -539,22 +495,20 @@ public class Profile {
     }
 
     public void writeToStorage(String systemProfileStorageDir) {
-        if (Strings.isNullOrEmpty(id)) {
+        if (Strings.isNullOrEmpty(getId())) {
             LOG.warn("store profile failed, name is empty");
             return;
         }
 
         if (!Strings.isNullOrEmpty(profileStoragePath)) {
-            LOG.error("Logical error, profile {} has already been stored to storage", id);
+            LOG.error("Logical error, profile {} has already been stored to storage", getId());
             return;
         }
 
         final String profileId = this.summaryProfile.getProfileId();
-
-        // queryFinishTimeStamp_ProfileId
         final String profileFilePath = systemProfileStorageDir + File.separator
                                     + String.valueOf(this.queryFinishTimestamp)
-                                    + SEPERATOR + profileId;
+                                    + SEPERATOR + profileId + ".zip";
 
         File profileFile = new File(profileFilePath);
         if (profileFile.exists()) {
@@ -562,34 +516,44 @@ public class Profile {
             profileFile.delete();
         }
 
-        // File structure of profile:
-        /*
-         * Integer: n(size of summary profile)
-         * String: json of summary profile
-         * Integer: m(size of compressed execution profile)
-         * String: compressed binary of execution profile
-        */
         FileOutputStream fileOutputStream = null;
+        ZipOutputStream zipOut = null;
         try {
             fileOutputStream = new FileOutputStream(profileFilePath);
-            DataOutputStream dataOutputStream = new DataOutputStream(fileOutputStream);
-            this.summaryProfile.write(dataOutputStream);
+            zipOut = new ZipOutputStream(fileOutputStream);
 
-            // store execution profiles as string
-            StringBuilder build = new StringBuilder();
-            getChangedSessionVars(build);
-            getExecutionProfileContent(build);
-            byte[] buf = compressExecutionProfile(build.toString());
-            dataOutputStream.writeInt(buf.length);
-            dataOutputStream.write(buf);
-            build = null;
-            dataOutputStream.flush();
+            // First create memory stream to hold all data
+            ByteArrayOutputStream memoryStream = new ByteArrayOutputStream();
+            DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
+
+            // Write summary profile and execution profile content to memory
+            this.summaryProfile.write(memoryDataStream);
+
+            StringBuilder builder = new StringBuilder();
+            getChangedSessionVars(builder);
+            getExecutionProfileContent(builder);
+            byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
+            memoryDataStream.writeInt(executionProfileBytes.length);
+            memoryDataStream.write(executionProfileBytes);
+            memoryDataStream.flush();
+
+            // Create zip entry with profileId based name
+            ZipEntry zipEntry = new ZipEntry(profileId + PROFILE_ENTRY_SUFFIX);
+            zipOut.putNextEntry(zipEntry);
+            zipOut.write(memoryStream.toByteArray());
+            zipOut.closeEntry();
+
             this.profileSize = profileFile.length();
+            this.profileStoragePath = profileFilePath;
+
         } catch (Exception e) {
-            LOG.error("write {} summary profile failed", id, e);
+            LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
             try {
+                if (zipOut != null) {
+                    zipOut.close();
+                }
                 if (fileOutputStream != null) {
                     fileOutputStream.close();
                 }
@@ -597,8 +561,6 @@ public class Profile {
                 LOG.warn("close profile file {} failed", profileFilePath, e);
             }
         }
-
-        this.profileStoragePath = profileFilePath;
     }
 
     // remove profile from storage
@@ -685,37 +647,55 @@ public class Profile {
         builder.append("\n");
     }
 
-    private void getOnStorageProfile(StringBuilder builder) {
+    void getOnStorageProfile(StringBuilder builder) {
         if (!profileHasBeenStored()) {
             return;
         }
 
-        LOG.info("Profile {} has been stored to storage, reading it from storage", id);
-
+        LOG.info("Profile {} has been stored to storage, reading it from storage", getId());
         FileInputStream fileInputStream = null;
+        ZipInputStream zipIn = null;
 
         try {
             fileInputStream = createPorfileFileInputStream(profileStoragePath);
             if (fileInputStream == null) {
-                builder.append("Failed to read execution profile from " + profileStoragePath);
+                builder.append("Failed to read profile from " + profileStoragePath);
                 return;
             }
 
-            DataInputStream dataInput = new DataInputStream(fileInputStream);
-            // skip summary profile
-            Text.readString(dataInput);
-            // read compressed execution profile
-            int binarySize = dataInput.readInt();
-            byte[] binaryExecutionProfile = new byte[binarySize];
-            dataInput.readFully(binaryExecutionProfile, 0, binarySize);
-            // decompress binary execution profile
-            String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
-            builder.append(textExecutionProfile);
-            return;
+            // Directly create ZipInputStream from file input stream
+            zipIn = new ZipInputStream(fileInputStream);
+            ZipEntry entry = zipIn.getNextEntry();
+            String expectedEntryName = summaryProfile.getProfileId() + PROFILE_ENTRY_SUFFIX;
+            if (entry == null || !entry.getName().equals(expectedEntryName)) {
+                throw new IOException("Invalid zip file format - missing entry: " + expectedEntryName);
+            }
+
+            // Read zip entry content into memory
+            ByteArrayOutputStream entryContent = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024 * 50];
+            int readBytes;
+            while ((readBytes = zipIn.read(buffer)) != -1) {
+                entryContent.write(buffer, 0, readBytes);
+            }
+
+            // Parse profile data using memory stream
+            DataInputStream memoryDataInput = new DataInputStream(
+                    new ByteArrayInputStream(entryContent.toByteArray()));
+
+            // Skip summary profile data
+            Text.readString(memoryDataInput);
+
+            // Read execution profile length and content
+            int executionProfileLength = memoryDataInput.readInt();
+            byte[] executionProfileBytes = new byte[executionProfileLength];
+            memoryDataInput.readFully(executionProfileBytes);
+
+            // Append execution profile content
+            builder.append(new String(executionProfileBytes, StandardCharsets.UTF_8));
         } catch (Exception e) {
-            LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
-                    profileStoragePath, e);
-            builder.append("Failed to read execution profile from " + profileStoragePath);
+            LOG.error("Failed to read profile from storage: {}", profileStoragePath, e);
+            builder.append("Failed to read profile from " + profileStoragePath);
         } finally {
             if (fileInputStream != null) {
                 try {
@@ -725,7 +705,32 @@ public class Profile {
                 }
             }
         }
+    }
 
-        return;
+    public String debugInfo() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("ProfileId:").append(getId()).append("|");
+        builder.append("StoragePath:").append(profileStoragePath).append("|");
+        builder.append("StartTimeStamp:").append(summaryProfile.getQueryBeginTime()).append("|");
+        builder.append("IsFinished:").append(isQueryFinished).append("|");
+        builder.append("FinishTimestamp:").append(queryFinishTimestamp).append("|");
+        builder.append("AutoProfileDuration: ").append(autoProfileDurationMs).append("|");
+        builder.append("ExecutionProfileCnt: ").append(executionProfiles.size()).append("|");
+        builder.append("ProfileOnStorageSize:").append(profileSize);
+        return builder.toString();
+    }
+
+    public void setQueryFinishTimestamp(long l) {
+        this.queryFinishTimestamp = l;
+    }
+
+    public String getId() {
+        return summaryProfile.getProfileId();
+    }
+
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        getExecutionProfileContent(stringBuilder);
+        return stringBuilder.toString();
     }
 }

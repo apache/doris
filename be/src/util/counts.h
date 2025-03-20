@@ -30,114 +30,6 @@
 
 namespace doris {
 
-class OldCounts {
-public:
-    OldCounts() = default;
-
-    inline void merge(const OldCounts* other) {
-        if (other == nullptr || other->_counts.empty()) {
-            return;
-        }
-
-        for (auto& cell : other->_counts) {
-            increment(cell.first, cell.second);
-        }
-    }
-
-    void increment(int64_t key, uint32_t i) {
-        auto item = _counts.find(key);
-        if (item != _counts.end()) {
-            item->second += i;
-        } else {
-            _counts.emplace(std::make_pair(key, i));
-        }
-    }
-
-    uint32_t serialized_size() const {
-        return sizeof(uint32_t) + sizeof(int64_t) * _counts.size() +
-               sizeof(uint32_t) * _counts.size();
-    }
-
-    void serialize(uint8_t* writer) const {
-        uint32_t size = _counts.size();
-        memcpy(writer, &size, sizeof(uint32_t));
-        writer += sizeof(uint32_t);
-        for (auto& cell : _counts) {
-            memcpy(writer, &cell.first, sizeof(int64_t));
-            writer += sizeof(int64_t);
-            memcpy(writer, &cell.second, sizeof(uint32_t));
-            writer += sizeof(uint32_t);
-        }
-    }
-
-    void unserialize(const uint8_t* type_reader) {
-        uint32_t size;
-        memcpy(&size, type_reader, sizeof(uint32_t));
-        type_reader += sizeof(uint32_t);
-        for (uint32_t i = 0; i < size; ++i) {
-            int64_t key;
-            uint32_t count;
-            memcpy(&key, type_reader, sizeof(int64_t));
-            type_reader += sizeof(int64_t);
-            memcpy(&count, type_reader, sizeof(uint32_t));
-            type_reader += sizeof(uint32_t);
-            _counts.emplace(std::make_pair(key, count));
-        }
-    }
-
-    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts,
-                          double position) const {
-        long lower = long(std::floor(position));
-        long higher = long(std::ceil(position));
-
-        auto iter = counts.begin();
-        for (; iter != counts.end() && iter->second < lower + 1; ++iter)
-            ;
-
-        int64_t lower_key = iter->first;
-        if (higher == lower) {
-            return lower_key;
-        }
-
-        if (iter->second < higher + 1) {
-            iter++;
-        }
-
-        int64_t higher_key = iter->first;
-        if (lower_key == higher_key) {
-            return lower_key;
-        }
-
-        return (higher - position) * lower_key + (position - lower) * higher_key;
-    }
-
-    double terminate(double quantile) const {
-        if (_counts.empty()) {
-            // Although set null here, but the value is 0.0 and the call method just
-            // get val in aggregate_function_percentile_approx.h
-            return 0.0;
-        }
-
-        std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
-        sort(elems.begin(), elems.end(),
-             [](const std::pair<int64_t, uint32_t> l, const std::pair<int64_t, uint32_t> r) {
-                 return l.first < r.first;
-             });
-
-        long total = 0;
-        for (auto& cell : elems) {
-            total += cell.second;
-            cell.second = total;
-        }
-
-        long max_position = total - 1;
-        double position = max_position * quantile;
-        return get_percentile(elems, position);
-    }
-
-private:
-    std::unordered_map<int64_t, uint32_t> _counts;
-};
 template <typename Ty>
 class Counts {
 public:
@@ -195,11 +87,13 @@ public:
                 // get val in aggregate_function_percentile_approx.h
                 return 0.0;
             }
-            if (quantile == 1 || _nums.size() == 1) {
-                return _nums.back();
-            }
+
             if (UNLIKELY(!std::is_sorted(_nums.begin(), _nums.end()))) {
                 pdqsort(_nums.begin(), _nums.end());
+            }
+
+            if (quantile == 1 || _nums.size() == 1) {
+                return _nums.back();
             }
 
             double u = (_nums.size() - 1) * quantile;

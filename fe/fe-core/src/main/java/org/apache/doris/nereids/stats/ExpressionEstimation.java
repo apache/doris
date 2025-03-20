@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
@@ -352,7 +353,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(min.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -363,7 +364,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat.isUnKnown) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(max.getDataType().width());
         }
         // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
         return new ColumnStatisticBuilder(columnStat).build();
@@ -373,24 +374,40 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
         // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
-        return new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setAvgSizeByte(width).build();
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(width);
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitSum(Sum sum, Statistics context) {
-        return sum.child().accept(this, context);
+        // estimate size as BIGINT
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(sum.getDataType().width());
     }
 
     // TODO: return a proper estimated stat after supports histogram
     @Override
     public ColumnStatistic visitAvg(Avg avg, Statistics context) {
-        return avg.child().accept(this, context);
+        return ColumnStatistic.UNKNOWN.withAvgSizeByte(avg.getDataType().width());
     }
 
     @Override
     public ColumnStatistic visitYear(Year year, Statistics context) {
         ColumnStatistic childStat = year.child().accept(this, context);
+        double rowCount = context.getRowCount();
+        long minYear = 1970;
+        long maxYear = 2038;
+        return new ColumnStatisticBuilder()
+                .setNdv(maxYear - minYear + 1)
+                .setAvgSizeByte(4)
+                .setNumNulls(childStat.numNulls)
+                .setDataSize(4 * rowCount)
+                .setMinValue(minYear)
+                .setMaxValue(maxYear).setMinExpr(null).build();
+    }
+
+    @Override
+    public ColumnStatistic visitYearOfWeek(YearOfWeek yearOfWeek, Statistics context) {
+        ColumnStatistic childStat = yearOfWeek.child().accept(this, context);
         double rowCount = context.getRowCount();
         long minYear = 1970;
         long maxYear = 2038;

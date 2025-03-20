@@ -26,34 +26,53 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <type_traits>
 
-class BvarLatencyRecorderWithTag {
+/**
+ * Manage bvars that with similar names (identical prefix)
+ * ${module}_${name}_${tag}
+ * where `tag` is added automatically when calling `get` or `put`
+ */
+template <typename Bvar, bool is_status = false>
+class BvarWithTag {
 public:
-    BvarLatencyRecorderWithTag(std::string module, std::string name)
+    BvarWithTag(std::string module, std::string name)
             : module_(std::move(module)), name_(std::move(name)) {}
 
-    void put(const std::string& tag, int64_t value) {
-        std::shared_ptr<bvar::LatencyRecorder> instance = nullptr;
+    template <typename ValType>
+        requires std::is_integral_v<ValType>
+    void put(const std::string& tag, ValType value) {
+        std::shared_ptr<Bvar> instance = nullptr;
         {
             std::lock_guard<bthread::Mutex> l(mutex_);
             auto it = bvar_map_.find(tag);
             if (it == bvar_map_.end()) {
-                instance = std::make_shared<bvar::LatencyRecorder>(module_, name_ + "_" + tag);
+                instance = std::make_shared<Bvar>(module_, name_ + "_" + tag, ValType());
                 bvar_map_[tag] = instance;
             } else {
                 instance = it->second;
             }
         }
-        (*instance) << value;
+        // FIXME(gavin): check bvar::Adder and more
+        if constexpr (std::is_same_v<Bvar, bvar::LatencyRecorder>) {
+            (*instance) << value;
+        } else if constexpr (is_status) {
+            instance->set_value(value);
+        } else {
+            // This branch mean to be unreachable, add an assert(false) here to
+            // prevent missing branch match.
+            // Postpone deduction of static_assert by evaluating sizeof(T)
+            static_assert(!sizeof(Bvar), "all types must be matched with if constexpr");
+        }
     }
 
-    std::shared_ptr<bvar::LatencyRecorder> get(const std::string& tag) {
-        std::shared_ptr<bvar::LatencyRecorder> instance = nullptr;
+    std::shared_ptr<Bvar> get(const std::string& tag) {
+        std::shared_ptr<Bvar> instance = nullptr;
         std::lock_guard<bthread::Mutex> l(mutex_);
 
         auto it = bvar_map_.find(tag);
         if (it == bvar_map_.end()) {
-            instance = std::make_shared<bvar::LatencyRecorder>(module_, name_ + "_" + tag);
+            instance = std::make_shared<Bvar>(module_, name_ + "_" + tag);
             bvar_map_[tag] = instance;
             return instance;
         }
@@ -69,54 +88,14 @@ private:
     bthread::Mutex mutex_;
     std::string module_;
     std::string name_;
-    std::map<std::string, std::shared_ptr<bvar::LatencyRecorder>> bvar_map_;
+    std::map<std::string, std::shared_ptr<Bvar>> bvar_map_;
 };
 
-template <class T>
-class BvarStatusWithTag {
-public:
-    BvarStatusWithTag(std::string module, std::string name)
-            : module_(std::move(module)), name_(std::move(name)) {}
+using BvarLatencyRecorderWithTag = BvarWithTag<bvar::LatencyRecorder>;
 
-    void put(const std::string& tag, T value) {
-        std::shared_ptr<bvar::Status<T>> instance = nullptr;
-        {
-            std::lock_guard<bthread::Mutex> l(mutex_);
-            auto it = bvar_map_.find(tag);
-            if (it == bvar_map_.end()) {
-                instance = std::make_shared<bvar::Status<T>>(module_, name_ + "_" + tag, T());
-                bvar_map_[tag] = instance;
-            } else {
-                instance = it->second;
-            }
-        }
-        (*instance).set_value(value);
-    }
-
-    std::shared_ptr<bvar::Status<T>> get(const std::string& tag) {
-        std::shared_ptr<bvar::Status<T>> instance = nullptr;
-        std::lock_guard<bthread::Mutex> l(mutex_);
-
-        auto it = bvar_map_.find(tag);
-        if (it == bvar_map_.end()) {
-            instance = std::make_shared<bvar::Status<T>>(module_, name_ + "_" + tag);
-            bvar_map_[tag] = instance;
-            return instance;
-        }
-        return it->second;
-    }
-
-    void remove(const std::string& tag) {
-        std::lock_guard<bthread::Mutex> l(mutex_);
-        bvar_map_.erase(tag);
-    }
-
-private:
-    bthread::Mutex mutex_;
-    std::string module_;
-    std::string name_;
-    std::map<std::string, std::shared_ptr<bvar::Status<T>>> bvar_map_;
-};
+template <typename T>
+    requires std::is_integral_v<T>
+using BvarStatusWithTag = BvarWithTag<bvar::Status<T>, true>;
 
 // meta-service's bvars
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
@@ -181,6 +160,16 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
 extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
+extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
+extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+
+// recycler's bvars
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts;
+extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;

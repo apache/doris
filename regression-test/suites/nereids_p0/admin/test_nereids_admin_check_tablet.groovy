@@ -17,6 +17,10 @@
 
 
 suite("test_nereids_admin_check_tablet") {
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
     def table = "test_nereids_admin_check_tablet"
     // create table and insert data
     sql """ drop table if exists ${table} force"""

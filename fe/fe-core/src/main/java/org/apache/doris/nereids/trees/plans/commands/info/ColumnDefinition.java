@@ -19,13 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -44,7 +43,6 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -176,6 +174,63 @@ public class ColumnDefinition {
         this.clusterKeyId = clusterKeyId;
     }
 
+    public boolean hasDefaultValue() {
+        return defaultValue.isPresent();
+    }
+
+    public boolean isVisible() {
+        return isVisible;
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("`").append(name).append("` ");
+        sb.append(type.toSql()).append(" ");
+
+        if (aggType != null && aggType != AggregateType.NONE) {
+            sb.append(aggType.name()).append(" ");
+        }
+
+        if (!isNullable) {
+            sb.append("NOT NULL ");
+        } else {
+            // should append NULL to make result can be executed right.
+            sb.append("NULL ");
+        }
+
+        if (autoIncInitValue != -1) {
+            sb.append("AUTO_INCREMENT ");
+            sb.append("(");
+            sb.append(autoIncInitValue);
+            sb.append(")");
+        }
+
+        if (defaultValue.isPresent()) {
+            String value = defaultValue.get().getValue();
+            if (value != null) {
+                DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
+                if (!type.isBitmapType() && !type.isHllType()) {
+                    if (exprDef != null) {
+                        sb.append("DEFAULT ").append(value).append(" ");
+                    } else {
+                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
+                                .append(" ");
+                    }
+                } else if (type.isBitmapType()) {
+                    sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");
+                }
+            } else {
+                sb.append("DEFAULT ").append("NULL").append(" ");
+            }
+        }
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
+
+        return sb.toString();
+    }
+
     private DataType updateCharacterTypeLength(DataType dataType) {
         if (dataType instanceof ArrayType) {
             return ArrayType.of(updateCharacterTypeLength(((ArrayType) dataType).getItemType()));
@@ -209,20 +264,19 @@ public class ColumnDefinition {
             } else if (type.isArrayType()) {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
+            } else if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
+            } else if (type.isJsonType()) {
+                throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isVariantType()) {
+                throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
+            } else if (type.isMapType()) {
+                throw new AnalysisException("Map can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            } else if (type.isStructType()) {
+                throw new AnalysisException("Struct can only be used in the non-key column of"
+                        + " the duplicate table at present.");
             }
-        }
-        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
-            throw new AnalysisException("Key column can not set complex type:" + name);
-        } else if (type.isJsonType()) {
-            throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
-        } else if (type.isVariantType()) {
-            throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
-        } else if (type.isMapType()) {
-            throw new AnalysisException("Map can only be used in the non-key column of"
-                    + " the duplicate table at present.");
-        } else if (type.isStructType()) {
-            throw new AnalysisException("Struct can only be used in the non-key column of"
-                    + " the duplicate table at present.");
         }
     }
 
@@ -236,7 +290,7 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        validateDataType(type.toCatalogDataType());
+        type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
             int depth = 0;
@@ -250,37 +304,33 @@ public class ColumnDefinition {
             }
         }
         if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
+            if (isKey) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
+            }
+            if (keysType.equals(KeysType.AGG_KEYS)) {
+                if (aggType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
+            }
             if (isNullable) {
                 throw new AnalysisException("complex type column must be not nullable, column:" + name);
             }
         }
 
-        // check keys type
         if (keysSet.contains(name)) {
             isKey = true;
-            if (aggType != null) {
-                throw new AnalysisException(
-                        String.format("Key column %s can not set aggregation type", name));
-            }
-            checkKeyColumnType(isOlap);
-        } else if (aggType == null && isOlap) {
-            Preconditions.checkState(keysType != null, "keysType is null");
-            if (keysType.equals(KeysType.DUP_KEYS)) {
-                aggType = AggregateType.NONE;
-            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-                aggType = AggregateType.NONE;
-            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
-                aggType = AggregateType.REPLACE;
-            } else {
-                throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
-            }
         }
 
-        if (clusterKeySet.contains(name)) {
+        // check keys type
+        if (isKey || clusterKeySet.contains(name)) {
             checkKeyColumnType(isOlap);
         }
 
         if (aggType != null) {
+            if (isKey) {
+                throw new AnalysisException(
+                        String.format("Key column %s can not set aggregation type", name));
+            }
             // check if aggregate type is valid
             if (aggType != AggregateType.GENERIC
                     && !aggType.checkCompatibility(type.toCatalogDataType().getPrimitiveType())) {
@@ -292,11 +342,30 @@ public class ColumnDefinition {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }
             }
+        } else if (aggType == null && isOlap && !isKey) {
+            Preconditions.checkState(keysType != null, "keysType is null");
+            if (keysType.equals(KeysType.DUP_KEYS)) {
+                aggType = AggregateType.NONE;
+            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                aggType = AggregateType.NONE;
+            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
+                aggType = AggregateType.REPLACE;
+            } else {
+                throw new AnalysisException("should set aggregation type to non-key column in aggregate key table");
+            }
         }
 
         if (isOlap) {
-            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
-                aggTypeImplicit = true;
+            if (!isKey) {
+                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    if (isEnableMergeOnWrite) {
+                        aggTypeImplicit = false;
+                    } else {
+                        aggTypeImplicit = true;
+                    }
+                } else if (keysType.equals(KeysType.DUP_KEYS)) {
+                    aggTypeImplicit = true;
+                }
             }
 
             // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
@@ -423,250 +492,29 @@ public class ColumnDefinition {
         validateGeneratedColumnInfo();
     }
 
-    // from TypeDef.java analyze()
-    private void validateDataType(Type catalogType) {
-        if (catalogType.exceedsMaxNestingDepth()) {
-            throw new AnalysisException(
-                    String.format("Type exceeds the maximum nesting depth of %s:\n%s",
-                            Type.MAX_NESTING_DEPTH, catalogType.toSql()));
-        }
-        if (!catalogType.isSupported()) {
-            throw new AnalysisException("Unsupported data type: " + catalogType.toSql());
-        }
-
-        if (catalogType.isScalarType()) {
-            validateScalarType((ScalarType) catalogType);
-        } else if (catalogType.isComplexType()) {
-            // now we not support array / map / struct nesting complex type
-            if (catalogType.isArrayType()) {
-                Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
-                if (itemType instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) itemType);
-                }
-            }
-            if (catalogType.isMapType()) {
-                org.apache.doris.catalog.MapType mt =
-                        (org.apache.doris.catalog.MapType) catalogType;
-                if (mt.getKeyType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getKeyType());
-                }
-                if (mt.getValueType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getValueType());
-                }
-            }
-            if (catalogType.isStructType()) {
-                ArrayList<org.apache.doris.catalog.StructField> fields =
-                        ((org.apache.doris.catalog.StructType) catalogType).getFields();
-                Set<String> fieldNames = new HashSet<>();
-                for (org.apache.doris.catalog.StructField field : fields) {
-                    Type fieldType = field.getType();
-                    if (fieldType instanceof ScalarType) {
-                        validateNestedType(catalogType, (ScalarType) fieldType);
-                        if (!fieldNames.add(field.getName())) {
-                            throw new AnalysisException("Duplicate field name " + field.getName()
-                                    + " in struct " + catalogType.toSql());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private void validateScalarType(ScalarType scalarType) {
-        PrimitiveType type = scalarType.getPrimitiveType();
-        // When string type length is not assigned, it needs to be assigned to 1.
-        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
-            if (scalarType.getPrimitiveType() == PrimitiveType.VARCHAR) {
-                // always set varchar length MAX_VARCHAR_LENGTH
-                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
-            } else if (scalarType.getPrimitiveType() == PrimitiveType.STRING) {
-                // always set text length MAX_STRING_LENGTH
-                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
-            } else {
-                scalarType.setLength(1);
-            }
-        }
-        switch (type) {
-            case CHAR:
-            case VARCHAR: {
-                String name;
-                int maxLen;
-                if (type == PrimitiveType.VARCHAR) {
-                    name = "VARCHAR";
-                    maxLen = ScalarType.MAX_VARCHAR_LENGTH;
-                } else {
-                    name = "CHAR";
-                    maxLen = ScalarType.MAX_CHAR_LENGTH;
-                }
-                int len = scalarType.getLength();
-                // len is decided by child, when it is -1.
-
-                if (len <= 0) {
-                    throw new AnalysisException(name + " size must be > 0: " + len);
-                }
-                if (scalarType.getLength() > maxLen) {
-                    throw new AnalysisException(name + " size must be <= " + maxLen + ": " + len);
-                }
-                break;
-            }
-            case DECIMALV2: {
-                int precision = scalarType.decimalPrecision();
-                int scale = scalarType.decimalScale();
-                // precision: [1, 27]
-                if (precision < 1 || precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                    throw new AnalysisException("Precision of decimal must between 1 and 27."
-                            + " Precision was set to: " + precision + ".");
-                }
-                // scale: [0, 9]
-                if (scale < 0 || scale > ScalarType.MAX_DECIMALV2_SCALE) {
-                    throw new AnalysisException("Scale of decimal must between 0 and 9."
-                            + " Scale was set to: " + scale + ".");
-                }
-                if (precision - scale > ScalarType.MAX_DECIMALV2_PRECISION
-                        - ScalarType.MAX_DECIMALV2_SCALE) {
-                    throw new AnalysisException("Invalid decimal type with precision = " + precision
-                            + ", scale = " + scale);
-                }
-                // scale < precision
-                if (scale > precision) {
-                    throw new AnalysisException("Scale of decimal must be smaller than precision."
-                            + " Scale is " + scale + " and precision is " + precision);
-                }
-                break;
-            }
-            case DECIMAL32: {
-                int decimal32Precision = scalarType.decimalPrecision();
-                int decimal32Scale = scalarType.decimalScale();
-                if (decimal32Precision < 1
-                        || decimal32Precision > ScalarType.MAX_DECIMAL32_PRECISION) {
-                    throw new AnalysisException("Precision of decimal must between 1 and 9."
-                            + " Precision was set to: " + decimal32Precision + ".");
-                }
-                // scale >= 0
-                if (decimal32Scale < 0) {
-                    throw new AnalysisException("Scale of decimal must not be less than 0."
-                            + " Scale was set to: " + decimal32Scale + ".");
-                }
-                // scale < precision
-                if (decimal32Scale > decimal32Precision) {
-                    throw new AnalysisException(
-                            "Scale of decimal must be smaller than precision." + " Scale is "
-                                    + decimal32Scale + " and precision is " + decimal32Precision);
-                }
-                break;
-            }
-            case DECIMAL64: {
-                int decimal64Precision = scalarType.decimalPrecision();
-                int decimal64Scale = scalarType.decimalScale();
-                if (decimal64Precision < 1
-                        || decimal64Precision > ScalarType.MAX_DECIMAL64_PRECISION) {
-                    throw new AnalysisException("Precision of decimal64 must between 1 and 18."
-                            + " Precision was set to: " + decimal64Precision + ".");
-                }
-                // scale >= 0
-                if (decimal64Scale < 0) {
-                    throw new AnalysisException("Scale of decimal must not be less than 0."
-                            + " Scale was set to: " + decimal64Scale + ".");
-                }
-                // scale < precision
-                if (decimal64Scale > decimal64Precision) {
-                    throw new AnalysisException(
-                            "Scale of decimal must be smaller than precision." + " Scale is "
-                                    + decimal64Scale + " and precision is " + decimal64Precision);
-                }
-                break;
-            }
-            case DECIMAL128: {
-                int decimal128Precision = scalarType.decimalPrecision();
-                int decimal128Scale = scalarType.decimalScale();
-                if (decimal128Precision < 1
-                        || decimal128Precision > ScalarType.MAX_DECIMAL128_PRECISION) {
-                    throw new AnalysisException("Precision of decimal128 must between 1 and 38."
-                            + " Precision was set to: " + decimal128Precision + ".");
-                }
-                // scale >= 0
-                if (decimal128Scale < 0) {
-                    throw new AnalysisException("Scale of decimal must not be less than 0."
-                            + " Scale was set to: " + decimal128Scale + ".");
-                }
-                // scale < precision
-                if (decimal128Scale > decimal128Precision) {
-                    throw new AnalysisException(
-                            "Scale of decimal must be smaller than precision." + " Scale is "
-                                    + decimal128Scale + " and precision is " + decimal128Precision);
-                }
-                break;
-            }
-            case DECIMAL256: {
-                if (SessionVariable.getEnableDecimal256()) {
-                    int precision = scalarType.decimalPrecision();
-                    int scale = scalarType.decimalScale();
-                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
-                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
-                                + " Precision was set to: " + precision + ".");
-                    }
-                    // scale >= 0
-                    if (scale < 0) {
-                        throw new AnalysisException("Scale of decimal must not be less than 0."
-                                + " Scale was set to: " + scale + ".");
-                    }
-                    // scale < precision
-                    if (scale > precision) {
-                        throw new AnalysisException(
-                                "Scale of decimal must be smaller than precision." + " Scale is "
-                                        + scale + " and precision is " + precision);
-                    }
-                    break;
-                } else {
-                    int precision = scalarType.decimalPrecision();
-                    throw new AnalysisException("Column of type Decimal256 with precision "
-                            + precision + " in not supported.");
-                }
-            }
-            case TIMEV2:
-            case DATETIMEV2: {
-                int precision = scalarType.decimalPrecision();
-                int scale = scalarType.decimalScale();
-                // precision: [1, 27]
-                if (precision != ScalarType.DATETIME_PRECISION) {
-                    throw new AnalysisException(
-                            "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
-                                    + "." + " Precision was set to: " + precision + ".");
-                }
-                // scale: [0, 9]
-                if (scale < 0 || scale > 6) {
-                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
-                            + " Scale was set to: " + scale + ".");
-                }
-                break;
-            }
-            case INVALID_TYPE:
-                throw new AnalysisException("Invalid type.");
-            default:
-                break;
-        }
-    }
-
-    private void validateNestedType(Type parent, Type child) throws AnalysisException {
-        if (child.isNull()) {
-            throw new AnalysisException("Unsupported data type: " + child.toSql());
-        }
-        // check whether the sub-type is supported
-        if (!parent.supportSubType(child)) {
-            throw new AnalysisException(
-                    parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
-        }
-        validateDataType(child);
-    }
-
     /**
      * translate to catalog create table stmt
      */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                autoIncInitValue, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
+                autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
+                generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
+                generatedColumnsThatReferToThis);
+        column.setAggregationTypeImplicit(aggTypeImplicit);
+        return column;
+    }
+
+    /**
+     * translate to catalog column for schema change
+     */
+    public Column translateToCatalogStyleForSchemaChange() {
+        Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
+                autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
+                defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
+                defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis);

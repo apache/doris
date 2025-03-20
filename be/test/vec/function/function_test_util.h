@@ -50,6 +50,7 @@
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -69,7 +70,7 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
-// FIXME: should use exception or expected to deal null value.w
+// FIXME: should use exception or expected to deal null value.
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -247,7 +248,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
-        arguments.push_back(i);
+        arguments.push_back(static_cast<unsigned int>(i));
         arg_types.push_back(desc.type_desc);
         if (desc.is_const) {
             constant_col_ptrs.push_back(
@@ -315,7 +316,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    EXPECT_TRUE(column != nullptr);
+    EXPECT_TRUE(column);
+    if (const auto* column_str = check_and_get_column<ColumnString>(column.get())) {
+        column_str->sanity_check();
+    }
 
     for (int i = 0; i < row_size; ++i) {
         // update current line
@@ -356,6 +360,18 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     }
                     EXPECT_EQ(expect_data.to_string(), bitmap_col->get_element(i).to_string())
                             << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeHLL>) {
+                    const ColumnHLL* hll_col = nullptr;
+                    if constexpr (nullable) {
+                        const auto* nullable_column =
+                                assert_cast<const ColumnNullable*>(column.get());
+                        hll_col = assert_cast<const ColumnHLL*>(
+                                nullable_column->get_nested_column_ptr().get());
+                    } else {
+                        hll_col = assert_cast<const ColumnHLL*>(column.get());
+                    }
+                    EXPECT_EQ(expect_data.to_string(), hll_col->get_element(i).to_string())
+                            << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
                                      std::is_same_v<ReturnType, DataTypeTimeV2>) {
@@ -390,8 +406,8 @@ using BaseInputTypeSet = std::vector<TypeIndex>;
 template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
                                  const DataSet& data_set) {
-    int arg_cnt = base_set.size();
-    TestCaseInfo::arg_size = arg_cnt;
+    size_t arg_cnt = base_set.size();
+    TestCaseInfo::arg_size = static_cast<int>(arg_cnt);
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
     for (int i = 0; i < (1 << arg_cnt); i++) {
         InputTypeSet input_types {};

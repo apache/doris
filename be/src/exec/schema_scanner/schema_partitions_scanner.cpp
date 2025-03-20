@@ -31,6 +31,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 namespace vectorized {
 class Block;
@@ -108,6 +110,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
+    schema_table_request_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::PARTITIONS);
@@ -138,7 +141,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     }
     _partitions_block->reserve(_block_rows_limit);
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("table options schema is not match for FE and BE");
         }
@@ -178,7 +181,7 @@ Status SchemaPartitionsScanner::get_next_block_internal(vectorized::Block* block
         if (_db_index < _db_result.db_ids.size()) {
             RETURN_IF_ERROR(get_onedb_info_from_fe(_db_result.db_ids[_db_index]));
             _row_idx = 0; // reset row index so that it start filling for next block.
-            _total_rows = _partitions_block->rows();
+            _total_rows = (int)_partitions_block->rows();
             _db_index++;
         }
     }

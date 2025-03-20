@@ -735,6 +735,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    // need to update least_common_type when pop_back a column from the last
+    least_common_type = sz > 0 ? LeastCommonType {data_types[sz - 1]}
+                               : LeastCommonType {std::make_shared<DataTypeNothing>()};
     num_of_defaults_in_prefix -= n;
 }
 
@@ -1271,7 +1274,7 @@ bool ColumnObject::is_finalized() const {
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
-    if (result_column->is_column_array() && !result_column->is_nullable()) {
+    if (is_column<vectorized::ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
@@ -1479,20 +1482,47 @@ Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::Str
         root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
     }
     Arena mem_pool;
+
+    bool serialize_root = true; // Assume all subcolumns are null by default
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
+
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                     *subcolumn->data.get_finalized_column_ptr())
+                     .is_null_at(row)) {
+            serialize_root = false;
+            break;
+        }
+    }
 #ifndef NDEBUG
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
+    if (serialize_root && subcolumns.get_root()->is_scalar()) {
+        // only serialize root when all other subcolumns is null
+        RETURN_IF_ERROR(
+                subcolumns.get_root()->data.get_least_common_type_serde()->write_one_cell_to_json(
+                        subcolumns.get_root()->data.get_finalized_column(), root,
+                        doc_structure->GetAllocator(), mem_pool, row));
+        output->Clear();
+        compact_null_values(root, doc_structure->GetAllocator());
+        rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
+        root.Accept(writer);
+        return Status::OK();
+    }
+    // handle subcolumns exclude root node
     for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue;
+        }
         RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_finalized_column_ptr().get(), subcolumn->path,
                 subcolumn->data.get_least_common_type_serde(),
                 subcolumn->data.get_least_common_type(),
                 subcolumn->data.least_common_type.get_base_type_id(), root,
                 doc_structure->GetAllocator(), mem_pool, row));
-        if (subcolumn->path.empty() && !root.IsObject()) {
-            // root was modified, only handle root node
-            break;
-        }
     }
     compact_null_values(root, doc_structure->GetAllocator());
     if (root.IsNull() && is_null != nullptr) {
@@ -1558,7 +1588,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 continue;
             }
             bool succ = find_and_set_leave_value(
-                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    column.get(), subcolumn->path, subcolumn->data.get_least_common_type_serde(),
                     subcolumn->data.get_least_common_type(),
                     subcolumn->data.least_common_type.get_base_type_id(), root,
                     doc_structure->GetAllocator(), mem_pool, i);
@@ -1705,7 +1735,7 @@ bool ColumnObject::empty() const {
 }
 
 ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
         return column_array->get_data_ptr();
     }
     return column;
@@ -1875,9 +1905,29 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
 
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        ColumnObject::insert_from(src, *x);
+    // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
+
+    bool src_can_do_quick_insert =
+            src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();
+    // num_rows == 0 means this column is empty, we not need to check it type
+    if (num_rows == 0 && src_can_do_quick_insert) {
+        // add a new root column, and insert from src root column
+        clear();
+        add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
+
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else if (src_can_do_quick_insert && is_scalar_variant() &&
+               src_v->get_root_type()->equals(*get_root_type())) {
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else {
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            try_insert(src[*x]);
+        }
     }
+    finalize();
 }
 
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
@@ -1953,6 +2003,7 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
@@ -1967,6 +2018,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 

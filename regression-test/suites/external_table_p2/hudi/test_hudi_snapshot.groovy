@@ -19,6 +19,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
+        return
     }
 
     String catalog_name = "test_hudi_snapshot"
@@ -34,7 +35,6 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
 
-    // 创建groovy函数，接收table_name为参数
     def test_hudi_snapshot_querys = { table_name ->
         // Query users by event_time in descending order and limit output
         qt_q01 """SELECT * FROM ${table_name} ORDER BY event_time DESC LIMIT 10;"""
@@ -49,7 +49,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q04 """SELECT * FROM ${table_name} WHERE event_time BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59' ORDER BY event_time LIMIT 10;"""
 
         // Count users by age group and limit output
-        qt_q05 """SELECT age, COUNT(*) AS user_count FROM ${table_name} GROUP BY age ORDER BY user_count DESC LIMIT 5;"""
+        qt_q05 """SELECT age, COUNT(*) AS user_count FROM ${table_name} GROUP BY age ORDER BY user_count, age DESC LIMIT 5;"""
 
         // Query users with purchase records and limit output
         qt_q06 """SELECT user_id, purchases FROM ${table_name} WHERE array_size(purchases) > 0 ORDER BY user_id LIMIT 5;"""
@@ -67,7 +67,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY event_time DESC LIMIT 5;"""
 
         // Query all users' signup dates and limit output
-        qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY signup_date DESC LIMIT 10;"""
+        qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY user_id DESC LIMIT 10;"""
 
         // Query users with a specific postal code and limit output
         qt_q12 """SELECT * FROM ${table_name} WHERE struct_element(address, 'postal_code') = '80312' ORDER BY event_time LIMIT 5;"""
@@ -82,17 +82,18 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY user_id LIMIT 5;"""
     }
 
+    sql """set force_jni_scanner=true;"""
+    sql """set hudi_jni_scanner='hadoop';"""
     test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
     test_hudi_snapshot_querys("user_activity_log_mor_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_partition")
 
-    sql """set force_jni_scanner=true;"""
+    sql """set force_jni_scanner=false;"""
     test_hudi_snapshot_querys("user_activity_log_mor_non_partition")
     test_hudi_snapshot_querys("user_activity_log_mor_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
     test_hudi_snapshot_querys("user_activity_log_cow_partition")
-    sql """set force_jni_scanner=false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
 }

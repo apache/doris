@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -60,6 +62,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     }
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
+    schema_table_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
@@ -92,7 +95,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     _active_query_block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("active queries schema is not match for FE and BE");
         }
@@ -119,7 +122,7 @@ Status SchemaActiveQueriesScanner::get_next_block_internal(vectorized::Block* bl
 
     if (_active_query_block == nullptr) {
         RETURN_IF_ERROR(_get_active_queries_block_from_fe());
-        _total_rows = _active_query_block->rows();
+        _total_rows = (int)_active_query_block->rows();
     }
 
     if (_row_idx == _total_rows) {

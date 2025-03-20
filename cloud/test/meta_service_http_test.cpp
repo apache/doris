@@ -32,9 +32,13 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <optional>
+#include <string>
 
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -810,11 +814,11 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         auto node = req.mutable_cluster()->add_nodes();
         node->set_ip("127.0.0.1");
-        node->set_heartbeat_port(9999);
+        node->set_heartbeat_port(9996);
         node->set_cloud_unique_id("cloud_unique_id");
         auto& meta_service = ctx.meta_service_;
         NodeInfoPB npb;
-        npb.set_heartbeat_port(9999);
+        npb.set_heartbeat_port(9996);
         npb.set_ip("127.0.0.1");
         npb.set_cloud_unique_id("cloud_unique_id");
         meta_service->resource_mgr()->node_info_.insert(
@@ -1636,6 +1640,124 @@ TEST(MetaServiceHttpTest, QueryRateLimit) {
     {
         auto [status_code, content] = ctx.query<std::string>("list_rate_limit", "");
         ASSERT_EQ(status_code, 200);
+    }
+}
+
+TEST(MetaServiceHttpTest, UpdateConfig) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "query param `config` should not be empty";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "configs=aaa");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "config aaa is invalid";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "configs=aaa=bbb");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "config field=aaa not exists";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=custom_conf_path=./doris_conf");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "config field=custom_conf_path is immutable";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=recycle_interval_seconds=3599");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(config::recycle_interval_seconds, 3599);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "update_config", "configs=recycle_interval_seconds=3601,retention_seconds=259201");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(config::retention_seconds, 259201);
+        ASSERT_EQ(config::recycle_interval_seconds, 3601);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=enable_s3_rate_limiter=true");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_TRUE(config::enable_s3_rate_limiter);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "enable_s3_rate_limiter=invalid");
+        ASSERT_EQ(status_code, 400);
+    }
+    {
+        auto original_conf_path = config::custom_conf_path;
+        config::custom_conf_path = "./doris_cloud_custom.conf";
+        {
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config",
+                    "configs=recycle_interval_seconds=3659,retention_seconds=259219&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::recycle_interval_seconds, 3659);
+            ASSERT_EQ(config::retention_seconds, 259219);
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                int64_t recycle_interval_s = 0;
+                ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
+                                                 recycle_interval_s, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(recycle_interval_s, 3659);
+            }
+            {
+                bool new_val_set = false;
+                int64_t retention_s = 0;
+                ASSERT_TRUE(props.get_or_default("retention_seconds", nullptr, retention_s,
+                                                 &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(retention_s, 259219);
+            }
+        }
+        {
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config", "configs=enable_s3_rate_limiter=false&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::recycle_interval_seconds, 3659);
+            ASSERT_EQ(config::retention_seconds, 259219);
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                int64_t recycle_interval_s = 0;
+                ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
+                                                 recycle_interval_s, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(recycle_interval_s, 3659);
+            }
+            {
+                bool new_val_set = false;
+                int64_t retention_s = 0;
+                ASSERT_TRUE(props.get_or_default("retention_seconds", nullptr, retention_s,
+                                                 &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(retention_s, 259219);
+            }
+            {
+                bool new_val_set = false;
+                bool enable_s3_rate_limiter = true;
+                ASSERT_TRUE(props.get_or_default("enable_s3_rate_limiter", nullptr,
+                                                 enable_s3_rate_limiter, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_FALSE(enable_s3_rate_limiter);
+            }
+        }
+        std::filesystem::remove(config::custom_conf_path);
+        config::custom_conf_path = original_conf_path;
     }
 }
 

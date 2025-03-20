@@ -97,7 +97,7 @@ public:
                                             int64_t* cumulative_point) = 0;
 
     // Updates the compaction level of a tablet after a compaction operation.
-    virtual void update_compaction_level(Tablet* tablet,
+    virtual int64_t get_compaction_level(Tablet* tablet,
                                          const std::vector<RowsetSharedPtr>& input_rowsets,
                                          RowsetSharedPtr output_rowset) = 0;
 
@@ -154,8 +154,10 @@ public:
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
     uint32_t calc_cumulative_compaction_score(Tablet* tablet) override;
 
-    void update_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr output_rowset) override {}
+    int64_t get_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) override {
+        return 0;
+    }
 
     std::string_view name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 

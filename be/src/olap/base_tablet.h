@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 
@@ -67,7 +68,8 @@ public:
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
-    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
+    // currently used by schema change, inverted index building, and cooldown
+    std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
 #ifdef BE_TEST
         if (_tablet_meta == nullptr) {
@@ -143,8 +145,7 @@ public:
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
-                           OlapReaderStatistics& stats, std::string& values,
+                           RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
@@ -181,7 +182,7 @@ public:
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(
@@ -304,6 +305,14 @@ public:
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
     TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
 
+    void get_base_rowset_delete_bitmap_count(
+            uint64_t* max_base_rowset_delete_bitmap_score,
+            int64_t* max_base_rowset_delete_bitmap_score_tablet_id);
+
+    virtual Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
+        return Status::OK();
+    }
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -342,7 +351,7 @@ protected:
     std::shared_ptr<MetricEntity> _metric_entity;
 
 protected:
-    std::mutex _schema_change_lock;
+    std::timed_mutex _schema_change_lock;
 
 public:
     IntCounter* query_scan_bytes = nullptr;

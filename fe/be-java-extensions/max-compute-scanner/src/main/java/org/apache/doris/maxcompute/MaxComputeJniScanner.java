@@ -52,8 +52,14 @@ import java.util.Objects;
  * MaxComputeJ JniScanner. BE will read data from the scanner object.
  */
 public class MaxComputeJniScanner extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
+    static {
+        //Set `NullCheckingForGet.NULL_CHECKING_ENABLED` false.
+        //We will call isNull() before calling getXXX(), so we can set this parameter
+        // to skip the repeated check of isNull().
+        System.setProperty("arrow.enable_null_check_for_get", "false");
+    }
 
+    private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
 
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";

@@ -226,7 +226,11 @@ public class DataTrait {
             fdDgBuilder.addDeps(fd.fdDg);
         }
 
+        /**add Dependency relation for dominate and dependency*/
         public void addDeps(Set<Slot> dominate, Set<Slot> dependency) {
+            if (dominate.isEmpty() || dependency.isEmpty()) {
+                return;
+            }
             if (dominate.containsAll(dependency)) {
                 return;
             }
@@ -360,6 +364,10 @@ public class DataTrait {
             uniqueSet.removeNotContain(outputSlots);
             equalSetBuilder.removeNotContain(outputSlots);
             fdDgBuilder.removeNotContain(outputSlots);
+        }
+
+        public void pruneEqualSetSlots(Set<Slot> outputSlots) {
+            equalSetBuilder.removeNotContain(outputSlots);
         }
 
         public void replaceUniformBy(Map<Slot, Slot> replaceMap) {

@@ -87,13 +87,14 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
+        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) +
+                           ", filter_id=" + std::to_string(_filter->get_filter_id()) + ")";
         return info;
     }
 
     int get_filter_id() const override {
         int filter_id = _filter->get_filter_id();
-        if (filter_id == 1) {
+        if (filter_id == -1) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "filter_id is -1");
         }
         return filter_id;

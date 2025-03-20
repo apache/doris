@@ -49,14 +49,14 @@ suite("column_authorization") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
     }
 
     sql 'sync'
 
     def defaultDbUrl = context.config.jdbcUrl.substring(0, context.config.jdbcUrl.lastIndexOf("/"))
     logger.info("connect to ${defaultDbUrl}".toString())
-    connect(user = user1, password = null, url = defaultDbUrl) {
+    connect(user1, null, defaultDbUrl) {
         sql "set enable_fallback_to_original_planner=false"
 
         // no privilege to name

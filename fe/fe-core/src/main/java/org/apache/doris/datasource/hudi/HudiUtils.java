@@ -34,22 +34,26 @@ import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
-    private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    private static final DateTimeFormatter DEFAULT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
      * Convert different query instant time format to the commit time format.
@@ -71,7 +75,8 @@ public class HudiUtils {
             HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
             return queryInstant;
         } else if (instantLength == 10) { // for yyyy-MM-dd
-            return HoodieActiveTimeline.formatDate(defaultDateFormat.parse(queryInstant));
+            LocalDate date = LocalDate.parse(queryInstant, DEFAULT_DATE_FORMATTER);
+            return HoodieActiveTimeline.formatDate(java.sql.Date.valueOf(date));
         } else {
             throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
                     + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
@@ -251,7 +256,7 @@ public class HudiUtils {
             return partitionValues;
         }
 
-        HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
+        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
         HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
                 .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
         boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
@@ -262,23 +267,33 @@ public class HudiUtils {
                 return partitionValues;
             }
             String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
-
-            partitionValues =
-                    HiveMetaStoreClientHelper.ugiDoAs(
-                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                            () -> processor.getSnapshotPartitionValues(
-                                    hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
+                        processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
         } else {
             HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
                 return partitionValues;
             }
-            partitionValues =
-                    HiveMetaStoreClientHelper.ugiDoAs(
-                            HiveMetaStoreClientHelper.getConfiguration(hmsTable),
-                            () -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
         }
         return partitionValues;
+    }
+
+    public static HoodieTableMetaClient buildHudiTableMetaClient(String hudiBasePath, Configuration conf) {
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
+        return HiveMetaStoreClientHelper.ugiDoAs(
+            conf,
+            () -> HoodieTableMetaClient.builder()
+                .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
     }
 }

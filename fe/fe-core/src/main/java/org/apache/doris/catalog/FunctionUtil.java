@@ -259,9 +259,4 @@ public class FunctionUtil {
         }
     }
 
-    public static void checkEnableJavaUdfForNereids() {
-        if (!Config.enable_java_udf) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException("java_udf has been disabled.");
-        }
-    }
 }

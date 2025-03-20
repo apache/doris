@@ -19,6 +19,7 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set be_number_for_test=1"
     sql "set DISABLE_NEREIDS_RULES='PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
 
     sql """
@@ -87,18 +88,22 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     );
     """
 
+    sql """
+      set topn_opt_limit_threshold=1024;
+      """
+
     explain {
-        sql("physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/" +
-                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.gz_user_id) AS a2c1a830_1," +
-                "dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6," +
-                "dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 " +
-                "FROM dwd_tracking_sensor_init_tmp_ymds " +
-                "LEFT JOIN dwd_com_abtest_result_inc_ymds " +
-                "ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key " +
-                "AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt " +
-                "WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "GROUP BY 2, 3 ORDER BY 3 asc limit 10000;");
+        sql("""physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/
+                COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.gz_user_id) AS a2c1a830_1,
+                dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6,
+                dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 
+                FROM dwd_tracking_sensor_init_tmp_ymds 
+                LEFT JOIN dwd_com_abtest_result_inc_ymds 
+                ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key 
+                AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt 
+                WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' 
+                AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' 
+                GROUP BY 2, 3 ORDER BY 3 asc limit 10000;""");
         contains"groupByExpr=[gz_user_id#1, dt#2]"
         contains"groupByExpr=[gz_user_id#1, dt#2, group_name#5], outputExpr=[gz_user_id#1, dt#2, group_name#5]"
         contains"[group_name#5, dt#2]"
@@ -106,17 +111,17 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     }
 
     explain {
-        sql("physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/" +
-                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.ip) AS a2c1a830_1," +
-                "dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6," +
-                "dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 " +
-                "FROM dwd_tracking_sensor_init_tmp_ymds " +
-                "LEFT JOIN dwd_com_abtest_result_inc_ymds " +
-                "ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key " +
-                "AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt " +
-                "WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "GROUP BY 2, 3 ORDER BY 3 asc limit 10000;");
+        sql("""physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/
+                COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.ip) AS a2c1a830_1,
+                dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6,
+                dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 
+                FROM dwd_tracking_sensor_init_tmp_ymds 
+                LEFT JOIN dwd_com_abtest_result_inc_ymds 
+                ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key 
+                AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt 
+                WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' 
+                AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' 
+                GROUP BY 2, 3 ORDER BY 3 asc limit 10000;""");
         contains"groupByExpr=[ip#0, gz_user_id#1, dt#2], outputExpr=[ip#0, gz_user_id#1, dt#2]"
         contains"groupByExpr=[ip#0, dt#2, group_name#5], outputExpr=[ip#0, dt#2, group_name#5]"
         contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, partial_count(ip#0) AS `partial_count(ip)`#12]"

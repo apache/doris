@@ -244,22 +244,49 @@ suite("check_before_quit", "nonConcurrent,p0") {
 
     def num = allDataBases.size()
 
-    for (int i = 0; i < allDataBases.size(); i++) {
+    for (int i = 0; i < num; i++) {
         def db = allDataBases[i][0]
         if (db == "__internal_schema" || db == "information_schema" || db == "mysql") {
             continue
         }
         List<List<Object>> allTables = sql "show tables from ${db}"
         logger.info("show all tabkes: ${allTables}")
-        for (int j = 0;j < allTables.size();j ++) {
+        for (int j = 0; j < allTables.size(); j++) {
             def tbl = allTables[j][0]
-            def createTableSql = sql "show create table ${db}.${tbl}"
-            logger.info("create table sql info: ${createTableSql}")
-            sql "drop table if exists ${tbl}"
-            sql(createTableSql[0][1])
-            def createTableSqlResult = sql "show create table ${tbl}"
-            logger.info("create table sql result info: ${createTableSqlResult}")
-            assertEquals(createTableSqlResult, createTableSql)
+            def createTableSql = ""
+            try {
+                createTableSql = sql "show create table ${db}.${tbl}"
+                logger.info("create table sql: ${createTableSql}")
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    try {
+                        createTableSql = sql "show create materialized view ${tbl}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        } else {
+                            logger.info(e2.getMessage())
+                            throw e2
+                        }
+                    }
+                    logger.info("create materialized view sql: ${createTableSql}")
+                }
+            }
+
+            if (createTableSql[0][1].contains("CREATE VIEW")) {
+                sql "drop view if exists ${tbl}"
+            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                sql "drop materialized view if exists ${tbl}"
+            } else {
+                sql "drop table if exists ${tbl}"
+                // only re create table, because the table which view depends may be dropped,
+                // so recreate view may fail
+                sql(createTableSql[0][1])
+                def createTableSqlResult = sql "show create table ${tbl}"
+                logger.info("target: ${createTableSqlResult[0][1]}, origin: ${createTableSql[0][1]}")
+
+                assertEquals(createTableSqlResult[0][1].trim(), createTableSql[0][1].trim())
+            }
         }
     }
 

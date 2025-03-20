@@ -57,13 +57,13 @@ suite("test_backup_restore_mv", "backup_restore") {
     """
 
     def alter_finished = false
-    for (i = 0; i < 60 && !alter_finished; i++) {
+    for (int i = 0; i < 60 && !alter_finished; i++) {
         result = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW FROM ${dbName}"
         logger.info("result: ${result}")
-        for (int i = 0; i < result.size(); i++) {
-            if (result[i]['TableName'] == "${tableName}" &&
-                result[i]['RollupIndexName'] == "${mvName}" &&
-                result[i]['State'] == 'FINISHED') {
+        for (int j = 0; j < result.size(); j++) {
+            if (result[j]['TableName'] == "${tableName}" &&
+                result[j]['RollupIndexName'] == "${mvName}" &&
+                result[j]['State'] == 'FINISHED') {
                 alter_finished = true
                 break
             }

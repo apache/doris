@@ -28,6 +28,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -97,8 +98,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     private ConnectorMetadata connectorMetadata;
     private Constraint constraint;
 
-    public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv);
+    public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
+            SessionVariable sv) {
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE, needCheckColumnPriv,
+                sv);
     }
 
     @Override
@@ -129,7 +132,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         // 1. Get necessary objects
         Connector connector = source.getConnector();
         connectorMetadata = source.getConnectorMetadata();

@@ -83,6 +83,7 @@ public:
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         _tablet_mgr = nullptr;
+        config::compaction_num_per_round = 1;
     }
     std::unique_ptr<StorageEngine> k_engine;
 
@@ -463,13 +464,134 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_EQ(score, 25);
 
     // drop all tablets
-    for (int64_t id = 1; id <= 20; ++id) {
+    for (int64_t id = 1; id <= 21; ++id) {
         Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
         ASSERT_TRUE(drop_st.ok()) << drop_st;
     }
 
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 100; ++i) {
+            create_tablet(10000 + i, false, i);
+        }
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 10);
+        int index = 0;
+        for (auto t : compact_tablets) {
+            ASSERT_EQ(t->tablet_id(), 10100 - index);
+            ASSERT_EQ(t->calc_compaction_score(), 100 - index);
+            index++;
+        }
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 10001; id <= 10100; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
+    }
+
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 100; ++i) {
+            create_tablet(20000 + i, false, i);
+        }
+        create_tablet(20102, true, 200);
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 11);
+        for (int i = 0; i < 10; ++i) {
+            ASSERT_EQ(compact_tablets[i]->tablet_id(), 20100 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 100 - i);
+        }
+        ASSERT_EQ(compact_tablets[10]->tablet_id(), 20102);
+        ASSERT_EQ(compact_tablets[10]->calc_compaction_score(), 200);
+
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 20001; id <= 20100; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
+
+        Status drop_st = _tablet_mgr->drop_tablet(20102, 20102 * 10, false);
+        ASSERT_TRUE(drop_st.ok()) << drop_st;
+    }
+
+    {
+        config::compaction_num_per_round = 10;
+        for (int64_t i = 1; i <= 5; ++i) {
+            create_tablet(30000 + i, false, i + 5);
+        }
+
+        compact_tablets = _tablet_mgr->find_best_tablets_to_compaction(
+                CompactionType::CUMULATIVE_COMPACTION, _data_dir, cumu_set, &score,
+                cumulative_compaction_policies);
+        ASSERT_EQ(compact_tablets.size(), 5);
+        for (int i = 0; i < 5; ++i) {
+            ASSERT_EQ(compact_tablets[i]->tablet_id(), 30000 + 5 - i);
+            ASSERT_EQ(compact_tablets[i]->calc_compaction_score(), 10 - i);
+        }
+
+        config::compaction_num_per_round = 1;
+        // drop all tablets
+        for (int64_t id = 30001; id <= 30005; ++id) {
+            Status drop_st = _tablet_mgr->drop_tablet(id, id * 10, false);
+            ASSERT_TRUE(drop_st.ok()) << drop_st;
+        }
+    }
+
     Status trash_st = _tablet_mgr->start_trash_sweep();
     ASSERT_TRUE(trash_st.ok()) << trash_st;
+}
+
+TEST_F(TabletMgrTest, LoadTabletFromMeta) {
+    TTabletId tablet_id = 111;
+    TSchemaHash schema_hash = 3333;
+    TColumnType col_type;
+    col_type.__set_type(TPrimitiveType::SMALLINT);
+    TColumn col1;
+    col1.__set_column_name("col1");
+    col1.__set_column_type(col_type);
+    col1.__set_is_key(true);
+    std::vector<TColumn> cols;
+    cols.push_back(col1);
+    TTabletSchema tablet_schema;
+    tablet_schema.__set_short_key_column_count(1);
+    tablet_schema.__set_schema_hash(3333);
+    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+    tablet_schema.__set_storage_type(TStorageType::COLUMN);
+    tablet_schema.__set_columns(cols);
+    TCreateTabletReq create_tablet_req;
+    create_tablet_req.__set_tablet_schema(tablet_schema);
+    create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_version(2);
+    std::vector<DataDir*> data_dirs;
+    data_dirs.push_back(_data_dir);
+    RuntimeProfile profile("CreateTablet");
+    Status create_st =
+            k_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
+
+    std::string serialized_tablet_meta;
+    tablet->tablet_meta()->serialize(&serialized_tablet_meta);
+    bool update_meta = true;
+    bool force = true;
+    bool restore = false;
+    bool check_path = true;
+    Status st = _tablet_mgr->load_tablet_from_meta(_data_dir, tablet_id, schema_hash,
+                                                   serialized_tablet_meta, update_meta, force,
+                                                   restore, check_path);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    // After reload, the original tablet should not be allowed to save meta.
+    ASSERT_FALSE(tablet->do_tablet_meta_checkpoint());
 }
 
 } // namespace doris

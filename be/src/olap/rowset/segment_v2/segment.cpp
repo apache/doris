@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -174,8 +175,9 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
-           (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
+           (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
 }
 
 void Segment::update_metadata_size() {
@@ -185,18 +187,20 @@ void Segment::update_metadata_size() {
 }
 
 Status Segment::_open() {
-    _footer_pb = std::make_unique<SegmentFooterPB>();
-    RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
-    _pk_index_meta.reset(_footer_pb->has_primary_key_index_meta()
-                                 ? new PrimaryKeyIndexMetaPB(_footer_pb->primary_key_index_meta())
-                                 : nullptr);
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+
+    _pk_index_meta.reset(
+            footer_pb_shared->has_primary_key_index_meta()
+                    ? new PrimaryKeyIndexMetaPB(footer_pb_shared->primary_key_index_meta())
+                    : nullptr);
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
-    _sk_index_page = _footer_pb->short_key_index_page();
-    _num_rows = _footer_pb->num_rows();
+    _sk_index_page = footer_pb_shared->short_key_index_page();
+    _num_rows = footer_pb_shared->num_rows();
 
     // An estimated memory usage of a segment
-    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    _meta_mem_usage += footer_pb_shared->ByteSizeLong();
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
@@ -228,7 +232,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
-    RETURN_IF_ERROR(_create_column_readers_once());
+    RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
 
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
@@ -288,7 +292,11 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         }
     }
 
-    RETURN_IF_ERROR(load_index());
+    {
+        SCOPED_RAW_TIMER(&read_options.stats->segment_load_index_timer_ns);
+        RETURN_IF_ERROR(load_index(read_options.stats));
+    }
+
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
@@ -391,7 +399,7 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
     return Status::OK(); // already exists
 };
 
-Status Segment::_parse_footer(SegmentFooterPB* footer) {
+Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -457,6 +465,7 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     }
 
     // deserialize footer PB
+    footer = std::make_shared<SegmentFooterPB>();
     if (!footer->ParseFromString(footer_buf)) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);
@@ -468,10 +477,13 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+
+    VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
+                              _file_reader->path().native());
     return Status::OK();
 }
 
-Status Segment::_load_pk_bloom_filter() {
+Status Segment::_load_pk_bloom_filter(OlapReaderStatistics* stats) {
 #ifdef BE_TEST
     if (_pk_index_meta == nullptr) {
         // for BE UT "segment_cache_test"
@@ -486,30 +498,35 @@ Status Segment::_load_pk_bloom_filter() {
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
 
-    return _load_pk_bf_once.call([this] {
-        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
+    return _load_pk_bf_once.call([this, stats] {
+        RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta, stats));
         // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
         return Status::OK();
     });
 }
 
 Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats) {
-    _pk_index_load_stats = index_load_stats;
-    RETURN_IF_ERROR(load_index());
-    RETURN_IF_ERROR(_load_pk_bloom_filter());
+    // `DorisCallOnce` may catch exception in calling stack A and re-throw it in
+    // a different calling stack B which doesn't have catch block. So we add catch block here
+    // to prevent coreudmp
+    RETURN_IF_CATCH_EXCEPTION({
+        RETURN_IF_ERROR(load_index(index_load_stats));
+        RETURN_IF_ERROR(_load_pk_bloom_filter(index_load_stats));
+    });
     return Status::OK();
 }
 
-Status Segment::load_index() {
-    return _load_index_once.call([this] {
+Status Segment::load_index(OlapReaderStatistics* stats) {
+    return _load_index_once.call([this, stats] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
-            _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>(_pk_index_load_stats);
-            RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
+            _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
+            RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta, stats));
             // _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
+            OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
             PageReadOptions opts {
                     .use_page_cache = true,
                     .type = INDEX_PAGE,
@@ -518,7 +535,8 @@ Status Segment::load_index() {
                     // short key index page uses NO_COMPRESSION for now
                     .codec = nullptr,
                     .stats = &tmp_stats,
-                    .io_ctx = io::IOContext {.is_index_data = true},
+                    .io_ctx = io::IOContext {.is_index_data = true,
+                                             .file_cache_stats = &stats_ptr->file_cache_stats},
             };
             Slice body;
             PageFooterPB footer;
@@ -594,11 +612,12 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
     return nullptr;
 }
 
-Status Segment::_create_column_readers_once() {
+Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
+    SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     return _create_column_readers_once_call.call([&] {
-        DCHECK(_footer_pb);
-        Defer defer([&]() { _footer_pb.reset(); });
-        return _create_column_readers(*_footer_pb);
+        std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+        RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+        return _create_column_readers(*footer_pb_shared);
     });
 }
 
@@ -696,8 +715,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     return Status::OK();
 }
 
-static Status new_default_iterator(const TabletColumn& tablet_column,
-                                   std::unique_ptr<ColumnIterator>* iter) {
+Status Segment::new_default_iterator(const TabletColumn& tablet_column,
+                                     std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
                 "invalid nonexistent column without default value. column_uid={}, column_name={}, "
@@ -721,7 +740,7 @@ Status Segment::_new_iterator_with_variant_root(const TabletColumn& tablet_colum
                                                 const SubcolumnColumnReaders::Node* root,
                                                 vectorized::DataTypePtr target_type_hint) {
     ColumnIterator* it;
-    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(root->data.reader->new_iterator(&it, &tablet_column));
     auto* stream_iter = new ExtractReader(
             tablet_column,
             std::make_unique<SubstreamIterator>(root->data.file_column_type->create_column(),
@@ -788,7 +807,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             assert(leaf);
             std::unique_ptr<ColumnIterator> sibling_iter;
             ColumnIterator* sibling_iter_ptr;
-            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr, &tablet_column));
             sibling_iter.reset(sibling_iter_ptr);
             *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                   leaf->data.file_column_type);
@@ -819,7 +838,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
         iter->reset(it);
         return Status::OK();
     }
@@ -830,7 +849,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             // Direct read extracted columns
             const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
             ColumnIterator* it;
-            RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+            RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
             iter->reset(it);
         } else {
             // Node contains column with children columns or has correspoding sparse columns
@@ -868,10 +887,10 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
-    if (opt != nullptr && opt->runtime_state != nullptr) {
+    if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
-    RETURN_IF_ERROR(_create_column_readers_once());
+    RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
 
     // init column iterator by path info
     if (tablet_column.has_path_info() || tablet_column.is_variant_type()) {
@@ -884,7 +903,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     // init iterator by unique id
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    RETURN_IF_ERROR(
+            _column_readers.at(tablet_column.unique_id())->new_iterator(&it, &tablet_column));
     iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.is_agg_state_type() &&
@@ -899,10 +919,12 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter) {
-    RETURN_IF_ERROR(_create_column_readers_once());
+Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
+                                    std::unique_ptr<ColumnIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
+    TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
     iter->reset(it);
     return Status::OK();
 }
@@ -928,8 +950,9 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
 }
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                          const StorageReadOptions& read_options,
                                           std::unique_ptr<BitmapIndexIterator>* iter) {
-    RETURN_IF_ERROR(_create_column_readers_once());
+    RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && reader->has_bitmap_index()) {
         BitmapIndexIterator* it;
@@ -947,13 +970,14 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
     }
-    RETURN_IF_ERROR(_create_column_readers_once());
+    RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(
-                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        }
+        // call DorisCallOnce.call without check if _inverted_index_file_reader is nullptr
+        // to avoid data race during parallel method calls
+        RETURN_IF_ERROR(
+                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
+        // after DorisCallOnce.call, _inverted_index_file_reader is guaranteed to be not nullptr
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
                                                             read_options, iter));
         return Status::OK();
@@ -963,8 +987,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
                                bool with_seq_col, bool with_rowid, RowLocation* row_location,
-                               std::string* encoded_seq_value, OlapReaderStatistics* stats) {
-    RETURN_IF_ERROR(load_pk_index_and_bf());
+                               OlapReaderStatistics* stats, std::string* encoded_seq_value) {
+    RETURN_IF_ERROR(load_pk_index_and_bf(stats));
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_uids().empty();
     size_t seq_col_length = 0;
@@ -1064,9 +1088,10 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
 }
 
 Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
-    RETURN_IF_ERROR(load_pk_index_and_bf());
+    OlapReaderStatistics* null_stat = nullptr;
+    RETURN_IF_ERROR(load_pk_index_and_bf(null_stat));
     std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter));
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter, null_stat));
 
     auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
             _pk_index_reader->type_info()->type(), 1, 0);
@@ -1116,12 +1141,14 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                        OlapReaderStatistics& stats,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
     StorageReadOptions storage_read_opt;
+    storage_read_opt.stats = &stats;
     storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = &stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
+                                     .file_cache_stats = &stats.file_cache_stats},
     };
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
@@ -1166,6 +1193,49 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
     }
     return Status::OK();
+}
+
+Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb) {
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    if (footer_pb_shared != nullptr) {
+        footer_pb = footer_pb_shared;
+        return Status::OK();
+    }
+
+    VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
+                              _file_reader->path().native(), _file_reader->size(),
+                              _file_reader->size() - 12);
+
+    StoragePageCache* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    DCHECK(segment_footer_cache != nullptr);
+
+    auto cache_key = get_segment_footer_cache_key();
+
+    PageCacheHandle cache_handle;
+
+    if (!segment_footer_cache->lookup(cache_key, &cache_handle,
+                                      segment_v2::PageTypePB::DATA_PAGE)) {
+        RETURN_IF_ERROR(_parse_footer(footer_pb_shared));
+        segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
+                                     &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
+    } else {
+        VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
+                                  _file_reader->path().native(), _file_reader->size(),
+                                  _file_reader->size() - 12);
+    }
+    footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
+    _footer_pb = footer_pb_shared;
+    footer_pb = footer_pb_shared;
+    return Status::OK();
+}
+
+StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
+    DCHECK(_file_reader != nullptr);
+    // The footer is always at the end of the segment file.
+    // The size of footer is 12.
+    // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
+    return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
+                                      _file_reader->size() - 12);
 }
 
 } // namespace doris::segment_v2

@@ -234,7 +234,7 @@ public class BackupJobTest {
         Assert.assertEquals(backupTbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames),
                             ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
-        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
+        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, id.get() - 1);
         Assert.assertTrue(task instanceof SnapshotTask);
         SnapshotTask snapshotTask = (SnapshotTask) task;
 

@@ -33,6 +33,7 @@ import java.util.Map;
 // modify one column
 public class ModifyColumnClause extends AlterTableClause {
     private ColumnDef columnDef;
+    private String sql;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.
     private String rollupName;
@@ -62,6 +63,16 @@ public class ModifyColumnClause extends AlterTableClause {
                               Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
+        this.colPos = colPos;
+        this.rollupName = rollup;
+        this.properties = properties;
+    }
+
+    public ModifyColumnClause(String sql, Column column, ColumnPosition colPos, String rollup,
+            Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.sql = sql;
+        this.column = column;
         this.colPos = colPos;
         this.rollupName = rollup;
         this.properties = properties;
@@ -112,15 +123,19 @@ public class ModifyColumnClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COLUMN ").append(columnDef.toSql());
-        if (colPos != null) {
-            sb.append(" ").append(colPos);
+        if (sql != null) {
+            return sql;
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("MODIFY COLUMN ").append(columnDef.toSql());
+            if (colPos != null) {
+                sb.append(" ").append(colPos);
+            }
+            if (rollupName != null) {
+                sb.append(" IN `").append(rollupName).append("`");
+            }
+            return sb.toString();
         }
-        if (rollupName != null) {
-            sb.append(" IN `").append(rollupName).append("`");
-        }
-        return sb.toString();
     }
 
     @Override

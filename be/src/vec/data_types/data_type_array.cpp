@@ -65,8 +65,10 @@ bool DataTypeArray::equals(const IDataType& rhs) const {
            nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);
 }
 
+// here we should remove nullable, otherwise here always be 1
 size_t DataTypeArray::get_number_of_dimensions() const {
-    const DataTypeArray* nested_array = typeid_cast<const DataTypeArray*>(nested.get());
+    const DataTypeArray* nested_array =
+            typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
     if (!nested_array) return 1;
     return 1 +
            nested_array

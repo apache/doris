@@ -84,7 +84,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         taskDisruptorGroupManager = new TaskDisruptorGroupManager();
         taskDisruptorGroupManager.init();
         this.timerJobDisruptor = taskDisruptorGroupManager.getDispatchDisruptor();
-        latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
+        long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
+        latestBatchSchedulerTimerTaskTimeMs = currentTimeMs;
         batchSchedulerTimerJob();
         cycleSystemSchedulerTasks();
     }
@@ -94,7 +95,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
      * Jobs will be re-registered after the task is completed
      */
     private void cycleSystemSchedulerTasks() {
-        log.info("re-register system scheduler timer tasks" + TimeUtils.longToTimeString(System.currentTimeMillis()));
+        log.info("re-register system scheduler timer tasks, time is " + TimeUtils
+                .longToTimeStringWithms(System.currentTimeMillis()));
         timerTaskScheduler.newTimeout(timeout -> {
             batchSchedulerTimerJob();
             cycleSystemSchedulerTasks();
@@ -144,7 +146,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
 
 
     private void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
-        List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(System.currentTimeMillis(),
+        long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
+        startTimeWindowMs = TimeUtils.convertToSecondTimestamp(startTimeWindowMs);
+        List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(currentTimeMs,
                 startTimeWindowMs, latestBatchSchedulerTimerTaskTimeMs);
         if (CollectionUtils.isEmpty(delaySeconds)) {
             log.info("skip job {} scheduler timer job, delay seconds is empty", job.getJobName());
@@ -190,7 +194,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
 
         long lastTimeWindowMs = latestBatchSchedulerTimerTaskTimeMs;
         if (latestBatchSchedulerTimerTaskTimeMs < System.currentTimeMillis()) {
-            this.latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
+            long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
+            this.latestBatchSchedulerTimerTaskTimeMs = currentTimeMs;
         }
         this.latestBatchSchedulerTimerTaskTimeMs += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
         log.info("execute timer job ids within last ten minutes window, last time window is {}",

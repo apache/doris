@@ -125,7 +125,6 @@ suite("test_multi_table_load_eror","nonConcurrent") {
                     if (state == "RUNNING") {
                         count++
                         if (count > 60) {
-                            GetDebugPoint().disableDebugPointForAllBEs(injection)
                             break;
                         }
                         continue;
@@ -150,6 +149,7 @@ suite("test_multi_table_load_eror","nonConcurrent") {
                     break;
                 }
             } finally {
+                GetDebugPoint().disableDebugPointForAllBEs(injection)
                 sql "stop routine load for ${jobName}"
                 sql "DROP TABLE IF EXISTS ${tableName}"
             }

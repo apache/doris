@@ -66,9 +66,8 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
 
             final List<String> labels = Lists.newArrayList();
@@ -95,9 +94,8 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
 
             final List<String> labels = Lists.newArrayList();
@@ -129,10 +127,8 @@ public class MultiAction extends RestBaseController {
 
             // Multi start request must redirect to master, because all following sub requests will be handled
             // on Master
-
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
 
             Map<String, String> properties = Maps.newHashMap();
@@ -180,9 +176,8 @@ public class MultiAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
 
             ExecuteEnv.getInstance().getMultiLoadMgr().unload(fullDbName, label, subLabel);
@@ -213,11 +208,10 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
+
             try {
                 ExecuteEnv.getInstance().getMultiLoadMgr().commit(fullDbName, label);
             } catch (Exception e) {
@@ -250,9 +244,8 @@ public class MultiAction extends RestBaseController {
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // only Master has these load info
-            Object redirectView = redirectToMaster(request, response);
-            if (redirectView != null) {
-                return redirectView;
+            if (checkForwardToMaster(request)) {
+                return forwardToMaster(request);
             }
 
             ExecuteEnv.getInstance().getMultiLoadMgr().abort(fullDbName, label);

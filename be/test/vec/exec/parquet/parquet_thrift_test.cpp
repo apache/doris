@@ -186,9 +186,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                 FieldSchema* field_schema, ColumnPtr& doris_column,
                                 DataTypePtr& data_type, level_t* definitions) {
     tparquet::ColumnMetaData chunk_meta = column_chunk->meta_data;
-    size_t start_offset = chunk_meta.__isset.dictionary_page_offset
-                                  ? chunk_meta.dictionary_page_offset
-                                  : chunk_meta.data_page_offset;
+    size_t start_offset = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
+                                                    : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     cctz::time_zone ctz;
@@ -230,12 +229,14 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     } else {
         data_column = src_column->assume_mutable();
     }
+    FilterMap filter_map;
+    RETURN_IF_ERROR(filter_map.init(nullptr, 0, false));
     ColumnSelectVector run_length_map;
     // decode page data
     if (field_schema->definition_level == 0) {
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
-        run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+        RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
         RETURN_IF_ERROR(
                 chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
     } else {
@@ -249,7 +250,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                     chunk_reader.insert_null_values(data_column, num_values);
                 } else {
                     std::vector<u_short> null_map = {(u_short)num_values};
-                    run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+                    RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
                     RETURN_IF_ERROR(chunk_reader.decode_values(data_column, resolved_type,
                                                                run_length_map, false));
                 }
@@ -264,7 +265,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             chunk_reader.insert_null_values(data_column, num_values);
         } else {
             std::vector<u_short> null_map = {(u_short)num_values};
-            run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+            RETURN_IF_ERROR(run_length_map.init(null_map, rows, nullptr, &filter_map, 0));
             RETURN_IF_ERROR(
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
@@ -291,12 +292,14 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
-        if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        if (column_descs[i].type == TYPE_DECIMAL128I) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv3_type(27, 9).to_thrift());
         } else {
             TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+            if (column_descs[i].precision >= 0) {
                 descriptor.precision = column_descs[i].precision;
+            }
+            if (column_descs[i].scale >= 0) {
                 descriptor.scale = column_descs[i].scale;
             }
             t_slot_desc.__set_slotType(descriptor.to_thrift());
@@ -355,7 +358,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true},
-            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
+            {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATEV2, sizeof(uint32_t), true},

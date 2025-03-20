@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.MappingSlot;
@@ -66,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -74,7 +74,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -88,7 +87,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
-import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StructField;
@@ -130,7 +129,7 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class BindExpression implements AnalysisRuleFactory {
-    public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+    public static final Logger LOG = LogManager.getLogger(BindExpression.class);
 
     @Override
     public List<Rule> buildRules() {
@@ -161,7 +160,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalFilter().thenApply(this::bindFilter)
             ),
             RuleType.BINDING_USING_JOIN_SLOT.build(
-                usingJoin().thenApply(this::bindUsingJoin)
+                logicalUsingJoin().thenApply(this::bindUsingJoin)
             ),
             RuleType.BINDING_JOIN_SLOT.build(
                 logicalJoin().thenApply(this::bindJoin)
@@ -195,7 +194,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalQualify(logicalHaving()).thenApply(this::bindQualifyHaving)
             ),
             RuleType.BINDING_INLINE_TABLE_SLOT.build(
-                logicalInlineTable().thenApply(this::bindInlineTable)
+                inlineTable().thenApply(this::bindInlineTable)
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
@@ -349,24 +348,24 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
 
-    private LogicalPlan bindInlineTable(MatchingContext<LogicalInlineTable> ctx) {
-        LogicalInlineTable logicalInlineTable = ctx.root;
+    private LogicalPlan bindInlineTable(MatchingContext<InlineTable> ctx) {
+        InlineTable inlineTable = ctx.root;
         // ensure all expressions are valid.
+        List<List<NamedExpression>> constantExprsList = inlineTable.getConstantExprsList();
         List<LogicalPlan> relations
-                = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
-        for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
-            for (NamedExpression constantExpr : logicalInlineTable.getConstantExprsList().get(i)) {
+                = Lists.newArrayListWithCapacity(constantExprsList.size());
+        for (int i = 0; i < constantExprsList.size(); i++) {
+            List<NamedExpression> row = constantExprsList.get(i);
+            for (NamedExpression constantExpr : row) {
                 if (constantExpr instanceof DefaultValueSlot) {
                     throw new AnalysisException("Default expression"
                             + " can't exist in SELECT statement at row " + (i + 1));
                 }
             }
-            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                    logicalInlineTable.getConstantExprsList().get(i)));
+            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), row));
         }
         // construct union all tree
-        return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1,
-                relations, Qualifier.ALL);
+        return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1, relations, Qualifier.ALL);
     }
 
     private LogicalHaving<Plan> bindHaving(MatchingContext<LogicalHaving<Plan>> ctx) {
@@ -546,7 +545,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         return new LogicalJoin<>(join.getJoinType(),
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
-                join.getDistributeHint(), join.getMarkJoinSlotReference(),
+                join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
                 join.children(), null);
     }
 
@@ -591,16 +590,17 @@ public class BindExpression implements AnalysisRuleFactory {
         }
     }
 
-    private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
-        UsingJoin<Plan, Plan> using = ctx.root;
+    private LogicalPlan bindUsingJoin(MatchingContext<LogicalUsingJoin<Plan, Plan>> ctx) {
+        LogicalUsingJoin<Plan, Plan> using = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
-        List<Expression> unboundHashJoinConjunct = using.getHashJoinConjuncts();
+        List<Expression> unboundHashJoinConjunct = using.getUsingSlots();
 
-        Scope leftScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.left().getOutput()));
-        Scope rightScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.right().getOutput()));
+        Scope leftScope = toScope(cascadesContext, using.left().getOutput(), using.left().getAsteriskOutput());
+        Scope rightScope = toScope(cascadesContext, using.right().getOutput(), using.right().getAsteriskOutput());
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
+        List<Slot> rightConjunctsSlots = Lists.newArrayList();
         for (Expression usingColumn : unboundHashJoinConjunct) {
             ExpressionAnalyzer leftExprAnalyzer = new ExpressionAnalyzer(
                     using, leftScope, cascadesContext, true, false);
@@ -609,13 +609,14 @@ public class BindExpression implements AnalysisRuleFactory {
             ExpressionAnalyzer rightExprAnalyzer = new ExpressionAnalyzer(
                     using, rightScope, cascadesContext, true, false);
             Expression usingRightSlot = rightExprAnalyzer.analyze(usingColumn, rewriteContext);
+            rightConjunctsSlots.add((Slot) usingRightSlot);
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
         }
 
         return new LogicalJoin<>(
                 using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                hashEqExprs.build(), using.getOtherJoinConjuncts(),
-                using.getDistributeHint(), using.getMarkJoinSlotReference(),
+                hashEqExprs.build(), ImmutableList.of(),
+                using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
                 using.children(), null);
     }
 
@@ -1035,11 +1036,11 @@ public class BindExpression implements AnalysisRuleFactory {
     private Supplier<Scope> buildAggOutputScopeWithoutAggFun(
             List<? extends NamedExpression> boundAggOutput, CascadesContext cascadesContext) {
         return Suppliers.memoize(() -> {
-            Builder<MappingSlot> nonAggFunOutput = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
+            Builder<Slot> nonAggFunOutput = ImmutableList.builderWithExpectedSize(boundAggOutput.size());
             for (NamedExpression output : boundAggOutput) {
                 if (!output.containsType(AggregateFunction.class)) {
                     Slot outputSlot = output.toSlot();
-                    MappingSlot mappingSlot = new MappingSlot(outputSlot,
+                    Slot mappingSlot = new MappingSlot(outputSlot,
                             output instanceof Alias ? output.child(0) : output);
                     nonAggFunOutput.add(mappingSlot);
                 }
@@ -1226,7 +1227,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return expression;
     }
 
-    private Scope toScope(CascadesContext cascadesContext, List<? extends Slot> slots) {
+    private Scope toScope(CascadesContext cascadesContext, List<Slot> slots) {
         Optional<Scope> outerScope = cascadesContext.getOuterScope();
         if (outerScope.isPresent()) {
             return new Scope(outerScope, slots);
@@ -1235,11 +1236,20 @@ public class BindExpression implements AnalysisRuleFactory {
         }
     }
 
+    private Scope toScope(CascadesContext cascadesContext, List<Slot> slots, List<Slot> asteriskSlots) {
+        Optional<Scope> outerScope = cascadesContext.getOuterScope();
+        if (outerScope.isPresent()) {
+            return new Scope(outerScope, slots, asteriskSlots);
+        } else {
+            return new Scope(slots, asteriskSlots);
+        }
+    }
+
     private SimpleExprAnalyzer buildSimpleExprAnalyzer(
             Plan currentPlan, CascadesContext cascadesContext, List<Plan> children,
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        List<Slot> childrenOutputs = PlanUtils.fastGetChildrenOutputs(children);
-        Scope scope = toScope(cascadesContext, childrenOutputs);
+        Scope scope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(children),
+                PlanUtils.fastGetChildrenAsteriskOutputs(children));
         return buildSimpleExprAnalyzer(currentPlan, cascadesContext, scope, enableExactMatch, bindSlotInOuterScope);
     }
 

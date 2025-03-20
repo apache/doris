@@ -259,7 +259,7 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
@@ -397,7 +397,7 @@ public class UserProperty implements Writable {
             return value;
         }
         // check cluster auth
-        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAccessManager().checkCloudPriv(
             new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new ComputeGroupException(String.format("set default compute group failed, "
                 + "user %s has no permission to use compute group '%s', please grant use privilege first ",

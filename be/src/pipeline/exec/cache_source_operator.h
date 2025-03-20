@@ -25,6 +25,7 @@
 #include "pipeline/query_cache/query_cache.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -80,11 +81,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
-        return Status::OK();
-    }
-
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();
     }
@@ -101,4 +97,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

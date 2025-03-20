@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.policy.Policy;
@@ -332,6 +333,7 @@ public class PropertyAnalyzer {
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
+        boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -357,6 +359,8 @@ public class PropertyAnalyzer {
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 hasStoragePolicy = true;
                 newStoragePolicy = value;
+            } else if (key.equalsIgnoreCase(PROPERTIES_IS_BEING_SYNCED)) {
+                isBeingSynced = Boolean.parseBoolean(value);
             }
         } // end for properties
 
@@ -384,6 +388,12 @@ public class PropertyAnalyzer {
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+
+        // when isBeingSynced property is set to true, the storage policy will be ignored
+        if (isBeingSynced) {
+            hasStoragePolicy = false;
+            newStoragePolicy = "";
         }
 
         if (hasStoragePolicy && !"".equals(newStoragePolicy)) {
@@ -1183,14 +1193,50 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
-    public static String analyzeStorageVault(Map<String, String> properties) {
-        String storageVault = null;
+    /**
+     * @param properties
+     * @return <storageVaultName, storageVaultId>
+     * @throws AnalysisException
+     */
+    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties) throws AnalysisException {
+        String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            storageVaultName = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
             properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
-        return storageVault;
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            // If user does not specify one storage vault then FE would use the default vault
+            Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+            if (info == null) {
+                throw new AnalysisException("No default storage vault."
+                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                        + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+            }
+            storageVaultName = info.first;
+            LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+        }
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            throw new AnalysisException("Invalid Storage Vault. "
+                    + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                    + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
+        }
+
+        String storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new AnalysisException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
+
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_ID)) {
+            Preconditions.checkArgument(storageVaultId.equals(properties.get(PROPERTIES_STORAGE_VAULT_ID)),
+                    "storageVaultId check failed, %s-%s", storageVaultId, properties.get(PROPERTIES_STORAGE_VAULT_ID));
+            properties.remove(PROPERTIES_STORAGE_VAULT_ID);
+        }
+
+        return Pair.of(storageVaultName, storageVaultId);
     }
 
     // analyze property like : "type" = "xxx";

@@ -42,6 +42,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "util/barrier.h"

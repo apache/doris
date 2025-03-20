@@ -38,6 +38,7 @@ public class ColumnDefTest {
     private TypeDef stringCol;
     private TypeDef floatCol;
     private TypeDef booleanCol;
+    private TypeDef bitmapCol;
     private ConnectContext ctx;
 
     @Before
@@ -46,6 +47,7 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
+        bitmapCol = new TypeDef(ScalarType.createType(PrimitiveType.BITMAP));
 
         ctx = new ConnectContext();
         new MockUp<ConnectContext>() {
@@ -80,6 +82,12 @@ public class ColumnDefTest {
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals(AggregateType.SUM, column.getAggregateType());
         Assert.assertEquals("`col` float SUM NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+
+        // agg none
+        column = new ColumnDef("col", bitmapCol, false, AggregateType.NONE, false, DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE, "");
+
+        Assert.assertEquals(AggregateType.NONE, column.getAggregateType());
+        Assert.assertEquals("`col` bitmap NOT NULL DEFAULT BITMAP_EMPTY COMMENT \"\"", column.toSql());
     }
 
     @Test

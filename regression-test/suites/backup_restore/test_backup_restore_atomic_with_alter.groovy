@@ -125,7 +125,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     sql "SYNC"
 
     // 0. table_1 has in_atomic_restore property
-    def show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    def show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
     logger.info("SHOW CREATE TABLE ${tableNamePrefix}_1: ${show_result}")
     assertTrue(show_result[0][1].contains("in_atomic_restore"))
 
@@ -178,7 +178,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     expectExceptionLike({
         sql """
             ALTER TABLE ${dbName}.${tableNamePrefix}_1
-            ADD COLUMN new_col INT DEFAULT "0" AFTER count
+            ADD COLUMN new_col INT DEFAULT "0" AFTER id
         """
     }, "Do not allow doing ALTER ops")
     expectExceptionLike({
@@ -230,7 +230,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     sql "SYNC"
 
     // 5. The restore job is cancelled, the in_atomic_restore property has been removed.
-    show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
     logger.info("SHOW CREATE TABLE ${tableNamePrefix}_1: ${show_result}")
     assertFalse(show_result[0][1].contains("in_atomic_restore"))
 

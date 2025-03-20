@@ -449,6 +449,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    private boolean isRegisteredRowCount(OlapScan olapScan) {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        return tableMeta != null && tableMeta.userInjected;
+    }
+
     /**
      * if the table is not analyzed and BE does not report row count, return -1
      */
@@ -495,8 +501,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
+            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
+                    optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
+                        selectedPartitionsRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
                 if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
                     Statistics derivedStats = optStats.get();
@@ -550,7 +560,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
+        if (!isRegisteredRowCount(olapScan)
+                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
@@ -559,8 +570,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = getColumnStatsFromPartitionCacheOrTableCache(
-                        olapScan, slot, selectedPartitionNames);
+                ColumnStatistic cache;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
+                    cache = getColumnStatsFromPartitionCacheOrTableCache(
+                            olapScan, slot, selectedPartitionNames);
+                } else {
+                    cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
+                }
                 if (slot.getColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }

@@ -46,6 +46,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         return runtime_state->cancel_reason();
     }
     RETURN_IF_ERROR(status);
+    LOG(INFO) << "query_id: " << print_id(runtime_state->query_id())
+              << ", add block rows=" << block->rows() << ", use group_commit label=" << label;
     if (block->rows() > 0) {
         if (!config::group_commit_wait_replay_wal_finish) {
             _block_queue.emplace_back(block);
@@ -349,6 +351,7 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
         request.__set_token("group_commit"); // this is a fake, fe not check it now
         request.__set_max_filter_ratio(1.0);
         request.__set_strictMode(false);
+        request.__set_partial_update(false);
         // this is an internal interface, use admin to pass the auth check
         request.__set_user("admin");
         if (_exec_env->cluster_info()->backend_id != 0) {

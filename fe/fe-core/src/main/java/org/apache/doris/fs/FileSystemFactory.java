@@ -63,6 +63,7 @@ public class FileSystemFactory {
                     return new AzureFileSystem(properties);
                 }
                 return new S3FileSystem(properties);
+            case FILE:
             case DFS:
                 return new DFSFileSystem(properties);
             case OFS:

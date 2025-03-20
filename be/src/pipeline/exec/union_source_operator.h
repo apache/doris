@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -63,9 +64,7 @@ public:
     using Base = OperatorX<UnionSourceLocalState>;
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {
-        _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-    }
+            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {}
     ~UnionSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -84,8 +83,8 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        static_cast<void>(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
@@ -101,7 +100,18 @@ public:
         return _followed_by_shuffled_operator;
     }
 
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        if (local_state._shared_state) {
+            local_state._shared_state->data_queue.set_low_memory_mode();
+        }
+    }
+
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
+    Status set_child(OperatorPtr child) override {
+        Base::_child = child;
+        return Status::OK();
+    }
 
 private:
     bool _has_data(RuntimeState* state) const {
@@ -123,4 +133,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

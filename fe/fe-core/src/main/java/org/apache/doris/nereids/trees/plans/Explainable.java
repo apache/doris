@@ -17,11 +17,20 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+
+import java.util.Optional;
 
 /**
  * plan can be explained.
  */
 public interface Explainable {
     Plan getExplainPlan(ConnectContext ctx) throws Exception;
+
+    default Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) throws Exception {
+        return Optional.empty();
+    }
 }

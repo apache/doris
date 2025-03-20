@@ -76,7 +76,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                doris::vectorized::WindowFunctionRowNumber::data(place).count);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -86,8 +97,8 @@ public:
 
 struct RankData {
     int64_t rank = 0;
-    int64_t count = 0;
-    int64_t peer_group_start = 0;
+    int64_t count = 1;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
@@ -121,7 +132,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                data(place).rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionRank::data(place).rank);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -131,7 +153,7 @@ public:
 
 struct DenseRankData {
     int64_t rank = 0;
-    int64_t peer_group_start = 0;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionDenseRank final
@@ -163,7 +185,18 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                data(place).rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = (doris::vectorized::WindowFunctionDenseRank::data(place).rank);
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -173,8 +206,8 @@ public:
 
 struct PercentRankData {
     int64_t rank = 0;
-    int64_t count = 0;
-    int64_t peer_group_start = 0;
+    int64_t count = 1;
+    int64_t peer_group_start = -1;
     int64_t partition_size = 0;
 };
 
@@ -219,7 +252,19 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(percent_rank);
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                percent_rank);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = percent_rank;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -230,7 +275,7 @@ public:
 struct CumeDistData {
     int64_t numerator = 0;
     int64_t denominator = 0;
-    int64_t peer_group_start = 0;
+    int64_t peer_group_start = -1;
 };
 
 class WindowFunctionCumeDist final
@@ -272,7 +317,19 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                cume_dist);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = cume_dist;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -323,8 +380,18 @@ public:
     void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
                 WindowFunctionNTile::data(place).bucket_index);
+    }
+
+    bool result_column_could_resize() const override { return true; }
+
+    void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                  const size_t start, const size_t end) const override {
+        auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        for (size_t i = start; i < end; ++i) {
+            column.get_data()[i] = WindowFunctionNTile::data(place).bucket_index;
+        }
     }
 
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
@@ -402,7 +469,7 @@ public:
                 if (nullable_column->is_null_at(0)) {
                     _default_value.reset();
                 } else {
-                    _default_value.set_value(nullable_column->get_nested_column_ptr(), 0);
+                    _default_value.set_value(nullable_column->get_nested_column_ptr().get(), 0);
                 }
             } else {
                 _default_value.set_value(column, 0);
@@ -455,31 +522,28 @@ struct WindowFunctionLagImpl : Data {
     static const char* name() { return "lag"; }
 };
 
-// TODO: first_value && last_value in some corner case will be core,
-// if need to simply change it, should set them to always nullable insert into null value, and register in cpp maybe be change
-// But it's may be another better way to handle it
 template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionFirstImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if (this->has_set_value()) {
+        // case 1: (has_set_value() = true && arg_ignore_null = false)
+        // case 2: (has_set_value() = true && arg_ignore_null = true && is_null() = false)
+        if ((this->has_set_value()) &&
+            (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
             return;
         }
-        if (frame_start <= frame_end &&
-            frame_end <= partition_start) { //rewrite last_value when under partition
-            this->set_is_null();            //so no need more judge
+        DCHECK_LE(frame_start, frame_end);
+        if (frame_start >= partition_end || frame_end <= partition_start) {
+            this->set_is_null();
             return;
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-
-            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
-            auto ignore_null_value = second_arg.get_data()[0];
-
-            if (ignore_null_value && columns[0]->is_nullable()) {
-                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (columns[0]->is_nullable()) {
+                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                // the valid range is: [frame_start, frame_end)
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
                     frame_start++;
                 }
@@ -505,15 +569,25 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-
-            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
-            auto ignore_null_value = second_arg.get_data()[0];
-
-            if (ignore_null_value && columns[0]->is_nullable()) {
-                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
-                while (frame_start < (frame_end - 1) && arg_nullable.is_null_at(frame_end - 1)) {
-                    frame_end--;
+            if (columns[0]->is_nullable()) {
+                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                // wants find a not null value in [frame_start, frame_end)
+                // iff has find: set_value and return directly
+                // iff not find: the while loop is finished
+                //     case 1: iff has_set_value, means the previous window have value, could reuse it, so return directly
+                //     case 2: iff not has_set_value, means there is none value, set it's to NULL
+                while (frame_start < frame_end) {
+                    if (arg_nullable.is_null_at(frame_end - 1)) {
+                        frame_end--;
+                    } else {
+                        this->set_value(columns, frame_end - 1);
+                        return;
+                    }
                 }
+                if (!this->has_set_value()) {
+                    this->set_is_null();
+                }
+                return;
             }
         }
 
@@ -556,24 +630,19 @@ public:
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support add");
-        __builtin_unreachable();
+        throw doris::Exception(Status::FatalError("WindowFunctionLeadLagData do not support add"));
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support merge");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support merge"));
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support serialize");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support serialize"));
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "WindowFunctionLeadLagData do not support deserialize");
-        __builtin_unreachable();
+        throw doris::Exception(
+                Status::FatalError("WindowFunctionLeadLagData do not support deserialize"));
     }
 
 private:

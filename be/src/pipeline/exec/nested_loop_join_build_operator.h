@@ -23,6 +23,7 @@
 #include "pipeline/exec/join_build_sink_operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -49,8 +50,6 @@ public:
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
-    uint64_t _build_rows = 0;
-    uint64_t _total_mem_usage = 0;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 };
@@ -58,8 +57,8 @@ private:
 class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
-    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs);
+    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
                 "{} should not init with TDataSink",
@@ -68,7 +67,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -89,4 +88,5 @@ private:
     RowDescriptor _row_descriptor;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -46,9 +46,9 @@ suite("test_full_compaction") {
         sql """
             CREATE TABLE ${tableName} (
             `user_id` INT NOT NULL, `value` INT NOT NULL)
-            UNIQUE KEY(`user_id`) 
-            DISTRIBUTED BY HASH(`user_id`) 
-            BUCKETS 1 
+            UNIQUE KEY(`user_id`)
+            DISTRIBUTED BY HASH(`user_id`)
+            BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_mow_light_delete" = "false",
@@ -117,46 +117,9 @@ suite("test_full_compaction") {
         assert (rowsetCount == 7 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
-
-        // wait for full compaction done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-
+        trigger_and_wait_compaction(tableName, "full")
         // after full compaction, there is only 1 rowset.
-        
+
         rowsetCount = 0
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId

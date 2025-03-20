@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -41,6 +42,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.base.Objects;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -70,10 +72,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long id;
     @SerializedName(value = "name")
     protected String name;
+    @SerializedName(value = "remoteName")
+    protected String remoteName;
     @SerializedName(value = "type")
     protected TableType type = null;
     @SerializedName(value = "timestamp")
     protected long timestamp;
+    // dbName is temporarily retained and will be deleted later. To use dbName, please use db.getFullName()
     @SerializedName(value = "dbName")
     protected String dbName;
     @SerializedName(value = "ta")
@@ -85,6 +90,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
+    protected ExternalDatabase db;
 
     /**
      * No args constructor for persist.
@@ -98,21 +104,33 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @param id Table id.
      * @param name Table name.
+     * @param remoteName Remote table name.
      * @param catalog ExternalCatalog this table belongs to.
-     * @param dbName Name of the db the this table belongs to.
+     * @param db ExternalDatabase this table belongs to.
      * @param type Table type.
      */
-    public ExternalTable(long id, String name, ExternalCatalog catalog, String dbName, TableType type) {
+    public ExternalTable(long id, String name, String remoteName, ExternalCatalog catalog, ExternalDatabase db,
+            TableType type) {
         this.id = id;
         this.name = name;
+        this.remoteName = remoteName;
         this.catalog = catalog;
-        this.dbName = dbName;
+        this.db = db;
+        this.dbName = db.getFullName();
         this.type = type;
         this.objectCreated = false;
     }
 
     public void setCatalog(ExternalCatalog catalog) {
         this.catalog = catalog;
+    }
+
+    public void setDb(ExternalDatabase db) {
+        this.db = db;
+    }
+
+    public void setRemoteName(String remoteName) {
+        this.remoteName = remoteName;
     }
 
     public boolean isView() {
@@ -138,6 +156,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public String getName() {
         return name;
+    }
+
+    public String getRemoteName() {
+        return remoteName;
     }
 
     @Override
@@ -287,7 +309,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public DatabaseIf getDatabase() {
-        return catalog.getDbNullable(dbName);
+        return this.db;
     }
 
     @Override
@@ -317,8 +339,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         schemaUpdateTime = System.currentTimeMillis();
+        return initSchema(key);
+    }
+
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         return initSchema();
     }
 
@@ -422,5 +448,22 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      */
     public boolean supportInternalPartitionPruned() {
         return false;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalTable)) {
+            return false;
+        }
+        ExternalTable that = (ExternalTable) o;
+        return Objects.equal(name, that.name) && Objects.equal(db, that.db);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name, db);
     }
 }

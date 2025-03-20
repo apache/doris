@@ -103,16 +103,7 @@ constexpr char S3_TOKEN[] = "AWS_TOKEN";
 constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
-
-auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
-        if (ns > 0) {
-            ns_bvar << ns;
-        } else {
-            req_num_bvar << 1;
-        }
-    };
-}
+constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 } // namespace
 
@@ -192,12 +183,12 @@ S3ClientFactory::S3ClientFactory() {
     _ca_cert_file_path = get_valid_ca_cert_path();
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::GET, config::s3_get_token_per_second,
-                    config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                    config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                    config::s3_get_token_limit,
                     metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::PUT, config::s3_put_token_per_second,
-                    config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                    config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                    config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
 }
 
@@ -254,8 +245,15 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
     const std::string container_name = s3_conf.bucket;
-    const std::string uri = fmt::format("{}://{}.blob.core.windows.net/{}",
-                                        config::s3_client_http_scheme, s3_conf.ak, container_name);
+    std::string uri;
+    if (config::force_azure_blob_global_endpoint) {
+        uri = fmt::format("https://{}.blob.core.windows.net/{}", s3_conf.ak, container_name);
+    } else {
+        uri = fmt::format("{}/{}", s3_conf.endpoint, container_name);
+        if (s3_conf.endpoint.find("://") == std::string::npos) {
+            uri = "https://" + uri;
+        }
+    }
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
@@ -272,7 +270,9 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             "s3_client_factory::create",
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    aws_config.endpointOverride = s3_conf.endpoint;
+    if (s3_conf.need_override_endpoint) {
+        aws_config.endpointOverride = s3_conf.endpoint;
+    }
     aws_config.region = s3_conf.region;
     std::string ca_cert = get_valid_ca_cert_path();
     if ("" != _ca_cert_file_path) {
@@ -349,6 +349,9 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_ENDPOINT); it != properties.end()) {
         s3_conf->client_conf.endpoint = it->second;
+    }
+    if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
+        s3_conf->client_conf.need_override_endpoint = (it->second == "true");
     }
     if (auto it = properties.find(S3_REGION); it != properties.end()) {
         s3_conf->client_conf.region = it->second;

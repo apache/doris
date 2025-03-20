@@ -79,16 +79,22 @@ public class OutFileClause {
     public static final String TOTAL_ROWS = "TotalRows";
     public static final String FILE_SIZE = "FileSize";
     public static final String URL = "URL";
+    public static final String WRITE_TIME_SEC = "WriteTimeSec";
+    public static final String WRITE_SPEED_KB = "WriteSpeedKB";
 
     static {
         RESULT_COL_NAMES.add(FILE_NUMBER);
         RESULT_COL_NAMES.add(TOTAL_ROWS);
         RESULT_COL_NAMES.add(FILE_SIZE);
         RESULT_COL_NAMES.add(URL);
+        RESULT_COL_NAMES.add(WRITE_TIME_SEC);
+        RESULT_COL_NAMES.add(WRITE_SPEED_KB);
 
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.INT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.BIGINT));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
+        RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
         RESULT_COL_TYPES.add(ScalarType.createType(PrimitiveType.VARCHAR));
 
         PARQUET_REPETITION_TYPE_MAP.put("required", TParquetRepetitionType.REQUIRED);
@@ -266,7 +272,7 @@ public class OutFileClause {
         if (brokerDesc != null && isLocalOutput) {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
-            throw new AnalysisException("Must specify BROKER properties or current local file path in OUTFILE clause");
+            throw new AnalysisException("Please specify BROKER properties or check your local file path.");
         }
         isAnalyzed = true;
 
@@ -289,6 +295,9 @@ public class OutFileClause {
     private String dorisTypeToOrcTypeMap(Type dorisType) throws AnalysisException {
         String orcType = "";
         switch (dorisType.getPrimitiveType()) {
+            case NULL_TYPE:
+                orcType = "tinyint";
+                break;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -413,6 +422,9 @@ public class OutFileClause {
             Pair<String, String> schema = this.orcSchemas.get(i);
             Type resultType = resultExprs.get(i).getType();
             switch (resultType.getPrimitiveType()) {
+                case NULL_TYPE:
+                    checkOrcType(schema.second, "tinyint", true, resultType.getPrimitiveType().toString());
+                    break;
                 case BOOLEAN:
                 case TINYINT:
                 case SMALLINT:

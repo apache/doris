@@ -50,7 +50,7 @@ public class VariableDesc extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return toString();
     }
 
@@ -70,7 +70,7 @@ public class VariableDesc extends Expression implements LeafExpression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(isSystemVariable, setType, name);
     }
 

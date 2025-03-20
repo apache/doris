@@ -16,6 +16,7 @@
 // under the License.
 
 suite("runtime_filter") {
+    sql " set enable_parallel_result_sink=false" 
     sql ''' drop table if exists rf_dws_asset_domain_statistics_daily'''
     sql '''CREATE TABLE rf_dws_asset_domain_statistics_daily (
         account_id int(11) NULL,
@@ -45,4 +46,41 @@ suite("runtime_filter") {
             """
         notContains("RFs")
     }
+
+    sql """
+      drop table if exists lineitem;
+      CREATE TABLE IF NOT EXISTS lineitem (
+        L_ORDERKEY    INTEGER NOT NULL,
+        L_LINENUMBER  INTEGER NOT NULL
+        )
+        DUPLICATE KEY(L_ORDERKEY)
+        DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+      insert into lineitem values (1, 1), (1, 2), (1, 3), (2,1);
+      
+      drop table if exists orders;
+      CREATE TABLE IF NOT EXISTS orders (
+        O_ORDERKEY    INTEGER NOT NULL,
+        O_V  INTEGER NOT NULL
+        )
+        DUPLICATE KEY(O_ORDERKEY)
+        DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+      insert into orders values(1, 2);
+
+      set disable_join_reorder=true;
+      set runtime_filter_type=2;
+    """
+
+    qt_check_no_rf """
+      explain shape plan select * from lineitem join orders on l_orderkey=o_orderkey where o_orderkey=1;
+    """
+
+    qt_check_one_rf """
+      explain shape plan select * from lineitem join orders on l_orderkey=o_orderkey and l_linenumber=o_v where o_orderkey=1;
+    """
 }

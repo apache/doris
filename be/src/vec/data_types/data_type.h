@@ -151,8 +151,6 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    virtual bool is_object() const { return false; }
-
     /** Values are unambiguously identified by contents of contiguous memory region,
       *  that can be obtained by IColumn::get_data_at method.
       * Examples: numbers, Date, DateTime, String, FixedString,
@@ -274,6 +272,7 @@ struct WhichDataType {
     bool is_struct() const { return idx == TypeIndex::Struct; }
     bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
+    bool is_fixed_length_object() const { return idx == TypeIndex::FixedLengthObject; }
 
     bool is_nothing() const { return idx == TypeIndex::Nothing; }
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
@@ -371,6 +370,11 @@ bool is_fixed_string(const T& data_type) {
 template <typename T>
 bool is_string_or_fixed_string(const T& data_type) {
     return WhichDataType(data_type).is_string_or_fixed_string();
+}
+
+template <typename T>
+bool is_fixed_length_object(const T& data_type) {
+    return WhichDataType(data_type).is_fixed_length_object();
 }
 
 inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_type) {

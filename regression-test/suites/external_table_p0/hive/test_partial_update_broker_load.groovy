@@ -20,12 +20,12 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-        externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def load_from_hdfs = {testTable, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def load_from_hdfs = {testTable, label, hdfsFilePath, format ->
             def result1= sql """
                             LOAD LABEL ${label} (
                                 DATA INFILE("${hdfsFilePath}")
@@ -77,13 +77,13 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
         sql """insert into ${tableName} values(2, "bob", 2000, 223, 2),(1, "alice", 1000, 123, 1),(3, "tom", 3000, 323, 3);"""
         qt_sql """ select * from ${tableName} order by id; """
         def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs(tableName, test_load_label, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs(tableName, test_load_label, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update.csv", "csv")
         wait_for_load_result(test_load_label, tableName)
         qt_sql """select * from ${tableName} order by id;"""
 
         sql "sync;"
         def test_load_label2 = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs(tableName, test_load_label2, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update2.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs(tableName, test_load_label2, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update2.csv", "csv")
         wait_for_load_result(test_load_label2, tableName)
         qt_sql """select * from ${tableName} order by id;"""
         sql "drop table if exists ${tableName};"

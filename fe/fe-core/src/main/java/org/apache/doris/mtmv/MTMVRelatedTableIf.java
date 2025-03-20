@@ -115,4 +115,13 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return
      */
     boolean isPartitionColumnAllowNull();
+
+    /**
+     * If the table is supported as related table.
+     * For example, an Iceberg table may become unsupported after partition revolution.
+     * @return
+     */
+    default boolean isValidRelatedTable() {
+        return true;
+    }
 }

@@ -74,7 +74,7 @@ public class ExternalSchemaCache {
     }
 
     private Optional<SchemaCacheValue> loadSchema(SchemaCacheKey key) {
-        Optional<SchemaCacheValue> schema = catalog.getSchema(key.dbName, key.tblName);
+        Optional<SchemaCacheValue> schema = catalog.getSchema(key);
         if (LOG.isDebugEnabled()) {
             LOG.debug("load schema for {} in catalog {}", key, catalog.getName());
         }
@@ -83,6 +83,10 @@ public class ExternalSchemaCache {
 
     public Optional<SchemaCacheValue> getSchemaValue(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
+        return getSchemaValue(key);
+    }
+
+    public Optional<SchemaCacheValue> getSchemaValue(SchemaCacheKey key) {
         return schemaCache.get(key);
     }
 

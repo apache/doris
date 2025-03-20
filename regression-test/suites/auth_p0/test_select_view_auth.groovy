@@ -37,7 +37,7 @@ suite("test_select_view_auth","p0,auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     sql """create database ${dbName}"""
     sql("""use ${dbName}""")
@@ -68,7 +68,7 @@ suite("test_select_view_auth","p0,auth") {
     sql """grant select_priv on regression_test to ${user}"""
 
     // table column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select * from ${dbName}.${viewName}"
         } catch (Exception e) {
@@ -77,7 +77,7 @@ suite("test_select_view_auth","p0,auth") {
         }
     }
     sql """grant select_priv on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select * from ${dbName}.${viewName}"
     }
 

@@ -173,6 +173,7 @@ public:
     // MUST hold EXCLUSIVE `_meta_lock`.
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
+    bool rowset_exists_unlocked(const RowsetSharedPtr& rowset);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
@@ -213,6 +214,7 @@ public:
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::shared_mutex& get_meta_store_lock() { return _meta_store_lock; }
 
     std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -440,11 +442,6 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;
-    std::string get_segment_index_filepath(std::string_view rowset_id,
-                                           std::string_view segment_index,
-                                           std::string_view index_id) const;
-    std::string get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
-                                           int64_t index_id) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
@@ -535,7 +532,7 @@ private:
     void check_table_size_correctness();
     std::string get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id);
     int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
-    int64_t get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta);
+    int64_t get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -592,7 +589,7 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
 
-    // use a seperate thread to check all tablets paths existance
+    // use a separate thread to check all tablets paths existence
     std::atomic<bool> _is_tablet_path_exists;
 
     int64_t _last_missed_version;

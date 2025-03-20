@@ -84,8 +84,8 @@ public class ScalarSubquery extends SubqueryExpr {
     }
 
     @Override
-    public String toSql() {
-        return " (SCALARSUBQUERY) " + super.toSql();
+    public String computeToSql() {
+        return " (SCALARSUBQUERY) " + super.computeToSql();
     }
 
     @Override

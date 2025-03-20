@@ -34,7 +34,7 @@ suite("test_index_compaction_empty_segments", "p0, nonConcurrent") {
     set_be_config.call("inverted_index_compaction_enable", "true")
 
     sql "DROP TABLE IF EXISTS ${compaction_table_name}"
-    sql """ 
+    sql """
         CREATE TABLE ${compaction_table_name} (
             `k` int(11) NULL,
             `v` varchar(20) NULL,
@@ -58,31 +58,8 @@ suite("test_index_compaction_empty_segments", "p0, nonConcurrent") {
     def tablets = sql_return_maparray """ show tablets from ${compaction_table_name}; """
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
+    trigger_and_wait_compaction(compaction_table_name, "full")
 
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().atMost(10, TimeUnit.MINUTES).untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("compaction task for this tablet is not running", compactionStatus.msg.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
-
-    
     for (def tablet in tablets) {
         int afterSegmentCount = 0
         String tablet_id = tablet.TabletId

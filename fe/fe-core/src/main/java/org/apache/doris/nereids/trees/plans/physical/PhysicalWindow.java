@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
@@ -26,6 +27,10 @@ import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWind
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -35,6 +40,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
@@ -188,5 +194,82 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalWindow<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    private boolean isUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return false;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return false;
+        }
+        ImmutableSet<Slot> slotSet = partitionKeys.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+        // if partition by keys are uniform or empty, output is unique
+        if (child(0).getLogicalProperties().getTrait().isUniformAndNotNull(slotSet)
+                || slotSet.isEmpty()) {
+            if (windowExpr.getFunction() instanceof RowNumber) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isUniform(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1 || !(namedExpression.child(0) instanceof WindowExpression)) {
+            return false;
+        }
+        WindowExpression windowExpr = (WindowExpression) namedExpression.child(0);
+        List<Expression> partitionKeys = windowExpr.getPartitionKeys();
+        // Now we only support slot type keys
+        if (!partitionKeys.stream().allMatch(Slot.class::isInstance)) {
+            return false;
+        }
+        ImmutableSet<Slot> slotSet = partitionKeys.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+        // if partition by keys are unique, output is uniform
+        if (child(0).getLogicalProperties().getTrait().isUniqueAndNotNull(slotSet)) {
+            if (windowExpr.getFunction() instanceof RowNumber
+                    || windowExpr.getFunction() instanceof Rank
+                    || windowExpr.getFunction() instanceof DenseRank) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression namedExpression : windowExpressions) {
+            if (isUnique(namedExpression)) {
+                builder.addUniqueSlot(namedExpression.toSlot());
+            }
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression namedExpression : windowExpressions) {
+            if (isUniform(namedExpression)) {
+                builder.addUniformSlot(namedExpression.toSlot());
+            }
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

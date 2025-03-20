@@ -107,12 +107,15 @@ class MultiCoreTaskQueue {
 public:
     explicit MultiCoreTaskQueue(int core_size);
 
+#ifndef BE_TEST
     ~MultiCoreTaskQueue();
-
-    void close();
-
     // Get the task by core id.
     PipelineTask* take(int core_id);
+#else
+    virtual ~MultiCoreTaskQueue();
+    virtual PipelineTask* take(int core_id);
+#endif
+    void close();
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
     Status push_back(PipelineTask* task);

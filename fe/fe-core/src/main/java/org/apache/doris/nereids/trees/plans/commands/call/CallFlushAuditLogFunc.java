@@ -48,7 +48,7 @@ public class CallFlushAuditLogFunc extends CallFunc {
     @Override
     public void run() {
         // check priv
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(user, PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(user, PrivPredicate.ADMIN)) {
             throw new AnalysisException("Only admin can flush audit log");
         }
         // flush audit log

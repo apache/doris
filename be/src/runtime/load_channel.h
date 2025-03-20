@@ -69,6 +69,8 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
+    WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
+
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
@@ -109,7 +111,7 @@ private:
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::atomic<time_t> _last_updated_time;
 

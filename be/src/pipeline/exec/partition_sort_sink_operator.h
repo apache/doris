@@ -24,6 +24,7 @@
 #include "vec/common/sort/partition_sorter.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class PartitionSortSinkOperatorX;
 class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
@@ -57,6 +58,7 @@ private:
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
+    RuntimeProfile::Counter* _sorted_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
     RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;
@@ -68,8 +70,8 @@ private:
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
 public:
-    PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+    PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                               const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<PartitionSortSinkLocalState>::_name);
@@ -77,7 +79,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
@@ -85,6 +87,8 @@ public:
         }
         return {ExchangeType::PASSTHROUGH};
     }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionSortSinkLocalState;
@@ -110,4 +114,5 @@ private:
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

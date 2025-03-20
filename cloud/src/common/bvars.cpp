@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <stdexcept>
 
+// clang-format off
+
 // meta-service's bvars
 BvarLatencyRecorderWithTag g_bvar_ms_begin_txn("ms", "begin_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn("ms", "precommit_txn");
@@ -71,22 +73,31 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_copy_files("ms", "get_copy_files");
 BvarLatencyRecorderWithTag g_bvar_ms_filter_copy_files("ms", "filter_copy_files");
 BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap("ms", "update_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap("ms", "get_delete_bitmap");
-BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms",
-                                                                   "get_delete_bitmap_update_lock");
+BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms", "get_delete_bitmap_update_lock");
 BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap("ms", "remove_delete_bitmap");
-BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock(
-        "ms", "remove_delete_bitmap_update_lock");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock("ms", "remove_delete_bitmap_update_lock");
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id("ms", "get_txn_id");
-
 BvarLatencyRecorderWithTag g_bvar_ms_start_tablet_job("ms", "start_tablet_job");
 BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job("ms", "finish_tablet_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
-
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
+BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
+bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
+bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
+
+// recycler's bvars
+// TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts("recycler", "recycle_index_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycler", "recycle_partition_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
+BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
@@ -101,107 +112,65 @@ bvar::LatencyRecorder g_bvar_txn_kv_range_remove("txn_kv", "range_remove");
 bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version");
 bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version("txn_kv", "get_committed_version");
 bvar::LatencyRecorder g_bvar_txn_kv_batch_get("txn_kv", "batch_get");
-
 bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized("txn_kv", "get_count_normalized");
-
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
-bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute(
-        "txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
-
+bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute("txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
-bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute(
-        "txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
+bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
 
+// fdb's bvars
 const int64_t BVAR_FDB_INVALID_VALUE = -99999999L;
 bvar::Status<int64_t> g_bvar_fdb_client_count("fdb_client_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_configuration_coordinators_count(
-        "fdb_configuration_coordinators_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_configuration_usable_regions("fdb_configuration_usable_regions",
-                                                              BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_coordinators_unreachable_count(
-        "fdb_coordinators_unreachable_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_fault_tolerance_count("fdb_fault_tolerance_count",
-                                                       BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_average_partition_size_bytes(
-        "fdb_data_average_partition_size_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_log_server_space_bytes("fdb_data_log_server_space_bytes",
-                                                             BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_moving_data_highest_priority(
-        "fdb_data_moving_data_highest_priority", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_moving_data_in_flight_bytes(
-        "fdb_data_moving_data_in_flight_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_moving_data_in_queue_bytes(
-        "fdb_data_moving_data_in_queue_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_moving_total_written_bytes(
-        "fdb_data_moving_total_written_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_partition_count("fdb_data_partition_count",
-                                                      BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_storage_server_space_bytes(
-        "fdb_data_storage_server_space_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_state_min_replicas_remaining(
-        "fdb_data_state_min_replicas_remaining", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_total_kv_size_bytes("fdb_data_total_kv_size_bytes",
-                                                          BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_data_total_disk_used_bytes("fdb_data_total_disk_used_bytes",
-                                                            BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_configuration_coordinators_count("fdb_configuration_coordinators_count", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_configuration_usable_regions("fdb_configuration_usable_regions", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_coordinators_unreachable_count("fdb_coordinators_unreachable_count", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_fault_tolerance_count("fdb_fault_tolerance_count", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_average_partition_size_bytes("fdb_data_average_partition_size_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_log_server_space_bytes("fdb_data_log_server_space_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_moving_data_highest_priority("fdb_data_moving_data_highest_priority", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_moving_data_in_flight_bytes("fdb_data_moving_data_in_flight_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_moving_data_in_queue_bytes("fdb_data_moving_data_in_queue_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_moving_total_written_bytes("fdb_data_moving_total_written_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_partition_count("fdb_data_partition_count", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_storage_server_space_bytes("fdb_data_storage_server_space_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_state_min_replicas_remaining("fdb_data_state_min_replicas_remaining", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_total_kv_size_bytes("fdb_data_total_kv_size_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_data_total_disk_used_bytes("fdb_data_total_disk_used_bytes", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_generation("fdb_generation", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_incompatible_connections("fdb_incompatible_connections",
-                                                          BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_latency_probe_transaction_start_ns(
-        "fdb_latency_probe_transaction_start_ns", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_latency_probe_commit_ns("fdb_latency_probe_commit_ns",
-                                                         BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_latency_probe_read_ns("fdb_latency_probe_read_ns",
-                                                       BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_incompatible_connections("fdb_incompatible_connections", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_latency_probe_transaction_start_ns("fdb_latency_probe_transaction_start_ns", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_latency_probe_commit_ns("fdb_latency_probe_commit_ns", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_latency_probe_read_ns("fdb_latency_probe_read_ns", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_machines_count("fdb_machines_count", BVAR_FDB_INVALID_VALUE);
 bvar::Status<int64_t> g_bvar_fdb_process_count("fdb_process_count", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns(
-        "fdb_qos_worst_data_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns(
-        "fdb_qos_worst_durability_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes(
-        "fdb_qos_worst_log_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes(
-        "fdb_qos_worst_storage_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz("fdb_workload_conflict_rate_hz",
-                                                           BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz("fdb_workload_location_rate_hz",
-                                                           BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz("fdb_workload_keys_read_hz",
-                                                       BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz("fdb_workload_read_bytes_hz",
-                                                        BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz("fdb_workload_read_rate_hz",
-                                                       BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz("fdb_workload_write_rate_hz",
-                                                        BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz("fdb_workload_written_bytes_hz",
-                                                           BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz(
-        "fdb_workload_transactions_started_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz(
-        "fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz(
-        "fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
-bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent(
-        "fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_qos_worst_data_lag_storage_server_ns("fdb_qos_worst_data_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_qos_worst_durability_lag_storage_server_ns("fdb_qos_worst_durability_lag_storage_server_ns", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_qos_worst_log_server_queue_bytes("fdb_qos_worst_log_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_qos_worst_storage_server_queue_bytes("fdb_qos_worst_storage_server_queue_bytes", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_conflict_rate_hz("fdb_workload_conflict_rate_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_location_rate_hz("fdb_workload_location_rate_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_keys_read_hz("fdb_workload_keys_read_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_read_bytes_hz("fdb_workload_read_bytes_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_read_rate_hz("fdb_workload_read_rate_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_write_rate_hz("fdb_workload_write_rate_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz("fdb_workload_written_bytes_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz("fdb_workload_transactions_started_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz("fdb_workload_transactions_committed_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz("fdb_workload_transactions_rejected_hz", BVAR_FDB_INVALID_VALUE);
+bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent("fdb_client_thread_busyness_percent", BVAR_FDB_INVALID_VALUE);
 
 // checker's bvars
-BvarStatusWithTag<long> g_bvar_checker_num_scanned("checker", "num_scanned");
-BvarStatusWithTag<long> g_bvar_checker_num_scanned_with_segment("checker",
-                                                                "num_scanned_with_segment");
-BvarStatusWithTag<long> g_bvar_checker_num_check_failed("checker", "num_check_failed");
-BvarStatusWithTag<long> g_bvar_checker_check_cost_s("checker", "check_cost_seconds");
-BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s("checker", "enqueue_cost_seconds");
-BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms("checker", "last_success_time_ms");
-BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volume");
-BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
-BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
-                                                                 "num_inverted_check_failed");
+BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned("checker", "num_scanned");
+BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned_with_segment("checker", "num_scanned_with_segment");
+BvarStatusWithTag<int64_t> g_bvar_checker_num_check_failed("checker", "num_check_failed");
+BvarStatusWithTag<int64_t> g_bvar_checker_check_cost_s("checker", "check_cost_seconds");
+BvarStatusWithTag<int64_t> g_bvar_checker_enqueue_cost_s("checker", "enqueue_cost_seconds");
+BvarStatusWithTag<int64_t> g_bvar_checker_last_success_time_ms("checker", "last_success_time_ms");
+BvarStatusWithTag<int64_t> g_bvar_checker_instance_volume("checker", "instance_volume");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed("checker", "num_inverted_check_failed");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker", "leaked_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps("checker", "abnormal_delete_bitmaps");
+BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned("checker", "delete_bitmap_keys_scanned");
 
-BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker",
-                                                                         "leaked_delete_bitmaps");
-BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps(
-        "checker", "abnormal_delete_bitmaps");
-BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned(
-        "checker", "delete_bitmap_keys_scanned");
+// clang-format on

@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -62,6 +63,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
                     .add("new_partition")
                     .add("user_inject")
                     .add("enable_auto_analyze")
+                    .add("last_analyze_time")
                     .build();
 
     private static final ImmutableList<String> PARTITION_TITLE_NAMES =
@@ -230,6 +232,7 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
             row.add("");
             row.add("");
             row.add(String.valueOf(table.autoAnalyzeEnabled()));
+            row.add("");
             result.add(row);
             return new ShowResultSet(getMetaData(), result);
         }
@@ -242,13 +245,22 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
         LocalDateTime dateTime =
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
                 java.time.ZoneId.systemDefault());
-        String formattedDateTime = dateTime.format(formatter);
-        row.add(formattedDateTime);
-        row.add(tableStatistic.analyzeColumns().toString());
+        LocalDateTime lastAnalyzeTime =
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.lastAnalyzeTime),
+                    java.time.ZoneId.systemDefault());
+        row.add(dateTime.format(formatter));
+
+        Set<Pair<String, String>> columnsSet = tableStatistic.analyzeColumns();
+        Set<Pair<String, String>> newColumnsSet = new HashSet<>();
+        for (Pair<String, String> pair : columnsSet) {
+            newColumnsSet.add(Pair.of(Util.getTempTableDisplayName(pair.first), pair.second));
+        }
+        row.add(newColumnsSet.toString());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
+        row.add(lastAnalyzeTime.format(formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }
@@ -335,5 +347,10 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
             }
         }
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

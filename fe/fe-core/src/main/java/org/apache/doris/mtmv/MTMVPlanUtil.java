@@ -33,11 +33,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
-import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
@@ -46,10 +43,24 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
 
     public static ConnectContext createMTMVContext(MTMV mtmv) {
+        ConnectContext ctx = createBasicMvContext(null);
+        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+        if (workloadGroup.isPresent()) {
+            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        }
+        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
+        // After https://github.com/apache/doris/pull/36543,
+        // After 1, this logic is no longer needed. This is to be compatible with older versions
+        setCatalogAndDb(ctx, mtmv);
+        return ctx;
+    }
+
+    public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(Auth.ADMIN_USER);
@@ -65,18 +76,17 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         // Disable add default limit rule to avoid refresh data wrong
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
-        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
-        if (workloadGroup.isPresent()) {
-            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
-        }
+                String.join(",", ImmutableSet.of(
+                        "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
+                        RuleType.ADD_DEFAULT_LIMIT.name())));
         ctx.setStartTime();
-        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
-        // After https://github.com/apache/doris/pull/36543,
-        // After 1, this logic is no longer needed. This is to be compatible with older versions
-        setCatalogAndDb(ctx, mtmv);
+        if (parentContext != null) {
+            ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
+            ctx.setDatabase(parentContext.getDatabase());
+        }
         return ctx;
     }
+
 
     private static void setCatalogAndDb(ConnectContext ctx, MTMV mtmv) {
         EnvInfo envInfo = mtmv.getEnvInfo();
@@ -99,41 +109,27 @@ public class MTMVPlanUtil {
         ctx.setDatabase(databaseIf.get().getFullName());
     }
 
-    public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
-        // Should not make table without data to empty relation when analyze the related table,
-        // so add disable rules
-        Plan plan = getAnalyzePlanBySql(mtmv.getQuerySql(), ctx);
-        return generateMTMVRelation(plan, ctx);
-    }
-
-    public static MTMVRelation generateMTMVRelation(Plan plan, ConnectContext connectContext) {
-        return new MTMVRelation(getBaseTables(plan, true, connectContext),
-                getBaseTables(plan, false, connectContext), getBaseViews(plan));
-    }
-
-    private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expand, ConnectContext connectContext) {
-        TableCollectorContext collectorContext =
-                new TableCollector.TableCollectorContext(
-                        com.google.common.collect.Sets
-                                .newHashSet(TableType.values()), expand, connectContext);
-        plan.accept(TableCollector.INSTANCE, collectorContext);
-        Set<TableIf> collectedTables = collectorContext.getCollectedTables();
-        return transferTableIfToInfo(collectedTables);
-    }
-
-    private static Set<BaseTableInfo> getBaseViews(Plan plan) {
-        return Sets.newHashSet();
-    }
-
-    private static Set<BaseTableInfo> transferTableIfToInfo(Set<TableIf> tables) {
-        Set<BaseTableInfo> result = com.google.common.collect.Sets.newHashSet();
-        for (TableIf table : tables) {
-            result.add(new BaseTableInfo(table));
+    public static MTMVRelation generateMTMVRelation(Set<TableIf> tablesInPlan, ConnectContext ctx) {
+        Set<BaseTableInfo> oneLevelTables = Sets.newHashSet();
+        Set<BaseTableInfo> allLevelTables = Sets.newHashSet();
+        Set<BaseTableInfo> oneLevelViews = Sets.newHashSet();
+        for (TableIf table : tablesInPlan) {
+            BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+            if (table.getType() == TableType.VIEW) {
+                // TODO reopen it after we support mv on view
+                // oneLevelViews.add(baseTableInfo);
+            } else {
+                oneLevelTables.add(baseTableInfo);
+                allLevelTables.add(baseTableInfo);
+                if (table instanceof MTMV) {
+                    allLevelTables.addAll(((MTMV) table).getRelation().getBaseTables());
+                }
+            }
         }
-        return result;
+        return new MTMVRelation(allLevelTables, oneLevelTables, oneLevelViews);
     }
 
-    private static Plan getAnalyzePlanBySql(String querySql, ConnectContext ctx) {
+    public static Set<TableIf> getBaseTableFromQuery(String querySql, ConnectContext ctx) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(querySql);
@@ -143,12 +139,15 @@ public class MTMVPlanUtil {
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         StatementContext original = ctx.getStatementContext();
-        ctx.setStatementContext(new StatementContext());
-        try {
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            return planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-        } finally {
-            ctx.setStatementContext(original);
+        try (StatementContext tempCtx = new StatementContext()) {
+            ctx.setStatementContext(tempCtx);
+            try {
+                NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+                planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+                return Sets.newHashSet(ctx.getStatementContext().getTables().values());
+            } finally {
+                ctx.setStatementContext(original);
+            }
         }
     }
 }

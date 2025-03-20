@@ -25,6 +25,8 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -42,9 +44,9 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 public class DBBinlog {
     private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
@@ -74,6 +76,10 @@ public class DBBinlog {
 
     private BinlogConfigCache binlogConfigCache;
 
+    // The binlogs that are locked by the syncer.
+    // syncer id => commit seq
+    private Map<String, Long> lockedBinlogs;
+
     public DBBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog) {
         lock = new ReentrantReadWriteLock();
         this.dbId = binlog.getDbId();
@@ -88,6 +94,7 @@ public class DBBinlog {
         droppedPartitions = Lists.newArrayList();
         droppedTables = Lists.newArrayList();
         droppedIndexes = Lists.newArrayList();
+        lockedBinlogs = Maps.newHashMap();
 
         TBinlog dummy;
         if (binlog.getType() == TBinlogType.DUMMY) {
@@ -124,7 +131,7 @@ public class DBBinlog {
 
         allBinlogs.add(binlog);
         binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
-        recordDroppedResources(binlog);
+        recordDroppedOrRecoveredResources(binlog);
 
         if (tableIds == null) {
             return;
@@ -178,7 +185,7 @@ public class DBBinlog {
                 return;
             }
 
-            recordDroppedResources(binlog, raw);
+            recordDroppedOrRecoveredResources(binlog, raw);
 
             switch (binlog.getType()) {
                 case CREATE_TABLE:
@@ -204,7 +211,7 @@ public class DBBinlog {
         return dbId;
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long tableId, long prevCommitSeq) {
+    public Pair<TStatus, List<TBinlog>> getBinlog(long tableId, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -215,52 +222,46 @@ public class DBBinlog {
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
-                return tableBinlog.getBinlog(prevCommitSeq);
+                return tableBinlog.getBinlog(prevCommitSeq, numAcquired);
             }
 
-            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq);
+            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq, numAcquired);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions() {
+    public List<Pair<Long, Long>> getDroppedPartitions() {
         lock.readLock().lock();
         try {
-            return droppedPartitions.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedPartitions);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped tables of the db.
-    public List<Long> getDroppedTables() {
+    public List<Pair<Long, Long>> getDroppedTables() {
         lock.readLock().lock();
         try {
-            return droppedTables.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedTables);
         } finally {
             lock.readLock().unlock();
         }
     }
 
     // Get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes() {
+    public List<Pair<Long, Long>> getDroppedIndexes() {
         lock.readLock().lock();
         try {
-            return droppedIndexes.stream()
-                    .map(v -> v.first)
-                    .collect(Collectors.toList());
+            return new ArrayList<>(droppedIndexes);
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    public Pair<TStatus, Long> getBinlogLag(long tableId, long prevCommitSeq) {
+    public Pair<TStatus, BinlogLagInfo> getBinlogLag(long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -280,23 +281,65 @@ public class DBBinlog {
         }
     }
 
+    public Pair<TStatus, Long> lockBinlog(long tableId, String jobUniqueId, long lockCommitSeq) {
+        TableBinlog tableBinlog = null;
+        lock.writeLock().lock();
+        try {
+            if (tableId < 0) {
+                return lockDbBinlog(jobUniqueId, lockCommitSeq);
+            }
+
+            tableBinlog = tableBinlogMap.get(tableId);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        if (tableBinlog == null) {
+            LOG.warn("table binlog not found. dbId: {}, tableId: {}", dbId, tableId);
+            return Pair.of(new TStatus(TStatusCode.BINLOG_NOT_FOUND_TABLE), -1L);
+        }
+        return tableBinlog.lockBinlog(jobUniqueId, lockCommitSeq);
+    }
+
+    // Require: the write lock is held by the caller.
+    private Pair<TStatus, Long> lockDbBinlog(String jobUniqueId, long lockCommitSeq) {
+        TBinlog firstBinlog = allBinlogs.first();
+        TBinlog lastBinlog = allBinlogs.last();
+
+        if (lockCommitSeq < 0) {
+            // lock the latest binlog
+            lockCommitSeq = lastBinlog.getCommitSeq();
+        } else if (lockCommitSeq < firstBinlog.getCommitSeq()) {
+            // lock the first binlog
+            lockCommitSeq = firstBinlog.getCommitSeq();
+        } else if (lastBinlog.getCommitSeq() < lockCommitSeq) {
+            LOG.warn("try lock future binlogs, dbId: {}, lockCommitSeq: {}, lastCommitSeq: {}, jobId: {}",
+                    dbId, lockCommitSeq, lastBinlog.getCommitSeq(), jobUniqueId);
+            return Pair.of(new TStatus(TStatusCode.BINLOG_TOO_NEW_COMMIT_SEQ), -1L);
+        }
+
+        // keep idempotent
+        Long commitSeq = lockedBinlogs.get(jobUniqueId);
+        if (commitSeq != null && lockCommitSeq <= commitSeq) {
+            LOG.debug("binlog is locked, commitSeq: {}, jobId: {}, dbId: {}", commitSeq, jobUniqueId, dbId);
+            return Pair.of(new TStatus(TStatusCode.OK), commitSeq);
+        }
+
+        lockedBinlogs.put(jobUniqueId, lockCommitSeq);
+        return Pair.of(new TStatus(TStatusCode.OK), lockCommitSeq);
+    }
+
     public BinlogTombstone gc() {
         // check db
         BinlogConfig dbBinlogConfig = binlogConfigCache.getDBBinlogConfig(dbId);
         if (dbBinlogConfig == null) {
             LOG.error("db not found. dbId: {}", dbId);
             return null;
-        }
-
-        BinlogTombstone tombstone;
-        if (dbBinlogConfig.isEnable()) {
-            // db binlog is enabled, only one binlogTombstones
-            tombstone = dbBinlogEnableGc(dbBinlogConfig);
+        } else if (!dbBinlogConfig.isEnable()) {
+            return dbBinlogDisableGc();
         } else {
-            tombstone = dbBinlogDisableGc();
+            return dbBinlogEnableGc(dbBinlogConfig);
         }
-
-        return tombstone;
     }
 
     private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones, boolean isDbGc) {
@@ -340,6 +383,7 @@ public class DBBinlog {
                 tombstones.add(tombstone);
             }
         }
+
         BinlogTombstone tombstone = collectTableTombstone(tombstones, false);
         if (tombstone != null) {
             removeExpiredMetaData(tombstone.getCommitSeq());
@@ -407,18 +451,42 @@ public class DBBinlog {
         }
 
         if (lastExpiredBinlog != null) {
-            dummy.setCommitSeq(lastExpiredBinlog.getCommitSeq());
+            final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
+            dummy.setCommitSeq(expiredCommitSeq);
+            dummy.setTimestamp(lastExpiredBinlog.getTimestamp());
 
             // release expired timestamps by commit seq.
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
-            while (timeIter.hasNext() && timeIter.next().first <= lastExpiredBinlog.getCommitSeq()) {
+            while (timeIter.hasNext() && timeIter.next().first <= expiredCommitSeq) {
                 timeIter.remove();
             }
 
-            gcDroppedResources(lastExpiredBinlog.getCommitSeq());
+            lockedBinlogs.entrySet().removeIf(ent -> ent.getValue() <= expiredCommitSeq);
+            gcDroppedResources(expiredCommitSeq);
         }
 
         return lastExpiredBinlog;
+    }
+
+    private Optional<Long> getMinLockedCommitSeq() {
+        lock.readLock().lock();
+        try {
+            Optional<Long> minLockedCommitSeq = lockedBinlogs.values().stream().min(Long::compareTo);
+            for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+                Optional<Long> tableMinLockedCommitSeq = tableBinlog.getMinLockedCommitSeq();
+                if (!tableMinLockedCommitSeq.isPresent()) {
+                    continue;
+                }
+                if (minLockedCommitSeq.isPresent()) {
+                    minLockedCommitSeq = Optional.of(Math.min(minLockedCommitSeq.get(), tableMinLockedCommitSeq.get()));
+                } else {
+                    minLockedCommitSeq = tableMinLockedCommitSeq;
+                }
+            }
+            return minLockedCommitSeq;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private BinlogTombstone dbBinlogEnableGc(BinlogConfig dbBinlogConfig) {
@@ -431,10 +499,12 @@ public class DBBinlog {
                 dbId, expiredMs, ttlSeconds, maxBytes, maxHistoryNums);
 
         // step 1: get current tableBinlog info and expiredCommitSeq
+        Optional<Long> minLockedCommitSeq = getMinLockedCommitSeq();
         TBinlog lastExpiredBinlog = null;
+        List<TableBinlog> tableBinlogs = Lists.newArrayList();
         lock.writeLock().lock();
         try {
-            long expiredCommitSeq = -1;
+            long expiredCommitSeq = -1L;
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
             while (timeIter.hasNext()) {
                 Pair<Long, Long> pair = timeIter.next();
@@ -442,6 +512,13 @@ public class DBBinlog {
                     break;
                 }
                 expiredCommitSeq = pair.first;
+            }
+
+            // Speed up gc by recycling binlogs that are not locked by syncer.
+            // To keep compatible with the old version, if no binlog is locked here, fallthrough to the
+            // previous behavior (keep the entire binlogs until it is expired).
+            if (minLockedCommitSeq.isPresent() && expiredCommitSeq + 1L < minLockedCommitSeq.get()) {
+                expiredCommitSeq = minLockedCommitSeq.get() - 1L;
             }
 
             final long lastExpiredCommitSeq = expiredCommitSeq;
@@ -457,6 +534,7 @@ public class DBBinlog {
                         || maxHistoryNums < allBinlogs.size();
             };
             lastExpiredBinlog = getLastExpiredBinlog(checker);
+            tableBinlogs.addAll(tableBinlogMap.values());
         } finally {
             lock.writeLock().unlock();
         }
@@ -468,7 +546,7 @@ public class DBBinlog {
         // step 2: gc every tableBinlog in dbBinlog, get table tombstone to complete db
         // tombstone
         List<BinlogTombstone> tableTombstones = Lists.newArrayList();
-        for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+        for (TableBinlog tableBinlog : tableBinlogs) {
             // step 2.1: gc tableBinlog，and get table tombstone
             BinlogTombstone tableTombstone = tableBinlog.commitSeqGc(lastExpiredBinlog.getCommitSeq());
             if (tableTombstone != null) {
@@ -623,16 +701,16 @@ public class DBBinlog {
         }
     }
 
-    private void recordDroppedResources(TBinlog binlog) {
-        recordDroppedResources(binlog, null);
+    private void recordDroppedOrRecoveredResources(TBinlog binlog) {
+        recordDroppedOrRecoveredResources(binlog, null);
     }
 
     // A method to record the dropped tables, indexes, and partitions.
-    private void recordDroppedResources(TBinlog binlog, Object raw) {
-        recordDroppedResources(binlog.getType(), binlog.getCommitSeq(), binlog.getData(), raw);
+    private void recordDroppedOrRecoveredResources(TBinlog binlog, Object raw) {
+        recordDroppedOrRecoveredResources(binlog.getType(), binlog.getCommitSeq(), binlog.getData(), raw);
     }
 
-    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, String data, Object raw) {
+    private void recordDroppedOrRecoveredResources(TBinlogType binlogType, long commitSeq, String data, Object raw) {
         if (raw == null) {
             switch (binlogType) {
                 case DROP_PARTITION:
@@ -656,6 +734,12 @@ public class DBBinlog {
                 case BARRIER:
                     raw = BarrierLog.fromJson(data);
                     break;
+                case RECOVER_INFO:
+                    raw = RecoverInfo.fromJson(data);
+                    break;
+                case REPLACE_PARTITIONS:
+                    raw = ReplacePartitionOperationLog.fromJson(data);
+                    break;
                 default:
                     break;
             }
@@ -664,10 +748,10 @@ public class DBBinlog {
             }
         }
 
-        recordDroppedResources(binlogType, commitSeq, raw);
+        recordDroppedOrRecoveredResources(binlogType, commitSeq, raw);
     }
 
-    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, Object raw) {
+    private void recordDroppedOrRecoveredResources(TBinlogType binlogType, long commitSeq, Object raw) {
         if (binlogType == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
             long partitionId = ((DropPartitionInfo) raw).getPartitionId();
             if (partitionId > 0) {
@@ -706,8 +790,23 @@ public class DBBinlog {
             BarrierLog log = (BarrierLog) raw;
             // keep compatible with doris 2.0/2.1
             if (log.hasBinlog()) {
-                recordDroppedResources(log.getBinlogType(), commitSeq, log.getBinlog(), null);
+                recordDroppedOrRecoveredResources(log.getBinlogType(), commitSeq, log.getBinlog(), null);
+            }
+        } else if ((binlogType == TBinlogType.RECOVER_INFO) && (raw instanceof RecoverInfo)) {
+            RecoverInfo recoverInfo = (RecoverInfo) raw;
+            long partitionId = recoverInfo.getPartitionId();
+            long tableId = recoverInfo.getTableId();
+            if (partitionId > 0) {
+                droppedPartitions.removeIf(entry -> (entry.first == partitionId));
+            } else if (tableId > 0) {
+                droppedTables.removeIf(entry -> (entry.first == tableId));
+            }
+        } else if ((binlogType == TBinlogType.REPLACE_PARTITIONS) && (raw instanceof ReplacePartitionOperationLog)) {
+            ReplacePartitionOperationLog replacePartitionOperationLog = (ReplacePartitionOperationLog) raw;
+            for (Long partitionId : replacePartitionOperationLog.getReplacedPartitionIds()) {
+                droppedPartitions.add(Pair.of(partitionId, commitSeq));
             }
         }
     }
+
 }

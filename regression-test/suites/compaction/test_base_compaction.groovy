@@ -28,7 +28,7 @@ suite("test_base_compaction", "p2") {
 
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
+
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())
@@ -136,29 +136,7 @@ suite("test_base_compaction", "p2") {
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     streamLoad {
         // a default db 'regression_test' is specified in
@@ -196,58 +174,13 @@ suite("test_base_compaction", "p2") {
     }
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
-
+    trigger_and_wait_compaction(tableName, "cumulative")
     qt_select_default """ SELECT count(*) FROM ${tableName} """
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
 
     // trigger compactions for all tablets in ${tableName}
-    for (def tablet in tablets) {
-        String tablet_id = tablet.TabletId
-        backend_id = tablet.BackendId
-        (code, out, err) = be_run_base_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        assertEquals("success", compactJson.status.toLowerCase())
-    }
-
-    // wait for all compactions done
-    for (def tablet in tablets) {
-        Awaitility.await().untilAsserted(() -> {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            return compactionStatus.run_status;
-        });
-    }
+    trigger_and_wait_compaction(tableName, "base")
 
     def replicaNum = get_table_replica_num(tableName)
     logger.info("get table replica num: " + replicaNum)

@@ -74,7 +74,11 @@ suite("is_in_debug_mode") {
 
     sql """set skip_delete_sign = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
-    try {
+    logger.info("skip_delete_sign session is " + sql("show variables like '%skip_delete_sign%'"))
+
+    sql """drop materialized view if exists test_create_mv;"""
+
+    test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -82,15 +86,15 @@ suite("is_in_debug_mode") {
         PROPERTIES ('replication_num' = '1') 
         AS select * from orders where o_orderkey > 2;
         """
-    } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        exception "because is in debug mode"
     }
     sql """set skip_delete_sign = false;"""
 
 
     sql """set skip_storage_engine_merge = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
-    try {
+    logger.info("skip_storage_engine_merge session is " + sql("show variables like '%skip_storage_engine_merge%'"))
+    test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -98,15 +102,15 @@ suite("is_in_debug_mode") {
         PROPERTIES ('replication_num' = '1') 
         AS select * from orders where o_orderkey > 2;
         """
-    } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        exception "because is in debug mode"
     }
     sql """set skip_storage_engine_merge = false;"""
 
 
     sql """set skip_delete_bitmap = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
-    try {
+    logger.info("skip_delete_bitmap session is " + sql("show variables like '%skip_delete_bitmap%'"))
+    test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -114,15 +118,15 @@ suite("is_in_debug_mode") {
         PROPERTIES ('replication_num' = '1') 
         AS select * from orders where o_orderkey > 2;
         """
-    } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        exception "because is in debug mode"
     }
     sql """set skip_delete_bitmap = false;"""
 
 
     sql """set skip_delete_predicate = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
-    try {
+    logger.info("skip_delete_predicate session is " + sql("show variables like '%skip_delete_predicate%'"))
+    test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -130,15 +134,15 @@ suite("is_in_debug_mode") {
         PROPERTIES ('replication_num' = '1') 
         AS select * from orders where o_orderkey > 2;
         """
-    } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        exception "because is in debug mode"
     }
     sql """set skip_delete_predicate = false;"""
 
 
     sql """set show_hidden_columns = true;"""
     mv_not_part_in("""select * from orders where o_orderkey > 1;""", "basic_mv")
-    try {
+    logger.info("show_hidden_columns session is " + sql("show variables like '%show_hidden_columns%'"))
+    test {
         sql """
         CREATE MATERIALIZED VIEW test_create_mv
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
@@ -146,8 +150,7 @@ suite("is_in_debug_mode") {
         PROPERTIES ('replication_num' = '1') 
         AS select * from orders where o_orderkey > 2;
         """
-    } catch (Exception e) {
-        Assert.assertTrue(e.getMessage().contains("because is in debug mode"))
+        exception "because is in debug mode"
     }
     sql """set show_hidden_columns = false;"""
 

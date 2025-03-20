@@ -28,7 +28,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -45,7 +45,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
                 "replication_num" = "1"
             );"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """show create table ${dbName}.${tableName}"""
             exception "denied"
@@ -56,7 +56,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create table ${tableName}"""
         sql """SHOW DATA SKEW FROM ${tableName};"""
@@ -64,7 +64,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
     sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant create_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create table ${tableName}"""
         sql """SHOW DATA SKEW FROM ${tableName};"""
@@ -72,7 +72,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
     sql """revoke create_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant drop_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create table ${tableName}"""
         sql """SHOW DATA SKEW FROM ${tableName};"""
@@ -80,7 +80,7 @@ suite("test_show_create_table_auth","p0,auth_call") {
     sql """revoke drop_priv on ${dbName}.${tableName} from ${user}"""
 
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """show create table ${tableName}"""
         sql """SHOW DATA SKEW FROM ${tableName};"""

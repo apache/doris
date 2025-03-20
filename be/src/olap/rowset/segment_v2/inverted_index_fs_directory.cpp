@@ -168,22 +168,6 @@ lucene::store::IndexInput* DorisFSDirectory::FSIndexInput::clone() const {
 }
 void DorisFSDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
-    /*if (_handle != nullptr) {
-        std::mutex* lock = _handle->_shared_lock;
-        bool ref = false;
-        {
-            std::lock_guard<std::mutex> wlock(*lock);
-            //determine if we are about to delete the handle...
-            ref = (_LUCENE_ATOMIC_INT_GET(_handle->__cl_refcount) > 1);
-            //decdelete (deletes if refcount is down to 0
-            _CLDECDELETE(_handle);
-        }
-
-        //if _handle is not ref by other FSIndexInput, try to release mutex lock, or it will be leaked.
-        if (!ref) {
-            delete lock;
-        }
-    }*/
 }
 
 void DorisFSDirectory::FSIndexInput::setIoContext(const void* io_ctx) {
@@ -226,20 +210,6 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     if (_handle->_fpos != _pos) {
         _handle->_fpos = _pos;
     }
-
-    DBUG_EXECUTE_IF(
-            "DorisFSDirectory::FSIndexInput::readInternal", ({
-                static thread_local std::unordered_map<const TUniqueId*, io::FileCacheStatistics*>
-                        thread_file_cache_map;
-                auto it = thread_file_cache_map.find(_io_ctx.query_id);
-                if (it != thread_file_cache_map.end()) {
-                    if (_io_ctx.file_cache_stats != it->second) {
-                        _CLTHROWA(CL_ERR_IO, "File cache statistics mismatch");
-                    }
-                } else {
-                    thread_file_cache_map[_io_ctx.query_id] = _io_ctx.file_cache_stats;
-                }
-            }));
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
@@ -812,10 +782,8 @@ bool DorisRAMFSDirectory::doDeleteFile(const char* name) {
         SCOPED_LOCK_MUTEX(this->THIS_LOCK);
         sizeInBytes -= itr->second->sizeInBytes;
         filesMap->removeitr(itr);
-        return true;
-    } else {
-        return false;
     }
+    return true;
 }
 
 bool DorisRAMFSDirectory::deleteDirectory() {

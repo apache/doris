@@ -82,6 +82,8 @@ public class NereidsCoordinator extends Coordinator {
 
     protected volatile PipelineExecutionTask executionTask;
 
+    private final boolean needEnqueue;
+
     // sql execution
     public NereidsCoordinator(ConnectContext context, Analyzer analyzer,
             NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator) {
@@ -89,6 +91,7 @@ public class NereidsCoordinator extends Coordinator {
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
         this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
+        this.needEnqueue = true;
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
@@ -104,6 +107,7 @@ public class NereidsCoordinator extends Coordinator {
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
                 descTable, timezone, loadZeroTolerance, enableProfile
         );
+        this.needEnqueue = false;
 
         Preconditions.checkState(!fragments.isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
@@ -465,7 +469,7 @@ public class NereidsCoordinator extends Coordinator {
 
     private void enqueue(ConnectContext context) throws UserException {
         // LoadTask does not have context, not controlled by queue now
-        if (context != null) {
+        if (context != null && needEnqueue) {
             if (Config.enable_workload_group) {
                 coordinatorContext.setWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
                 if (shouldQueue(context)) {
@@ -475,10 +479,10 @@ public class NereidsCoordinator extends Coordinator {
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
-                    QueueToken queueToken = queryQueue.getToken();
+                    QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
-                    queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
+                    queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                 }
             } else {
                 context.setWorkloadGroupName("");
@@ -509,5 +513,10 @@ public class NereidsCoordinator extends Coordinator {
             // insert statement has jobId == -1
             return new LoadProcessor(coordinatorContext, -1L);
         }
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        coordinatorContext.queryOptions.setEnableProfile(isSafe && coordinatorContext.queryOptions.isEnableProfile());
     }
 }

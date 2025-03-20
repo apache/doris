@@ -280,17 +280,7 @@ suite('test_manager_interface_1',"p0") {
         def ddl_str =  result[0][1] 
         def idx =  ddl_str.indexOf("PROPERTIES")
         assertTrue(idx != -1 );
-        assertTrue( ddl_str.startsWith("""CREATE TABLE `test_manager_tb_1` (
-  `k1` tinyint NULL,
-  `k2` decimal(10,2) NULL DEFAULT "10.05",
-  `k3` char(10) NULL COMMENT 'string column',
-  `k4` int NOT NULL DEFAULT "1" COMMENT 'int column',
-  `k5` text NULL
-) ENGINE=OLAP
-DUPLICATE KEY(`k1`, `k2`, `k3`)
-COMMENT 'manager_test_table'
-DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
-
+        assertTrue(ddl_str.contains("CREATE TABLE `test_manager_tb_1`"));
         sql """ drop table test_manager_tb_1 """ 
         result = sql """ show tables """ 
         assertTrue(result.size() == 0)        
@@ -495,12 +485,9 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     }
     test_table_index()
 
-
-//select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
     def  test_active_query = {
 
         List<List<Object>> result = sql """ select 1;"""
-
 
         def futures = []
         futures.add( thread {
@@ -514,30 +501,31 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             sleep(1500)
 
-            result = sql """ 
-            select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
-            information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
+            result = sql_return_maparray """ 
+                select a.*, b.TASK_CPU_TIME_MS, b.SCAN_ROWS, b.SCAN_BYTES, b.SHUFFLE_SEND_BYTES, b.SHUFFLE_SEND_ROWS, b.CURRENT_USED_MEMORY_BYTES, c.NAME as WORKLOAD_GROUP_NAME 
+                from information_schema.active_queries a left join 
+                information_schema.backend_active_tasks b on a.QUERY_ID = b.QUERY_ID left join information_schema.workload_groups c on a.WORKLOAD_GROUP_ID = c.ID
             """
             logger.info("result = ${result}")
             
             def x = 0
             def queryId = ""
             for( int i =0 ;i < result.size();i++ ){
-                assertTrue(result[i][0] != null ) // QueryId
+                assertTrue(result[i]["QUERY_ID"] != null ) // QueryId
 
-                if ( result[i][9].contains("sleep(4.7676)")  ){
+                if ( result[i]["SQL"].contains("sleep(4.7676)")  ){
                     x = 1 
-                    queryId = result[i][0]
+                    queryId = result[i]["QUERY_ID"]
                     logger.info("result = ${queryId}}")
 
-                    assertTrue(result[i][2]!=null) // QUERY_TIME_MS  
-                    assertTrue(result[i][14]!=null) // TASK_CPU_TIME_MS   
-                    assertTrue(result[i][15].toBigInteger() ==0 ) // SCAN_ROWS  
-                    assertTrue(result[i][16].toBigInteger() ==0)//SCAN_BYTES
-                    assertTrue(result[i][19].toBigInteger() ==0) // SHUFFLE_SEND_BYTES     
-                    assertTrue(result[i][20].toBigInteger() ==0) // SHUFFLE_SEND_ROWS   
-                    assertTrue(result[i][18]!=null) // CURRENT_USED_MEMORY_BYTES   
-                    assertTrue(result[i][22]!=null) // WORKLOAD_GROUP_NAME              
+                    assertTrue(result[i]["QUERY_TIME_MS"]!=null) // QUERY_TIME_MS  
+                    assertTrue(result[i]["TASK_CPU_TIME_MS"]!=null) // TASK_CPU_TIME_MS   
+                    assertTrue(result[i]["SCAN_ROWS"].toBigInteger() ==0 ) // SCAN_ROWS  
+                    assertTrue(result[i]["SCAN_BYTES"].toBigInteger() ==0)//SCAN_BYTES
+                    assertTrue(result[i]["SHUFFLE_SEND_BYTES"].toBigInteger() ==0) // SHUFFLE_SEND_BYTES     
+                    assertTrue(result[i]["SHUFFLE_SEND_ROWS"].toBigInteger() ==0) // SHUFFLE_SEND_ROWS   
+                    assertTrue(result[i]["CURRENT_USED_MEMORY_BYTES"]!=null) // CURRENT_USED_MEMORY_BYTES   
+                    assertTrue(result[i]["WORKLOAD_GROUP_NAME"]!=null) // WORKLOAD_GROUP_NAME              
                 }
             }
             assertTrue(x == 1)

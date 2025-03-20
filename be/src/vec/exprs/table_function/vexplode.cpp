@@ -44,27 +44,26 @@ VExplodeTableFunction::VExplodeTableFunction() {
 
 Status VExplodeTableFunction::_process_init_variant(Block* block, int value_column_idx) {
     // explode variant array
-    const auto& variant_column = check_and_get_column<ColumnObject>(
-            remove_nullable(block->get_by_position(value_column_idx)
-                                    .column->convert_to_full_column_if_const())
-                    .get());
+    auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
+    auto column = column_without_nullable->convert_to_full_column_if_const();
+    const auto& variant_column = assert_cast<const ColumnObject&>(*column);
     _detail.output_as_variant = true;
-    if (!variant_column->is_null_root()) {
-        _array_column = variant_column->get_root();
+    if (!variant_column.is_null_root()) {
+        _array_column = variant_column.get_root();
         // We need to wrap the output nested column within a variant column.
         // Otherwise the type is missmatched
         const auto* array_type = check_and_get_data_type<DataTypeArray>(
-                remove_nullable(variant_column->get_root_type()).get());
+                remove_nullable(variant_column.get_root_type()).get());
         if (array_type == nullptr) {
             return Status::NotSupported("explode not support none array type {}",
-                                        variant_column->get_root_type()->get_name());
+                                        variant_column.get_root_type()->get_name());
         }
         _detail.nested_type = array_type->get_nested_type();
     } else {
         // null root, use nothing type
         _array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
                                                ColumnUInt8::create(0));
-        _array_column->assume_mutable()->insert_many_defaults(variant_column->size());
+        _array_column->assume_mutable()->insert_many_defaults(variant_column.size());
         _detail.nested_type = std::make_shared<DataTypeNothing>();
     }
     return Status::OK();

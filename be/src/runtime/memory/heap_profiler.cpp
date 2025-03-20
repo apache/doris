@@ -35,7 +35,7 @@ void HeapProfiler::set_prof_active(bool prof) {
         if (err) {
             LOG(WARNING) << "jemalloc heap profiling start failed, " << err;
         } else {
-            LOG(WARNING) << "jemalloc heap profiling started";
+            LOG(INFO) << "jemalloc heap profiling started";
         }
     } catch (...) {
         LOG(WARNING) << "jemalloc heap profiling start failed";
@@ -93,6 +93,8 @@ bool HeapProfiler::check_heap_profiler() {
 #ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
+    // A Bug in Jemalloc 5.3, `jemallctl("prof", &value, &sz, nullptr, 0)` always returns `0`,
+    // the real conf `prof` value cannot be checked.
     jemallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
 #else

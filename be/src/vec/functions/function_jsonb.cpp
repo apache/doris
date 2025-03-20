@@ -459,11 +459,12 @@ public:
         // prepare jsonb data column
         jsonb_data_column = unpack_if_const(block.get_by_position(arguments[0]).column).first;
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column);
+            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
             jsonb_data_column = nullable->get_nested_column_ptr();
             data_null_map = &nullable->get_null_map_data();
         }
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(jsonb_data_column);
+        const ColumnString* col_from_string =
+                check_and_get_column<ColumnString>(jsonb_data_column.get());
 
         // prepare parse path column prepare, maybe we do not have path column
         ColumnPtr jsonb_path_column = nullptr;
@@ -475,11 +476,12 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (block.get_by_position(arguments[1]).column->is_nullable()) {
-                const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_path_column);
+                const auto* nullable =
+                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }
-            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column);
+            jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -559,7 +561,7 @@ private:
                 continue;
             }
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
-            JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+            JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
             if (UNLIKELY(!doc || !doc->getValue())) {
                 dst_arr.clear();
                 return Status::InvalidArgument("jsonb data is invalid");
@@ -667,7 +669,7 @@ private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, const char* l_raw_str,
                                               size_t l_str_size, JsonbPath& path) {
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             return;
         }
@@ -762,7 +764,7 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -888,7 +890,7 @@ public:
                 writer->writeStartArray();
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw, l_size);
 
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
                     if (UNLIKELY(!doc || !doc->getValue())) {
@@ -1029,7 +1031,7 @@ private:
         }
 
         // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
+        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(l_raw_str, l_str_size);
         if (UNLIKELY(!doc || !doc->getValue())) {
             null_map[i] = 1;
             res[i] = 0;
@@ -1407,7 +1409,8 @@ struct JsonbLengthUtil {
             }
             auto jsonb_value = jsonb_data_column->get_data_at(i);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-            JsonbDocument* doc = JsonbDocument::createDocument(jsonb_value.data, jsonb_value.size);
+            JsonbDocument* doc =
+                    JsonbDocument::checkAndCreateDocument(jsonb_value.data, jsonb_value.size);
             JsonbValue* value = doc->getValue()->findValue(path, nullptr);
             if (UNLIKELY(!value)) {
                 null_map->get_data()[i] = 1;
@@ -1542,9 +1545,9 @@ struct JsonbContainsUtil {
             }
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             JsonbDocument* doc1 =
-                    JsonbDocument::createDocument(jsonb_value1.data, jsonb_value1.size);
+                    JsonbDocument::checkAndCreateDocument(jsonb_value1.data, jsonb_value1.size);
             JsonbDocument* doc2 =
-                    JsonbDocument::createDocument(jsonb_value2.data, jsonb_value2.size);
+                    JsonbDocument::checkAndCreateDocument(jsonb_value2.data, jsonb_value2.size);
 
             JsonbValue* value1 = doc1->getValue()->findValue(path, nullptr);
             JsonbValue* value2 = doc2->getValue();
@@ -1844,9 +1847,10 @@ public:
         // prepare jsonb data column
         std::tie(col_json, json_is_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json)) {
-            col_json_string = check_and_get_column<ColumnString>(nullable->get_nested_column_ptr());
+        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
         }
 
         if (!col_json_string) {
@@ -1873,8 +1877,8 @@ public:
         // prepare jsonb data column
         std::tie(col_one, one_is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one)) {
+        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
             col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
         if (!col_one_string) {
@@ -1921,8 +1925,9 @@ public:
         std::tie(col_search, search_is_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const ColumnString* col_search_string = check_and_get_column<ColumnString>(col_search);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search)) {
+        const ColumnString* col_search_string =
+                check_and_get_column<ColumnString>(col_search.get());
+        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
             col_search_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }

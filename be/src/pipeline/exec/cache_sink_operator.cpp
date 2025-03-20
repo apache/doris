@@ -46,13 +46,9 @@ Status CacheSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id)
-        : Base(sink_id, child_id, child_id) {
+CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id, int dest_id)
+        : Base(sink_id, child_id, dest_id) {
     _name = "CACHE_SINK_OPERATOR";
-}
-
-Status CacheSinkOperatorX::open(RuntimeState* state) {
-    return Status::OK();
 }
 
 Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {

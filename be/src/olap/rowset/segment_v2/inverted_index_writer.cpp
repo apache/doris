@@ -76,14 +76,18 @@ bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn&
     static std::set<FieldType> invalid_types = {
             FieldType::OLAP_FIELD_TYPE_DOUBLE,
             FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_ARRAY,
             FieldType::OLAP_FIELD_TYPE_FLOAT,
     };
-    if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
+    if (invalid_types.contains(column.type())) {
         return false;
     }
     if (column.is_variant_type()) {
         return false;
+    }
+    if (column.is_array_type()) {
+        // only support one level array
+        const auto& subcolumn = column.get_sub_column(0);
+        return !subcolumn.is_array_type() && check_support_inverted_index(subcolumn);
     }
     return true;
 }
@@ -138,11 +142,13 @@ public:
         try {
             DBUG_EXECUTE_IF("InvertedIndexColumnWriter::close_on_error_throw_exception",
                             { _CLTHROWA(CL_ERR_IO, "debug point: close on error"); })
-            if (_index_writer) {
-                _index_writer->close();
-            }
+            // delete directory must be done before index_writer close
+            // because index_writer will close the directory
             if (_dir) {
                 _dir->deleteDirectory();
+            }
+            if (_index_writer) {
+                _index_writer->close();
             }
         } catch (CLuceneError& e) {
             LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
@@ -198,6 +204,7 @@ public:
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
+        index_writer->setEnableCorrectTermWrite(config::enable_inverted_index_correct_term_write);
 
         return index_writer;
     }
@@ -323,8 +330,26 @@ public:
         return Status::OK();
     }
 
-    Status add_array_nulls(uint32_t row_id) override {
-        _null_bitmap.add(row_id);
+    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+        DCHECK(_rid >= num_rows);
+        if (num_rows == 0 || null_map == nullptr) {
+            return Status::OK();
+        }
+        std::vector<uint32_t> null_indices;
+        null_indices.reserve(num_rows / 8);
+
+        // because _rid is the row id in block, not segment, and we add data before we add nulls,
+        // so we need to subtract num_rows to get the row id in segment
+        for (size_t i = 0; i < num_rows; i++) {
+            if (null_map[i] == 1) {
+                null_indices.push_back(_rid - num_rows + static_cast<uint32_t>(i));
+            }
+        }
+
+        if (!null_indices.empty()) {
+            _null_bitmap.addMany(null_indices.size(), null_indices.data());
+        }
+
         return Status::OK();
     }
 
@@ -398,8 +423,9 @@ public:
         return Status::OK();
     }
 
-    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
-                            const uint8_t* offsets_ptr, size_t count) override {
+    Status add_array_values(size_t field_size, const void* value_ptr,
+                            const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
+                            size_t count) override {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
                         { count = 0; })
         if (count == 0) {
@@ -424,7 +450,7 @@ public:
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
@@ -520,7 +546,7 @@ public:
             for (int i = 0; i < count; ++i) {
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
                         continue;
                     }
                     const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
@@ -540,7 +566,8 @@ public:
             DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_field_is_nullptr",
                             { _field = nullptr; })
             DBUG_EXECUTE_IF(
-                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
+                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_"
+                    "nullptr",
                     { _index_writer = nullptr; })
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
@@ -602,9 +629,10 @@ public:
             std::string new_value;
             size_t value_length = sizeof(CppType);
 
-            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_error", {
-                _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx"));
-            });
+            DBUG_EXECUTE_IF(
+                    "InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_"
+                    "error",
+                    { _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx")); });
 
             _value_key_coder->full_encode_ascending(&value, &new_value);
             _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
@@ -663,8 +691,8 @@ public:
                                 _bkd_writer->finish(data_out.get(), index_out.get()),
                                 int(field_type));
                     } else {
-                        LOG(WARNING)
-                                << "Inverted index writer create output error occurred: nullptr";
+                        LOG(WARNING) << "Inverted index writer create output error "
+                                        "occurred: nullptr";
                         _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                     }
                 } else if constexpr (field_is_slice_type(field_type)) {
@@ -673,9 +701,12 @@ public:
                             InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     DBUG_EXECUTE_IF(
-                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close", {
+                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_"
+                            "writer_close",
+                            {
                                 _CLTHROWA(CL_ERR_IO,
-                                          "debug point: test throw error in fulltext index writer");
+                                          "debug point: test throw error in fulltext "
+                                          "index writer");
                             });
                 }
             } catch (CLuceneError& e) {
@@ -714,12 +745,14 @@ private:
     std::unique_ptr<lucene::document::Document> _doc = nullptr;
     lucene::document::Field* _field = nullptr;
     bool _single_field = true;
+    // Since _index_writer's write.lock is created by _dir.lockFactory,
+    // _dir must destruct after _index_writer, so _dir must be defined before _index_writer.
+    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
-    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;

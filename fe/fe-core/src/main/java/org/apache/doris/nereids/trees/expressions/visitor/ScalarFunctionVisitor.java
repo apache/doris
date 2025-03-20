@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
@@ -126,6 +127,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -168,7 +170,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -228,6 +229,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6FromUInt128StringOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
@@ -344,6 +346,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
@@ -444,6 +448,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
@@ -470,6 +475,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -672,6 +678,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
         return visitScalarFunction(arrayShuffle, context);
+    }
+
+    default R visitArrayFlatten(ArrayFlatten arrayFlatten, C context) {
+        return visitScalarFunction(arrayFlatten, context);
     }
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
@@ -1127,10 +1137,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(dfloor, context);
     }
 
-    default R visitDlog1(Dlog1 dlog1, C context) {
-        return visitScalarFunction(dlog1, context);
-    }
-
     default R visitDlog10(Dlog10 dlog10, C context) {
         return visitScalarFunction(dlog10, context);
     }
@@ -1349,6 +1355,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
         return visitScalarFunction(ipv6StringToNumOrNull, context);
+    }
+
+    default R visitIpv6FromUInt128StringOrNull(Ipv6FromUInt128StringOrNull ipv6FromUInt128StringOrNull, C context) {
+        return visitScalarFunction(ipv6FromUInt128StringOrNull, context);
     }
 
     default R visitIsIpv4Compat(IsIpv4Compat isIpv4Compat, C context) {
@@ -1761,6 +1771,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitQuarter(Quarter quarter, C context) {
         return visitScalarFunction(quarter, context);
+    }
+
+    default R visitQuartersAdd(QuartersAdd quartersAdd, C context) {
+        return visitScalarFunction(quartersAdd, context);
+    }
+
+    default R visitQuartersSub(QuartersSub quartersSub, C context) {
+        return visitScalarFunction(quartersSub, context);
     }
 
     default R visitRadians(Radians radians, C context) {
@@ -2239,6 +2257,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(year, context);
     }
 
+    default R visitYearOfWeek(YearOfWeek yearOfWeek, C context) {
+        return visitScalarFunction(yearOfWeek, context);
+    }
+
     default R visitYearCeil(YearCeil yearCeil, C context) {
         return visitScalarFunction(yearCeil, context);
     }
@@ -2317,5 +2339,13 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLastQueryId(LastQueryId queryId, C context) {
         return visitScalarFunction(queryId, context);
+    }
+
+    default R visitCompress(Compress compress, C context) {
+        return visitScalarFunction(compress, context);
+    }
+
+    default R visitUncompress(Uncompress uncompress, C context) {
+        return visitScalarFunction(uncompress, context);
     }
 }

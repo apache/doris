@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("eliminate_group_by_key_by_uniform") {
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set enable_nereids_rules = 'ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
+    sql "set runtime_filter_mode=OFF"
     sql "drop table if exists eli_gbk_by_uniform_t"
     sql """create table eli_gbk_by_uniform_t(a int null, b int not null, c varchar(10) null, d date, dt datetime)
     distributed by hash(a) properties("replication_num"="1");
@@ -218,4 +220,21 @@ suite("eliminate_group_by_key_by_uniform") {
     qt_left_anti_left_side "select t1.b from test1 t1 left anti join (select * from test2 where b=105)  t2 on t1.a=t2.a where t1.b=1 group by t1.b,t1.a order by 1;"
     qt_right_semi_right_side "select t2.b from test1 t1 right semi join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
     qt_right_anti_right_side "select t2.b from test1 t1 right anti join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
+
+    //grouping
+    qt_grouping "select k, k3 from (select 1 as k, a k3, sum(b) as sum_k1 from  test1  group by cube(k,a)) t group by k,k3 order by 1,2"
+
+    // test agg to limit
+    qt_to_limit_project_uniform "select 1 as c1 from eli_gbk_by_uniform_t group by c1"
+    qt_to_limit_predicate_uniform "select a from eli_gbk_by_uniform_t where a=1 group by a"
+    qt_to_limit_project_uniform_has_upper_ref "select c1+1 from (select 1 as c1 from eli_gbk_by_uniform_t group by c1) t"
+    qt_to_limit_predicate_uniform_has_upper_ref "select a+1 from (select a from eli_gbk_by_uniform_t where a=1 group by a) t"
+    qt_to_limit_join_predicate "select t2.b from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by t2.b order by 1;"
+    qt_to_limit_join_project "select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1 order by 1;"
+    qt_to_limit_multi_group_by "select 1 as c1,a from eli_gbk_by_uniform_t where a=1 group by c1,a"
+    qt_to_limit_multi_group_by_one_col_in_project "select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
+
+    qt_to_limit_join_project_shape "explain shape plan select 1 as c1 from test1 t1 inner join (select * from test2 where b=105)  t2 on t1.a=t2.a group by c1 order by 1;"
+    qt_to_limit_project_uniform_shape "explain shape plan select 1 as c1 from eli_gbk_by_uniform_t group by c1"
+    qt_to_limit_multi_group_by_shape "explain shape plan select 2 as c1 from eli_gbk_by_uniform_t where a=1 group by c1,a"
 }

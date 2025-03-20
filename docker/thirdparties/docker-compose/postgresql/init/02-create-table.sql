@@ -351,3 +351,83 @@ CREATE TABLE catalog_pg_test.test_all_support_types_array_2d (
     float8_value float8[][] NULL
 );
 
+create table doris_test.TEST_LOWER (
+    k1 bit,
+    k2 char(100)
+);
+
+CREATE TABLE catalog_pg_test.extreme_test (
+    id SERIAL PRIMARY KEY,
+    -- Numeric types for testing extreme values
+    smallint_val smallint,
+    int_val integer,
+    bigint_val bigint,
+    decimal_val decimal(38,10),
+    real_val real,
+    double_val double precision,
+    -- Character types for testing string values
+    char_val char(1),
+    varchar_val varchar(65535),
+    text_val text,
+    -- Date and time types for testing temporal values
+    date_val date,
+    timestamp_val timestamp(6),
+    timestamptz_val timestamptz,
+    interval_val interval,
+    -- Boolean type for testing logical values
+    bool_val boolean,
+    -- Binary type for testing byte array values
+    bytea_val bytea,
+    -- Network address types for testing network values
+    inet_val inet,
+    cidr_val cidr,
+    macaddr_val macaddr,
+    -- JSON types for testing structured data
+    json_val json,
+    jsonb_val jsonb,
+    -- Geometric types for testing spatial data
+    point_val point,
+    line_val line,
+    circle_val circle,
+    -- UUID type for testing unique identifiers
+    uuid_val uuid
+);
+
+
+CREATE TABLE catalog_pg_test.extreme_test_multi_block (
+    id integer,
+    -- Numeric types for testing extreme values
+    smallint_val smallint,
+    int_val integer,
+    bigint_val bigint,
+    decimal_val decimal(38,10),
+    real_val real,
+    double_val double precision,
+    -- Character types for testing string values
+    char_val char(1),
+    varchar_val varchar(65535),
+    text_val text,
+    -- Date and time types for testing temporal values
+    date_val date,
+    timestamp_val timestamp(6),
+    timestamptz_val timestamptz,
+    interval_val interval,
+    -- Boolean type for testing logical values
+    bool_val boolean,
+    -- Binary type for testing byte array values
+    bytea_val bytea,
+    -- Network address types for testing network values
+    inet_val inet,
+    cidr_val cidr,
+    macaddr_val macaddr,
+    -- JSON types for testing structured data
+    json_val json,
+    jsonb_val jsonb,
+    -- Geometric types for testing spatial data
+    point_val point,
+    line_val line,
+    circle_val circle,
+    -- UUID type for testing unique identifiers
+    uuid_val uuid
+);
+

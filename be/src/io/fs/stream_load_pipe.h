@@ -85,6 +85,12 @@ public:
 
     size_t current_capacity();
 
+    bool is_chunked_transfer() const { return _is_chunked_transfer; }
+
+    void set_is_chunked_transfer(bool is_chunked_transfer) {
+        _is_chunked_transfer = is_chunked_transfer;
+    }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
@@ -119,6 +125,10 @@ private:
 
     // no use, only for compatibility with the `Path` interface
     Path _path = "";
+
+    // When importing JSON data and using chunked transfer encoding,
+    // the data needs to be completely read before it can be parsed.
+    bool _is_chunked_transfer = false;
 };
 } // namespace io
 } // namespace doris

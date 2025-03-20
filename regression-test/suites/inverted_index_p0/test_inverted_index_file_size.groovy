@@ -35,7 +35,7 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
         // load the json data
         streamLoad {
             table "${tableName}"
-            
+
             set 'read_json_by_line', 'true'
             set 'format', 'json'
             file 'documents-1000.json' // import json file
@@ -52,42 +52,6 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
                 assertEquals("success", json.Status.toLowerCase())
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
-        }
-    }
-
-    def run_compaction_and_wait = {
-        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
-
-        // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                logger.info("Compaction was done automatically!")
-            } else {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
-
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
         }
     }
 
@@ -123,7 +87,7 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
 
         qt_sql """ select count() from ${tableName} where clientip match '17.0.0.0' and request match 'GET' and status match '200' and size > 200 """
         qt_sql """ select count() from ${tableName} where clientip match_phrase '17.0.0.0' and request match_phrase 'GET' and status match '200' and size > 200 """
-        run_compaction_and_wait.call()
+        trigger_and_wait_compaction(tableName, "full")
         qt_sql """ select count() from ${tableName} where clientip match '17.0.0.0' and request match 'GET' and status match '200' and size > 200 """
         qt_sql """ select count() from ${tableName} where clientip match_phrase '17.0.0.0' and request match_phrase 'GET' and status match '200' and size > 200 """
 
@@ -141,5 +105,5 @@ suite("test_inverted_index_file_size", "nonConcurrent"){
         GetDebugPoint().disableDebugPointForAllBEs("file_size_not_in_rowset_meta")
         set_be_config.call("inverted_index_compaction_enable", "true")
     }
-    
+
 }

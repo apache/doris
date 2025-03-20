@@ -122,7 +122,11 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children(), null);
             } else {
-                if (apply.isCorrelated()) {
+                // apply.isCorrelated() only check if correlated slot exits
+                // but correlation filter may be eliminated by SimplifyConflictCompound rule
+                // so we need check both correlated slot and correlation filter exists
+                // before creating LogicalJoin node
+                if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                     if (inSubquery.isNot()) {
                         predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
                                         new IsNull(left), new IsNull(right)),

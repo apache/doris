@@ -21,7 +21,7 @@ suite('test_flexible_partial_update_upgrade', 'p0,restart_fe') {
         logger.info("current params: use_row_store: ${use_row_store}")
         def tableName = "test_f_upgrade_${use_row_store}"
         sql """alter table ${tableName} enable feature "UPDATE_FLEXIBLE_COLUMNS"; """
-        show_res = sql "show create table ${tableName}"
+        def show_res = sql "show create table ${tableName}"
         assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
         qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 

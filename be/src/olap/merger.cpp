@@ -63,6 +63,10 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
+    if (!cur_tablet_schema.cluster_key_uids().empty()) {
+        return Status::InternalError(
+                "mow table with cluster keys does not support non vertical compaction");
+    }
     vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;

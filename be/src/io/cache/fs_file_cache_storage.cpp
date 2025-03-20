@@ -53,6 +53,7 @@ std::shared_ptr<FileReader> FDCache::get_file_reader(const AccessKeyAndOffset& k
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
         return nullptr;
     }
+    DCHECK(ExecEnv::GetInstance());
     std::shared_lock rlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         return iter->second->second;
@@ -81,6 +82,7 @@ void FDCache::remove_file_reader(const AccessKeyAndOffset& key) {
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
         return;
     }
+    DCHECK(ExecEnv::GetInstance());
     std::lock_guard wlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         _file_reader_list.erase(iter->second);
@@ -307,15 +309,36 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
 }
 
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
-    /// version 1.0: cache_base_path / key / offset
-    /// version 2.0: cache_base_path / key_prefix / key / offset
+    /*
+     * If use version2 but was version 1, do upgrade:
+     *
+     * Action I:
+     *     version 1.0: cache_base_path / key / offset
+     *     version 2.0: cache_base_path / key_prefix / key / offset
+     *
+     * Action II:
+     *     add '_0' to hash dir
+     *
+     * Note: This is a sync operation with tons of IOs, so it may affect BE
+     * boot time heavily. Fortunately, Action I & II will only happen when
+     * upgrading (once in the cluster life time).
+     */
+
     std::string version;
+    std::error_code ec;
+    int rename_count = 0;
+    auto start_time = std::chrono::steady_clock::now();
+
     RETURN_IF_ERROR(read_file_cache_version(&version));
+    LOG(INFO) << "Checking cache version upgrade. Current version: " << version
+              << ", target version: 2.0, need upgrade: "
+              << (USE_CACHE_VERSION2 && version != "2.0");
     if (USE_CACHE_VERSION2 && version != "2.0") {
         // move directories format as version 2.0
-        std::error_code ec;
         std::filesystem::directory_iterator key_it {_cache_base_path, ec};
         if (ec) {
+            LOG(WARNING) << "Failed to list directory: " << _cache_base_path
+                         << ", error: " << ec.message();
             return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
                                          ec.message());
         }
@@ -326,31 +349,49 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                     std::string key_prefix =
                             Path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
                     bool exists = false;
-                    RETURN_IF_ERROR(fs->exists(key_prefix, &exists));
-                    if (!exists) {
-                        RETURN_IF_ERROR(fs->create_directory(key_prefix));
+                    auto exists_status = fs->exists(key_prefix, &exists);
+                    if (!exists_status.ok()) {
+                        LOG(WARNING) << "Failed to check directory existence: " << key_prefix
+                                     << ", error: " << exists_status.to_string();
+                        return exists_status;
                     }
-                    RETURN_IF_ERROR(fs->rename(key_it->path(), key_prefix / cache_key));
+                    if (!exists) {
+                        auto create_status = fs->create_directory(key_prefix);
+                        if (!create_status.ok()) {
+                            LOG(WARNING) << "Failed to create directory: " << key_prefix
+                                         << ", error: " << create_status.to_string();
+                            return create_status;
+                        }
+                    }
+                    auto rename_status = fs->rename(key_it->path(), key_prefix / cache_key);
+                    if (rename_status.ok()) {
+                        ++rename_count;
+                    } else {
+                        LOG(WARNING)
+                                << "Failed to rename directory from " << key_it->path().native()
+                                << " to " << (key_prefix / cache_key).native()
+                                << ", error: " << rename_status.to_string();
+                        return rename_status;
+                    }
                 }
             }
         }
-        if (!write_file_cache_version().ok()) {
-            return Status::InternalError("Failed to write version hints for file cache");
-        }
-    }
 
-    auto rebuild_dir = [&](std::filesystem::directory_iterator& upgrade_key_it) -> Status {
-        for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
-            if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
-                RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
-                RETURN_IF_ERROR(
-                        fs->rename(upgrade_key_it->path(), upgrade_key_it->path().native() + "_0"));
+        auto rebuild_dir = [&](std::filesystem::directory_iterator& upgrade_key_it) -> Status {
+            for (; upgrade_key_it != std::filesystem::directory_iterator(); ++upgrade_key_it) {
+                if (upgrade_key_it->path().filename().native().find('_') == std::string::npos) {
+                    RETURN_IF_ERROR(fs->delete_directory(upgrade_key_it->path().native() + "_0"));
+                    auto rename_status = fs->rename(upgrade_key_it->path(),
+                                                    upgrade_key_it->path().native() + "_0");
+                    if (rename_status.ok()) {
+                        ++rename_count;
+                    }
+                    RETURN_IF_ERROR(rename_status);
+                }
             }
-        }
-        return Status::OK();
-    };
-    std::error_code ec;
-    if constexpr (USE_CACHE_VERSION2) {
+            return Status::OK();
+        };
+
         std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
         if (ec) [[unlikely]] {
             LOG(WARNING) << ec.message();
@@ -372,13 +413,15 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
             }
             RETURN_IF_ERROR(rebuild_dir(key_it));
         }
-    } else {
-        std::filesystem::directory_iterator key_it {_cache_base_path, ec};
-        if (ec) [[unlikely]] {
-            return Status::IOError(ec.message());
+        if (!write_file_cache_version().ok()) {
+            return Status::InternalError("Failed to write version hints for file cache");
         }
-        RETURN_IF_ERROR(rebuild_dir(key_it));
     }
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    LOG(INFO) << "Cache directory upgrade completed. Total files renamed: " << rename_count
+              << ", Time taken: " << duration.count() << "ms";
     return Status::OK();
 }
 
@@ -488,7 +531,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        SCOPED_CACHE_LOCK(_mgr->_mutex);
+        SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
 
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.

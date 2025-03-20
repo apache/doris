@@ -195,7 +195,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmtNew = createStmt(s3RepoNew);
         Assertions.assertEquals(analyzedStmtNew.getProperties().size(), 3);
         Repository repositoryNew = getRepository(analyzedStmtNew, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
     }
 
     private static Repository getRepository(CreateRepositoryStmt analyzedStmt, String name) throws DdlException {
@@ -241,7 +241,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 9);
+        Assertions.assertEquals(10, s3Tvf.getBrokerDesc().getProperties().size());
 
         String queryNew = "select * from s3(\n"
                     + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
@@ -254,7 +254,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
         TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction newS3Tvf = (S3TableValuedFunction) newFuncTable.getTableFunction();
-        Assertions.assertEquals(newS3Tvf.getBrokerDesc().getProperties().size(), 9);
+        Assertions.assertEquals(10, newS3Tvf.getBrokerDesc().getProperties().size());
     }
 
     @Test
@@ -273,7 +273,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(13, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(22, hdProps.size());
+        Assertions.assertEquals(21, hdProps.size());
     }
 
     @Test
@@ -288,9 +288,10 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(12, properties.size());
+        Assertions.assertEquals(13, properties.size());
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
         Assertions.assertEquals(21, hdProps.size());
     }
 
@@ -438,11 +439,12 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getProperties();
-        Assertions.assertEquals(properties.size(), 21);
+        Assertions.assertEquals(22, properties.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(30, hdProps.size());
+        Assertions.assertNull(hdProps.get("fs.s3.impl.disable.cache"));
 
         String query = "create catalog hms_glue properties (\n"
                 + "    'type'='hms',\n"
@@ -456,10 +458,11 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
         Map<String, String> propertiesNew = catalogNew.getProperties();
-        Assertions.assertEquals(21, propertiesNew.size());
+        Assertions.assertEquals(22, propertiesNew.size());
         Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
+        Assertions.assertNull(hdPropsNew.get("fs.s3.impl.disable.cache"));
         Assertions.assertEquals(30, hdPropsNew.size());
     }
 
@@ -474,7 +477,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                "cos.ap-beijing.myqcloud.com", query0, 12, 18);
+                "cos.ap-beijing.myqcloud.com", query0, 13, 18);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -485,7 +488,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                "oss.oss-cn-beijing.aliyuncs.com", query1, 12, 16);
+                "oss.oss-cn-beijing.aliyuncs.com", query1, 13, 17);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"
@@ -496,7 +499,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                "http://127.0.0.1", query2, 12, 21);
+                "http://127.0.0.1", query2, 13, 21);
 
         String catalogName3 = "hms_obs";
         String query3 = "create catalog hms_obs properties (\n"
@@ -507,7 +510,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'obs.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName3, ObsProperties.OBS_PREFIX,
-                "obs.cn-north-4.myhuaweicloud.com", query3, 12, 17);
+                "obs.cn-north-4.myhuaweicloud.com", query3, 13, 17);
     }
 
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
@@ -521,6 +524,7 @@ public class PropertyConverterTest extends TestWithFeService {
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(bePropsSize, hdProps.size());
+        Assertions.assertNull(hdProps.get(String.format("fs.%s.impl.disable.cache", prefix)));
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", endpoint);
@@ -585,7 +589,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(S3Properties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -600,7 +604,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(MinioProperties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -614,7 +618,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(MinioProperties.ENDPOINT, "endpoint");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -629,7 +633,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(ObsProperties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -644,7 +648,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(OssProperties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -659,7 +663,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(CosProperties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -674,7 +678,7 @@ public class PropertyConverterTest extends TestWithFeService {
         origProp.put(GCSProperties.REGION, "region");
         origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
         beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
-        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals(6, beProperties.size());
         Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
@@ -706,7 +710,7 @@ public class PropertyConverterTest extends TestWithFeService {
         props.put(DLFProperties.REGION, "cn-beijing");
         props.put(DLFProperties.ACCESS_PUBLIC, "false");
         Map<String, String> res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(25, res.size());
+        Assertions.assertEquals(26, res.size());
         Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("akk", res.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
@@ -718,13 +722,13 @@ public class PropertyConverterTest extends TestWithFeService {
 
         props.put(DLFProperties.ACCESS_PUBLIC, "true");
         res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(25, res.size());
+        Assertions.assertEquals(26, res.size());
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", res.get(S3Properties.Env.ENDPOINT));
         Assertions.assertEquals("oss-cn-beijing", res.get(S3Properties.Env.REGION));
 
         props.put(OssProperties.OSS_HDFS_ENABLED, "true");
         res = PropertyConverter.convertToMetaProperties(new HashMap<>(props));
-        Assertions.assertEquals(28, res.size());
+        Assertions.assertEquals(29, res.size());
         Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", res.get("fs.oss.impl"));
         Assertions.assertEquals("com.aliyun.jindodata.oss.OSS", res.get("fs.AbstractFileSystem.oss.impl"));
         Assertions.assertEquals("false", res.get(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB));
@@ -738,7 +742,7 @@ public class PropertyConverterTest extends TestWithFeService {
         props2.put("aws.glue.secret-key", "skk");
         props2.put("aws.region", "us-east-1");
         res = PropertyConverter.convertToMetaProperties(props2);
-        Assertions.assertEquals(16, res.size());
+        Assertions.assertEquals(17, res.size());
         Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", res.get(S3Properties.Env.ENDPOINT));
@@ -750,7 +754,7 @@ public class PropertyConverterTest extends TestWithFeService {
         props3.put(GlueProperties.ACCESS_KEY, "akk");
         props3.put(GlueProperties.SECRET_KEY, "skk");
         res = PropertyConverter.convertToMetaProperties(props3);
-        Assertions.assertEquals(16, res.size());
+        Assertions.assertEquals(17, res.size());
         Assertions.assertEquals("akk", res.get(S3Properties.Env.ACCESS_KEY));
         Assertions.assertEquals("skk", res.get(S3Properties.Env.SECRET_KEY));
         Assertions.assertEquals("s3.us-east-1.amazonaws.com", res.get(S3Properties.Env.ENDPOINT));

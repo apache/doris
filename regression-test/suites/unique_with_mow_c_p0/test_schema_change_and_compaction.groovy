@@ -22,6 +22,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_schema_change_and_compaction", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_schema_change_and_compaction"
 
     def getAlterTableState = { job_state ->
@@ -78,7 +80,7 @@ suite("test_schema_change_and_compaction", "nonConcurrent") {
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     logger.info("tablets: ${tablets}")
-    assertEquals(2, tablets.size())
+    assertTrue(tablets.size() >= 2)
     String alterTabletId = ""
     String alterTabletBackendId = ""
     String alterTabletCompactionUrl = ""

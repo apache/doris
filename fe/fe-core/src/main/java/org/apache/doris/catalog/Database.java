@@ -410,8 +410,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 isTableExist = true;
             } else {
                 idToTable.put(table.getId(), table);
-                nameToTable.put(table.getName(), table);
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                nameToTable.put(table.getName(), table);
+                if (table.isTemporary()) {
+                    Env.getCurrentEnv().registerTempTableAndSession(table);
+                }
 
                 if (!isReplay) {
                     // Write edit log
@@ -457,8 +460,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Table table = getTableNullable(tableName);
         if (table != null) {
             this.nameToTable.remove(tableName);
-            this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.idToTable.remove(table.getId());
+            if (table.isTemporary()) {
+                Env.getCurrentEnv().unregisterTempTable(table);
+            }
             table.markDropped();
         }
     }
@@ -569,7 +575,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 return null;
             }
         }
-        return nameToTable.get(tableName);
+
+        // return temp table first
+        Table table = nameToTable.get(Util.generateTempTableInnerName(tableName));
+        if (table == null) {
+            table = nameToTable.get(tableName);
+        }
+
+        return table;
+    }
+
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     */
+    @Override
+    public Table getNonTempTableNullable(String tableName) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return null;
+            }
+        }
+
+        Table table = nameToTable.get(tableName);
+        return table;
     }
 
     /**
@@ -989,8 +1021,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     try {
                         if (!olapTable.getBinlogConfig().isEnable()) {
                             String errMsg = String
-                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
-                                            getFullName());
+                                    .format("binlog is not enable in table[%s] in db [%s]",
+                                        table.getDisplayName(), getFullName());
                             throw new DdlException(errMsg);
                         }
                     } finally {
@@ -1015,5 +1047,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @Override
     public String toString() {
         return toJson();
+    }
+
+    public int getTableNum() {
+        return idToTable.size();
     }
 }

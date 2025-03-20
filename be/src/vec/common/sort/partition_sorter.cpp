@@ -40,18 +40,20 @@ class VSortExecExprs;
 
 namespace doris::vectorized {
 
-PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                                  ObjectPool* pool, std::vector<bool>& is_asc_order,
                                  std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                                  RuntimeState* state, RuntimeProfile* profile,
-                                 bool has_global_limit, int partition_inner_limit,
+                                 bool has_global_limit, int64_t partition_inner_limit,
                                  TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
           _row_desc(row_desc),
-          _has_global_limit(has_global_limit),
           _partition_inner_limit(partition_inner_limit),
-          _top_n_algorithm(top_n_algorithm),
+          _top_n_algorithm(
+                  has_global_limit
+                          ? TopNAlgorithm::ROW_NUMBER
+                          : top_n_algorithm), // FE will make this modification, but still maintain this code for compatibility
           _previous_row(previous_row) {}
 
 Status PartitionSorter::append_block(Block* input_block) {
@@ -64,11 +66,15 @@ Status PartitionSorter::append_block(Block* input_block) {
 
 Status PartitionSorter::prepare_for_read() {
     auto& blocks = _state->get_sorted_block();
-    auto& priority_queue = _state->get_priority_queue();
+    auto& queue = _state->get_queue();
+    std::vector<MergeSortCursor> cursors;
     for (auto& block : blocks) {
-        priority_queue.push(MergeSortCursorImpl::create_shared(block, _sort_description));
+        cursors.emplace_back(
+                MergeSortCursorImpl::create_shared(std::move(block), _sort_description));
     }
+    queue = MergeSorterQueue(cursors);
     blocks.clear();
+    _prepared_finish = true;
     return Status::OK();
 }
 
@@ -85,129 +91,118 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
     }
     _output_total_rows = 0;
     _output_distinct_rows = 0;
+    _prepared_finish = false;
 }
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if (_state->get_priority_queue().empty()) {
-        *eos = true;
-    } else if (_state->get_priority_queue().size() == 1 && _has_global_limit) {
-        block->swap(*_state->get_priority_queue().top().impl->block);
-        block->set_num_rows(_partition_inner_limit);
-        *eos = true;
+    if (_top_n_algorithm == TopNAlgorithm::ROW_NUMBER) {
+        return _read_row_num(block, eos, state->batch_size());
     } else {
-        RETURN_IF_ERROR(partition_sort_read(block, eos, state->batch_size()));
+        return _read_row_rank(block, eos, state->batch_size());
     }
+}
+
+Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_size) {
+    auto& queue = _state->get_queue();
+    size_t num_columns = _state->unsorted_block()->columns();
+
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
+    MutableColumns& merged_columns = m_block.mutable_columns();
+    size_t merged_rows = 0;
+
+    Defer defer {[&]() {
+        if (merged_rows == 0 || _get_enough_data()) {
+            *eos = true;
+        }
+    }};
+
+    while (queue.is_valid() && merged_rows < batch_size && !_get_enough_data()) {
+        auto [current, current_rows] = queue.current();
+
+        // row_number no need to check distinct, just output partition_inner_limit row
+        size_t needed_rows = _partition_inner_limit - _output_total_rows;
+        size_t step = std::min(needed_rows, std::min(current_rows, batch_size - merged_rows));
+
+        if (current->impl->is_last(step) && current->impl->pos == 0) {
+            if (merged_rows != 0) {
+                // return directly for next time's read swap whole block
+                return Status::OK();
+            }
+            // swap and return block directly when we should get all data from cursor
+            output_block->swap(*current->impl->block);
+            merged_rows += step;
+            _output_total_rows += step;
+            queue.remove_top();
+            return Status::OK();
+        }
+
+        if (step) {
+            merged_rows += step;
+            _output_total_rows += step;
+            for (size_t i = 0; i < num_columns; ++i) {
+                merged_columns[i]->insert_range_from(*current->impl->columns[i], current->impl->pos,
+                                                     step);
+            }
+        }
+
+        if (!current->impl->is_last(step)) {
+            queue.next(step);
+        } else {
+            queue.remove_top();
+        }
+    }
+
     return Status::OK();
 }
 
-Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int batch_size) {
-    auto& priority_queue = _state->get_priority_queue();
-    if (priority_queue.empty()) {
-        *eos = true;
-        return Status::OK();
-    }
-    const auto& sorted_block = priority_queue.top().impl->block;
-    size_t num_columns = sorted_block->columns();
+Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch_size) {
+    auto& queue = _state->get_queue();
+    size_t num_columns = _state->unsorted_block()->columns();
+
     MutableBlock m_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *sorted_block);
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_state->unsorted_block());
     MutableColumns& merged_columns = m_block.mutable_columns();
-    size_t current_output_rows = 0;
+    size_t merged_rows = 0;
 
-    bool get_enough_data = false;
-    while (!priority_queue.empty()) {
-        auto current = priority_queue.top();
-        priority_queue.pop();
-        if (UNLIKELY(_previous_row->impl == nullptr)) {
-            *_previous_row = current;
+    Defer defer {[&]() {
+        if (merged_rows == 0 || _get_enough_data()) {
+            *eos = true;
         }
+    }};
 
-        switch (_top_n_algorithm) {
-        case TopNAlgorithm::ROW_NUMBER: {
-            //1 row_number no need to check distinct, just output partition_inner_limit row
-            if ((current_output_rows + _output_total_rows) < _partition_inner_limit) {
-                for (size_t i = 0; i < num_columns; ++i) {
-                    merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+    while (queue.is_valid() && merged_rows < batch_size) {
+        auto [current, current_rows] = queue.current();
+
+        for (size_t offset = 0; offset < current_rows && merged_rows < batch_size; offset++) {
+            bool cmp_res = _previous_row->impl && _previous_row->compare_two_rows(current->impl);
+            if (!cmp_res) {
+                // 1. dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2
+                // dense_rank() maybe need distinct rows of partition_inner_limit
+                // so check have output distinct rows, not _output_total_rows
+                // 2. rank(): 1,1,1,4,5,6,6,6.....,6,100,101. if SQL where rk < 7, need output all 1,1,1,4,5,6,6,....6
+                // rank() maybe need check when have get a distinct row
+                // so when the cmp_res is get a distinct row, need check have output all rows num
+                if (_get_enough_data()) {
+                    return Status::OK();
                 }
-            } else {
-                //rows has get enough
-                get_enough_data = true;
-            }
-            current_output_rows++;
-            break;
-        }
-        case TopNAlgorithm::DENSE_RANK: {
-            //  dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2
-            //3 dense_rank() maybe need distinct rows of partition_inner_limit
-            //3.1 _has_global_limit = true, so check (current_output_rows + _output_total_rows) >= _partition_inner_limit)
-            //3.2 _has_global_limit = false. so check have output distinct rows, not _output_total_rows
-            if (_has_global_limit &&
-                (current_output_rows + _output_total_rows) >= _partition_inner_limit) {
-                get_enough_data = true;
-                break;
-            }
-            if (_has_global_limit) {
-                current_output_rows++;
-            } else {
-                bool cmp_res = _previous_row->compare_two_rows(current);
-                //get a distinct row
-                if (cmp_res == false) {
-                    _output_distinct_rows++; //need rows++ firstly
-                    if (_output_distinct_rows >= _partition_inner_limit) {
-                        get_enough_data = true;
-                        break;
-                    }
-                    *_previous_row = current;
-                }
+                *_previous_row = *current;
+                _output_distinct_rows++;
             }
             for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
+                merged_columns[i]->insert_from(*current->impl->block->get_columns()[i],
+                                               current->impl->pos);
             }
-            break;
-        }
-        case TopNAlgorithm::RANK: {
-            //  rank(): 1,1,1,4,5,6,6,6.....,6,100,101. if SQL where rk < 7, need output all 1,1,1,4,5,6,6,....6
-            //2 rank() maybe need check when have get a distinct row
-            //2.1 _has_global_limit = true: (current_output_rows + _output_total_rows) >= _partition_inner_limit)
-            //2.2 _has_global_limit = false: so when the cmp_res is get a distinct row, need check have output all rows num
-            if (_has_global_limit &&
-                (current_output_rows + _output_total_rows) >= _partition_inner_limit) {
-                get_enough_data = true;
-                break;
+            merged_rows++;
+            _output_total_rows++;
+            if (!current->impl->is_last(1)) {
+                queue.next(1);
+            } else {
+                queue.remove_top();
             }
-            bool cmp_res = _previous_row->compare_two_rows(current);
-            //get a distinct row
-            if (cmp_res == false) {
-                //here must be check distinct of two rows, and then check nums of row
-                if ((current_output_rows + _output_total_rows) >= _partition_inner_limit) {
-                    get_enough_data = true;
-                    break;
-                }
-                *_previous_row = current;
-            }
-            for (size_t i = 0; i < num_columns; ++i) {
-                merged_columns[i]->insert_from(*current->block->get_columns()[i], current->pos);
-            }
-            current_output_rows++;
-            break;
-        }
-        default:
-            break;
-        }
-
-        if (!current->is_last()) {
-            current->next();
-            priority_queue.push(current);
-        }
-
-        if (current_output_rows == batch_size || get_enough_data == true) {
-            break;
         }
     }
 
-    _output_total_rows += output_block->rows();
-    if (current_output_rows == 0 || get_enough_data == true) {
-        *eos = true;
-    }
     return Status::OK();
 }
 

@@ -51,12 +51,20 @@ namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 
+inline void check_quantile(double quantile) {
+    if (quantile < 0 || quantile > 1) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "quantile in func percentile should in [0, 1], but real data is:" +
+                                std::to_string(quantile));
+    }
+}
+
 struct PercentileApproxState {
     static constexpr double INIT_QUANTILE = -1.0;
     PercentileApproxState() = default;
     ~PercentileApproxState() = default;
 
-    void init(double compression = 10000) {
+    void init(double quantile, double compression = 10000) {
         if (!init_flag) {
             //https://doris.apache.org/zh-CN/sql-reference/sql-functions/aggregate-functions/percentile_approx.html#description
             //The compression parameter setting range is [2048, 10000].
@@ -66,6 +74,8 @@ struct PercentileApproxState {
                 compression = 10000;
             }
             digest = TDigest::create_unique(compression);
+            check_quantile(quantile);
+            target_quantile = quantile;
             compressions = compression;
             init_flag = true;
         }
@@ -126,18 +136,14 @@ struct PercentileApproxState {
         }
     }
 
-    void add(double source, double quantile) {
-        digest->add(source);
-        target_quantile = quantile;
-    }
+    void add(double source) { digest->add(source); }
 
-    void add_with_weight(double source, double weight, double quantile) {
+    void add_with_weight(double source, double weight) {
         // the weight should be positive num, as have check the value valid use DCHECK_GT(c._weight, 0);
         if (weight <= 0) {
             return;
         }
         digest->add(source, weight);
-        target_quantile = quantile;
     }
 
     void reset() {
@@ -192,8 +198,8 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        this->data(place).init();
-        this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
+        this->data(place).init(quantile.get_element(0));
+        this->data(place).add(sources.get_element(row_num));
     }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
@@ -223,8 +229,8 @@ public:
         const auto& compression =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
 
-        this->data(place).init(compression.get_element(row_num));
-        this->data(place).add(sources.get_element(row_num), quantile.get_element(row_num));
+        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).add(sources.get_element(row_num));
     }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
@@ -256,9 +262,9 @@ public:
         const auto& quantile =
                 assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[2]);
 
-        this->data(place).init();
-        this->data(place).add_with_weight(sources.get_element(row_num), weight.get_element(row_num),
-                                          quantile.get_element(row_num));
+        this->data(place).init(quantile.get_element(0));
+        this->data(place).add_with_weight(sources.get_element(row_num),
+                                          weight.get_element(row_num));
     }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
@@ -291,9 +297,9 @@ public:
         const auto& compression =
                 assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[3]);
 
-        this->data(place).init(compression.get_element(row_num));
-        this->data(place).add_with_weight(sources.get_element(row_num), weight.get_element(row_num),
-                                          quantile.get_element(row_num));
+        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).add_with_weight(sources.get_element(row_num),
+                                          weight.get_element(row_num));
     }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
@@ -351,12 +357,19 @@ struct PercentileState {
         }
     }
 
-    void add(T source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
+    void add(T source, const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps,
+             int arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
             inited_flag = true;
             for (int i = 0; i < arg_size; ++i) {
+                // throw Exception func call percentile_array(id, [1,0,null])
+                if (null_maps[i]) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "quantiles in func percentile_array should not have null");
+                }
+                check_quantile(quantiles[i]);
                 vec_quantile[i] = quantiles[i];
             }
         }
@@ -370,6 +383,7 @@ struct PercentileState {
             inited_flag = true;
             vec_counts.resize(1);
             vec_quantile.resize(1);
+            check_quantile(q);
             vec_quantile[0] = q;
         }
         vec_counts[0].increment_batch(source);
@@ -429,7 +443,7 @@ public:
         const auto& quantile =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
-                                                     quantile.get_data(), 1);
+                                                     quantile.get_data(), NullMap(1, 0), 1);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
@@ -490,6 +504,9 @@ public:
         const auto& quantile_array =
                 assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& offset_column_data = quantile_array.get_offsets();
+        const auto& null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                        quantile_array.get_data())
+                                        .get_null_map_data();
         const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                             quantile_array.get_data())
                                             .get_nested_column();
@@ -497,7 +514,7 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 
         AggregateFunctionPercentileArray::data(place).add(
-                sources.get_int(row_num), nested_column_data.get_data(),
+                sources.get_int(row_num), nested_column_data.get_data(), null_maps,
                 offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 

@@ -195,6 +195,15 @@ public:
         return (_hash_map.size() + row) > (capacity * 7 / 8);
     }
 
+    size_t estimate_memory(size_t num_elem) const {
+        if (!add_elem_size_overflow(num_elem)) {
+            return 0;
+        }
+        auto new_size = _hash_map.capacity() * 2 + 1;
+        return phmap::priv::hashtable_debug_internal::HashtableDebugAccess<
+                HashMapImpl>::LowerBoundAllocatedByteSize(new_size);
+    }
+
     size_t size() const { return _hash_map.size(); }
     template <typename MappedType>
     char* get_null_key_data() {

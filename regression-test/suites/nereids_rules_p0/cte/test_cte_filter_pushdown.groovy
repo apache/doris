@@ -87,7 +87,6 @@ suite("test_cte_filter_pushdown") {
     """
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-    sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'

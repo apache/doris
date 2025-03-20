@@ -26,6 +26,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -50,12 +51,17 @@ public class IndexDefinition {
     private Map<String, String> properties = new HashMap<>();
     private boolean isBuildDeferred = false;
 
+    private boolean ifNotExists = false;
+
+    private PartitionNamesInfo partitionNames;
+
     /**
      * constructor for IndexDefinition
      */
-    public IndexDefinition(String name, List<String> cols, String indexTypeName,
+    public IndexDefinition(String name, boolean ifNotExists, List<String> cols, String indexTypeName,
             Map<String, String> properties, String comment) {
         this.name = name;
+        this.ifNotExists = ifNotExists;
         this.cols = Utils.copyRequiredList(cols);
         this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
@@ -90,10 +96,24 @@ public class IndexDefinition {
     }
 
     /**
+     * constructor for build index
+     */
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames) {
+        this.name = name;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = true;
+        this.cols = null;
+        this.comment = null;
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite, boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -129,7 +149,8 @@ public class IndexDefinition {
             if (indexType == IndexType.INVERTED) {
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties);
+                            colType.toCatalogDataType().getPrimitiveType(), properties,
+                            invertedIndexFileStorageFormat);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
                 }
@@ -143,18 +164,12 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    int ngramSize = Integer.parseInt(properties.get(IndexDef.NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(IndexDef.NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException(
-                                "gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65535 || bfSize < 64) {
-                        throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65535");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
             }
         } else {
@@ -166,6 +181,9 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        if (partitionNames != null) {
+            partitionNames.validate();
+        }
         if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -216,5 +234,65 @@ public class IndexDefinition {
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment, null);
+    }
+
+    /**
+     * translateToLegacyIndexDef
+     */
+    public IndexDef translateToLegacyIndexDef() {
+        if (isBuildDeferred) {
+            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
+                    true);
+        } else {
+            return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        }
+    }
+
+    public String toSql() {
+        return toSql(null);
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql(String tableName) {
+        StringBuilder sb = new StringBuilder("INDEX ");
+        sb.append(name);
+        if (tableName != null && !tableName.isEmpty()) {
+            sb.append(" ON ").append(tableName);
+        }
+        if (cols != null && cols.size() > 0) {
+            sb.append(" (");
+            boolean first = true;
+            for (String col : cols) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(",");
+                }
+                sb.append("`" + col + "`");
+            }
+            sb.append(")");
+        }
+        if (indexType != null) {
+            sb.append(" USING ").append(indexType.toString());
+        }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES(");
+            boolean first = true;
+            for (Map.Entry<String, String> e : properties.entrySet()) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+            }
+            sb.append(")");
+        }
+        if (comment != null) {
+            sb.append(" COMMENT '" + comment + "'");
+        }
+        return sb.toString();
     }
 }

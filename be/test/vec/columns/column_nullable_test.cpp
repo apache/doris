@@ -61,7 +61,7 @@ TEST(ColumnNullableTest, NullTest) {
 
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_null_elements(10);
+    dst_col->insert_many_defaults(10);
     EXPECT_TRUE(dst_col->has_null());
 
     dst_col->clear();
@@ -93,12 +93,12 @@ TEST(ColumnNullableTest, PredicateTest) {
             ColumnNullable::create(PredicateColumnType<TYPE_DATE>::create(), ColumnUInt8::create());
     nullable_pred->insert_many_defaults(3);
     EXPECT_TRUE(nullable_pred->has_null());
-    nullable_pred->insert_null_elements(10);
+    nullable_pred->insert_many_defaults(10);
     EXPECT_TRUE(nullable_pred->has_null());
 
     nullable_pred->clear();
     EXPECT_FALSE(nullable_pred->has_null());
-    nullable_pred->insert_null_elements(10);
+    nullable_pred->insert_many_defaults(10);
     EXPECT_TRUE(nullable_pred->has_null()); // now it have 10 nulls
 
     auto null_dst = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());

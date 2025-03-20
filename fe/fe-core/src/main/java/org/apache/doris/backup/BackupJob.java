@@ -210,17 +210,19 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
 
             //clear old task
-            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
-            unfinishedTaskIds.remove(task.getTabletId());
-            taskProgress.remove(task.getTabletId());
-            taskErrMsg.remove(task.getTabletId());
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getSignature());
+            unfinishedTaskIds.remove(task.getSignature());
+            taskProgress.remove(task.getSignature());
+            taskErrMsg.remove(task.getSignature());
 
-            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendIdWithoutException(), task.getTabletId(),
+            long signature = env.getNextId();
+            long beId = replica.getBackendIdWithoutException();
+            SnapshotTask newTask = new SnapshotTask(null, beId, signature,
                     task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+            unfinishedTaskIds.put(signature, beId);
 
             //send task
             AgentBatchTask batchTask = new AgentBatchTask(newTask);
@@ -277,9 +279,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 request.getSnapshotFiles());
 
         snapshotInfos.put(task.getTabletId(), info);
-        taskProgress.remove(task.getTabletId());
-        Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
-        taskErrMsg.remove(task.getTabletId());
+        taskProgress.remove(task.getSignature());
+        taskErrMsg.remove(task.getSignature());
+        Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         if (LOG.isDebugEnabled()) {
             LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
                     info, unfinishedTaskIds.size(), (oldValue != null), this);
@@ -597,10 +599,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // check backup table again
         if (backupTableRef.getPartitionNames() != null) {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false); // exclude tmp partitions
                 if (partition == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                            + " does not exist  in table" + backupTableRef.getName().getTbl());
+                    if (olapTable.getPartition(partName, true) != null) {
+                        status = new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
+                                + " in table " + backupTableRef.getName().getTbl() + " is not supported");
+                    } else {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist in table " + backupTableRef.getName().getTbl());
+                    }
                     return;
                 }
             }
@@ -609,10 +616,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // create snapshot tasks
         List<Partition> partitions = Lists.newArrayList();
         if (backupTableRef.getPartitionNames() == null) {
-            partitions.addAll(olapTable.getPartitions());
+            partitions.addAll(olapTable.getPartitions()); // no temp partitions in OlapTable.getPartitions()
         } else {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false);  // exclude tmp partitions
                 partitions.add(partition);
             }
         }
@@ -632,13 +639,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                                         + ". visible version: " + visibleVersion);
                         return;
                     }
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), tablet.getId(),
+                    long signature = env.getNextId();
+                    long beId = replica.getBackendIdWithoutException();
+                    SnapshotTask task = new SnapshotTask(null, beId, signature,
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
                     batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+                    unfinishedTaskIds.put(signature, beId);
                 }
             }
 
@@ -670,8 +679,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
             return;
         }
-
-        removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
     }
 
@@ -703,12 +710,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
             copiedResources.add(copiedResource);
         }
-    }
-
-    private void removeUnsupportProperties(OlapTable tbl) {
-        // We cannot support the colocate attribute because the colocate information is not backed up
-        // synchronously when backing up.
-        tbl.setColocateGroup(null);
     }
 
     private void waitingAllSnapshotsFinished() {
@@ -1121,7 +1122,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
             try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
                 try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(in);
+                    readOthers(stream);
                 }
             }
         } else {

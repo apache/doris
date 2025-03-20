@@ -174,16 +174,9 @@ public:
                         break;
                     }
                 } else {
-                    if constexpr (when_null) {
-                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
-                    } else {
-                        if (!then_idx_ptr[row_idx]) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
+                    if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
+                        then_idx_ptr[row_idx] = i;
+                        break;
                     }
                 }
             }
@@ -318,7 +311,7 @@ public:
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) const {
         for (auto& then_ptr : column_holder.then_ptrs) {
-            then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const());
+            then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const().get());
         }
 
         size_t rows_count = column_holder.rows_count;

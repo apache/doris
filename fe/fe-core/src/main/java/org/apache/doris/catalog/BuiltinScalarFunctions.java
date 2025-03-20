@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
@@ -119,6 +120,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Compress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -161,7 +163,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -225,6 +226,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6FromUInt128StringOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
@@ -345,6 +347,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quarter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
@@ -447,6 +451,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
@@ -473,6 +478,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -513,6 +519,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayFilter.class, "array_filter"),
             scalar(ArrayFirst.class, "array_first"),
             scalar(ArrayFirstIndex.class, "array_first_index"),
+            scalar(ArrayFlatten.class, "array_flatten"),
             scalar(ArrayIntersect.class, "array_intersect"),
             scalar(ArrayJoin.class, "array_join"),
             scalar(ArrayLast.class, "array_last"),
@@ -631,7 +638,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
             scalar(DigitalMasking.class, "digital_masking"),
-            scalar(Dlog1.class, "dlog1"),
             scalar(Dlog10.class, "dlog10"),
             scalar(Domain.class, "domain"),
             scalar(DomainWithoutWww.class, "domain_without_www"),
@@ -701,6 +707,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
+            scalar(Ipv6FromUInt128StringOrNull.class, "ipv6_from_uint128_string_or_null"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
@@ -764,7 +771,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
             scalar(Like.class, "like"),
-            scalar(Ln.class, "ln"),
+            scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
@@ -831,6 +838,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(QuantilePercent.class, "quantile_percent"),
             scalar(QuantileStateEmpty.class, "quantile_state_empty"),
             scalar(Quarter.class, "quarter"),
+            scalar(QuartersAdd.class, "quarters_add"),
+            scalar(QuartersSub.class, "quarters_sub"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),
             scalar(Regexp.class, "regexp"),
@@ -964,13 +973,16 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
+            scalar(YearOfWeek.class, "year_of_week", "yow"),
             scalar(YearWeek.class, "yearweek"),
             scalar(YearsAdd.class, "years_add"),
             scalar(YearsDiff.class, "years_diff"),
             scalar(YearsSub.class, "years_sub"),
             scalar(MultiMatch.class, "multi_match"),
             scalar(SessionUser.class, "session_user"),
-            scalar(LastQueryId.class, "last_query_id"));
+            scalar(LastQueryId.class, "last_query_id"),
+            scalar(Compress.class, "compress"),
+            scalar(Uncompress.class, "uncompress"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

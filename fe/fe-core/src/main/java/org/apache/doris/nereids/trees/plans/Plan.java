@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -97,6 +98,10 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
+    default List<Slot> getAsteriskOutput() {
+        return getOutput();
+    }
+
     /**
      * Get output slot set of the plan.
      */
@@ -155,6 +160,10 @@ public interface Plan extends TreeNode<Plan> {
     }
 
     default List<Slot> computeOutput() {
+        throw new IllegalStateException("Not support compute output for " + getClass().getName());
+    }
+
+    default List<Slot> computeAsteriskOutput() {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
@@ -232,4 +241,52 @@ public interface Plan extends TreeNode<Plan> {
     default String getGroupIdWithPrefix() {
         return "@" + getGroupIdAsString();
     }
+
+    /**
+     * Compute DataTrait for different plan
+     * Note: Unless you really know what you're doing, please use the following interface.
+     *   - BlockFDPropagation: clean the fd
+     *   - PropagateFD: propagate the fd
+     */
+    default DataTrait computeDataTrait() {
+        DataTrait.Builder fdBuilder = new DataTrait.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
+
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slots dependent unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all slots
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniformAndNotNull()) {
+                fdBuilder.addDeps(o, uniformSlot);
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
+            fdBuilder.addDepsByEqualSet(validEqualSet);
+            fdBuilder.addUniformByEqualSet(validEqualSet);
+            fdBuilder.addUniqueByEqualSet(validEqualSet);
+        }
+        Set<Slot> output = this.getOutputSet();
+        for (Plan child : children()) {
+            if (!output.containsAll(child.getOutputSet())) {
+                fdBuilder.pruneSlots(output);
+                break;
+            }
+        }
+        return fdBuilder.build();
+    }
+
+    void computeUnique(DataTrait.Builder builder);
+
+    void computeUniform(DataTrait.Builder builder);
+
+    void computeEqualSet(DataTrait.Builder builder);
+
+    void computeFd(DataTrait.Builder builder);
 }

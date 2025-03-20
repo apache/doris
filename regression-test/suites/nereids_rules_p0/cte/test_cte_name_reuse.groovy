@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_cte_name_reuse)") {
+suite("test_cte_name_reuse") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_pipeline_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
