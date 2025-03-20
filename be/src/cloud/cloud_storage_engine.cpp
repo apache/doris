@@ -41,7 +41,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "common/status.h"
+#include "common/signal_handler.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -611,6 +611,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -680,6 +681,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -723,6 +725,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _submitted_full_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
