@@ -64,19 +64,15 @@ public class Index implements Writable {
     private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
-    @SerializedName(value = "cui", alternate = {"columnUniqueIds"})
-    private List<Integer> columnUniqueIds;
 
     public Index(long indexId, String indexName, List<String> columns,
-            IndexDef.IndexType indexType, Map<String, String> properties, String comment,
-            List<Integer> columnUniqueIds) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
         this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
         this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
-        this.columnUniqueIds = columnUniqueIds == null ? Lists.newArrayList() : Lists.newArrayList(columnUniqueIds);
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
@@ -100,7 +96,6 @@ public class Index implements Writable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
-        this.columnUniqueIds = null;
     }
 
     public long getIndexId() {
@@ -190,14 +185,6 @@ public class Index implements Writable {
         this.comment = comment;
     }
 
-    public List<Integer> getColumnUniqueIds() {
-        return columnUniqueIds;
-    }
-
-    public void setColumnUniqueIds(List<Integer> columnUniqueIds) {
-        this.columnUniqueIds = columnUniqueIds;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -215,7 +202,7 @@ public class Index implements Writable {
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                indexType, new HashMap<>(properties), comment, columnUniqueIds);
+                indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -250,7 +237,21 @@ public class Index implements Writable {
         return sb.toString();
     }
 
-    public TOlapTableIndex toThrift() {
+    public List<Integer> getColumnUniqueIds(List<Column> schema) {
+        List<Integer> columnUniqueIds = new ArrayList<>();
+        if (schema != null) {
+            for (String columnName : columns) {
+                for (Column column : schema) {
+                    if (columnName.equalsIgnoreCase(column.getName())) {
+                        columnUniqueIds.add(column.getUniqueId());
+                    }
+                }
+            }
+        }
+        return columnUniqueIds;
+    }
+
+    public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
@@ -259,7 +260,7 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
-        tIndex.setColumnUniqueIds(columnUniqueIds);
+        tIndex.setColumnUniqueIds(indexColumnUniqueIds);
         return tIndex;
     }
 
