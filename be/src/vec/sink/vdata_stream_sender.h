@@ -155,7 +155,7 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     MOCK_FUNCTION Status send_remote_block(std::unique_ptr<PBlock>&& block, bool eos = false);
-    MOCK_FUNCTION Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
+    MOCK_FUNCTION Status send_broadcast_block(std::shared_ptr<PBlockHolder>& block,
                                               bool eos = false);
 
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,

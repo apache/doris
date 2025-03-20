@@ -53,41 +53,40 @@ class ExchangeSinkLocalState;
 namespace vectorized {
 class Channel;
 
-// We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
+// We use PBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
-class BroadcastPBlockHolderMemLimiter;
-class BroadcastPBlockHolder {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
+class PBlockHolderMemLimiter;
+class PBlockHolder {
+    ENABLE_FACTORY_CREATOR(PBlockHolder);
 
 public:
-    BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
-    ~BroadcastPBlockHolder();
+    PBlockHolder() { _pblock = std::make_unique<PBlock>(); }
+    ~PBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
 
     void reset_block() { _pblock->Clear(); }
 
 private:
-    friend class BroadcastPBlockHolderMemLimiter;
+    friend class PBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
-    std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
-    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
+    std::weak_ptr<PBlockHolderMemLimiter> _parent_creator;
+    void set_parent_creator(std::shared_ptr<PBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
 };
 
-class BroadcastPBlockHolderMemLimiter
-        : public std::enable_shared_from_this<BroadcastPBlockHolderMemLimiter> {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
+class PBlockHolderMemLimiter : public std::enable_shared_from_this<PBlockHolderMemLimiter> {
+    ENABLE_FACTORY_CREATOR(PBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderMemLimiter() = delete;
+    PBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
+    PBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
             : _total_queue_buffer_size_limit(config::exchg_node_buffer_size_bytes),
               _total_queue_blocks_count_limit(config::num_broadcast_buffer) {
-        _broadcast_dependency = broadcast_dependency;
+        _dependency = broadcast_dependency;
     }
 
     void set_low_memory_mode() {
@@ -95,15 +94,15 @@ public:
         _total_queue_blocks_count_limit = 8;
     }
 
-    void acquire(BroadcastPBlockHolder& holder);
-    void release(const BroadcastPBlockHolder& holder);
+    void acquire(PBlockHolder& holder);
+    void release(const PBlockHolder& holder);
 
 private:
     std::atomic_int64_t _total_queue_buffer_size_limit {0};
     std::atomic_int64_t _total_queue_blocks_count_limit {0};
     std::atomic_int64_t _total_queue_buffer_size {0};
     std::atomic_int64_t _total_queue_blocks_count {0};
-    std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
+    std::shared_ptr<pipeline::Dependency> _dependency;
     std::mutex _holders_lock;
 };
 
@@ -114,12 +113,11 @@ struct TransmitInfo {
     vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
-    Status exec_status;
 };
 
 struct BroadcastTransmitInfo {
     vectorized::Channel* channel = nullptr;
-    std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
+    std::shared_ptr<vectorized::PBlockHolder> block_holder = nullptr;
     bool eos;
 };
 
