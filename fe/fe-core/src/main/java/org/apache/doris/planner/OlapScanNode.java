@@ -70,7 +70,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -757,14 +757,12 @@ public class OlapScanNode extends ScanNode {
         }
         String visibleVersionStr = String.valueOf(visibleVersion);
 
-        Set<Tag> allowedTags = Sets.newHashSet();
         int useFixReplica = -1;
-        boolean needCheckTags = false;
         boolean skipMissingVersion = false;
         ConnectContext context = ConnectContext.get();
+        ComputeGroup computeGroup = null;
         if (context != null) {
-            allowedTags = context.getResourceTags();
-            needCheckTags = context.isResourceTagsSet();
+            computeGroup = context.getComputeGroupSafely();
             useFixReplica = context.getSessionVariable().useFixReplica;
             if (useFixReplica == -1
                     && context.getState().isNereids() && context.getSessionVariable().getEnableQueryCache()) {
@@ -838,11 +836,12 @@ public class OlapScanNode extends ScanNode {
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    long beId = replica.getBackendId();
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                            LOG.debug("backend {} not exists or is not alive for replica {}", beId,
                                     replica.getId());
                         }
                         Collections.shuffle(replicas);
@@ -914,10 +913,12 @@ public class OlapScanNode extends ScanNode {
                 if (!backend.isMixNode()) {
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                String beTagName = backend.getLocationTag().value;
+                if ((ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) || (computeGroup != null
+                        && !Config.isCloudMode() && !computeGroup.containsBackend(beTagName))) {
                     String err = String.format(
-                            "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
-                            backend.getId(), backend.getLocationTag(), allowedTags);
+                            "Replica on backend %d with tag %s," + " which is not in user's resource tag: %s",
+                            backend.getId(), beTagName, computeGroup.toString());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(err);
                     }
@@ -928,7 +929,7 @@ public class OlapScanNode extends ScanNode {
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
-                scanRangeLocation.setBackendId(replica.getBackendId());
+                scanRangeLocation.setBackendId(backendId);
                 locations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
@@ -1518,7 +1519,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         for (Index index : olapTable.getIndexes()) {
-            TOlapTableIndex tIndex = index.toThrift();
+            TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
         }
 

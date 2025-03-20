@@ -322,6 +322,7 @@ struct TPaimonFileDesc {
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
+    16: optional i64 schema_id; // for schema change.
 }
 
 struct TTrinoConnectorFileDesc {
@@ -448,6 +449,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    25: optional map<i64, map<i64, string>> paimon_schema_info //paimon map<schema id, map<column unique id , column name>> : for schema change.
 }
 
 struct TFileRangeDesc {
@@ -994,6 +996,7 @@ struct TSortNode {
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
+  12: optional bool use_local_merge
 }
 
 enum TopNAlgorithm {
@@ -1266,6 +1269,8 @@ struct TRuntimeFilterDesc {
 
   // Indicates if there is at least one target scan node that is in the
   // same fragment as the broadcast join that produced the runtime filter
+  // Now only use has_remote_targets to judge how to publish,
+  // the values ​​of has_local_targets and has_remote_targets must be different
   6: required bool has_local_targets
 
   // Indicates if there is at least one target scan node that is not in the same
@@ -1300,7 +1305,7 @@ struct TRuntimeFilterDesc {
 
   16: optional bool sync_filter_size; // Deprecated
   
-  17: optional bool build_bf_exactly;
+  17: optional bool build_bf_by_runtime_size;
 }
 
 

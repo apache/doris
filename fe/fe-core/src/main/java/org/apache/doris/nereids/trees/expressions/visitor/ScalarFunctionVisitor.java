@@ -170,7 +170,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -476,6 +475,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -1135,10 +1135,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDfloor(Dfloor dfloor, C context) {
         return visitScalarFunction(dfloor, context);
-    }
-
-    default R visitDlog1(Dlog1 dlog1, C context) {
-        return visitScalarFunction(dlog1, context);
     }
 
     default R visitDlog10(Dlog10 dlog10, C context) {
@@ -2259,6 +2255,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYear(Year year, C context) {
         return visitScalarFunction(year, context);
+    }
+
+    default R visitYearOfWeek(YearOfWeek yearOfWeek, C context) {
+        return visitScalarFunction(yearOfWeek, context);
     }
 
     default R visitYearCeil(YearCeil yearCeil, C context) {

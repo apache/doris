@@ -169,20 +169,14 @@ struct TypeDescriptor {
         return result;
     }
 
+    template <PrimitiveType o>
+    bool is() const {
+        return this->type == o;
+    }
+
     bool operator==(const TypeDescriptor& o) const {
-        if (type != o.type) {
-            return false;
-        }
-        if (children != o.children) {
-            return false;
-        }
-        if (type == TYPE_CHAR) {
-            return len == o.len;
-        }
-        if (type == TYPE_DECIMALV2) {
-            return precision == o.precision && scale == o.scale;
-        }
-        return true;
+        return type == o.type && len == o.len && precision == o.precision && scale == o.scale &&
+               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls;
     }
 
     bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }

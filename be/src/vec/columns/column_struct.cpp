@@ -124,6 +124,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
 }
 
 void ColumnStruct::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Tuple);
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {

@@ -184,6 +184,9 @@ public class StreamLoadHandler {
                 throw new UserException(
                         "table light_schema_change is false, can't do stream load with group commit mode");
             }
+            if (table.isTemporary()) {
+                throw new UserException("Do not support load for temporary table " + tableName);
+            }
             tables.add((OlapTable) table);
         }
 

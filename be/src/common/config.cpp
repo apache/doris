@@ -62,7 +62,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_sql_port, "-1");
+DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
@@ -1083,6 +1083,7 @@ DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1142,8 +1143,8 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
-DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
 DEFINE_Int64(max_external_file_meta_cache_num, "1000");
 DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 // Apply delete pred in cumu compaction
@@ -1156,7 +1157,8 @@ DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
-DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
+// Deprecated
+DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1194,6 +1196,10 @@ DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
+// get agg by cache for mow table
+DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
+// get agg correctness check for mow table
+DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1243,6 +1249,9 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Ingest binlog with persistent connection
+DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");

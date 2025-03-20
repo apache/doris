@@ -29,12 +29,12 @@
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
-#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
 #include "util/to_string.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -284,7 +284,7 @@ bool OlapScanLocalState::_storage_no_merge() {
              p._olap_scan_node.enable_unique_key_merge_on_write));
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -292,7 +292,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
+    if (!_conjuncts.empty() && _state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -354,7 +354,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
         return Status::OK();
@@ -394,8 +394,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::NewOlapScanner::create_shared(
-                    this, vectorized::NewOlapScanner::Params {
+            auto scanner = vectorized::OlapScanner::create_shared(
+                    this, vectorized::OlapScanner::Params {
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,
@@ -454,9 +454,9 @@ Status OlapScanLocalState::hold_tablets() {
         _sync_rowset_timer->update(duration_ns);
     }
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers(
-                {0, _tablets[i].version}, &_read_sources[i].rs_splits,
-                RuntimeFilterConsumer::_state->skip_missing_version()));
+        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
+                                                               &_read_sources[i].rs_splits,
+                                                               _state->skip_missing_version()));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
@@ -514,14 +514,14 @@ static std::string olap_filter_to_string(const doris::TCondition& condition) {
                                : to_string(condition.condition_values));
 }
 
-static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
+static std::string olap_filters_to_string(const std::vector<FilterOlapParam<TCondition>>& filters) {
     std::string filters_string;
     filters_string += "[";
     for (auto it = filters.cbegin(); it != filters.cend(); it++) {
         if (it != filters.cbegin()) {
             filters_string += ", ";
         }
-        filters_string += olap_filter_to_string(*it);
+        filters_string += olap_filter_to_string(it->filter);
     }
     filters_string += "]";
     return filters_string;
@@ -611,11 +611,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         }
 
         for (auto& iter : _colname_to_value_range) {
-            std::vector<TCondition> filters;
+            std::vector<FilterOlapParam<TCondition>> filters;
             std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
             for (const auto& filter : filters) {
-                _olap_filters.push_back(filter);
+                _olap_filters.emplace_back(filter);
             }
         }
 

@@ -475,7 +475,7 @@ public class Config extends ConfigBase {
     public static int query_port = 9030;
 
     @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
-    public static int arrow_flight_sql_port = -1;
+    public static int arrow_flight_sql_port = 8070;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
@@ -964,6 +964,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int tablet_stat_update_interval_second = 60;  // 1 min
 
+    // update interval of alive session
+    // Only master FE collect this info from all frontends at each interval
+    @ConfField public static int alive_session_update_interval_second = 5;
+
+    @ConfField public static int fe_session_mgr_threads_num = 1;
+
+    @ConfField public static int fe_session_mgr_blocking_queue_size = 1024;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int loss_conn_fe_temp_table_keep_second = 60;
+
     /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
@@ -1344,6 +1355,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long dynamic_partition_check_interval_seconds = 600;
+
+    /**
+     * When scheduling dynamic partition tables,
+     * the execution interval of each table to prevent excessive consumption of FE CPU at the same time
+     * default is 0
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long dynamic_partition_step_interval_ms = 0;
 
     /**
      * If set to true, dynamic partition feature will open

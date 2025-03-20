@@ -80,7 +80,7 @@ public:
         return _iterator->current_block_row_locations(locations);
     }
 
-    bool update_profile(RuntimeProfile* profile) override;
+    void update_profile(RuntimeProfile* profile) override;
 
     RowsetReaderSharedPtr clone() override;
 

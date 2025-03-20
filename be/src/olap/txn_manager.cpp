@@ -38,6 +38,7 @@
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -531,6 +532,16 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
+        if (rowset->num_segments() > 1 &&
+            !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
+                    rowset->rowset_id())) {
+            // delete bitmap is empty, should re-calculate delete bitmaps between segments
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                    rowset->rowset_id(), segments, tablet_txn_info->delete_bitmap));
+        }
+
         RETURN_IF_ERROR(
                 Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();

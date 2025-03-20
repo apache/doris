@@ -155,6 +155,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
+    public static final String ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS = "enable_binary_search_filtering_partitions";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -585,8 +586,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
-
-    public static final String FUZZY_DISABLE_RUNTIME_FILTER_IN_BE = "fuzzy_disable_runtime_filter_in_be";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -1037,7 +1036,8 @@ public class SessionVariable implements Serializable, Writable {
                     "Use consistent hashing to split the appearance for external scan"})
     public boolean useConsistentHashForExternalScan = false;
 
-    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true,
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = false,
+            setter = "setProfileLevel", checker = "checkProfileLevel",
             description = { "查询profile的级别，1表示只收集 MergedProfile 级别的 Counter，2 表示打印详细信息，"
                             + "3 表示打开一些可能导致性能回退的 Counter", "The level of query profile, "
                             + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
@@ -1066,6 +1066,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_BINARY_SEARCH_FILTERING_PARTITIONS,
+            fuzzy = true,
+            description = {
+                "是否允许使用二分查找算法去过滤分区。默认开。",
+                "Whether to allow use binary search algorithm to filter partitions. ON by default."
+            }
+    )
+    public boolean enableBinarySearchFilteringPartitions = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
@@ -2340,13 +2350,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_SORT_BATCH_BYTES)
     public long spillSortBatchBytes = 8388608; // 8M
 
-    @VariableMgr.VarAttr(
-            name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
-            description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
-                    "Disable the runtime filter on the BE for testing purposes."},
-            needForward = true, fuzzy = true)
-    public boolean fuzzyDisableRuntimeFilterInBE = false;
-
     @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
     public int spillAggregationPartitionCount = 32;
 
@@ -2606,7 +2609,6 @@ public class SessionVariable implements Serializable, Writable {
             }
 
         }
-        this.fuzzyDisableRuntimeFilterInBE = random.nextBoolean();
         this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
@@ -4062,10 +4064,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
-        tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
-        tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
@@ -4693,5 +4693,30 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
+    }
+
+    public void setProfileLevel(String profileLevel) {
+        int profileLevelTmp = Integer.valueOf(profileLevel);
+        if (profileLevelTmp < 1 || profileLevelTmp > 3) {
+            LOG.warn("Profile level shuold be in the range of 1-3.");
+        } else {
+            this.profileLevel = profileLevelTmp;
+        }
+
+    }
+
+    public void checkProfileLevel(String profileLevel) {
+        int value = Integer.valueOf(profileLevel);
+        if (value < 1 || value > 3) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException("Profile level can not be set to " + profileLevel
+                            + ", it must be in the range of 1-3");
+            LOG.warn("Check profile_level failed", exception);
+            throw exception;
+        }
+    }
+
+    public boolean getEnableLocalMergeSort() {
+        return enableLocalMergeSort;
     }
 }

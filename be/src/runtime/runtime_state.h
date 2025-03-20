@@ -53,7 +53,7 @@
 #include "vec/columns/columns_number.h"
 
 namespace doris {
-class IRuntimeFilter;
+class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
@@ -73,6 +73,8 @@ class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
+class RuntimeFilterConsumer;
+class RuntimeFilterProducer;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -280,7 +282,7 @@ public:
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
     Status append_error_msg_to_file(std::function<std::string()> line,
-                                    std::function<std::string()> error_msg, bool* stop_processing,
+                                    std::function<std::string()> error_msg,
                                     bool is_summary = false);
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
@@ -359,11 +361,6 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
-    bool runtime_filter_wait_infinitely() const {
-        return _query_options.__isset.runtime_filter_wait_infinitely &&
-               _query_options.runtime_filter_wait_infinitely;
-    }
-
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
@@ -424,19 +421,33 @@ public:
 
     bool enable_page_cache() const;
 
-    const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
+    std::vector<TTabletCommitInfo> tablet_commit_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
     }
 
-    std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
+    void add_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                    std::make_move_iterator(commit_infos.begin()),
+                                    std::make_move_iterator(commit_infos.end()));
+    }
+
+    std::vector<TErrorTabletInfo> error_tablet_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        return _error_tablet_infos;
+    }
+
+    void add_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _error_tablet_infos.insert(_error_tablet_infos.end(),
+                                   std::make_move_iterator(tablet_infos.begin()),
+                                   std::make_move_iterator(tablet_infos.end()));
+    }
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
     std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
-
-    const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
-
-    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -554,11 +565,14 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
+                                            RuntimeProfile* parent_profile);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
+                                            RuntimeProfile* parent_profile);
+
     bool is_nereids() const;
 
     bool enable_spill() const {
@@ -619,19 +633,9 @@ public:
         return -1;
     }
 
-    bool enable_local_merge_sort() const {
-        return _query_options.__isset.enable_local_merge_sort &&
-               _query_options.enable_local_merge_sort;
-    }
-
     MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
-    }
-
-    bool fuzzy_disable_runtime_filter_in_be() const {
-        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
-               _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
     size_t minimum_operator_memory_required_bytes() const {
@@ -752,6 +756,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;

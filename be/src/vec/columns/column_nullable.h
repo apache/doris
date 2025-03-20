@@ -436,6 +436,8 @@ public:
         return nested_column->get_rowset_segment_id();
     }
 
+    void finalize() override { get_nested_column().finalize(); }
+
 private:
     void _update_has_null();
 

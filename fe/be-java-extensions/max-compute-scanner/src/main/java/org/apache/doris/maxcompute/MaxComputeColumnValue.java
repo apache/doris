@@ -30,6 +30,7 @@ import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TimeStampMilliTZVector;
+import org.apache.arrow.vector.TimeStampNanoTZVector;
 import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
@@ -233,15 +234,17 @@ public class MaxComputeColumnValue implements ColumnValue {
         LocalDateTime result;
 
         ArrowType.Timestamp timestampType = ( ArrowType.Timestamp) column.getField().getFieldType().getType();
-        if (timestampType.getUnit() ==  org.apache.arrow.vector.types.TimeUnit.MILLISECOND) {
+        if (timestampType.getUnit() == org.apache.arrow.vector.types.TimeUnit.MILLISECOND) { //DATETIME
             result = convertToLocalDateTime((TimeStampMilliTZVector) column, idx);
-        } else {
+        } else if (timestampType.getTimezone() == null) { // TIMESTAMP_NTZ
             NullableTimeStampNanoHolder valueHoder = new NullableTimeStampNanoHolder();
             ((TimeStampNanoVector) column).get(idx, valueHoder);
             long timestampNanos = valueHoder.value;
 
             result = LocalDateTime.ofEpochSecond(timestampNanos / 1_000_000_000,
                     (int) (timestampNanos % 1_000_000_000), java.time.ZoneOffset.UTC);
+        } else { // TIMESTAMP
+            result = convertToLocalDateTime((TimeStampNanoTZVector) column, idx);
         }
 
         /*
@@ -330,4 +333,9 @@ public class MaxComputeColumnValue implements ColumnValue {
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), timeZone);
     }
 
+    public LocalDateTime convertToLocalDateTime(TimeStampNanoTZVector nanoTZVector, int index) {
+        long timestampNano = nanoTZVector.get(index);
+        return Instant.ofEpochSecond(timestampNano / 1_000_000_000, timestampNano % 1_000_000_000)
+                .atZone(timeZone).toLocalDateTime();
+    }
 }
