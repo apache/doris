@@ -226,7 +226,6 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     @Deprecated
-    @Override
     public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
@@ -242,7 +241,6 @@ public class GlobalTransactionMgr implements Writable {
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
      * @note callers should get all tables' write locks before call this api
      */
-    @Override
     public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
@@ -257,7 +255,6 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
-    @Override
     public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
