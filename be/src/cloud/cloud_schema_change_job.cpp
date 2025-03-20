@@ -514,6 +514,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap));
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
+    LOG_INFO(
+            "[Schema Change] update delete bitmap, new_tablet_id={}, delete bitmap count={}, "
+            "delete bitmap cardinality={}, initiator={}",
+            _new_tablet->tablet_id(), delete_bitmap.get_delete_bitmap_count(),
+            delete_bitmap.cardinality(), initiator);
     return Status::OK();
 }
 
