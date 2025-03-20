@@ -148,6 +148,8 @@ public:
 protected:
     MetadataAdder(const MetadataAdder& other);
 
+    MetadataAdder(MetadataAdder&& other) = delete;
+
     virtual ~MetadataAdder();
 
     virtual int64_t get_metadata_size() const { return sizeof(T); }
