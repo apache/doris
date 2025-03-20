@@ -42,6 +42,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/signal_handler.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
