@@ -63,9 +63,11 @@ public class DropCachedStatsCommand extends DropCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws UserException {
-        if (tableNameInfo == null) {
-            throw new UserException("Should specify a valid table name.");
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                + " in your FE conf file");
         }
+
         tableNameInfo.analyze(ctx);
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
