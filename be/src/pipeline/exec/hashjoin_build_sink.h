@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include "common/be_mock_util.h"
-#include "exprs/runtime_filter_slots.h"
 #include "join_build_sink_operator.h"
 #include "operator.h"
+#include "runtime_filter/runtime_filter_producer_helper.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -81,13 +80,11 @@ protected:
 
     bool _should_build_hash_table = true;
 
-    bool _runtime_filters_disabled = false;
     size_t _evaluate_mem_usage = 0;
-
     size_t _build_side_rows = 0;
 
     vectorized::MutableBlock _build_side_mutable_block;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
+    std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
 
     /*
      * The comparison result of a null value with any other value is null,
@@ -107,7 +104,6 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
@@ -180,6 +176,9 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
+    // if build side has variant column and need output variant column
+    // need to finalize variant column to speed up the join op
+    bool _need_finalize_variant_column = false;
 };
 
 template <class HashTableContext>

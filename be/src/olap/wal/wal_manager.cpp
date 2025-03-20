@@ -157,10 +157,14 @@ Status WalManager::_init_wal_dirs_info() {
         wal_limit_test_bytes = wal_disk_limit;
 #endif
     }
+#ifndef BE_TEST
     return Thread::create(
             "WalMgr", "update_wal_dir_info",
             [this]() { static_cast<void>(this->_update_wal_dir_info_thread()); },
             &_update_wal_dirs_info_thread);
+#else
+    return Status::OK();
+#endif
 }
 
 void WalManager::add_wal_queue(int64_t table_id, int64_t wal_id) {

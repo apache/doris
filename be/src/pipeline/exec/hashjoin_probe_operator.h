@@ -159,6 +159,8 @@ public:
                _join_distribution != TJoinDistributionType::NONE;
     }
 
+    bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
@@ -181,6 +183,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    bool _need_finalize_variant_column = false;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
 };

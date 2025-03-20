@@ -393,8 +393,10 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
             DeleteBitmap::ROWSET_SENTINEL_MARK);
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
-            "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
-            tablet_id(), rowset_id.to_string(), num_segments, delete_bitmap->delete_bitmap.size(),
+            "tablet: {}, rowset: {}, number of segments: {}, bitmap count: {}, bitmap cardinality: "
+            "{}, cost {} (us)",
+            tablet_id(), rowset_id.to_string(), num_segments,
+            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(),
             watch.get_elapse_time_us());
     return Status::OK();
 }
@@ -1059,7 +1061,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                             mutable_column.get())
                             ->insert_default();
                 } else {
-                    mutable_column->insert_default();
+                    mutable_column->insert(rs_column.get_vec_type()->get_default());
                 }
             } else {
                 mutable_column->insert_from(*old_block.get_by_position(i).column,
@@ -1173,7 +1175,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                             new_col.get())
                             ->insert_default();
                 } else {
-                    new_col->insert_default();
+                    new_col->insert(tablet_column.get_vec_type()->get_default());
                 }
             } else {
                 new_col->insert_from(old_value_col, idx);

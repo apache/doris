@@ -38,6 +38,7 @@ public class PaimonSplit extends FileSplit {
     private TableFormatType tableFormatType;
     private Optional<DeletionFile> optDeletionFile = Optional.empty();
     private Optional<Long> optRowCount = Optional.empty();
+    private Optional<Long> schemaId = Optional.empty();
 
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
@@ -95,6 +96,14 @@ public class PaimonSplit extends FileSplit {
 
     public void setRowCount(long rowCount) {
         this.optRowCount = Optional.of(rowCount);
+    }
+
+    public void setSchemaId(long schemaId) {
+        this.schemaId = Optional.of(schemaId);
+    }
+
+    public Long getSchemaId() {
+        return schemaId.orElse(null);
     }
 
     public static class PaimonSplitCreator implements SplitCreator {

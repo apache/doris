@@ -73,6 +73,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_tablet_schema()) {
         doris_tablet_schema_to_cloud(out->mutable_tablet_schema(), in.tablet_schema());
     }
+    if (in.has_schema_dict_key_list()) {
+        out->mutable_schema_dict_key_list()->CopyFrom(in.schema_dict_key_list());
+    }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
@@ -82,7 +85,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
-    out->set_has_variant_type_in_schema(in.has_has_variant_type_in_schema());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
@@ -128,6 +131,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
         doris_tablet_schema_to_cloud(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));
     }
+    if (in.has_schema_dict_key_list()) {
+        out->mutable_schema_dict_key_list()->Swap(in.mutable_schema_dict_key_list());
+    }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
@@ -145,54 +151,19 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->set_source_tablet_id(in.source_tablet_id());
 }
 
-static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
-                                  const SchemaCloudDictionary& dict) {
-    std::unordered_map<int32_t, ColumnPB*> unique_id_map;
-    //init map
-    for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
-        unique_id_map[column.unique_id()] = &column;
-    }
-    // column info
-    for (size_t i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
-        to_add = dict_val;
-        VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
-    }
-
-    // index info
-    for (size_t i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
-        const TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
-        *out->mutable_tablet_schema()->add_index() = dict_val;
-        VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
-    }
-
-    // sparse column info
-    for (size_t i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
-        int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
-        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
-        *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
-        VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
-    }
-}
-
-RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in,
-                                        const SchemaCloudDictionary* dict) {
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, in, dict);
+    cloud_rowset_meta_to_doris(&out, in);
     return out;
 }
 
-RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in, const SchemaCloudDictionary* dict) {
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, std::move(in), dict);
+    cloud_rowset_meta_to_doris(&out, std::move(in));
     return out;
 }
 
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
-                                const SchemaCloudDictionary* dict) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -227,8 +198,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(), in.tablet_schema());
     }
-    if (dict != nullptr) {
-        fill_schema_with_dict(in, out, *dict);
+    if (in.has_schema_dict_key_list()) {
+        out->mutable_schema_dict_key_list()->CopyFrom(in.schema_dict_key_list());
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
@@ -239,6 +210,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
@@ -246,8 +218,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     out->set_source_tablet_id(in.source_tablet_id());
 }
 
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
-                                const SchemaCloudDictionary* dict) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -283,8 +254,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));
     }
-    if (dict != nullptr) {
-        fill_schema_with_dict(in, out, *dict);
+    if (in.has_schema_dict_key_list()) {
+        out->mutable_schema_dict_key_list()->Swap(in.mutable_schema_dict_key_list());
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
@@ -295,6 +266,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
         out->set_schema_version(in.schema_version());
     }
     out->set_enable_segments_file_size(in.enable_segments_file_size());
+    out->set_has_variant_type_in_schema(in.has_variant_type_in_schema());
     out->set_enable_inverted_index_file_info(in.enable_inverted_index_file_info());
     out->set_compaction_level(in.compaction_level());
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
@@ -340,9 +312,11 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
@@ -369,9 +343,11 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_enable_variant_flatten_nested(in.variant_enable_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB& in) {
@@ -411,9 +387,11 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
@@ -441,9 +419,11 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_is_dynamic_schema(in.is_dynamic_schema());
     out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
     out->set_inverted_index_storage_format(in.inverted_index_storage_format());
-    out->set_variant_enable_flatten_nested(in.enable_variant_flatten_nested());
+    out->set_enable_variant_flatten_nested(in.enable_variant_flatten_nested());
     out->set_skip_bitmap_col_idx(in.skip_bitmap_col_idx());
     out->set_storage_page_size(in.storage_page_size());
+    out->set_is_in_memory(in.is_in_memory());
+    out->set_row_store_page_size(in.row_store_page_size());
 }
 
 TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB& in) {
@@ -477,7 +457,13 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
             doris_rowset_meta_to_cloud(out->add_rs_metas(), rs_meta);
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        out->mutable_inc_rs_metas()->Reserve(in.inc_rs_metas_size());
+        for (const auto& rs_meta : in.inc_rs_metas()) {
+            doris_rowset_meta_to_cloud(out->add_inc_rs_metas(), rs_meta);
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->CopyFrom(in.alter_task());
     }
@@ -541,7 +527,15 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
             doris_rowset_meta_to_cloud(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        size_t rs_metas_size = in.inc_rs_metas_size();
+        out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
+        for (size_t i = 0; i < rs_metas_size; ++i) {
+            doris_rowset_meta_to_cloud(out->add_inc_rs_metas(),
+                                       std::move(*in.mutable_inc_rs_metas(i)));
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->Swap(in.mutable_alter_task());
     }
@@ -618,7 +612,13 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
             cloud_rowset_meta_to_doris(out->add_rs_metas(), rs_meta);
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        out->mutable_inc_rs_metas()->Reserve(in.inc_rs_metas_size());
+        for (const auto& rs_meta : in.inc_rs_metas()) {
+            cloud_rowset_meta_to_doris(out->add_inc_rs_metas(), rs_meta);
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->CopyFrom(in.alter_task());
     }
@@ -682,7 +682,15 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
             cloud_rowset_meta_to_doris(out->add_rs_metas(), std::move(*in.mutable_rs_metas(i)));
         }
     }
-    // ATTN: inc_rs_metas are deprecated, ignored here.
+    // ATTN: inc_rs_metas are deprecated, here is for conversion check
+    if (in.inc_rs_metas_size()) {
+        size_t rs_metas_size = in.inc_rs_metas_size();
+        out->mutable_inc_rs_metas()->Reserve(rs_metas_size);
+        for (size_t i = 0; i < rs_metas_size; i++) {
+            cloud_rowset_meta_to_doris(out->add_inc_rs_metas(),
+                                       std::move(*in.mutable_inc_rs_metas(i)));
+        }
+    }
     if (in.has_alter_task()) {
         out->mutable_alter_task()->Swap(in.mutable_alter_task());
     }

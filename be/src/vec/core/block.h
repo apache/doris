@@ -149,12 +149,6 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
-    void replace_if_overflow() {
-        for (auto& ele : data) {
-            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
-        }
-    }
-
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 

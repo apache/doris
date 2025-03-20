@@ -30,7 +30,6 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -542,16 +541,6 @@ public class StmtExecutorTest {
         stmtExecutor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
-    }
-
-    @Test
-    public void testStmtWithUserInfo(@Mocked StatementBase stmt, @Mocked ConnectContext context) throws Exception {
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, stmt);
-        Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
-        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 0));
-        stmtExecutor.execute();
-        StatementBase newstmt = Deencapsulation.getField(stmtExecutor, "parsedStmt");
-        Assert.assertNotNull(newstmt.getUserInfo());
     }
 
     @Test

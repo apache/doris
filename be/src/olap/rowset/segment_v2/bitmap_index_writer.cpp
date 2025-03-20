@@ -34,9 +34,8 @@
 #include "util/slice.h"
 #include "vec/common/arena.h"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 namespace {
 
 template <typename CppType>
@@ -68,8 +67,7 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
 
-    explicit BitmapIndexWriterImpl(const TypeInfo* type_info)
-            : _type_info(type_info), _reverted_index_size(0) {}
+    explicit BitmapIndexWriterImpl(const TypeInfo* type_info) : _type_info(type_info) {}
 
     ~BitmapIndexWriterImpl() override = default;
 
@@ -134,11 +132,11 @@ public:
                 bitmaps.push_back(&_null_bitmap);
             }
 
-            uint32_t max_bitmap_size = 0;
-            std::vector<uint32_t> bitmap_sizes;
+            size_t max_bitmap_size = 0;
+            std::vector<size_t> bitmap_sizes;
             for (auto& bitmap : bitmaps) {
                 bitmap->runOptimize();
-                uint32_t bitmap_size = bitmap->getSizeInBytes(false);
+                auto bitmap_size = bitmap->getSizeInBytes(false);
                 if (max_bitmap_size < bitmap_size) {
                     max_bitmap_size = bitmap_size;
                 }
@@ -181,7 +179,7 @@ public:
 
 private:
     const TypeInfo* _type_info;
-    uint64_t _reverted_index_size;
+    uint64_t _reverted_index_size = 0;
     rowid_t _rid = 0;
     // row id list for null value
     roaring::Roaring _null_bitmap;
@@ -260,5 +258,5 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

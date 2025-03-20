@@ -1857,6 +1857,15 @@ build_icu() {
     make install
 }
 
+# jindofs
+build_jindofs() {
+    check_if_source_exist "${JINDOFS_SOURCE}"
+
+    rm -rf "${TP_INSTALL_DIR}/jindofs_libs/"
+    mkdir -p "${TP_INSTALL_DIR}/jindofs_libs/"
+    cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         odbc

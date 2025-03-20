@@ -42,6 +42,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -406,21 +407,13 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     return _exec_env->pipeline_task_scheduler();
 }
 
-ThreadPool* QueryContext::get_memtable_flush_pool() {
-    if (workload_group()) {
-        return _memtable_flush_pool;
-    } else {
-        return nullptr;
-    }
-}
-
 void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
     _resource_ctx->set_workload_group(wg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());
     workload_group()->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                          &_memtable_flush_pool, &_remote_scan_task_scheduler);
+                                          &_remote_scan_task_scheduler);
 }
 
 void QueryContext::add_fragment_profile(

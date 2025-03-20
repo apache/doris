@@ -461,10 +461,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.5-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.5-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.5-for-doris"
-HADOOP_LIBS_MD5SUM="c13f90ceb5ef9460b7d736c49d9b79fd"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
+HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -525,6 +525,13 @@ ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.
 ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
+
+# jindofs
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.3.4-libs.tar.gz"
+JINDOFS_NAME=jindofs-6.3.4-libs.tar.gz
+JINDOFS_SOURCE=jindofs-6.3.4-libs
+JINDOFS_MD5SUM="75e4869a3f179cb1d8c4c440ae92a356"
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(

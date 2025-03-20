@@ -21,12 +21,12 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -109,7 +109,7 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
 std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
+                   Dependency::debug_string(indentation_level), _runtime_filter->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
