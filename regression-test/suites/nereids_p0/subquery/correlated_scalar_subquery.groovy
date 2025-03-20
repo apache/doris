@@ -220,4 +220,18 @@ suite("correlated_scalar_subquery") {
         """
         exception "access outer query's column before two agg nodes is not supported"
     }
+
+    test {
+        sql """
+              select * from correlated_scalar_t1 where correlated_scalar_t1.c1 = (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 in (select c1 from correlated_scalar_t3));
+        """
+        exception "access outer query column"
+    }
+
+    test {
+        sql """
+              select * from correlated_scalar_t1 where correlated_scalar_t1.c1 = (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 = (select c1 from correlated_scalar_t3));
+        """
+        exception "access outer query column"
+    }
 }
