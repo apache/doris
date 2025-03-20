@@ -6238,12 +6238,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             columnNames.addAll(visitIdentifierList(ctx.identifierList()));
         }
 
-        PartitionNames partitionNames = null;
+        PartitionNamesInfo partitionNamesInfo = null;
         if (ctx.partitionSpec() != null) {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-            partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+            partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
         }
-        return new DropStatsCommand(tableNameInfo, columnNames, partitionNames);
+        return new DropStatsCommand(tableNameInfo, columnNames, partitionNamesInfo);
     }
 
     @Override

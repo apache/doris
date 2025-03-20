@@ -56,7 +56,10 @@ public class DropCachedStatsCommand extends DropCommand {
         ctx.getEnv().getAnalysisManager().dropCachedStats(catalogId, dbId, tblId);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
         if (tableNameInfo == null) {
             throw new UserException("Should specify a valid table name.");
         }

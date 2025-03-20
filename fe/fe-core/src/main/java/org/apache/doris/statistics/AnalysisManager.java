@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -861,7 +862,9 @@ public class AnalysisManager implements Writable {
     public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
         Set<String> cols = dropStatsCommand.getColumnNames();
-        PartitionNames partitionNames = dropStatsCommand.getOpPartitionNames();
+        PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
+        PartitionNames partitionNames = new PartitionNames(partitionNamesInfo.isTemp(),
+                partitionNamesInfo.getPartitionNames());
         long catalogId = dropStatsCommand.getCatalogId();
         long dbId = dropStatsCommand.getDbId();
         long tblId = dropStatsCommand.getTblId();
