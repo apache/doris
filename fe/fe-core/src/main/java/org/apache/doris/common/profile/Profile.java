@@ -386,23 +386,8 @@ public class Profile {
             }
         }
 
-        if (physicalPlan != null) {
-            builder.append("\nPhysical Plan \n");
-            StringBuilder physcialPlanBuilder = new StringBuilder();
-            physcialPlanBuilder.append(physicalPlan.treeString());
-            physcialPlanBuilder.append("\n");
-            for (PhysicalRelation relation : physicalRelations) {
-                if (relation.getStats() != null) {
-                    physcialPlanBuilder.append(relation).append("\n")
-                            .append(relation.getStats().printColumnStats());
-                }
-            }
-            builder.append(
-                    physcialPlanBuilder.toString().replace("\n", "\n     "));
-        }
-
         if (this.executionProfiles.size() == 1) {
-            builder.append("\nMergedProfile \n");
+            builder.append("MergedProfile:\n");
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
             } else {
@@ -414,11 +399,27 @@ public class Profile {
             // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
-                executionProfile.getRoot().prettyPrint(builder, "");
+                executionProfile.prettyPrint(builder, "");
             }
         } catch (Throwable aggProfileException) {
             LOG.warn("build profile failed", aggProfileException);
             builder.append("build  profile failed");
+        }
+
+        builder.append("\nAppendix:\n");
+        if (physicalPlan != null) {
+            builder.append("\nPhysicalPlan:\n");
+            StringBuilder physcialPlanBuilder = new StringBuilder();
+            physcialPlanBuilder.append(physicalPlan.treeString());
+            physcialPlanBuilder.append("\n");
+            for (PhysicalRelation relation : physicalRelations) {
+                if (relation.getStats() != null) {
+                    physcialPlanBuilder.append(relation).append("\n")
+                            .append(relation.getStats().printColumnStats());
+                }
+            }
+            builder.append(
+                    physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
     }
 
@@ -642,7 +643,7 @@ public class Profile {
             return;
         }
 
-        builder.append("\nChanged Session Variables:\n");
+        builder.append("\nChangedSessionVariables:\n");
         builder.append(changedSessionVarCache);
         builder.append("\n");
     }
