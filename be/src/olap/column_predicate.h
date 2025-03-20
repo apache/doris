@@ -23,8 +23,6 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/schema.h"
-#include "olap/selection_vector.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
@@ -32,13 +30,6 @@
 using namespace doris::segment_v2;
 
 namespace doris {
-
-class Schema;
-
-struct PredicateParams {
-    std::vector<std::string> values;
-    bool marked_by_runtime_filter = false;
-};
 
 enum class PredicateType {
     UNKNOWN = 0,
@@ -164,7 +155,6 @@ class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
             : _column_id(column_id), _opposite(opposite) {
-        _predicate_params = std::make_shared<PredicateParams>();
         reset_judge_selectivity();
     }
 
@@ -256,19 +246,20 @@ public:
 
     bool opposite() const { return _opposite; }
 
-    virtual std::string debug_string() const {
-        return _debug_string() + ", column_id=" + std::to_string(_column_id) +
-               ", opposite=" + (_opposite ? "true" : "false") +
-               ", can_ignore=" + (_can_ignore() ? "true" : "false");
+    std::string debug_string() const {
+        return _debug_string() +
+               fmt::format(", column_id={}, opposite={}, can_ignore={}, runtime_filter_id={}",
+                           _column_id, _opposite, _can_ignore(), _runtime_filter_id);
     }
 
-    virtual int get_filter_id() const { return -1; }
+    int get_runtime_filter_id() const { return _runtime_filter_id; }
+
+    void set_runtime_filter_id(int filter_id) { _runtime_filter_id = filter_id; }
+
     PredicateFilterInfo get_filtered_info() const {
         return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
                                     _evaluated_rows - 1 - _passed_rows};
     }
-
-    std::shared_ptr<PredicateParams> predicate_params() { return _predicate_params; }
 
     static std::string pred_type_string(PredicateType type) {
         switch (type) {
@@ -312,13 +303,7 @@ public:
 
 protected:
     virtual std::string _debug_string() const = 0;
-    virtual bool _can_ignore() const {
-        if (_predicate_params) {
-            // minmax filter will set marked_by_runtime_filter to true
-            return _predicate_params->marked_by_runtime_filter;
-        }
-        return false;
-    }
+    virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                                      uint16_t size) const {
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
@@ -346,7 +331,7 @@ protected:
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
-    std::shared_ptr<PredicateParams> _predicate_params;
+    int _runtime_filter_id = -1;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
     // VRuntimeFilterWrapper and ColumnPredicate share the same logic,

@@ -765,9 +765,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     }
 
     if (pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) {
-        auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
-        if (predicate_param->marked_by_runtime_filter) {
+        if (pred->is_runtime_filter()) {
             return false;
         }
     }
@@ -895,7 +894,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             remaining_predicates.emplace_back(pred);
             return Status::OK();
         }
-        if (!pred->predicate_params()->marked_by_runtime_filter) {
+        if (!pred->is_runtime_filter()) {
             _column_predicate_inverted_index_status[pred->column_id()][pred] = true;
         }
     }
@@ -1884,8 +1883,8 @@ void SegmentIterator::_collect_runtime_filter_predicate() {
         // There is a situation, such as with in or minmax filters,
         // where intermediate conversion to a key range or other types
         // prevents obtaining the filter id.
-        if (p->get_filter_id() >= 0) {
-            _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
+        if (p->is_runtime_filter()) {
+            _opts.stats->filter_info[p->get_runtime_filter_id()] = p->get_filtered_info();
         }
     }
 }

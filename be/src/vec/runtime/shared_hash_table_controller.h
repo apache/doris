@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime_filter/runtime_filter_definitions.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -40,19 +42,6 @@ class BitmapFilterFuncBase;
 namespace pipeline {
 class Dependency;
 }
-
-struct RuntimeFilterContext {
-    std::shared_ptr<MinMaxFuncBase> minmax_func;
-    std::shared_ptr<HybridSetBase> hybrid_set;
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
-    bool ignored = false;
-    bool disabled = false;
-    std::string err_msg;
-};
-
-using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
-
 namespace vectorized {
 
 class Arena;
@@ -66,7 +55,7 @@ struct SharedHashTableContext {
     std::shared_ptr<void> hash_table_variants;
     std::shared_ptr<Block> block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    std::map<int, RuntimeFilterContextSPtr> runtime_filters;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     std::atomic<bool> signaled = false;
     bool short_circuit_for_null_in_probe_side = false;
 };
