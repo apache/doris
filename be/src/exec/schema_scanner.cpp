@@ -62,6 +62,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/types.h"
+#include "schema_scanner/schema_sch_optimizer_sql_plan_outline_scanner.h"
 #include "util/string_util.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
@@ -232,7 +233,7 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
     case TSchemaTableType::SCH_OPTIMIZER_SQL_PLAN_OUTLINE:
-        return SchemaRoutineLoadJobScanner::create_unique();
+        return SchemaOptimizerSqlPlanOutlineScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

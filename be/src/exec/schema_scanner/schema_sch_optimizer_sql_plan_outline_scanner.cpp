@@ -37,7 +37,7 @@ class Block;
 std::vector<SchemaScanner::ColumnDesc> SchemaOptimizerSqlPlanOutlineScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"OUTLINE_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"VISIBAL_SIGNATURE", TYPE_STRING, sizeof(StringRef), true},
+        {"VISIBLE_SIGNATURE", TYPE_STRING, sizeof(StringRef), true},
         {"SQL_ID", TYPE_STRING, sizeof(StringRef), true},
         {"SQL_TEXT", TYPE_STRING, sizeof(StringRef), true},
         {"OUTLINE_TARGET", TYPE_STRING, sizeof(StringRef), true},
@@ -53,8 +53,8 @@ Status SchemaOptimizerSqlPlanOutlineScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
-    TFetchRoutineLoadJobRequest request;
-    RETURN_IF_ERROR(SchemaHelper::fetch_routine_load_job(
+    TFetchOutlineInfoRequest request;
+    RETURN_IF_ERROR(SchemaHelper::fetch_outline_info(
             *(_param->common_param->ip), _param->common_param->port, request, &_result));
     return Status::OK();
 }
@@ -68,7 +68,7 @@ Status SchemaOptimizerSqlPlanOutlineScanner::get_next_block_internal(vectorized:
     }
 
     *eos = true;
-    if (_result.routineLoadJobs.empty()) {
+    if (_result.outlineInfos.empty()) {
         return Status::OK();
     }
 
@@ -78,8 +78,8 @@ Status SchemaOptimizerSqlPlanOutlineScanner::get_next_block_internal(vectorized:
 Status SchemaOptimizerSqlPlanOutlineScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
-    const auto& jobs_info = _result.routineLoadJobs;
-    size_t row_num = jobs_info.size();
+    const auto& outline_infos = _result.outlineInfos;
+    size_t row_num = outline_infos.size();
     if (row_num == 0) {
         return Status::OK();
     }
@@ -94,85 +94,34 @@ Status SchemaOptimizerSqlPlanOutlineScanner::_fill_block_impl(vectorized::Block*
         std::vector<std::string> column_values(row_num);
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-            const auto& job_info = jobs_info[row_idx];
+            const auto& outline_info = outline_infos[row_idx];
             std::string& column_value = column_values[row_idx];
 
             if (col_desc.type == TYPE_STRING) {
                 switch (col_idx) {
-                case 0: // JOB_ID
-                    column_value = job_info.__isset.job_id ? job_info.job_id : "";
+                case 0: // OUTLINE_NAME
+                    column_value = outline_info.__isset.outline_name ? outline_info.outline_name : "";
                     break;
-                case 1: // JOB_NAME
-                    column_value = job_info.__isset.job_name ? job_info.job_name : "";
+                case 1: // VISIBLE_SIGNATURE
+                    column_value = outline_info.__isset.visible_signature ? outline_info.visible_signature : "";
                     break;
-                case 2: // CREATE_TIME
-                    column_value = job_info.__isset.create_time ? job_info.create_time : "";
+                case 2: // SQL_ID
+                    column_value = outline_info.__isset.sql_id ? outline_info.sql_id : "";
                     break;
-                case 3: // PAUSE_TIME
-                    column_value = job_info.__isset.pause_time ? job_info.pause_time : "";
+                case 3: // SQL_TEXT
+                    column_value = outline_info.__isset.sql_text ? outline_info.sql_text : "";
                     break;
-                case 4: // END_TIME
-                    column_value = job_info.__isset.end_time ? job_info.end_time : "";
+                case 4: // OUTLINE_TARGET
+                    column_value = outline_info.__isset.outline_target ? outline_info.outline_target : "";
                     break;
-                case 5: // DB_NAME
-                    column_value = job_info.__isset.db_name ? job_info.db_name : "";
-                    break;
-                case 6: // TABLE_NAME
-                    column_value = job_info.__isset.table_name ? job_info.table_name : "";
-                    break;
-                case 7: // STATE
-                    column_value = job_info.__isset.state ? job_info.state : "";
-                    break;
-                case 8: // CURRENT_TASK_NUM
-                    column_value =
-                            job_info.__isset.current_task_num ? job_info.current_task_num : "";
-                    break;
-                case 9: // JOB_PROPERTIES
-                    column_value = job_info.__isset.job_properties ? job_info.job_properties : "";
-                    break;
-                case 10: // DATA_SOURCE_PROPERTIES
-                    column_value = job_info.__isset.data_source_properties
-                                           ? job_info.data_source_properties
-                                           : "";
-                    break;
-                case 11: // CUSTOM_PROPERTIES
-                    column_value =
-                            job_info.__isset.custom_properties ? job_info.custom_properties : "";
-                    break;
-                case 12: // STATISTIC
-                    column_value = job_info.__isset.statistic ? job_info.statistic : "";
-                    break;
-                case 13: // PROGRESS
-                    column_value = job_info.__isset.progress ? job_info.progress : "";
-                    break;
-                case 14: // LAG
-                    column_value = job_info.__isset.lag ? job_info.lag : "";
-                    break;
-                case 15: // REASON_OF_STATE_CHANGED
-                    column_value = job_info.__isset.reason_of_state_changed
-                                           ? job_info.reason_of_state_changed
-                                           : "";
-                    break;
-                case 16: // ERROR_LOG_URLS
-                    column_value = job_info.__isset.error_log_urls ? job_info.error_log_urls : "";
-                    break;
-                case 17: // USER_NAME
-                    column_value = job_info.__isset.user_name ? job_info.user_name : "";
+                case 5: // OUTLINE_DATA
+                    column_value = outline_info.__isset.outline_data ? outline_info.outline_data : "";
                     break;
                 }
 
                 str_refs[row_idx] =
                         StringRef(column_values[row_idx].data(), column_values[row_idx].size());
                 datas[row_idx] = &str_refs[row_idx];
-            } else if (col_desc.type == TYPE_INT) {
-                int_vals[row_idx] = job_info.__isset.current_abort_task_num
-                                            ? job_info.current_abort_task_num
-                                            : 0;
-                datas[row_idx] = &int_vals[row_idx];
-            } else if (col_desc.type == TYPE_BOOLEAN) {
-                bool_vals[row_idx] =
-                        job_info.__isset.is_abnormal_pause ? job_info.is_abnormal_pause : false;
-                datas[row_idx] = &bool_vals[row_idx];
             }
         }
 

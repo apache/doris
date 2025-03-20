@@ -67,6 +67,26 @@ public class OutlineInfo implements Writable {
         return outlineName;
     }
 
+    public String getVisibleSignature() {
+        return visibleSignature;
+    }
+
+    public String getOutlineData() {
+        return outlineData;
+    }
+
+    public String getOutlineTarget() {
+        return outlineTarget;
+    }
+
+    public String getSqlId() {
+        return sqlId;
+    }
+
+    public String getSqlText() {
+        return sqlText;
+    }
+
     public static OutlineInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), OutlineInfo.class);
     }

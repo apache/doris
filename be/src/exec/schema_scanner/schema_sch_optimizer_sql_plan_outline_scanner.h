@@ -45,7 +45,7 @@ namespace doris {
     private:
         Status _fill_block_impl(vectorized::Block* block);
 
-        TFetchRoutineLoadJobResult _result;
+        TFetchOutlineInfoResult _result;
         static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     };
 
