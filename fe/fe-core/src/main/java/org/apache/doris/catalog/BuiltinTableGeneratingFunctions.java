@@ -85,8 +85,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             String.CASE_INSENSITIVE_ORDER).add("explode").add("explode_outer").add("explode_variant_array")
             .add("explode_variant_array_outer").build();
 
-    public Set<String> getReturnManyColumnInStructFunctions() {
-        return returnManyColumnInStructFunctions;
+    public Set<String> getReturnManyColumnFunctions() {
+        return RETURN_MULTI_COLUMNS_FUNCTIONS;
     }
 
     public static final BuiltinTableGeneratingFunctions INSTANCE = new BuiltinTableGeneratingFunctions();

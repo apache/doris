@@ -1708,7 +1708,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // explode can pass multiple columns
         // then use struct to return the result of the expansion of multiple columns.
         if (ctx.columnNames.size() > 1
-                || BuiltinTableGeneratingFunctions.INSTANCE.getReturnManyColumnInStructFunctions()
+                || BuiltinTableGeneratingFunctions.INSTANCE.getReturnManyColumnFunctions()
                     .contains(ctx.functionName.getText())) {
             columnName = ConnectContext.get() != null
                     ? ConnectContext.get().getStatementContext().generateColumnName() : "expand_cols";
