@@ -699,10 +699,6 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
         least_common_type = LeastCommonType {to_type, is_root};
     }
     auto result_column = to_type->create_column();
-    if (current_num_of_defaults) {
-        insert_many_defaults(current_num_of_defaults);
-        current_num_of_defaults = 0;
-    }
     if (num_of_defaults_in_prefix) {
         result_column->insert_many_defaults(num_of_defaults_in_prefix);
     }
@@ -735,10 +731,7 @@ void ColumnObject::Subcolumn::insert_default() {
     if (UNLIKELY(data.empty())) {
         ++num_of_defaults_in_prefix;
     } else {
-        auto* nullable_col = static_cast<ColumnNullable*>(data.back().get());
-        nullable_col->get_nested_column().insert_default();
-        nullable_col->get_null_map_data().push_back(1);
-        nullable_col->update_has_null(true);
+        data.back()->insert_default();
     }
     ++num_rows;
 }
@@ -2143,6 +2136,7 @@ void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) 
         root.data[0] = casted_column;
         root.data_types[0] = expected_root_type;
         root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
+        root.num_rows = casted_column->size();
     }
 }
 
@@ -2197,6 +2191,9 @@ size_t ColumnObject::filter(const Filter& filter) {
     if (count == 0) {
         clear();
     } else {
+        for (auto& subcolumn : subcolumns) {
+            subcolumn->data.num_rows = count;
+        }
         for_each_subcolumn([&](auto& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
@@ -2213,9 +2210,6 @@ size_t ColumnObject::filter(const Filter& filter) {
                 }
             }
         });
-        for (auto& subcolumn : subcolumns) {
-            subcolumn->data.num_rows = count;
-        }
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);

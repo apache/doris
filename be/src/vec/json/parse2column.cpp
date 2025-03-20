@@ -218,6 +218,7 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
         StringRef raw_json = raw_json_column.get_data_at(i);
         parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
     }
+    column.finalize();
 }
 
 } // namespace doris::vectorized
