@@ -18,7 +18,7 @@
 suite("test_validate_restore_multi_tables", "validate_restore") {
     def runValidateRestoreMultiTables = { String version ->
         String validateSuiteName = "test_backup_restore_multi_tables"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableNamePrefix = "${validateSuiteName}_tables"
 

@@ -18,7 +18,7 @@
 suite("test_validate_restore_ngram_bloom_filter", "validate_restore") {
     def runValidateRestoreNgramBloomFilter = { String version ->
         String validateSuiteName = "test_backup_restore_ngram_bloom_filter"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 

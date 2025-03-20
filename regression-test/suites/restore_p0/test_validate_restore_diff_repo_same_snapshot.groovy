@@ -18,7 +18,7 @@
 suite("test_validate_restore_diff_repo_same_snapshot", "validate_restore") {
     def runValidateRestoreDiffRepoSameSnapshot = { String version ->
         String validateSuiteName = "test_backup_restore_diff_repo_same_snapshot"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 
@@ -72,8 +72,8 @@ suite("test_validate_restore_diff_repo_same_snapshot", "validate_restore") {
             result = sql "SELECT * FROM ${dbName}_2.${tableName}_2"
             assertEquals(result.size(), 10);
         } finally {
-            sql "DROP TABLE ${dbName}_1.${tableName}_1 FORCE"
-            sql "DROP TABLE ${dbName}_2.${tableName}_2 FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}_1.${tableName}_1 FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}_2.${tableName}_2 FORCE"
             sql "DROP DATABASE ${dbName}_1 FORCE"
             sql "DROP DATABASE ${dbName}_2 FORCE"
             sql "DROP REPOSITORY `${repoName_1}`"

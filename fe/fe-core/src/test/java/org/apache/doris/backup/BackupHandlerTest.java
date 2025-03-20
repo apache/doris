@@ -321,7 +321,7 @@ public class BackupHandlerTest {
 
         // handleDownloadSnapshotTask
         DownloadTask downloadTask = new DownloadTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "");
+                srcToDestPath, null, null, StorageBackend.StorageType.BROKER, "", "");
         request = new TFinishTaskRequest();
         List<Long> downloadedTabletIds = Lists.newArrayList();
         request.setDownloadedTabletIds(downloadedTabletIds);

@@ -18,7 +18,7 @@
 suite("test_validate_restore_mix_exists_and_new_table", "validate_restore") {
     def runValidateRestoreMixExistsAndNewTable = { String version ->
         String validateSuiteName = "test_restore_mix_exists_and_new_table"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableNamePrefix = "${validateSuiteName}_tables"
 

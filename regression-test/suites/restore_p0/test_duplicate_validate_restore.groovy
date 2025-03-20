@@ -18,7 +18,7 @@
 suite("test_duplicate_validate_restore", "validate_restore") {
     def runDuplicateValidateRestore = { String version ->
         String validateSuiteName = "test_duplicate_backup_restore"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "test_duplicate_backup_restore_table"
         String snapshotName = "test_duplicate_backup_restore"
 
@@ -75,7 +75,7 @@ suite("test_duplicate_validate_restore", "validate_restore") {
             assertEquals(result.size(), 12)
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

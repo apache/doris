@@ -18,7 +18,7 @@
 suite("test_validate_restore_exclude", "validate_restore") {
     def runValidateRestoreExclude = { String version ->
         String validateSuiteName = "test_backup_restore_exclude"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableNamePrefix = "${validateSuiteName}_tables"
 

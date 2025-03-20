@@ -18,7 +18,7 @@
 suite("test_validate_restore_to_new_table", "validate_restore") {
     def runValidateRestoreToNewTable = { String version ->
         String validateSuiteName = "test_restore_to_new_table"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String snapshotName = "test_backup_restore_snapshot"
 
@@ -71,7 +71,7 @@ suite("test_validate_restore_to_new_table", "validate_restore") {
             assertEquals(result.size(), values.size())
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

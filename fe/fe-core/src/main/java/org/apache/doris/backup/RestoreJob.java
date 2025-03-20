@@ -1840,10 +1840,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             }
                         }
                         long signature = env.getNextId();
-                        DownloadTask task = new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-                                brokerAddrs.get(0),
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
-                                repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        DownloadTask task = createDownloadTask(beId, signature, jobId, dbId, srcToDest,
+                                brokerAddrs.get(0));
                         batchTask.addTask(task);
                         unfinishedSignatureToId.put(signature, beId);
                     }
@@ -1991,6 +1989,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
+    }
+
+    protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
+                                              Map<String, String> srcToDest, FsBroker brokerAddr) {
+        return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
+            brokerAddr, S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.
@@ -2464,6 +2469,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         for (Tablet tablet : index.getTablets()) {
                             Env.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                         }
+                    }
+                    if (Config.isNotCloudMode()) {
+                        env.getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(entry.second));
                     }
                 } finally {
                     restoreTbl.writeUnlock();

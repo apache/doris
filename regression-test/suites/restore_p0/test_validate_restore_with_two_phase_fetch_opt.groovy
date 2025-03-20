@@ -18,7 +18,7 @@
 suite("test_validate_restore_with_two_phase_fetch_opt", "validate_restore") {
     def runValidateRestoreWithTwoPhaseFetchOpt = { String version ->
         String validateSuiteName = "test_backup_restore_with_two_phase_fetch_opt"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 
@@ -50,7 +50,7 @@ suite("test_validate_restore_with_two_phase_fetch_opt", "validate_restore") {
             assertEquals(result.size(), 5)
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

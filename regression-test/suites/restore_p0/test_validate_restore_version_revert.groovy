@@ -18,7 +18,7 @@
 suite("test_validate_restore_version_revert", "validate_restore") {
     def runValidateRestoreVersionRevert = { String version ->
         String validateSuiteName = "test_backup_restore_version_revert"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 
@@ -50,7 +50,7 @@ suite("test_validate_restore_version_revert", "validate_restore") {
             assertEquals("2", currVersion)
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

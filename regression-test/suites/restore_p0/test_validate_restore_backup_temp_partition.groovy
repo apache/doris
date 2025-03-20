@@ -51,7 +51,7 @@ suite("test_validate_restore_backup_temp_partition", "validate_restore") {
             assertTrue(res.size() == 0);
         } finally {
             sql "ADMIN SET FRONTEND CONFIG ('ignore_backup_tmp_partitions' = 'false')"
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

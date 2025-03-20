@@ -18,7 +18,7 @@
 suite("test_validate_restore_dynamic_partition_reserve_true", "validate_restore") {
     def runValidateRestoreDynamicPartitionReserveTrue = { String version ->
         String validateSuiteName = "test_backup_restore_dynamic_partition_reserve_true"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "dynamic_partition_reserve_true_table"
         String snapshotName = "test_backup_restore_dynamic_partition_reserve_true_snapshot"
 
@@ -57,7 +57,7 @@ suite("test_validate_restore_dynamic_partition_reserve_true", "validate_restore"
             assertTrue(restore_properties[0][1].contains("\"dynamic_partition.create_history_partition\" = \"true\""))
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

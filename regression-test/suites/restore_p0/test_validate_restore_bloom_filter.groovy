@@ -56,7 +56,7 @@ suite("test_validate_restore_bloom_filter", "validate_restore") {
             sql """INSERT INTO ${dbName}.${tableName} VALUES (3, 3, '2023-11-01'),(4, 4, '2023-11-02')"""
             qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY saler_id"
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }
