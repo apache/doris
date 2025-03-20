@@ -763,7 +763,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
 
     @Override
     public boolean needAuditEncryption() {
-        return !engineName.equals("olap");
+        return !"olap".equals(engineName);
     }
 
     private void generatedColumnCheck(Analyzer analyzer) throws AnalysisException {
