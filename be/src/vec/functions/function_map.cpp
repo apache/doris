@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "util/simd/vstring_function.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -326,9 +327,9 @@ public:
         const auto* kv_delim_column = assert_cast<const ColumnString*>(kv_delim_col.get());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto str = str_column->get_data_at(i);
-            auto pair_delim = pair_delim_column->get_data_at(i);
-            auto kv_delim = kv_delim_column->get_data_at(i);
+            const auto str = str_column->get_data_at(i).to_string_view();
+            const auto pair_delim = pair_delim_column->get_data_at(i).to_string_view();
+            const auto kv_delim = kv_delim_column->get_data_at(i).to_string_view();
 
             auto kvs = split_pair_by_delim(str, pair_delim);
             for (const auto& kv : kvs) {
@@ -356,8 +357,21 @@ public:
 private:
     static std::vector<std::string_view> split_pair_by_delim(const std::string_view& str,
                                                              const std::string_view& delim) {
+        if (str.empty()) {
+            return {str};
+        }
+        if (delim.empty()) {
+            std::vector<std::string_view> result;
+            size_t offset = 0;
+            while (offset < str.size()) {
+                auto len = get_utf8_byte_length(str[offset]);
+                result.push_back(str.substr(offset, len));
+                offset += len;
+            }
+            return result;
+        }
         std::vector<std::string_view> result;
-        auto offset = 0;
+        size_t offset = 0;
         while (offset < str.size()) {
             auto pos = str.find(delim, offset);
             if (pos == std::string::npos) {
@@ -372,6 +386,13 @@ private:
 
     static std::vector<std::string_view> split_kv_by_delim(const std::string_view& str,
                                                            const std::string_view& delim) {
+        if (str.empty()) {
+            return {str};
+        }
+        if (delim.empty()) {
+            auto len = get_utf8_byte_length(str[0]);
+            return {str.substr(0, len), str.substr(len)};
+        }
         auto pos = str.find(delim);
         if (pos == std::string::npos) {
             return {str};
