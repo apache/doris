@@ -314,6 +314,10 @@ class RegressionTest {
             log.info('Start to run load scripts')
             runScripts(config, recorder, directoryFilter,
                     { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
+            if (config.loadOnly) {
+                log.info('The loadOnly option is set')
+                return
+            }
         }
         log.info('Start to run scripts')
         runScripts(config, recorder, directoryFilter, 

@@ -74,6 +74,7 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option loadOnlyOpt
     static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
     static Option dryRunOpt
@@ -477,6 +478,12 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        loadOnlyOpt = Option.builder("load")
+                .required(false)
+                .hasArg(false)
+                .longOpt("loadOnly")
+                .desc("only run load.groovy.")
+                .build()
         runNonConcurrentOpt = Option.builder("runNonConcurrent")
                 .required(false)
                 .hasArg(true)
@@ -638,6 +645,7 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(loadOnlyOpt)
                 .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
