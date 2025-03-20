@@ -2076,7 +2076,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     requiredByProjectSlotIdSet, context);
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
-                inputFragment.setOutputExprs(projectionExprs);
+                inputFragment.setOutputExprs(allProjectionExprs);
             } else {
                 TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
                 inputPlanNode.setProjectList(projectionExprs);
