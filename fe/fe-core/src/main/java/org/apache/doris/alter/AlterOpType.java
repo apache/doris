@@ -42,6 +42,12 @@ public enum AlterOpType {
     MODIFY_TABLE_COMMENT,
     MODIFY_COLUMN_COMMENT,
     MODIFY_ENGINE,
+    SET_PASSWORD,
+    SET_ROLE,
+    SET_PASSWORD_POLICY,
+    LOCK_ACCOUNT,
+    UNLOCK_ACCOUNT,
+    MODIFY_COMMENT,
     INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.
