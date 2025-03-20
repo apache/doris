@@ -96,7 +96,7 @@ class MockPartitionedAggLocalState : public PartitionedAggLocalState {
 public:
     MockPartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
             : PartitionedAggLocalState(state, parent) {
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
+        _runtime_profile = state->obj_pool()->add(new RuntimeProfile("test"));
     }
 
     Status open(RuntimeState* state) override { return Status::OK(); }
