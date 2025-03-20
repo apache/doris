@@ -1033,6 +1033,8 @@ public class CreateTableInfo {
             ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
             Expr expr = expression.accept(translator, planTranslatorContext);
             info.get().setExpr(expr);
+            // Casting slot to its own type is because when loading data(stream load and other load),
+            // the slots reading from files are string type. So we need to cast it to its own type to avoid error.
             Expression expressionForLoad = expression.rewriteDownShortCircuit(e -> {
                 if (e instanceof SlotReference && !(e.getDataType() instanceof CharacterType)) {
                     return new Cast(e, e.getDataType());
