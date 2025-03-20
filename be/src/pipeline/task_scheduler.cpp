@@ -75,7 +75,11 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 // after close_task, task maybe destructed.
-void close_task(PipelineTask* task, Status exec_status) {
+bool close_task(PipelineTask* task, Status exec_status) {
+    if (exec_status.ok() && task->is_pending_finish()) {
+        // Close phase is blocked by dependency.
+        return false;
+    }
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
@@ -91,6 +95,7 @@ void close_task(PipelineTask* task, Status exec_status) {
         task->fragment_context()->cancel(status);
     }
     task->finalize();
+    return true;
 }
 
 void TaskScheduler::_do_work(int index) {
@@ -107,21 +112,20 @@ void TaskScheduler::_do_work(int index) {
             static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
-        if (task->is_finalized()) {
-            continue;
-        }
         task->set_running(true);
-        bool done = false;
+        bool eos = false;
         auto status = Status::OK();
         Defer task_running_defer {[&]() {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
-            if (done || !status.ok()) {
+            if (eos || !status.ok()) {
                 // decrement_running_task may delete fragment context and will core in some defer
                 // code, because the defer code will access fragment context itself.
                 auto lock_for_context = task->fragment_context()->shared_from_this();
-                close_task(task, status);
+                bool close = close_task(task, status);
                 task->set_running(false);
-                task->fragment_context()->decrement_running_task(task->pipeline_id());
+                if (close) {
+                    task->fragment_context()->decrement_running_task(task->pipeline_id());
+                }
             } else {
                 task->set_running(false);
             }
@@ -151,13 +155,13 @@ void TaskScheduler::_do_work(int index) {
                     uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
                     uint64_t start_time = MonotonicMicros();
 
-                    status = task->execute(&done);
+                    status = task->execute(&eos);
 
                     uint64_t end_time = MonotonicMicros();
                     ExecEnv::GetInstance()->pipeline_tracer_context()->record(
                             {query_id, task_name, static_cast<uint32_t>(index), thread_id,
                              start_time, end_time});
-                } else { status = task->execute(&done); },
+                } else { status = task->execute(&eos); },
                 status);
         fragment_ctx->trigger_report_if_necessary();
     }
