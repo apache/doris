@@ -646,6 +646,7 @@ public:
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    std::mutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {

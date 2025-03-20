@@ -96,9 +96,8 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     }
     if (current_eos) {
         // current sort have eos, so get next idx
-        sorters[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
-        std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+        std::unique_lock<std::mutex> lc(local_state._shared_state->prepared_finish_lock);
         if (local_state._sort_idx < sorter_size &&
             !sorters[local_state._sort_idx]->prepared_finish()) {
             local_state._dependency->block();
