@@ -880,4 +880,195 @@ suite("load") {
         }
     }
 
+    // add json/variant column cases
+    // table type duplicate/unqiue key/aggregation
+    // create table for json/variant type with nullable and not nullable and rowstore
+    def suffixTypes = ["duplicate", "unique", "aggregate"]
+    def defaultValues = ["NULL", "NULL", "REPLACE_IF_NOT_NULL"]
+    for (int i = 0; i < suffixTypes.size(); i++) {
+        def suffixType = suffixTypes[i]
+        def defaultValue = defaultValues[i]
+        def defaultNotNull = i == 2 ? defaultValue : "NOT NULL DEFAULT '{}'"
+        sql """ DROP TABLE IF EXISTS fn_test_json_variant_${suffixType}"""
+        def create_table_sql =  """
+            CREATE TABLE IF NOT EXISTS `fn_test_json_variant_${suffixType}` (
+                `id` int null,
+                `kjson` JSON ${defaultValue},
+                `kvariant` VARIANT ${defaultValue},
+                `kjson_notnull` JSON ${defaultNotNull},
+                `kvariant_notnull` VARIANT ${defaultNotNull}
+            ) engine=olap
+            ${suffixType.toUpperCase()} KEY(`id`)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true"
+                );
+            """
+        // JSON/VARIANT default value just be null
+        expectExceptionLike({
+            sql create_table_sql
+        }, "Json or Variant type column default value just support null")
+        create_table_sql = create_table_sql.replace(" DEFAULT '{}'", "")
+        sql create_table_sql
+
+        defaultNotNull = i == 2 ? defaultValue : "NOT NULL"
+        // rowstore table
+        sql """ DROP TABLE IF EXISTS fn_test_json_variant_rowstore_${suffixType}"""
+        sql """
+            CREATE TABLE IF NOT EXISTS `fn_test_json_variant_rowstore_${suffixType}` (
+                `id` int null,
+                `kjson` JSON ${defaultValue},
+                `kvariant` VARIANT ${defaultValue},
+                `kjson_notnull` JSON ${defaultNotNull},
+                `kvariant_notnull` VARIANT ${defaultNotNull}
+            ) engine=olap
+            ${suffixType.toUpperCase()} KEY(`id`)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true",
+                    "store_row_column" = "true"
+                );
+        """
+
+
+        // insert into sql
+        def read_json_data_for_json_variant = { tableName, fp, col_names ->
+            def res = sql "select count() from $tableName"
+            def row_cnt = res[0][0] + 1
+
+            def insert_sql = "insert into $tableName (id"
+            for (String col : columnNames) {
+                insert_sql += ", " + col
+            }
+
+            def dataDir = "${context.dataPath}/"
+            for (int j = 0; j < fp.size(); j++) {
+                insert_sql += ") values (" + row_cnt
+                def filePath = dataDir + fp[j]
+                log.info("read file: ${filePath}".toString())
+                try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+                    String line
+                    while ((line = br.readLine()) != null) {
+                        log.info("line: ${line}".toString())
+                        for (String col : col_names) {
+                            insert_sql += ", " + line
+                        }
+                    }
+                    insert_sql += ")"
+                    row_cnt++
+                } catch (IOException e) {
+                    e.printStackTrace()
+                }
+                log.info("insert_sql: ${insert_sql}".toString())
+                sql insert_sql
+            }
+        }
+
+        def fp = [
+                "json_variant/booleans_boundary.jsonl",
+                "json_variant/nulls_boundary.jsonl",
+                "json_variant/numbers_boundary.jsonl",
+                "json_variant/strings_boundary.jsonl",
+                "json_variant/array_numbers_1_boundary_False.jsonl",
+                "json_variant/array_numbers_1_boundary_True.jsonl",
+                "json_variant/array_strings_1_boundary_False.jsonl",
+                "json_variant/array_strings_1_boundary_True.jsonl",
+                "json_variant/object_boundary.jsonl",
+        ]
+
+        read_json_data_for_json_variant.call("fn_test_json_variant_${suffixType}", fp, ["kjson", "kvariant", "kjson_notnull", "kvariant_notnull"])
+        read_json_data_for_json_variant.call("fn_test_json_variant_rowstore_${suffixType}", fp, ["kjson", "kvariant", "kjson_notnull", "kvariant_notnull"])
+
+        // check table content with rowstore table and not-rowstore table
+        def jv_res = sql "select * from fn_test_json_variant_${suffixType} order by id;"
+        def jv_res_rowstore = sql "select * from fn_test_json_variant_rowstore_${suffixType} order by id;"
+        assertEquals(jv_res.size(), jv_resrowstore.size())
+        for (int ii = 0; ii < jv_res.size(); ii++) {
+            for (int j = 0; j < jv_res[ii].size(); j++) {
+                assertEquals(jv_res[ii][j], jv_res[ii][j])
+            }
+        }
+
+        // check content
+        qt_sql_jv_1 = sql "select * from fn_test_json_variant_${suffixType} order by id"
+        qt_sql_jv_2 = sql "select * from fn_test_json_variant_rowstore_${suffixType} order by id"
+
+        // streamLoad with json file
+        // create table
+        sql """ DROP TABLE IF EXISTS test_json_variant_load_${suffixType}"""
+        sql """
+            CREATE TABLE IF NOT EXISTS `test_json_variant_load_${suffixType}` (
+                `id` int null,
+                `kjson` JSON ${defaultValue},
+                `kvariant` VARIANT ${defaultValue},
+                `kjson_notnull` JSON ${defaultNotNull},
+                `kvariant_notnull` VARIANT ${defaultNotNull}
+            ) engine=olap
+            ${suffixType.toUpperCase()} KEY(`id`)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true"
+                );
+        """
+        // rowstore with load
+        sql """ DROP TABLE IF EXISTS json_variant_rowstore_load_${suffixType}"""
+        sql """
+            CREATE TABLE IF NOT EXISTS `json_variant_rowstore_load_${suffixType}` (
+                `id` int null,
+                `kjson` JSON ${defaultValue},
+                `kvariant` VARIANT ${defaultValue},
+                `kjson_notnull` JSON ${defaultNotNull},
+                `kvariant_notnull` VARIANT ${defaultNotNull}
+            ) engine=olap
+            ${suffixType.toUpperCase()} KEY(`id`)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true",
+                    "store_row_column" = "true"
+                );
+        """
+
+        for (int j = 0; j < fp.size(); j++) {
+            streamLoad {
+                table "test_json_variant_load_${suffixType}"
+                db "regression_test_nereids_function_p0"
+                set 'format', 'json'
+                set 'strip_outer_array', 'true'
+                set 'columns', '''
+                    id=row_number(), kjson, kvariant, kjson_notnull, kvariant_notnull
+                    '''
+                file fp[j]
+            }
+
+            streamLoad {
+                table "json_variant_rowstore_load_${suffixType}"
+                db "regression_test_nereids_function_p0"
+                set 'format', 'json'
+                set 'strip_outer_array', 'true'
+                set 'columns', '''
+                    id=row_number(), kjson, kvariant, kjson_notnull, kvariant_notnull
+                    '''
+                file fp[j]
+            }
+
+            // check table content
+            def jv_load_res = sql "select * from test_json_variant_load_${suffixType} order by id;"
+            def jv_load_res_rowstore = sql "select * from json_variant_rowstore_load_${suffixType} order by id;"
+            assertEquals(jv_load_res.size(), jv_load_res_rowstore.size())
+            assertEquals(jv_res.size(), jv_load_res.size())
+            for (int ii = 0; ii < jv_load_res.size(); ii++) {
+                for (int jj = 0; jj < jv_load_res[ii].size(); jj++) {
+                    assertEquals(jv_load_res[ii][jj], jv_load_res[ii][jj])
+                    // check with insert into table
+                    assertEquals(jv_load_res[ii][jj], jv_res[ii][jj])
+                }
+            }
+        }
+    }
+
+
 }
