@@ -84,6 +84,7 @@ public:
                                                    size_t row_pos, size_t num_rows, uint32_t cid);
 
     void clear_source_content();
+    void clear_source_content(size_t cid);
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
 

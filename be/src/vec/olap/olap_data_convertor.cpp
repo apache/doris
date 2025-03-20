@@ -285,6 +285,10 @@ void OlapBlockDataConvertor::clear_source_content() {
     }
 }
 
+void OlapBlockDataConvertor::clear_source_content(size_t cid) {
+    _convertors[cid]->clear_source_column();
+}
+
 std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_column_data(
         size_t cid) {
     assert(cid < _convertors.size());

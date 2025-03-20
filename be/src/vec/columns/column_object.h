@@ -154,6 +154,18 @@ public:
 
         void insert_default();
 
+        void increment_default_counter() {
+            ++current_num_of_defaults;
+        }
+
+        void reset_current_num_of_defaults() {
+            current_num_of_defaults = 0;
+        }
+
+        size_t cur_num_of_defaults() {
+            return current_num_of_defaults;
+        }
+
         void insert_many_defaults(size_t length);
 
         void insert_range_from(const Subcolumn& src, size_t start, size_t length);
@@ -252,6 +264,9 @@ public:
         // If it is the root subcolumn of SubcolumnsTree,
         // the root Node should be JSONB type when finalize
         bool is_root = false;
+        size_t num_rows = 0;
+        // distinguish from num_of_defaults_in_prefix when data is not empty
+        size_t current_num_of_defaults = 0;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn>;
 

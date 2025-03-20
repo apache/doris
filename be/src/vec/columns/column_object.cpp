@@ -368,7 +368,10 @@ DataTypeSerDeSPtr ColumnObject::Subcolumn::generate_data_serdes(DataTypePtr type
 
 ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
                                    bool is_root_)
-        : least_common_type(type), is_nullable(is_nullable_), is_root(is_root_) {
+        : least_common_type(type),
+          is_nullable(is_nullable_),
+          is_root(is_root_),
+          num_rows(data_->size()) {
     data.push_back(std::move(data_));
     data_types.push_back(type);
     data_serdes.push_back(generate_data_serdes(type, is_root));
@@ -380,14 +383,11 @@ ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root
         : least_common_type(std::make_shared<DataTypeNothing>()),
           is_nullable(is_nullable_),
           num_of_defaults_in_prefix(size_),
-          is_root(is_root_) {}
+          is_root(is_root_),
+          num_rows(size_) {}
 
 size_t ColumnObject::Subcolumn::Subcolumn::size() const {
-    size_t res = num_of_defaults_in_prefix;
-    for (const auto& part : data) {
-        res += part->size();
-    }
-    return res;
+    return num_rows + current_num_of_defaults;
 }
 
 size_t ColumnObject::Subcolumn::Subcolumn::byteSize() const {
@@ -423,6 +423,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     auto base_type = WhichDataType(info.scalar_type_id);
+    ++num_rows;
     if (base_type.is_nothing() && info.num_dimensions == 0) {
         insert_default();
         return;
@@ -554,6 +555,7 @@ void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t sta
                 length, src.size());
     }
     size_t end = start + length;
+    num_rows += length;
     // num_rows += length;
     if (data.empty()) {
         add_new_column_part(src.get_least_common_type());
@@ -634,7 +636,7 @@ void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t sta
 }
 
 bool ColumnObject::Subcolumn::is_finalized() const {
-    return num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
+    return  current_num_of_defaults == 0 && num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
 }
 
 template <typename Func>
@@ -681,6 +683,10 @@ void ColumnObject::resize(size_t n) {
 }
 
 void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
+    if (current_num_of_defaults) {
+        insert_many_defaults(current_num_of_defaults);
+        current_num_of_defaults = 0;
+    }
     if (!is_root && data.size() == 1 && num_of_defaults_in_prefix == 0) {
         data[0] = data[0]->convert_to_full_column_if_const();
         return;
@@ -722,11 +728,12 @@ void ColumnObject::Subcolumn::finalize(FinalizeMode mode) {
 }
 
 void ColumnObject::Subcolumn::insert_default() {
-    if (data.empty()) {
+    if (UNLIKELY(data.empty())) {
         ++num_of_defaults_in_prefix;
     } else {
         data.back()->insert_default();
     }
+    ++num_rows;
 }
 
 void ColumnObject::Subcolumn::insert_many_defaults(size_t length) {
@@ -735,6 +742,7 @@ void ColumnObject::Subcolumn::insert_many_defaults(size_t length) {
     } else {
         data.back()->insert_many_defaults(length);
     }
+    num_rows += length;
 }
 
 void ColumnObject::Subcolumn::pop_back(size_t n) {
@@ -742,6 +750,7 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                                "Invalid number of elements to pop: {}, size: {}", n, size());
     }
+    num_rows -= n;
     size_t num_removed = 0;
     for (auto it = data.rbegin(); it != data.rend(); ++it) {
         if (n == 0) {
@@ -2127,6 +2136,7 @@ void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) 
         root.data[0] = casted_column;
         root.data_types[0] = expected_root_type;
         root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
+        root.num_rows = casted_column->size();
     }
 }
 
@@ -2181,6 +2191,9 @@ size_t ColumnObject::filter(const Filter& filter) {
     if (count == 0) {
         clear();
     } else {
+        for (auto& subcolumn : subcolumns) {
+            subcolumn->data.num_rows = count;
+        }
         for_each_subcolumn([&](auto& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
@@ -2210,6 +2223,7 @@ void ColumnObject::clear_column_data() {
             (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;
+        entry->data.num_rows = 0;
     }
     serialized_sparse_column->clear();
     num_rows = 0;
