@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -650,6 +651,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
+        if (cp.containsType(SubqueryExpr.class) && getScope().getOuterScope().isPresent()) {
+            Scope outerScope = getScope().getOuterScope().get();
+            for (Slot slot : cp.getInputSlots()) {
+                if (outerScope.getCorrelatedSlots().contains(slot)) {
+                    throw new AnalysisException(
+                            String.format("access outer query column %s in expression %s is not supported", slot, cp));
+                }
+            }
+        }
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
 
@@ -697,6 +707,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         } else {
             newCompareExpr = afterTypeCoercion.left();
+        }
+        if (getScope().getOuterScope().isPresent()) {
+            Scope outerScope = getScope().getOuterScope().get();
+            for (Slot slot : newCompareExpr.getInputSlots()) {
+                if (outerScope.getCorrelatedSlots().contains(slot)) {
+                    throw new AnalysisException(
+                            String.format("access outer query column %s in expression %s is not supported",
+                                    slot, inSubquery));
+                }
+            }
         }
         return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
                 inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
