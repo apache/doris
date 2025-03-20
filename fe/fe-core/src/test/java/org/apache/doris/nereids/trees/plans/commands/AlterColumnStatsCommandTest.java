@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -47,8 +49,10 @@ public class AlterColumnStatsCommandTest {
     private AccessControllerManager accessControllerManager;
     @Mocked
     private ConnectContext connectContext;
+    private Database db;
 
     private void runBefore() throws Exception {
+        db = CatalogMocker.mockDb();
         new Expectations() {
             {
                 Env.getCurrentEnv();
@@ -61,7 +65,7 @@ public class AlterColumnStatsCommandTest {
 
                 catalog.getDb(anyString);
                 minTimes = 0;
-                result = CatalogMocker.mockDb();
+                result = db;
 
                 env.getAccessManager();
                 minTimes = 0;
@@ -157,6 +161,12 @@ public class AlterColumnStatsCommandTest {
         AlterColumnStatsCommand command8 = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo, indexName, columnName, properties3);
         Assertions.assertThrows(AnalysisException.class, () -> command8.validate(connectContext),
                  "Set column stats must set row_count. e.g. 'row_count'='5'");
+
+        //test enable stats
+        connectContext.getSessionVariable().enableStats = false;
+        AlterColumnStatsCommand command9 = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo, indexName, columnName, properties);
+        Assertions.assertThrows(UserException.class, () -> command9.validate(connectContext),
+                "Analyze function is forbidden, you should add `enable_stats=true` in your FE conf file");
     }
 
     @Test
@@ -170,10 +180,6 @@ public class AlterColumnStatsCommandTest {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
-                minTimes = 0;
-                result = false;
 
                 accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME,
                         PrivPredicate.ALTER);
@@ -192,6 +198,7 @@ public class AlterColumnStatsCommandTest {
         Map<String, String> properties = new HashMap<>();
 
         AlterColumnStatsCommand command = new AlterColumnStatsCommand(tableNameInfo2, partitionNamesInfo2, indexName, columnName, properties);
+        connectContext.getSessionVariable().enableStats = true;
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                     "ALTER TABLE STATS command denied to user 'null'@'null' for table 'test_db: test_tbl2'");
     }

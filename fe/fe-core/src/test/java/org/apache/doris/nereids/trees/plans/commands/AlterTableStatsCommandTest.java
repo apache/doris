@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.backup.CatalogMocker;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -47,8 +49,10 @@ public class AlterTableStatsCommandTest {
     private AccessControllerManager accessControllerManager;
     @Mocked
     private ConnectContext connectContext;
+    private Database db;
 
     private void runBefore() throws Exception {
+        db = CatalogMocker.mockDb();
         new Expectations() {
             {
                 Env.getCurrentEnv();
@@ -61,7 +65,7 @@ public class AlterTableStatsCommandTest {
 
                 catalog.getDb(anyString);
                 minTimes = 0;
-                result = CatalogMocker.mockDb();
+                result = db;
 
                 env.getAccessManager();
                 minTimes = 0;
@@ -123,6 +127,12 @@ public class AlterTableStatsCommandTest {
         AlterTableStatsCommand command4 = new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo3, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command4.validate(connectContext),
                 "Partition does not exist: partition_not_exist");
+
+        //test enable stats
+        connectContext.getSessionVariable().enableStats = false;
+        AlterTableStatsCommand command5 = new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo, properties);
+        Assertions.assertThrows(UserException.class, () -> command5.validate(connectContext),
+                "Analyze function is forbidden, you should add `enable_stats=true` in your FE conf file");
     }
 
     @Test
@@ -137,10 +147,6 @@ public class AlterTableStatsCommandTest {
                 minTimes = 0;
                 result = accessControllerManager;
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
-                minTimes = 0;
-                result = false;
-
                 accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME,
                         PrivPredicate.ALTER);
                 minTimes = 0;
@@ -154,6 +160,7 @@ public class AlterTableStatsCommandTest {
                 ImmutableList.of(CatalogMocker.TEST_PARTITION1_NAME));
         Map<String, String> properties = new HashMap<>();
         AlterTableStatsCommand command = new AlterTableStatsCommand(tableNameInfo2, partitionNamesInfo2, properties);
+        connectContext.getSessionVariable().enableStats = true;
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "ALTER TABLE STATS command denied to user 'null'@'null' for table 'test_db: test_tbl2'");
     }
