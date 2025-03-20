@@ -479,6 +479,24 @@ public class PolicyMgr implements Writable {
         }
     }
 
+
+
+    /**
+     * Show Row Policy.
+     **/
+    public ShowResultSet showRowPolicy(UserIdentity user, String role) throws AnalysisException {
+        RowPolicy rowPolicy = new RowPolicy();
+        if (user != null) {
+            rowPolicy.setUser(user);
+        }
+        if (!StringUtils.isEmpty(role)) {
+            rowPolicy.setRoleName(role);
+        }
+
+        final Policy finalCheckedPolicy = rowPolicy;
+        return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.ROW);
+    }
+
     /**
      * Show Storage Policy.
      **/
