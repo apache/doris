@@ -21,10 +21,13 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -43,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -361,20 +365,36 @@ public class PlanUtils {
      */
     public static Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
+                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(cascadesContext);
+        expression = analyzer.analyze(expression);
+
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
         ExpressionToExpr translator = new ExpressionToExpr();
-        return expression.accept(translator, planTranslatorContext);
+        return expression.accept(translator, translatorContext);
+    }
+
+    private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {
+        public CustomExpressionAnalyzer(CascadesContext cascadesContext) {
+            super(null, new Scope(ImmutableList.of()), cascadesContext, false, false);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+            return new SlotReference(unboundSlot.getName(), NullType.INSTANCE);
+        }
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {
         @Override
-        public Expr visitUnboundSlot(UnboundSlot unboundSlot, PlanTranslatorContext context) {
-            String inputCol = unboundSlot.getName();
-            return new SlotRef(null, inputCol);
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
+            slotRef.setLabel(slotReference.getName());
+            slotRef.setCol(slotReference.getName());
+            slotRef.setDisableTableName(true);
+            return slotRef;
         }
     }
 }
