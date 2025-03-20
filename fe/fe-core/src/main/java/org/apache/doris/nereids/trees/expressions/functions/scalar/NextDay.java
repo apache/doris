@@ -53,11 +53,7 @@ import java.util.List;
 public class NextDay extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, StringType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, StringType.INSTANCE));
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE));
 
     public NextDay(Expression arg0, Expression arg1) {
         super("next_day", arg0, arg1);
