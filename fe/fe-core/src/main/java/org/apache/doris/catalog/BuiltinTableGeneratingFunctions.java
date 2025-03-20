@@ -81,7 +81,7 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(PosExplodeOuter.class, "posexplode_outer")
     );
 
-    public final ImmutableSet<String> returnManyColumnInStructFunctions = new ImmutableSortedSet.Builder<String>(
+    public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
             String.CASE_INSENSITIVE_ORDER).add("explode").add("explode_outer").add("explode_variant_array")
             .add("explode_variant_array_outer").build();
 
