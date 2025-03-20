@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -623,13 +622,12 @@ public class SchemaTable extends Table {
                                     .build())
             ).put("optimizer_sql_plan_outline",
                 new SchemaTable(SystemIdGenerator.getNextId(), "optimizer_sql_plan_outline", TableType.SCHEMA,
-                    builder().column("OUTLINE_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                        .column("OUTLINE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
-                        .column("VISIBLE_SIGNATURE", ScalarType.createVarchar(VarcharType.MAX_VARCHAR_LENGTH))
-                        .column("SQL_ID", ScalarType.createVarchar(64))
-                        .column("SQL_TEXT", ScalarType.createVarchar(VarcharType.MAX_VARCHAR_LENGTH))
-                        .column("OUTLINE_TARGET", ScalarType.createVarchar(VarcharType.MAX_VARCHAR_LENGTH))
-                        .column("OUTLINE_DATE", ScalarType.createVarchar(VarcharType.MAX_VARCHAR_LENGTH)).build()))
+                    builder().column("OUTLINE_NAME", ScalarType.createStringType())
+                        .column("VISIBLE_SIGNATURE", ScalarType.createStringType())
+                        .column("SQL_ID", ScalarType.createStringType())
+                        .column("SQL_TEXT", ScalarType.createStringType())
+                        .column("OUTLINE_TARGET", ScalarType.createStringType())
+                        .column("OUTLINE_DATA", ScalarType.createStringType()).build()))
             .build();
 
     private boolean fetchAllFe = false;

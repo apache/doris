@@ -89,6 +89,8 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.hint.OutlineInfo;
+import org.apache.doris.nereids.hint.OutlineMgr;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -147,6 +149,8 @@ import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
+import org.apache.doris.thrift.TFetchOutlineInfoRequest;
+import org.apache.doris.thrift.TFetchOutlineInfoResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
 import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
@@ -210,6 +214,7 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTablePartition;
+import org.apache.doris.thrift.TOutlineInfo;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TPlsqlPackageResult;
@@ -4290,6 +4295,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("routine load job infos: {}", jobInfos);
         }
         result.setRoutineLoadJobs(jobInfos);
+
+        return result;
+    }
+
+    @Override
+    public TFetchOutlineInfoResult fetchOutlineInfo(TFetchOutlineInfoRequest request) {
+        TFetchOutlineInfoResult result = new TFetchOutlineInfoResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        OutlineMgr outlineMgr = Env.getCurrentEnv().getOutlineMgr();
+        List<TOutlineInfo> outlineInfos = Lists.newArrayList();
+        Map<String, OutlineInfo> outlineInfoMap = outlineMgr.getOutlineMap();
+        for (Map.Entry<String, OutlineInfo> entry : outlineInfoMap.entrySet()) {
+            TOutlineInfo outlineInfo = new TOutlineInfo();
+            OutlineInfo info = entry.getValue();
+            outlineInfo.setOutlineName(info.getOutlineName());
+            outlineInfo.setVisibleSignature(info.getVisibleSignature());
+            outlineInfo.setSqlId(info.getSqlId());
+            outlineInfo.setSqlText(info.getSqlText());
+            outlineInfo.setOutlineTarget(info.getOutlineTarget());
+            outlineInfo.setOutlineData(info.getOutlineData());
+            outlineInfos.add(outlineInfo);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("outline infos: {}", outlineInfos);
+        }
+        result.setOutlineInfos(outlineInfos);
 
         return result;
     }
