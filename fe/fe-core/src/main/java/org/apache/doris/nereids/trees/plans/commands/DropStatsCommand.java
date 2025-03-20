@@ -120,7 +120,7 @@ public class DropStatsCommand extends DropCommand {
         dbId = db.getId();
         catalogId = catalog.getId();
         // check permission
-        checkAnalyzePriv(catalogName, db.getFullName(), table.getName());
+        checkAnalyzePriv(catalogName, dbName, tblName);
         // check columnNames
         if (!columnNames.isEmpty()) {
             if (columnNames.size() > MAX_IN_ELEMENT_TO_DELETE) {
