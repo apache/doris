@@ -101,5 +101,6 @@ suite("test_unique_validate_restore", "validate_restore") {
     }
 
     runUniqueValidateRestore("3.0")
+    runUniqueValidateRestore("2.1")
 }
 

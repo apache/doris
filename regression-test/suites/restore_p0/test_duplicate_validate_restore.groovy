@@ -82,5 +82,6 @@ suite("test_duplicate_validate_restore", "validate_restore") {
     }
 
     runDuplicateValidateRestore("3.0")
+    runDuplicateValidateRestore("2.1")
 }
 

@@ -107,4 +107,5 @@ suite("test_validate_restore_with_view", "validate_restore") {
     }
 
     runValidateRestoreWithView("3.0")
+    runValidateRestoreWithView("2.1")
 }

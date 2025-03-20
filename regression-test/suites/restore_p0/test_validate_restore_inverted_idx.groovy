@@ -157,6 +157,7 @@ suite("test_validate_restore_inverted_idx", "validate_restore") {
     }
 
     runValidateRestoreInvertedIdx("3.0")
+    runValidateRestoreInvertedIdx("2.1")
 }
 
 

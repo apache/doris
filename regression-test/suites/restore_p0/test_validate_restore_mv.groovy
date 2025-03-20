@@ -74,6 +74,7 @@ suite("test_validate_restore_mv", "validate_restore") {
     }
 
     runValidateRestoreMv("3.0")
+    runValidateRestoreMv("2.1")
 }
 
 
