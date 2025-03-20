@@ -1036,7 +1036,6 @@ public:
     }
 };
 
-template <typename FunctionImpl>
 class FunctionNextDay : public IFunction {
 public:
     static constexpr auto name = "next_day";
