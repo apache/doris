@@ -105,7 +105,7 @@ suite("test_backup_restore_with_view", "backup_restore") {
     """
 
     syncer.waitAllRestoreFinish(dbName1)
-    restore_result = sql_return_maparray """ SHOW RESTORE FROM ${dbName1} WHERE Label ="${snapshotName}" """
+    def restore_result = sql_return_maparray """ SHOW RESTORE FROM ${dbName1} WHERE Label ="${snapshotName}" """
     restore_result.last()
     logger.info("show restore result: ${restore_result}")
     assertTrue(restore_result.last().State == "FINISHED")
