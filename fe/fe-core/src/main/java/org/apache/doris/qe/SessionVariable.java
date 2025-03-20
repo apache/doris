@@ -4028,7 +4028,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
-        tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
