@@ -461,7 +461,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
@@ -620,6 +620,24 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
+            )
+            .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
+                    builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("REPLICA_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_PATH", ScalarType.createStringType())
+                            .column("TABLET_LOCAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_REMOTE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("VERSION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SEGMENT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NUM_COLUMNS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROW_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMPACTION_SCORE", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMPRESS_KIND", ScalarType.createStringType())
+                            .column("IS_USED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .build())
             )
             .build();
 
