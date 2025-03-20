@@ -150,10 +150,10 @@ public class AlterColumnStatsCommandTest {
 
         //test invalid statistics
         Map<String, String> properties2 = new HashMap<>();
-        properties2.put("invalid_key", "invalide_value");
+        properties2.put("histogram", "invalide_value");
         AlterColumnStatsCommand command7 = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo, indexName, columnName, properties2);
         Assertions.assertThrows(AnalysisException.class, () -> command7.validate(connectContext),
-                "invalid_key is invalid statistics");
+                "histogram is invalid statistics");
 
         //row_count is not exist
         Map<String, String> properties3 = new HashMap<>();

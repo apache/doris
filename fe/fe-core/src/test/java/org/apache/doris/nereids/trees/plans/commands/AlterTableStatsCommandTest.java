@@ -108,10 +108,10 @@ public class AlterTableStatsCommandTest {
 
         //test invalid statistics
         Map<String, String> properties2 = new HashMap<>();
-        properties2.put("invalid_key", "invalide_value");
+        properties2.put("histogram", "invalide_value");
         AlterTableStatsCommand command2 = new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo, properties2);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
-                "invalid_key is invalid statistics");
+                "histogram is invalid statistics");
 
         //test unPartition table
         TableNameInfo tableNameInfo2 =
