@@ -200,7 +200,9 @@ public:
         while (args_info.current_row_idx < block->rows()) {
             bool mem_reuse = lambda_block.mem_reuse();
             for (int i = 0; i < column_size; i++) {
-                if (!mem_reuse) {
+                if (mem_reuse) {
+                    columns[i] = lambda_block.get_by_position(i).column->assume_mutable();
+                } else {
                     if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                         // TODO: maybe could create const column, so not insert_many_from when extand data
                         // but now here handle batch_size of array nested data every time, so maybe have different rows
