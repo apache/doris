@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 
@@ -36,7 +38,7 @@ public class ExplodeVariantArrayTest {
 
     @Test
     public void testGetSignatures() {
-        // build explode(variant, variant) expression
+        // build explode_variant_array(variant, variant) expression
         Expression[] args = { SlotReference.of("int", VariantType.INSTANCE), SlotReference.of("int", VariantType.INSTANCE) };
         ExplodeVariantArray explode = new ExplodeVariantArray(args);
 
@@ -46,11 +48,21 @@ public class ExplodeVariantArrayTest {
         FunctionSignature signature = signatures.get(0);
         Assertions.assertEquals(2, signature.argumentsTypes.size());
         Assertions.assertTrue(signature.argumentsTypes.get(0).isVariantType());
+        Assertions.assertTrue(signature.argumentsTypes.get(1).isVariantType());
         Assertions.assertTrue(signature.returnType.isStructType());
         StructType returnType = (StructType) signature.returnType;
         Assertions.assertEquals(2, returnType.getFields().size());
         Assertions.assertEquals(VariantType.INSTANCE, returnType.getFields().get(0).getDataType());
         Assertions.assertEquals(VariantType.INSTANCE, returnType.getFields().get(1).getDataType());
+    }
+
+    @Test
+    public void testGetSignaturesWithInvalidArgument() {
+        // build explode_variant_array(int)
+        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
+        ExplodeVariantArray explode = new ExplodeVariantArray(args);
+
+        Assertions.assertThrows(AnalysisException.class, explode::getSignatures);
     }
 
 }

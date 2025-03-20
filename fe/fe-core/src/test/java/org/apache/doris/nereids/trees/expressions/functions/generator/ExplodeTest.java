@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructType;
 
 import org.junit.jupiter.api.Assertions;
@@ -37,8 +40,9 @@ public class ExplodeTest {
 
     @Test
     public void testGetSignatures() {
-        // build explode(array<int>, array<int>) expression
-        Expression[] args = { SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)), SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
+        // build explode(array<int>, array<str>) expression
+        Expression[] args = {SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE)),
+            SlotReference.of("str", ArrayType.of(StringType.INSTANCE))};
         Explode explode = new Explode(args);
 
         // check signature
@@ -47,11 +51,45 @@ public class ExplodeTest {
         FunctionSignature signature = signatures.get(0);
         Assertions.assertEquals(2, signature.argumentsTypes.size());
         Assertions.assertTrue(signature.argumentsTypes.get(0).isArrayType());
+        Assertions.assertTrue(((ArrayType) signature.argumentsTypes.get(0)).getItemType().isIntegerType());
+        Assertions.assertTrue(signature.argumentsTypes.get(1).isArrayType());
+        Assertions.assertTrue(((ArrayType) signature.argumentsTypes.get(1)).getItemType().isStringType());
         Assertions.assertTrue(signature.returnType.isStructType());
         StructType returnType = (StructType) signature.returnType;
         Assertions.assertEquals(2, returnType.getFields().size());
         Assertions.assertEquals(IntegerType.INSTANCE, returnType.getFields().get(0).getDataType());
+        Assertions.assertEquals(StringType.INSTANCE, returnType.getFields().get(1).getDataType());
+    }
+
+    @Test
+    public void testGetSignaturesWithNull() {
+        // build explode(null, array<int>) expression
+        Expression[] args = { SlotReference.of("null", NullType.INSTANCE), SlotReference.of("int", ArrayType.of(IntegerType.INSTANCE))};
+        Explode explode = new Explode(args);
+
+        // check signature
+        List<FunctionSignature> signatures = explode.getSignatures();
+        Assertions.assertEquals(1, signatures.size());
+        FunctionSignature signature = signatures.get(0);
+        Assertions.assertEquals(2, signature.argumentsTypes.size());
+        Assertions.assertTrue(signature.argumentsTypes.get(0).isArrayType());
+        Assertions.assertTrue(((ArrayType) signature.argumentsTypes.get(0)).getItemType().isNullType());
+        Assertions.assertTrue(signature.argumentsTypes.get(1).isArrayType());
+        Assertions.assertTrue(((ArrayType) signature.argumentsTypes.get(1)).getItemType().isIntegerType());
+        Assertions.assertTrue(signature.returnType.isStructType());
+        StructType returnType = (StructType) signature.returnType;
+        Assertions.assertEquals(2, returnType.getFields().size());
+        Assertions.assertEquals(NullType.INSTANCE, returnType.getFields().get(0).getDataType());
         Assertions.assertEquals(IntegerType.INSTANCE, returnType.getFields().get(1).getDataType());
+    }
+
+    @Test
+    public void testGetSignaturesWithInvalidArgument() {
+        // build explode(int)
+        Expression[] args = { SlotReference.of("int", IntegerType.INSTANCE) };
+        Explode explode = new Explode(args);
+
+        Assertions.assertThrows(AnalysisException.class, explode::getSignatures);
     }
 
 }
