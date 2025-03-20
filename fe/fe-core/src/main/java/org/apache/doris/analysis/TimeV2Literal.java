@@ -85,15 +85,16 @@ public class TimeV2Literal extends LiteralExpr {
         analysisDone();
     }
 
-    public TimeV2Literal(String s) {
+    public TimeV2Literal(String s, ScalarType type) {
         super();
+        this.type = type;
         init(s);
         analysisDone();
     }
 
     protected TimeV2Literal(TimeV2Literal other) {
         super(other);
-        this.type = ScalarType.createTimeV2Type(((ScalarType) other.type).getScalarScale());
+        this.type = other.type;
         this.hour = other.getHour();
         this.minute = other.getMinute();
         this.second = other.getSecond();
@@ -174,16 +175,13 @@ public class TimeV2Literal extends LiteralExpr {
             String microStr = secondParts[1];
             int len = microStr.length();
 
-            if (len > 6) {
-                microStr = microStr.substring(0, 6);
-            }
+            microStr = microStr.substring(0, Math.min(len, ((ScalarType) type).getScalarScale()));
 
             StringBuilder sb = new StringBuilder(microStr);
             while (sb.length() < 6) {
                 sb.append('0');
             }
 
-            this.type = ScalarType.createTimeV2Type(len);
             try {
                 microsecond = Integer.parseInt(sb.toString());
             } catch (NumberFormatException e) {
@@ -232,8 +230,9 @@ public class TimeV2Literal extends LiteralExpr {
         } else {
             sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
-        if (((ScalarType) type).getScalarScale() > 0) {
-            sb.append(String.format(".%0" + ((ScalarType) type).getScalarScale() + "d", microsecond));
+        int scale = ((ScalarType) type).getScalarScale();
+        if (scale > 0) {
+            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
     }

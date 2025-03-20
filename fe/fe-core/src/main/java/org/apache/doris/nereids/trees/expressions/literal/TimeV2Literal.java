@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -153,10 +154,7 @@ public class TimeV2Literal extends Literal {
             String microStr = secondParts[1];
             int len = microStr.length();
 
-            if (len > 6) {
-                microStr = microStr.substring(0, 6);
-            }
-
+            microStr = microStr.substring(0, Math.min(len, ((TimeV2Type) dataType).getScale()));
             StringBuilder sb = new StringBuilder(microStr);
             while (sb.length() < 6) {
                 sb.append('0');
@@ -205,7 +203,8 @@ public class TimeV2Literal extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.TimeV2Literal(getStringValue());
+        int scale = ((TimeV2Type) dataType).getScale();
+        return new org.apache.doris.analysis.TimeV2Literal(getStringValue(), ScalarType.createTimeV2Type(scale));
     }
 
     @Override
@@ -219,8 +218,12 @@ public class TimeV2Literal extends Literal {
         } else {
             sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
-        if (((TimeV2Type) dataType).getScale() > 0) {
-            sb.append(String.format(".%" + ((TimeV2Type) dataType).getScale() + "d", microsecond));
+        // why re caculate microsecond? example:
+        // the microsecond is 001000, it will parsed to 1000
+        // the scale is 3, we need make sure it not become start with 1
+        int scale = ((TimeV2Type) dataType).getScale();
+        if (scale > 0) {
+            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
     }
