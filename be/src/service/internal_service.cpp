@@ -917,7 +917,7 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      const PFetchArrowFlightSchemaRequest* request,
                                                      PFetchArrowFlightSchemaResult* result,
                                                      google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, result, done]() {
+    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
@@ -942,7 +942,7 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _arrow_flight_work_pool);
         return;
     }
 }
