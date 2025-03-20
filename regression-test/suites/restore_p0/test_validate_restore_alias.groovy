@@ -60,4 +60,5 @@ suite("test_validate_restore_alias", "validate_restore") {
     }
 
     runValidateRestoreAlias("3.0")
+    runValidateRestoreAlias("2.1")
 }
