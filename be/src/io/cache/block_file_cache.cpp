@@ -1889,7 +1889,9 @@ void BlockFileCache::run_background_evict_in_advance() {
         batch = config::file_cache_evict_in_advance_batch_bytes;
 
         // Skip if eviction not needed or too many pending recycles
-        if (!_need_evict_cache_in_advance || _recycle_keys.size_approx() >= (batch * 10)) {
+        if (!_need_evict_cache_in_advance ||
+            _recycle_keys.size_approx() >=
+                    config::file_cache_evict_in_advance_recycle_keys_num_threshold) {
             continue;
         }
 
