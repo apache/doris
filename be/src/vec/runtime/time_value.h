@@ -22,6 +22,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "util/string_parser.hpp"
 #include "vec/data_types/data_type_time.h"
 
 namespace doris {
@@ -80,6 +81,120 @@ public:
 
     static TimeType from_second(int64_t sec) {
         return static_cast<TimeType>(sec * ONE_SECOND_MICROSECONDS);
+    }
+
+    // Cast from string
+    // Some examples of conversions.
+    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
+    template <typename T>
+    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
+        /// TODO: Maybe we can move Timecast to the io_helper.
+        if (try_as_time(s, len, x, local_time_zone)) {
+            return true;
+        } else {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
+                // can be parse as a datetime
+                x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
+                return true;
+            }
+            return false;
+        }
+    }
+
+    template <typename T>
+    static bool try_as_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
+        char* first_char = s;
+        char* end_char = s + len;
+        int64_t hour = 0, minute = 0, second = 0;
+        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
+            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+            auto int_value =
+                    StringParser::string_to_unsigned_int<uint64_t>(begin, (int)len, &parse_result);
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                return false;
+            }
+            num = int_value;
+            return true;
+        };
+        if (char* first_colon {nullptr};
+            (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
+            if (char* second_colon {nullptr};
+                (second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
+                nullptr) {
+                // find two colon
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    // hour  failed
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
+                                           minute)) {
+                    return false;
+                }
+                // parse second
+                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
+                    return false;
+                }
+            } else {
+                // find one colon
+                // parse hour
+                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                    return false;
+                }
+                // parse minute
+                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
+                    return false;
+                }
+            }
+        } else {
+            // no colon ,so try to parse as a number
+            size_t from {};
+            if (!parse_from_str_to_int(first_char, len, from)) {
+                return false;
+            }
+            return try_parse_time(from, x, local_time_zone);
+        }
+        // minute second must be < 60
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = TimeValue::make_time(hour, minute, second);
+        return true;
+    }
+    // Cast from number
+    template <typename T, typename S>
+    //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
+    static bool try_parse_time(T from_other, S& x, const cctz::time_zone& local_time_zone) {
+        int64_t from = (int64_t)from_other;
+        int64 seconds = int64(from / 100);
+        int64 hour = 0, minute = 0, second = 0;
+        second = int64(from - 100 * seconds);
+        from /= 100;
+        seconds = int64(from / 100);
+        minute = int64(from - 100 * seconds);
+        hour = seconds;
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = TimeValue::make_time(hour, minute, second);
+        return true;
+    }
+    template <typename S>
+    static bool try_parse_time(__int128 from_128, S& x, const cctz::time_zone& local_time_zone) {
+        int64_t from = from_128 % (int64)(1000000000000);
+        int64 seconds = from / 100;
+        int64 hour = 0, minute = 0, second = 0;
+        second = from - 100 * seconds;
+        from /= 100;
+        seconds = from / 100;
+        minute = from - 100 * seconds;
+        hour = seconds;
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = TimeValue::make_time(hour, minute, second);
+        return true;
     }
 };
 
