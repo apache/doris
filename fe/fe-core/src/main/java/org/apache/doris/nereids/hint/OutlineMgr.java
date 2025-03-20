@@ -65,6 +65,10 @@ public class OutlineMgr implements Writable {
         return Optional.empty();
     }
 
+    public static Map<String, OutlineInfo> getOutlineMap() {
+        return outlineMap;
+    }
+
     /**
      * createOutlineInternal
      * @param outlineInfo outline info used to create outline
@@ -104,7 +108,7 @@ public class OutlineMgr implements Writable {
      * @throws DdlException should throw exception when meeting problem
      */
     public static void dropOutlineInternal(String outlineName, boolean ifExists, boolean isReplay)
-        throws DdlException {
+            throws DdlException {
         writeLock();
         try {
             if (!ifExists && !OutlineMgr.getOutline(outlineName).isPresent()) {

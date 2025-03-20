@@ -151,4 +151,13 @@ Status SchemaHelper::fetch_routine_load_job(const std::string& ip, const int32_t
             });
 }
 
+Status SchemaHelper::fetch_outline_info(const std::string& ip, const int32_t port,
+                                            const TFetchOutlineInfoRequest& request,
+                                            TFetchOutlineInfoResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchOutlineInfo(*result, request);
+            });
+}
+
 } // namespace doris
