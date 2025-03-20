@@ -87,9 +87,8 @@ public:
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
-
-    Status submit();
+    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool,
+                   RuntimeFilterMergeController* controller);
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -118,15 +117,8 @@ public:
 
     [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
 
-    void clear_finished_tasks() {
-        for (size_t j = 0; j < _tasks.size(); j++) {
-            for (size_t i = 0; i < _tasks[j].size(); i++) {
-                _tasks[j][i]->stop_if_finished();
-            }
-        }
-    }
-
 private:
+    Status _submit(std::vector<std::vector<PipelineTaskSPtr>>& tasks);
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
@@ -171,6 +163,7 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
+                                 std::vector<std::vector<PipelineTaskSPtr>>& tasks,
                                  ThreadPool* thread_pool);
     void _close_fragment_instance();
     void _init_next_report_time();
@@ -234,7 +227,7 @@ private:
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
+    std::vector<std::vector<PipelineTaskWPtr>> _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

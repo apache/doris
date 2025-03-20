@@ -44,25 +44,27 @@ class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
-class PipelineTask {
+class PipelineTask : public TaskExecutionContext {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-                 PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                 std::shared_ptr<PipelineFragmentContext> fragment_context,
+                 RuntimeProfile* parent_profile,
                  std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                                          std::shared_ptr<Dependency>>>
                          le_state_map,
                  int task_idx);
 
+    ~PipelineTask();
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink, QueryContext* query_ctx);
 
-    Status execute(bool* eos);
+    Status execute(bool* done);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status, bool close_sink = true);
 
-    PipelineFragmentContext* fragment_context() { return _fragment_context; }
+    std::shared_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
 
@@ -80,17 +82,6 @@ public:
     void finalize();
 
     std::string debug_string();
-
-    bool is_pending_finish() {
-        for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return true;
-            }
-        }
-        return false;
-    }
 
     std::shared_ptr<BasicSharedState> get_source_shared_state() {
         return _op_shared_states.contains(_source->operator_id())
@@ -134,30 +125,8 @@ public:
 
     void set_wake_up_early() { _wake_up_early = true; }
 
-    void clear_blocking_state() {
-        // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!_finalized) {
-            for (auto* dep : _spill_dependencies) {
-                dep->set_always_ready();
-            }
-
-            for (auto* dep : _filter_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto& deps : _read_dependencies) {
-                for (auto* dep : deps) {
-                    dep->set_always_ready();
-                }
-            }
-            for (auto* dep : _write_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto* dep : _finish_dependencies) {
-                dep->set_always_ready();
-            }
-        }
-    }
+    // Execution phase should be terminated. This is called if this task is canceled or waken up early.
+    void terminate();
 
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
@@ -184,7 +153,7 @@ public:
     bool is_running() { return _running.load(); }
     bool is_revoking() {
         for (auto* dep : _spill_dependencies) {
-            if (dep->is_blocked_by(nullptr) != nullptr) {
+            if (dep->is_blocked_by() != nullptr) {
                 return true;
             }
         }
@@ -220,15 +189,9 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
-    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+    RuntimeProfile* get_task_profile() const { return _task_profile; }
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
-
-    void stop_if_finished() {
-        if (_sink->is_finished(_state)) {
-            clear_blocking_state();
-        }
-    }
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
     [[nodiscard]] size_t get_revocable_size() const;
@@ -244,8 +207,12 @@ public:
 
 private:
     friend class RuntimeFilterDependency;
-    bool _is_blocked();
+    // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
+    // Whether this task is blocked during execution (read dependency, write dependency)
+    bool _is_blocked();
+    // Whether this task is blocked after execution (pending finish dependency)
+    bool _is_pending_finish();
 
     Status _extract_dependencies();
     void _init_profile();
@@ -261,7 +228,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
-    PipelineFragmentContext* _fragment_context = nullptr;
+    std::shared_ptr<PipelineFragmentContext> _fragment_context;
     MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
@@ -275,7 +242,7 @@ private:
     int _queue_level = 0;
 
     RuntimeProfile* _parent_profile = nullptr;
-    std::unique_ptr<RuntimeProfile> _task_profile;
+    RuntimeProfile* _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer = nullptr;
     RuntimeProfile::Counter* _prepare_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -341,6 +308,10 @@ private:
     };
 
     State _exec_state = State::NORMAL;
+    MonotonicStopWatch _state_change_watcher;
 };
+
+using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
+using PipelineTaskWPtr = std::weak_ptr<PipelineTask>;
 
 } // namespace doris::pipeline

@@ -178,7 +178,7 @@ public:
     void clear_origin_block();
 
     void reached_limit(vectorized::Block* block, bool* eos);
-    RuntimeProfile* profile() { return _runtime_profile.get(); }
+    RuntimeProfile* profile() { return _runtime_profile; }
 
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
@@ -223,7 +223,7 @@ protected:
     int64_t _num_rows_returned {0};
     int64_t _estimate_memory_usage {0};
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    RuntimeProfile* _runtime_profile;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
