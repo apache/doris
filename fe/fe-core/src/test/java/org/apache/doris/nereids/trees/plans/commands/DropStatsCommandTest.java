@@ -118,7 +118,7 @@ public class DropStatsCommandTest {
         TableNameInfo tableNameInfo2 =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, "");
         DropStatsCommand command2 = new DropStatsCommand(tableNameInfo2, columns, partitionNamesInfo);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> command2.validate(connectContext),
                 "Table name is null");
 
         //test unkown catalog

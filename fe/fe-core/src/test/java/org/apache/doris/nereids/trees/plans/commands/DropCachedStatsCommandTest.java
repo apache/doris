@@ -102,7 +102,7 @@ public class DropCachedStatsCommandTest {
         TableNameInfo tableNameInfo2 =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, "");
         DropCachedStatsCommand command2 = new DropCachedStatsCommand(tableNameInfo2);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> command2.validate(connectContext),
                 "Table name is null");
 
         //test unkown catalog
