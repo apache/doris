@@ -209,7 +209,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             // disable constant fold
             ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
             plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
-                    ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                    ExplainCommand.ExplainLevel.ANALYZED_PLAN);
         } finally {
             // after operate, roll back the disable rules
             ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
