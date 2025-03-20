@@ -453,6 +453,13 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
         std::unique_lock wlock(tmp_tablet->get_header_lock());
         tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
     }
+    std::string tmp_rowsets_msg {};
+    for (const auto& [k, v] : tmp_tablet->rowset_map()) {
+        tmp_rowsets_msg += fmt::format("version={},rowset={},txn_id={}\n", k.to_string(),
+                                       v->rowset_id().to_string(), v->txn_id());
+    }
+    LOG_INFO("new_tablet={}, before process delete bitmaps, tmp_tablet's rowsets:\n{}",
+             _new_tablet->tablet_id(), tmp_rowsets_msg);
 
     // step 1, process incremental rowset without delete bitmap update lock
     std::vector<RowsetSharedPtr> incremental_rowsets;
@@ -514,11 +521,22 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator, &delete_bitmap));
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
+    std::string msg {};
+    for (const auto& [k, v] : delete_bitmap.delete_bitmap) {
+        msg += fmt::format("  rowset_id={},segment={},ver={},delete bitmap cardinality={}\n",
+                           std::get<0>(k).to_string(), std::get<1>(k), std::get<2>(k),
+                           v.cardinality());
+    }
+    LOG_INFO("[Schema Change] new_tablet_id={}, update delete bitmap detail:\n{}",
+             _new_tablet->tablet_id(), msg);
     LOG_INFO(
-            "[Schema Change] update delete bitmap, new_tablet_id={}, delete bitmap count={}, "
-            "delete bitmap cardinality={}, initiator={}",
+            "[Schema Change] update delete bitmap, new_tablet_id={}, update delete bitmap "
+            "count={}, update delete bitmap cardinality={}, initiator={}, _new_tablet's delete "
+            "bitmap: count={}, cardinality={}",
             _new_tablet->tablet_id(), delete_bitmap.get_delete_bitmap_count(),
-            delete_bitmap.cardinality(), initiator);
+            delete_bitmap.cardinality(), initiator,
+            _new_tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count(),
+            _new_tablet->tablet_meta()->delete_bitmap().cardinality());
     return Status::OK();
 }
 
