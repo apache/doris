@@ -122,6 +122,9 @@ public class AlterColumnStatsCommand extends AlterCommand {
         StatisticsRepository.alterColumnStatistics(this);
     }
 
+    /**
+     * validate
+     */
     public void validate(ConnectContext ctx) throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
