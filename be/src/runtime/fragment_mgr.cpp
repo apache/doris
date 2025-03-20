@@ -948,26 +948,6 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
-        std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
-        _pipeline_map.apply(
-                [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                         std::weak_ptr<pipeline::PipelineFragmentContext>>& map)
-                        -> Status {
-                    ctx.reserve(ctx.size() + map.size());
-                    for (auto it = map.begin(); it != map.end();) {
-                        if (auto f_ctx = it->second.lock()) {
-                            ctx.push_back(f_ctx);
-                            ++it;
-                        } else {
-                            it = map.erase(it);
-                        }
-                    }
-                    return Status::OK();
-                });
-        for (auto& c : ctx) {
-            c->clear_finished_tasks();
-        }
-
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&

@@ -465,9 +465,9 @@ template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
     // indent is false so that source operator will have same
     // indentation_level with its parent operator.
-    _runtime_profile =
-            info.parent_profile->create_child(_parent->get_name() + name_suffix(), false, false);
+    _runtime_profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
+    info.parent_profile->add_child(_runtime_profile, false, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {

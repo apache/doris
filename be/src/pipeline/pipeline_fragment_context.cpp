@@ -1791,16 +1791,6 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
-void PipelineFragmentContext::clear_finished_tasks() {
-    for (size_t j = 0; j < _tasks.size(); j++) {
-        for (size_t i = 0; i < _tasks[j].size(); i++) {
-            if (auto task = _tasks[j][i].lock()) {
-                task->stop_if_finished();
-            }
-        }
-    }
-}
-
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     // If all tasks of this pipeline has been closed, upstream tasks is never needed, and we just make those runnable here
     DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
