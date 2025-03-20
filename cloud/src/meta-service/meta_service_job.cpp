@@ -481,6 +481,9 @@ static bool check_and_remove_delete_bitmap_update_lock(MetaServiceCode& code, st
                                                        std::string& instance_id, int64_t table_id,
                                                        int64_t tablet_id, int64_t lock_id,
                                                        int64_t lock_initiator, bool use_new_way) {
+    LOG(INFO) << "check_and_remove_delete_bitmap_update_lock table_id=" << table_id
+              << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+              << " initiator=" << lock_initiator << " use_new_way=" << use_new_way;
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
@@ -582,6 +585,9 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                                              const std::string& instance_id, int64_t table_id,
                                              int64_t tablet_id, int64_t lock_id,
                                              int64_t lock_initiator, bool use_new_way) {
+    LOG(INFO) << "remove_delete_bitmap_update_lock table_id=" << table_id
+              << " initiator=" << lock_initiator << " tablet_id=" << tablet_id
+              << " lock_id=" << lock_id << " use_new_way=" << use_new_way;
     if (use_new_way && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
