@@ -101,6 +101,7 @@ public class AlterColumnStatsCommandTest {
     public void testValidateNormal() throws Exception {
         runBefore();
         //test normal
+        connectContext.getSessionVariable().enableStats = true;
         TableNameInfo tableNameInfo =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME);
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
