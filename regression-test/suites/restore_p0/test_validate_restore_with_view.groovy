@@ -18,8 +18,8 @@
 suite("test_validate_restore_with_view", "validate_restore") {
     def runValidateRestoreWithView = { String version ->
         String validateSuiteName = "backup_restore_with_view"
-        String dbName = "${validateSuiteName}_db"
-        String dbName1 = "${validateSuiteName}_db_1"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
+        String dbName1 = "${validateSuiteName}_db_1_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableName = "${validateSuiteName}_table"
         String viewName = "${validateSuiteName}_view"
@@ -96,11 +96,11 @@ suite("test_validate_restore_with_view", "validate_restore") {
             assertTrue(restore_result.last().State == "FINISHED")
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
-            sql "DROP VIEW ${dbName}.${viewName}"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
+            sql "DROP VIEW IF EXISTS ${dbName}.${viewName}"
             sql "DROP DATABASE ${dbName} FORCE"
-            sql "DROP TABLE ${dbName1}.${tableName} FORCE"
-            sql "DROP VIEW ${dbName1}.${viewName}"
+            sql "DROP TABLE IF EXISTS ${dbName1}.${tableName} FORCE"
+            sql "DROP VIEW IF EXISTS ${dbName1}.${viewName}"
             sql "DROP DATABASE ${dbName1} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

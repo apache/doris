@@ -18,7 +18,7 @@
 suite("test_validate_restore_table_auto_bucket", "validate_restore") {
     def runValidateRestoreTableAutoBucket = { String version ->
         String validateSuiteName = "test_backup_restore_table_auto_bucket"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "auto_bucket_table"
         String snapshotName = "${validateSuiteName}_snapshot"
 
@@ -53,7 +53,7 @@ suite("test_validate_restore_table_auto_bucket", "validate_restore") {
             assertEquals(result.size(), 10)
 
         } finally {
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }

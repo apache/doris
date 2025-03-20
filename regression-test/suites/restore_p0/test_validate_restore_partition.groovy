@@ -18,7 +18,7 @@
 suite("test_validate_restore_partition", "validate_restore") {
     def runValidateRestorePartition = { String version ->
         String validateSuiteName = "test_backup_restore_partition"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String snapshotName = "${validateSuiteName}_snapshot"
         String tableName = "${validateSuiteName}_table"
 

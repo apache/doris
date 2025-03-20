@@ -40,13 +40,12 @@ public class DownloadTask extends AgentTask {
     private boolean isFromLocalSnapshot = false;
 
     // for cloud mode
-    private Map<String, String> cloudSrcToDestPath;
     private String storageVaultId;
 
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType, String location) {
+            StorageBackend.StorageType storageType, String location, String storageVaultId) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
@@ -55,6 +54,7 @@ public class DownloadTask extends AgentTask {
         this.storageType = storageType;
         this.location = location;
         this.isFromLocalSnapshot = false;
+        this.storageVaultId = storageVaultId;
     }
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
@@ -64,24 +64,6 @@ public class DownloadTask extends AgentTask {
         this.srcToDestPath = new java.util.HashMap<String, String>();
         this.remoteTabletSnapshots = remoteTabletSnapshots;
         this.isFromLocalSnapshot = true;
-    }
-
-    // use for cloud mode
-    public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
-                        FsBroker brokerAddr, Map<String, String> brokerProperties,
-                        StorageBackend.StorageType storageType, String location,
-                        Map<String, String> cloudSrcToDestPath, String storageVaultId) {
-        super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1,
-                -1, -1, signature);
-        this.jobId = jobId;
-        this.srcToDestPath = new java.util.HashMap<String, String>();
-        this.brokerAddr = brokerAddr;
-        this.brokerProperties = brokerProperties;
-        this.storageType = storageType;
-        this.location = location;
-        this.isFromLocalSnapshot = false;
-        this.cloudSrcToDestPath = cloudSrcToDestPath;
-        this.storageVaultId = storageVaultId;
     }
 
     public long getJobId() {
@@ -120,7 +102,6 @@ public class DownloadTask extends AgentTask {
             req.setBrokerProp(brokerProperties);
             req.setStorageBackend(storageType.toThrift());
             req.setLocation(location);
-            req.setCloudSrcDestMap(cloudSrcToDestPath);
             req.setVaultId(storageVaultId);
         }
         return req;

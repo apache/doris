@@ -18,7 +18,7 @@
 suite("test_validate_restore_mtmv", "validate_restore") {
     def runValidateRestoreMtmv = { String version ->
         String validateSuiteName = "test_backup_restore_mtmv"
-        String dbName = "${validateSuiteName}_db"
+        String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"
         String tableName = "${validateSuiteName}_table"
         String mvName = "${validateSuiteName}_mv"
         String snapshotName = "${validateSuiteName}_snapshot"
@@ -57,7 +57,7 @@ suite("test_validate_restore_mtmv", "validate_restore") {
 
         } finally {
             sql """drop materialized view if exists ${dbName}.${mvName};"""
-            sql "DROP TABLE ${dbName}.${tableName} FORCE"
+            sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
             sql "DROP DATABASE ${dbName} FORCE"
             sql "DROP REPOSITORY `${repoName}`"
         }
