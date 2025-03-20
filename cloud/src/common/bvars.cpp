@@ -16,6 +16,7 @@
 // under the License.
 
 #include "common/bvars.h"
+
 #include <bvar/latency_recorder.h>
 
 #include <cstdint>
