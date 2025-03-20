@@ -286,6 +286,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
+    public static final String CHECK_OVERFLOW_FOR_NUMBER_CAST = "check_overflow_for_number_cast";
 
     public static final String ENABLE_SHARED_EXCHANGE_SINK_BUFFER = "enable_shared_exchange_sink_buffer";
 
@@ -1201,6 +1202,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_EXCHANGE_SINK_BUFFER, fuzzy = true)
     private boolean enableSharedExchangeSinkBuffer = true;
+
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_NUMBER_CAST)
+    private boolean checkOverflowForNumberCast = true;
+
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -4078,6 +4083,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
+        tResult.setCheckOverflowForNumberCast(checkOverflowForNumberCast);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);

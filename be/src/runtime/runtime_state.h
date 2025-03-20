@@ -375,6 +375,11 @@ public:
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
+    bool check_overflow_for_number_cast() const {
+        return _query_options.__isset.check_overflow_for_number_cast &&
+               _query_options.check_overflow_for_number_cast;
+    }
+
     MOCK_FUNCTION bool enable_local_exchange() const {
         return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
     }

@@ -81,6 +81,12 @@ public:
         return _check_overflow_for_decimal = check_overflow_for_decimal;
     }
 
+    bool check_overflow_for_number_cast() const { return _check_overflow_for_number_cast; }
+
+    bool set_check_overflow_for_number_cast(bool check_overflow_for_number_cast) {
+        return _check_overflow_for_number_cast = check_overflow_for_number_cast;
+    }
+
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
         _string_as_jsonb_string = string_as_jsonb_string;
     }
@@ -186,6 +192,7 @@ private:
     //udf execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
+    bool _check_overflow_for_number_cast = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;
