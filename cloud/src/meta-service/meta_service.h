@@ -725,8 +725,10 @@ private:
     int get_dynamic_retry_count() {
         int64_t busyness_percent = get_fdb_client_thread_busyness_percent();
         if (busyness_percent > config::retry_disable_busyness_threshold) {
+            g_bvar_busynesss_disable_counter << 1;
             return 0;
         } else if (busyness_percent > config::retry_reduce_busyness_threshold) {
+            g_bvar_busynesss_reduced_counter << 1;
             return config::busyness_reduced_retry_times;
         } else {
             return config::txn_store_retry_times;

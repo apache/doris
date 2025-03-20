@@ -16,6 +16,7 @@
 // under the License.
 
 #include "common/bvars.h"
+#include <bvar/latency_recorder.h>
 
 #include <cstdint>
 #include <stdexcept>
@@ -86,6 +87,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_statu
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
+
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -117,6 +119,9 @@ bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute("txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
+
+bvar::LatencyRecorder g_bvar_busynesss_reduced_counter("ms", "busynesss_reduced");
+bvar::LatencyRecorder g_bvar_busynesss_disable_counter("ms", "busynesss_disable");
 
 // fdb's bvars
 const int64_t BVAR_FDB_INVALID_VALUE = -99999999L;
