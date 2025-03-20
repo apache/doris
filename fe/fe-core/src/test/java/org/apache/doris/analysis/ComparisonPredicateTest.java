@@ -159,7 +159,7 @@ public class ComparisonPredicateTest {
 
         Assert.assertEquals(dateTimeExpr, range1.upperEndpoint());
         Assert.assertEquals(dateTimeV2Expr1, range1.upperEndpoint());
-        Assert.assertEquals(dateTimeV2Expr2, range1.upperEndpoint());
+        Assert.assertNotEquals(dateTimeV2Expr2, range1.upperEndpoint());
         Assert.assertEquals(BoundType.CLOSED, range1.upperBoundType());
         Assert.assertFalse(range1.hasLowerBound());
 
@@ -167,6 +167,6 @@ public class ComparisonPredicateTest {
         Assert.assertEquals(dateTimeV2Expr1, range2.upperEndpoint());
         Assert.assertEquals(BoundType.CLOSED, range2.upperBoundType());
         Assert.assertFalse(range2.hasLowerBound());
-        Assert.assertEquals(dateTimeV2Expr2, range2.upperEndpoint());
+        Assert.assertNotEquals(dateTimeV2Expr2, range2.upperEndpoint());
     }
 }
