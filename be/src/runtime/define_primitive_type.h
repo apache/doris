@@ -69,6 +69,4 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_IPV6             /* 37 */
 };
 
-constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
-constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_DECIMAL256;
 } // namespace doris

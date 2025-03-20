@@ -64,11 +64,13 @@ import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -77,6 +79,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -123,6 +126,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
@@ -130,6 +134,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
@@ -142,6 +147,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
@@ -550,6 +556,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showRepositoriesCommand, context);
     }
 
+    default R visitShowRestoreCommand(ShowRestoreCommand showRestoreCommand, C context) {
+        return visitCommand(showRestoreCommand, context);
+    }
+
     default R visitShowRolesCommand(ShowRolesCommand showRolesCommand, C context) {
         return visitCommand(showRolesCommand, context);
     }
@@ -844,8 +854,28 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showTableStatusCommand, context);
     }
 
+    default R visitShowDatabasesCommand(ShowDatabasesCommand showDatabasesCommand, C context) {
+        return visitCommand(showDatabasesCommand, context);
+    }
+
     default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
         return visitCommand(showTableCommand, context);
+    }
+
+    default R visitDropStatsCommand(DropStatsCommand dropStatsCommand, C context) {
+        return visitCommand(dropStatsCommand, context);
+    }
+
+    default R visitDropCachedStatsCommand(DropCachedStatsCommand dropCachedStatsCommand, C context) {
+        return visitCommand(dropCachedStatsCommand, context);
+    }
+
+    default R visitDropExpiredStatsCommand(DropExpiredStatsCommand dropExpiredStatsCommand, C context) {
+        return visitCommand(dropExpiredStatsCommand, context);
+    }
+
+    default R visitShowIndexStatsCommand(ShowIndexStatsCommand showIndexStatsCommand, C context) {
+        return visitCommand(showIndexStatsCommand, context);
     }
 
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {

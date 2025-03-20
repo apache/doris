@@ -1175,7 +1175,8 @@ Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema&
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
-                                          int64_t initiator, DeleteBitmap* delete_bitmap) {
+                                          int64_t initiator, DeleteBitmap* delete_bitmap,
+                                          int64_t txn_id, bool is_explicit_txn) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
@@ -1185,6 +1186,10 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_tablet_id(tablet.tablet_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
+    req.set_is_explicit_txn(is_explicit_txn);
+    if (txn_id > 0) {
+        req.set_txn_id(txn_id);
+    }
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
@@ -1221,8 +1226,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
-                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}",
-                tablet.tablet_id(), lock_id);
+                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
+                "{}, error_msg: {}",
+                tablet.tablet_id(), lock_id, initiator, res.status().msg());
     }
     return st;
 }
