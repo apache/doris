@@ -330,8 +330,7 @@ struct ConvertImpl {
                     col_null_map_to = ColumnUInt8::create(size);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeValue::try_parse_time(
-                                vec_from[i], vec_to[i], context->state()->timezone_obj());
+                        (*vec_null_map_to)[i] = !TimeValue::try_parse_time(vec_from[i], vec_to[i]);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -963,7 +962,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeValue::try_parse_time(s, len, x, context->state()->timezone_obj());
+        auto ret = TimeValue::try_parse_time(s, len, x);
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {

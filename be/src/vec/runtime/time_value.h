@@ -86,13 +86,15 @@ public:
     // Cast from string
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
+
+    constexpr static std::string_view date_time_format = "%Y-%m-%d %H:%i:%s";
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
-        /// TODO: Maybe we can move Timecast to the io_helper.
-        if (try_as_time(s, len, x, local_time_zone)) {
+    static bool try_parse_time(char* s, size_t len, T& x) {
+        if (try_as_time(s, len, x)) {
             return true;
         } else {
-            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
+            if (DateV2Value<doris::DateTimeV2ValueType> dv {};
+                dv.from_date_format_str(date_time_format.data(), date_time_format.size(), s, len)) {
                 // can be parse as a datetime
                 x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;
@@ -102,11 +104,21 @@ public:
     }
 
     template <typename T>
-    static bool try_as_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
+    static bool try_as_time(char* s, size_t len, T& x) {
         char* first_char = s;
         char* end_char = s + len;
         int64_t hour = 0, minute = 0, second = 0;
         auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
+            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+            auto int_value = StringParser::string_to_int<int64_t>(begin, (int)len, &parse_result);
+            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+                return false;
+            }
+            num = int_value;
+            return true;
+        };
+
+        auto parse_from_str_to_uint = [](char* begin, size_t len, auto& num) {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             auto int_value =
                     StringParser::string_to_unsigned_int<uint64_t>(begin, (int)len, &parse_result);
@@ -128,12 +140,13 @@ public:
                     return false;
                 }
                 // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
-                                           minute)) {
+                if (!parse_from_str_to_uint(first_colon + 1, second_colon - first_colon - 1,
+                                            minute)) {
                     return false;
                 }
                 // parse second
-                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
+                if (!parse_from_str_to_uint(second_colon + 1, end_char - second_colon - 1,
+                                            second)) {
                     return false;
                 }
             } else {
@@ -143,29 +156,35 @@ public:
                     return false;
                 }
                 // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
+                if (!parse_from_str_to_uint(first_colon + 1, end_char - first_colon - 1, minute)) {
                     return false;
                 }
             }
         } else {
             // no colon ,so try to parse as a number
-            size_t from {};
+            int64_t from {};
             if (!parse_from_str_to_int(first_char, len, from)) {
                 return false;
             }
-            return try_parse_time(from, x, local_time_zone);
+            return try_parse_time(from, x);
         }
         // minute second must be < 60
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = TimeValue::make_time(hour, minute, second);
+        if (hour < 0) {
+            hour = -hour;
+            // cast('-1:02:03' as time); --> -01:02:03
+            x = -TimeValue::make_time(hour, minute, second);
+        } else {
+            x = TimeValue::make_time(hour, minute, second);
+        }
         return true;
     }
     // Cast from number
     template <typename T, typename S>
     //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
-    static bool try_parse_time(T from_other, S& x, const cctz::time_zone& local_time_zone) {
+    static bool try_parse_time(T from_other, S& x) {
         int64_t from = (int64_t)from_other;
         int64 seconds = int64(from / 100);
         int64 hour = 0, minute = 0, second = 0;
@@ -181,7 +200,7 @@ public:
         return true;
     }
     template <typename S>
-    static bool try_parse_time(__int128 from_128, S& x, const cctz::time_zone& local_time_zone) {
+    static bool try_parse_time(__int128 from_128, S& x) {
         int64_t from = from_128 % (int64)(1000000000000);
         int64 seconds = from / 100;
         int64 hour = 0, minute = 0, second = 0;
