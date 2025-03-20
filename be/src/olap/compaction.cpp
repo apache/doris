@@ -1366,6 +1366,12 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     if (_tablet->keys_type() == KeysType::DUP_KEYS) {
+        // if there is a delete predicate in the input rowsets, we skip the path stats check
+        for (auto& rowset : _input_rowsets) {
+            if (rowset->rowset_meta()->has_delete_predicate()) {
+                return Status::OK();
+            }
+        }
         // only check path stats for dup_keys since the rows may be merged in other models
         RETURN_IF_ERROR(vectorized::schema_util::check_path_stats(_input_rowsets, _output_rowset,
                                                                   _tablet->tablet_id()));
