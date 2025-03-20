@@ -677,16 +677,16 @@ public class StringArithmetic {
      * @param str input string to be split
      * @return ArrayLiteral
      */
-    public static Expression splitByGrapheme(StringLikeLiteral str) {
-        List<Literal> result = Lists.newArrayListWithExpectedSize(str.getValue().length());
+    public static List<String> splitByGrapheme(StringLikeLiteral str) {
+        List<String> result = Lists.newArrayListWithExpectedSize(str.getValue().length());
         int length = str.getValue().length();
         for (int i = 0; i < length; ) {
             int codePoint = str.getValue().codePointAt(i);
             int charCount = Character.charCount(codePoint);
-            result.add(castStringLikeLiteral(str, new String(new int[]{codePoint}, 0, 1)));
+            result.add(new String(new int[]{codePoint}, 0, 1));
             i += charCount;
         }
-        return new ArrayLiteral(result);
+        return result;
     }
 
     /**
@@ -698,7 +698,11 @@ public class StringArithmetic {
             return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
         }
         if (second.getValue().isEmpty()) {
-            return splitByGrapheme(first);
+            List<Literal> result = Lists.newArrayListWithExpectedSize(first.getValue().length());
+            for (String resultStr : splitByGrapheme(first)) {
+                result.add(castStringLikeLiteral(first, resultStr));
+            }
+            return new ArrayLiteral(result);
         }
         String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
         List<Literal> items = new ArrayList<>();
@@ -1008,24 +1012,14 @@ public class StringArithmetic {
             if (first.getValue().isEmpty()) {
                 return castStringLikeLiteral(first, third.getValue());
             }
-            byte[] input = first.getValue().getBytes(StandardCharsets.UTF_8);
-            byte[] replace = third.getValue().getBytes(StandardCharsets.UTF_8);
-            byte[] output = new byte[input.length + (input.length + 1) * replace.length];
-            for (int i = 0; i < replace.length; i++) {
-                output[i] = replace[i];
+            List<String> inputs = splitByGrapheme(first);
+            StringBuilder sb = new StringBuilder();
+            sb.append(third.getValue());
+            for (String input : inputs) {
+                sb.append(input);
+                sb.append(third.getValue());
             }
-            int last = replace.length;
-            for (int i = 0; i < input.length; i++) {
-                for (int j = 0; j < input.length; j++) {
-                    output[last] = input[j];
-                    last++;
-                }
-                for (int j = 0; j < replace.length; j++) {
-                    output[last] = replace[j];
-                    last++;
-                }
-            }
-            return castStringLikeLiteral(first, output.toString());
+            return castStringLikeLiteral(first, sb.toString());
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }

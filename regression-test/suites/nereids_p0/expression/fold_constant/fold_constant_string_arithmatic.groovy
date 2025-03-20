@@ -576,6 +576,10 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select overlay('😀α', 1, 1, 'abc')") // 原始字符串包含emoji和希腊字符
     testFoldConst("select overlay('中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含多语言字符
     testFoldConst("select overlay('abc', 1, 1, '中文日한俄ע')") // 新字符串包含多语言字符
+    testFoldConst("select overlay('abc', 1, 2147483647, '中文日한俄ע')")
+    testFoldConst("select overlay('abc', 1, 2147483648, '中文日한俄ע')")
+    testFoldConst("select overlay('abc', -2147483647, 1, '中文日한俄ע')")
+    testFoldConst("select overlay('abc', -2147483648, 1, '中文日한俄ע')")
     
     // parse_url
     testFoldConst("select parse_url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
@@ -1064,6 +1068,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select strleft('안녕하세요', 0)")
     testFoldConst("select strleft('привет', -1)")
     testFoldConst("select strleft('שלום', 0)")
+    testFoldConst("select strleft('привет', 2147483647)")
+    testFoldConst("select strleft('привет', 2147483648)")
 
     // strright
     testFoldConst("select strright('good morning', NULL)")
@@ -1126,6 +1132,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select strright('안녕하세요', 0)")
     testFoldConst("select strright('привет', -1)")
     testFoldConst("select strright('שלום', 0)")
+    testFoldConst("select strright('привет', 2147483647)")
+    testFoldConst("select strright('привет', 2147483648)")
     
     // sub_replace
     testFoldConst("select sub_replace(CAST('doris' AS STRING), CAST('***' AS STRING), 1, 2)")
