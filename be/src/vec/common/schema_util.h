@@ -139,7 +139,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, Tablet
 // Check if the path stats are consistent between inputs rowsets and output rowset.
 // Used to check the correctness of compaction.
 Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
-                        int64_t tablet_id);
+                        BaseTabletSPtr tablet);
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,

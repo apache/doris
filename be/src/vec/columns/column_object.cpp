@@ -636,7 +636,8 @@ void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t sta
 }
 
 bool ColumnObject::Subcolumn::is_finalized() const {
-    return  current_num_of_defaults == 0 && num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
+    return current_num_of_defaults == 0 && num_of_defaults_in_prefix == 0 &&
+           (data.empty() || (data.size() == 1));
 }
 
 template <typename Func>
