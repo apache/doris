@@ -22,7 +22,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class BroadcastPBlockHolder;
+class PBlockHolder;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
@@ -46,7 +46,7 @@ private:
 
     std::shared_ptr<ResultBlockBufferBase> _sender;
 
-    std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
+    std::shared_ptr<vectorized::PBlockHolder> _block_holder;
     int _sender_id;
 };
 

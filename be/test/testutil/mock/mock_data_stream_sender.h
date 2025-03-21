@@ -61,8 +61,7 @@ struct MockChannel : public Channel {
 
         return Status::OK();
     }
-    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
-                                bool eos = false) override {
+    Status send_broadcast_block(std::shared_ptr<PBlockHolder>& block, bool eos = false) override {
         Block nblock;
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(nblock.deserialize(*block->get_block()));
         if (!nblock.empty()) {
