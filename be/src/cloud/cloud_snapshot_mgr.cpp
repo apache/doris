@@ -17,9 +17,9 @@
 
 #include "cloud/cloud_snapshot_mgr.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include <fmt/format.h>
 #include <map>
 #include <unordered_map>
 
@@ -86,7 +86,8 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
         }
         tablet_meta_pb.clear_stale_rs_metas(); // copy the stale rs meta
         if (tablet_meta.all_stale_rs_metas().size() > 0) {
-            tablet_meta_pb.mutable_stale_rs_metas()->Reserve(tablet_meta.all_stale_rs_metas().size());
+            tablet_meta_pb.mutable_stale_rs_metas()->Reserve(
+                    tablet_meta.all_stale_rs_metas().size());
             for (auto& rs : tablet_meta.all_stale_rs_metas()) {
                 rs->to_rowset_pb(tablet_meta_pb.add_stale_rs_metas());
             }
@@ -127,9 +128,10 @@ Status CloudSnapshotMgr::release_snapshot(int64_t tablet_id) {
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& in, int64_t tablet_id,
-                                         CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
-                                         std::unordered_map<std::string, std::string>& file_mapping) {
+Status CloudSnapshotMgr::convert_rowsets(
+        TabletMetaPB* out, const TabletMetaPB& in, int64_t tablet_id,
+        CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
+        std::unordered_map<std::string, std::string>& file_mapping) {
     SCOPED_ATTACH_TASK(_mem_tracker);
     // deep copy
     *out = in;
@@ -154,8 +156,9 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
     std::unordered_map<RowsetId, RowsetId> rowset_id_mapping;
     for (auto&& rowset_meta_pb : in.rs_metas()) {
         RowsetMetaPB* new_rowset_meta_pb = out->add_rs_metas();
-        RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, rowset_meta_pb, tablet_id, target_tablet,
-                                            storage_resource, tablet_schema, file_mapping, rowset_id_mapping));
+        RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, rowset_meta_pb, tablet_id,
+                                            target_tablet, storage_resource, tablet_schema,
+                                            file_mapping, rowset_id_mapping));
         Version rowset_version = {rowset_meta_pb.start_version(), rowset_meta_pb.end_version()};
         rs_version_map[rowset_version] = new_rowset_meta_pb;
     }
@@ -167,8 +170,9 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
             continue;
         }
         RowsetMetaPB* new_rowset_meta_pb = out->add_stale_rs_metas();
-        RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, stale_rowset_pb, tablet_id, target_tablet,
-                                            storage_resource, tablet_schema, file_mapping, rowset_id_mapping));
+        RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, stale_rowset_pb, tablet_id,
+                                            target_tablet, storage_resource, tablet_schema,
+                                            file_mapping, rowset_id_mapping));
     }
 
     if (!rowset_id_mapping.empty() && in.has_delete_bitmap()) {
@@ -188,19 +192,16 @@ Status CloudSnapshotMgr::convert_rowsets(TabletMetaPB* out, const TabletMetaPB& 
             CHECK(it != rowset_id_mapping.end())
                     << "can't find rowset_id " << rst_id.to_string() << " in convert_rowset_ids";
             new_del_bitmap_pb->set_rowset_ids(i, it->second.to_string());
-            LOG(INFO) << "convert delete bitmap rowset_id. [rowset_id=" << new_del_bitmap_pb->rowset_ids(i) << "]";
-            LOG(INFO) << "convert delete bitmap rowset_id. [version=" << new_del_bitmap_pb->versions(i) << "]";
-            LOG(INFO) << "convert delete bitmap rowset_id. [segment_id=" << new_del_bitmap_pb->segment_ids(i) << "]";
         }
     }
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta_pb,
-                                             int64_t target_tablet_id, CloudTabletSPtr& target_tablet,
-                                             StorageResource& storage_resource, TabletSchemaSPtr tablet_schema,
-                                             std::unordered_map<std::string, std::string>& file_mapping,
-                                             std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping) {
+Status CloudSnapshotMgr::_create_rowset_meta(
+        RowsetMetaPB* new_rowset_meta_pb, const RowsetMetaPB& source_meta_pb,
+        int64_t target_tablet_id, CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
+        TabletSchemaSPtr tablet_schema, std::unordered_map<std::string, std::string>& file_mapping,
+        std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping) {
     RowsetId dst_rs_id = _engine.next_rowset_id();
     RowsetWriterContext context;
     context.rowset_id = dst_rs_id;
@@ -242,27 +243,24 @@ Status CloudSnapshotMgr::_create_rowset_meta(RowsetMetaPB* new_rowset_meta_pb, c
         std::string src_segment_file = fmt::format("{}_{}.dat", src_rs_id.to_string(), i);
         std::string dst_segment_file = fmt::format("{}_{}.dat", dst_rs_id.to_string(), i);
         file_mapping[src_segment_file] = dst_segment_file;
-        if (context.tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        if (context.tablet_schema->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
             for (const auto& index : context.tablet_schema->inverted_indexes()) {
                 auto index_id = index->index_id();
-                std::string src_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file),
-                                index_id, index->get_index_suffix());
-                std::string dst_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v1(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file),
-                                index_id, index->get_index_suffix());
+                std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file),
+                        index_id, index->get_index_suffix());
+                std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file),
+                        index_id, index->get_index_suffix());
                 file_mapping[src_index_file] = dst_index_file;
             }
         } else {
             if (context.tablet_schema->has_inverted_index()) {
-                std::string src_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
-                std::string dst_index_file =
-                        InvertedIndexDescriptor::get_index_file_path_v2(
-                                InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file));
+                std::string src_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(src_segment_file));
+                std::string dst_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(dst_segment_file));
                 file_mapping[src_index_file] = dst_index_file;
             }
         }

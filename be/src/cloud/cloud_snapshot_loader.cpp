@@ -47,13 +47,13 @@ bool _end_with(std::string_view str, std::string_view match) {
 }
 } // namespace
 
-CloudSnapshotLoader::CloudSnapshotLoader(CloudStorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
-                                         const TNetworkAddress& broker_addr,
+CloudSnapshotLoader::CloudSnapshotLoader(CloudStorageEngine& engine, ExecEnv* env, int64_t job_id,
+                                         int64_t task_id, const TNetworkAddress& broker_addr,
                                          const std::map<std::string, std::string>& broker_prop)
-        : BaseSnapshotLoader(env, job_id, task_id, broker_addr, broker_prop),
-          _engine(engine) {};
+        : BaseSnapshotLoader(env, job_id, task_id, broker_addr, broker_prop), _engine(engine) {};
 
-Status CloudSnapshotLoader::init(TStorageBackendType::type type, const std::string& location, std::string vault_id) {
+Status CloudSnapshotLoader::init(TStorageBackendType::type type, const std::string& location,
+                                 std::string vault_id) {
     RETURN_IF_ERROR(BaseSnapshotLoader::init(type, location));
     _storage_resource = _engine.get_storage_resource(vault_id);
     if (!_storage_resource) {
@@ -98,14 +98,14 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         try {
             target_tablet_id = std::stoll(tablet_str);
         } catch (std::exception& e) {
-            return Status::InternalError("failed to parse target tablet id {}, {}", tablet_str, e.what());
+            return Status::InternalError("failed to parse target tablet id {}, {}", tablet_str,
+                                         e.what());
         }
         const std::string target_path = _storage_resource->remote_tablet_path(target_tablet_id);
 
         // 1.1. check target path not exists
         bool target_path_exist = false;
-        if (!storage_fs()->exists(target_path, &target_path_exist).ok() ||
-                target_path_exist) {
+        if (!storage_fs()->exists(target_path, &target_path_exist).ok() || target_path_exist) {
             std::stringstream ss;
             ss << "failed to download snapshot files, target path already exists: " << target_path;
             LOG(WARNING) << ss.str();
@@ -129,8 +129,9 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             return Status::InternalError(ss.str());
         }
 
-        auto remote_hdr_file_path = [&remote_files, &remote_path](std::string& full_hdr_path, size_t* hdr_file_len) {
-            for (auto iter = remote_files.begin(); iter != remote_files.end(); ) {
+        auto remote_hdr_file_path = [&remote_files, &remote_path](std::string& full_hdr_path,
+                                                                  size_t* hdr_file_len) {
+            for (auto iter = remote_files.begin(); iter != remote_files.end();) {
                 if (_end_with(iter->first, ".hdr")) {
                     *hdr_file_len = iter->second.size;
                     full_hdr_path = remote_path + "/" + iter->first + "." + iter->second.md5;
@@ -174,13 +175,13 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             return Status::InternalError(ss.str());
         }
 
-        RETURN_IF_ERROR(_report_every(0, &tmp_counter, finished_num, total_num,
-                                      TTaskType::type::DOWNLOAD));
+        RETURN_IF_ERROR(
+                _report_every(0, &tmp_counter, finished_num, total_num, TTaskType::type::DOWNLOAD));
 
         // 1.4. make snapshot
         std::unordered_map<std::string, std::string> file_mapping;
-        RETURN_IF_ERROR(_engine.cloud_snapshot_mgr().make_snapshot(target_tablet_id, *_storage_resource,
-                                                                   file_mapping, true, &hdr_slice));
+        RETURN_IF_ERROR(_engine.cloud_snapshot_mgr().make_snapshot(
+                target_tablet_id, *_storage_resource, file_mapping, true, &hdr_slice));
 
         LOG(INFO) << "finish to make snapshot for tablet: " << target_tablet_id;
 
@@ -197,7 +198,8 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             std::string target_file = find->second;
             std::string full_remote_file = remote_path + "/" + remote_file + "." + file_stat.md5;
             std::string full_target_file = target_path + "/" + target_file;
-            LOG(INFO) << "begin to download from " << full_remote_file << " to " << full_target_file;
+            LOG(INFO) << "begin to download from " << full_remote_file << " to "
+                      << full_target_file;
             io::FileReaderOptions reader_options {
                     .cache_type = io::FileCachePolicy::NO_CACHE,
                     .is_doris_table = false,
@@ -209,12 +211,13 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             io::FileWriterPtr file_writer = nullptr;
             RETURN_IF_ERROR(storage_fs()->create_file(full_target_file, &file_writer));
             size_t buf_size = config::s3_file_system_local_upload_buffer_size;
-            std::unique_ptr<char[]> transfer_buffer = std::make_unique_for_overwrite<char[]>(buf_size);;
+            std::unique_ptr<char[]> transfer_buffer =
+                    std::make_unique_for_overwrite<char[]>(buf_size);
             size_t cur_offset = 0;
             while (true) {
                 size_t read_len = 0;
-                RETURN_IF_ERROR(file_reader->read_at(cur_offset, Slice {transfer_buffer.get(), buf_size},
-                                                     &read_len));
+                RETURN_IF_ERROR(file_reader->read_at(
+                        cur_offset, Slice {transfer_buffer.get(), buf_size}, &read_len));
                 cur_offset += read_len;
                 if (read_len == 0) {
                     break;

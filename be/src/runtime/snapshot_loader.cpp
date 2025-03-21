@@ -668,11 +668,7 @@ Status SnapshotHttpDownloader::download() {
 BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
                                        const TNetworkAddress& broker_addr,
                                        const std::map<std::string, std::string>& prop)
-       : _env(env),
-         _job_id(job_id),
-         _task_id(task_id),
-         _broker_addr(broker_addr),
-         _prop(prop) {}
+        : _env(env), _job_id(job_id), _task_id(task_id), _broker_addr(broker_addr), _prop(prop) {}
 
 Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
@@ -699,8 +695,7 @@ Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::strin
 SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                                const TNetworkAddress& broker_addr,
                                const std::map<std::string, std::string>& prop)
-   : BaseSnapshotLoader(env, job_id, task_id, broker_addr, prop),
-     _engine(engine) {}
+        : BaseSnapshotLoader(env, job_id, task_id, broker_addr, prop), _engine(engine) {}
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
