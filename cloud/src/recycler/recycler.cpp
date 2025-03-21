@@ -1823,8 +1823,9 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         }
         while (iter->has_next()) {
             auto [k, v] = iter->next();
-            RowsetMetaCloudPB rs_meta;
-            rs_meta.ParseFromArray(v.data(), v.size());
+            RecycleRowsetPB recycle_rowset;
+            recycle_rowset.ParseFromArray(v.data(), v.size());
+            const auto& rs_meta = recycle_rowset.rowset_meta();
             auto it = accessor_map_.find(rs_meta.resource_id());
             // possible if the accessor is not initilized correctly
             if (it == accessor_map_.end()) [[unlikely]] {
