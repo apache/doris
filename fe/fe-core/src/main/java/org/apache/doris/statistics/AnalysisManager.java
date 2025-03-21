@@ -863,8 +863,10 @@ public class AnalysisManager implements Writable {
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
         Set<String> cols = dropStatsCommand.getColumnNames();
         PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
-        PartitionNames partitionNames = new PartitionNames(partitionNamesInfo.isTemp(),
-                partitionNamesInfo.getPartitionNames());
+        PartitionNames partitionNames = null;
+        if (partitionNamesInfo != null) {
+            partitionNames = new PartitionNames(partitionNamesInfo.isTemp(), partitionNamesInfo.getPartitionNames());
+        }
         long catalogId = dropStatsCommand.getCatalogId();
         long dbId = dropStatsCommand.getDbId();
         long tblId = dropStatsCommand.getTblId();
