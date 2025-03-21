@@ -74,8 +74,6 @@ suite("test_hash_join_probe_early_eos", "query") {
     sql """insert into test_hash_join_probe_early_eos_t3 values (6,'f'),(7,'g');"""
 
     sql """ set disable_join_reorder = true; """
-    // test not probe early eos
-    sql """ set enable_hash_join_early_start_probe = false; """
 
     qt_sanity_check0 """
         select * from test_hash_join_probe_early_eos_t0 order by t0_k0; 
@@ -245,8 +243,6 @@ suite("test_hash_join_probe_early_eos", "query") {
             ) tmp0 left anti join test_hash_join_probe_early_eos_t0 on t2_k0 = t0_k0;
     """
 
-    // test not probe early eos
-    sql """ set enable_hash_join_early_start_probe = true; """
     qt_inner_join_probe_eos0 """
          select
              *

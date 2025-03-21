@@ -71,10 +71,6 @@ public:
         _query_options.__set_enable_local_exchange(enable_local_exchange);
         return *this;
     }
-    TQueryOptionsBuilder& set_enable_new_shuffle_hash_method(bool enable_new_shuffle_hash_method) {
-        _query_options.__set_enable_new_shuffle_hash_method(enable_new_shuffle_hash_method);
-        return *this;
-    }
     TQueryOptionsBuilder& set_enable_local_shuffle(bool enable_local_shuffle) {
         _query_options.__set_enable_local_shuffle(enable_local_shuffle);
         return *this;
