@@ -117,6 +117,8 @@ private:
     // remote rowset files, to avoid the duplicated downloading.
     Status _link_same_rowset_files();
 
+    Status _skip_download_for_local_derived_rowsets();
+
     // Get all remote file stats, excluding the hdr file.
     Status _get_remote_file_stats();
 
@@ -482,6 +484,96 @@ Status SnapshotHttpDownloader::_link_same_rowset_files() {
     return Status::OK();
 }
 
+Status SnapshotHttpDownloader::_skip_download_for_local_derived_rowsets() {
+    std::string local_hdr_file_path = _local_path + "/" + _local_hdr_filename;
+
+    TabletMetaPB local_tablet_meta;
+    auto status = TabletMeta::load_from_file(local_hdr_file_path, &local_tablet_meta);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to load local tablet meta: " << local_hdr_file_path
+                     << ", error: " << status.to_string();
+        return Status::OK();
+    }
+
+    TabletMetaPB remote_tablet_meta;
+    status = TabletMeta::load_from_file(_tmp_hdr_file, &remote_tablet_meta);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to load remote tablet meta: " << _tmp_hdr_file
+                     << ", error: " << status.to_string();
+        return status;
+    }
+
+    std::unordered_map<std::string, const RowsetMetaPB&> local_rowset_metas;
+    for (const auto& rowset_meta : local_tablet_meta.rs_metas()) {
+        if (rowset_meta.has_resource_id()) {
+            continue;
+        }
+        local_rowset_metas.insert({rowset_meta.rowset_id_v2(), rowset_meta});
+    }
+
+    for (const auto& remote_rowset_meta : remote_tablet_meta.rs_metas()) {
+        if (remote_rowset_meta.has_resource_id() || !remote_rowset_meta.has_source_rowset_id()) {
+            continue;
+        }
+
+        auto local_rowset_meta = local_rowset_metas.find(remote_rowset_meta.source_rowset_id());
+        if (local_rowset_meta == local_rowset_metas.end()) {
+            continue;
+        }
+
+        const auto& local_rowset_id = local_rowset_meta->first;
+        const auto& local_rowset_meta_pb = local_rowset_meta->second;
+        const auto& remote_rowset_id = remote_rowset_meta.rowset_id_v2();
+        auto local_tablet_id = local_rowset_meta_pb.tablet_id();
+
+        if (remote_rowset_meta.start_version() != local_rowset_meta_pb.start_version() ||
+            remote_rowset_meta.end_version() != local_rowset_meta_pb.end_version()) {
+            continue;
+        }
+
+        LOG(INFO) << "remote rowset " << remote_rowset_id << " was derived from local tablet "
+                  << local_tablet_id << " rowset " << local_rowset_id
+                  << ", skip downloading these files";
+
+        for (const auto& remote_file : _remote_file_list) {
+            if (!remote_file.starts_with(remote_rowset_id)) {
+                continue;
+            }
+
+            std::string local_file = remote_file;
+            local_file.replace(0, remote_rowset_id.size(), local_rowset_id);
+            std::string local_file_path = _local_path + "/" + local_file;
+
+            bool exist = false;
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(local_file_path, &exist));
+            if (!exist) {
+                continue;
+            }
+
+            std::error_code ec;
+            uint64_t local_file_size = std::filesystem::file_size(local_file_path, ec);
+            if (ec) {
+                continue;
+            }
+
+            std::string local_file_md5;
+            if (config::enable_download_md5sum_check) {
+                auto md5_status =
+                        io::global_local_filesystem()->md5sum(local_file_path, &local_file_md5);
+                if (!md5_status.ok()) {
+                    continue;
+                }
+            }
+
+            _local_files[remote_file] = {local_file_size, local_file_md5};
+            LOG(INFO) << "skip download remote file " << remote_file << " as its local version "
+                      << local_file << " already exists";
+        }
+    }
+
+    return Status::OK();
+}
+
 Status SnapshotHttpDownloader::_get_remote_file_stats() {
     for (const auto& filename : _remote_file_list) {
         if (_report_progress_callback) {
@@ -645,6 +737,11 @@ Status SnapshotHttpDownloader::download() {
     // Step 5: link same rowset files, if local tablet meta file exists
     if (!_local_hdr_filename.empty()) {
         RETURN_IF_ERROR(_link_same_rowset_files());
+    }
+
+    // Step 5.1: skip download for local derived rowsets
+    if (!_local_hdr_filename.empty()) {
+        RETURN_IF_ERROR(_skip_download_for_local_derived_rowsets());
     }
 
     // Step 6: get all remote file stats
