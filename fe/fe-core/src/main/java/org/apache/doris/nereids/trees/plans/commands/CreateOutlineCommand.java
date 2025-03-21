@@ -17,11 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.hint.OutlineMgr;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -34,18 +42,32 @@ import org.apache.logging.log4j.Logger;
 public class CreateOutlineCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateOutlineCommand.class);
 
-    private final OutlineInfo outlineInfo;
+    private final String outlineName;
 
     private final Boolean ignoreExist;
 
-    public CreateOutlineCommand(OutlineInfo outlineInfo, boolean ignoreExist) {
+    private final LogicalPlan query;
+
+    public CreateOutlineCommand(String outlineName, boolean ignoreExist, LogicalPlan query) {
         super(PlanType.CREATE_OUTLINE_COMMAND);
-        this.outlineInfo = outlineInfo;
+        this.outlineName = outlineName;
         this.ignoreExist = ignoreExist;
+        this.query = query;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(query, ctx.getStatementContext());
+        executor.setParsedStmt(logicalPlanAdapter);
+        if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
+        }
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        executor.setPlanner(planner);
+        executor.checkBlockRules();
+        OutlineInfo outlineInfo = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
+            "sqlText", "outlineTarget", "outlineData");
         OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 
