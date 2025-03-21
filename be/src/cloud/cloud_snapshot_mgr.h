@@ -36,7 +36,7 @@ class MemTrackerLimiter;
 // In cloud mode, snapshot only includes tablet metas.
 class CloudSnapshotMgr {
 public:
-    CloudSnapshotMgr(CloudStorageEngine &engine);
+    CloudSnapshotMgr(CloudStorageEngine& engine);
 
     ~CloudSnapshotMgr() = default;
 
