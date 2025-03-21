@@ -186,7 +186,7 @@ supportedCreateStatement
     | CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
-    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
+    | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -195,7 +195,7 @@ supportedCreateStatement
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
-        TO (user=userIdentify | ROLE roleName=identifier)
+        TO (user=userIdentify | ROLE roleName=identifierOrText)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                    #createRowPolicy
     | CREATE STORAGE POLICY (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createStoragePolicy
@@ -224,9 +224,8 @@ supportedAlterStatement
     | ALTER VIEW name=multipartIdentifier
         ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
-    | ALTER ROLE role=identifier commentSpec                                        #alterRole
+    | ALTER ROLE role=identifierOrText commentSpec                                        #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
-    | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER WORKLOAD GROUP name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
@@ -236,7 +235,6 @@ supportedAlterStatement
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
     | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
-    | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
     | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
@@ -254,7 +252,7 @@ supportedAlterStatement
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
     | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
-    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
+    | DROP ROLE (IF EXISTS)? name=identifierOrText                                    #dropRole
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
@@ -381,7 +379,7 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
+    : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifierOrText)))?                #showRowPolicy
     | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
@@ -596,17 +594,17 @@ unsupportedTransactionStatement
 
 unsupportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
-        TO (userIdentify | ROLE STRING_LITERAL)                                     #grantTablePrivilege
+        TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk TO (userIdentify | ROLE STRING_LITERAL)          #grantResourcePrivilege
-    | GRANT roles+=STRING_LITERAL (COMMA roles+=STRING_LITERAL)* TO userIdentify    #grantRole
+        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify    #grantRole
     | REVOKE privilegeList ON multipartIdentifierOrAsterisk
-        FROM (userIdentify | ROLE STRING_LITERAL)                                   #grantTablePrivilege
+        FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
     | REVOKE privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk FROM (userIdentify | ROLE STRING_LITERAL)        #grantResourcePrivilege
-    | REVOKE roles+=STRING_LITERAL (COMMA roles+=STRING_LITERAL)* FROM userIdentify #grantRole
+        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)        #revokeResourcePrivilege
+    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify #revokeRole
     ;
 
 privilege
@@ -722,7 +720,7 @@ unsupportedDropStatement
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
-        (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
+        (FOR (userIdentify | ROLE roleName=identifierOrText))?                        #dropRowPolicy
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
@@ -776,7 +774,7 @@ unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
-        (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
+        (SUPERUSER | DEFAULT ROLE role=identifierOrText)?
         passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
