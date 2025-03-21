@@ -299,6 +299,28 @@ suite("test_aggregate_all_functions", "arrow_flight_sql") {
         assert("${ex}".contains("3000"))
     }
 
+    sql """
+        drop table if exists percentile_input_no_nullable;
+    """
+    sql """
+        create table percentile_input_no_nullable(a int, b int not null) properties ("replication_num" = "1");
+    """
+    sql """
+        insert into percentile_input_no_nullable values (10, 100), (20,200), (30, 300), (40, 400);
+    """
+
+    try {
+        sql " select percentile(b, -1) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("-1"))
+    }
+
+    try {
+        sql " select percentile(b, 3000) from percentile_input_no_nullable;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("3000"))
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName_13}"
 
     

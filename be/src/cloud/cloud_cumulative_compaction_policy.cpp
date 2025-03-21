@@ -66,8 +66,13 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                             input_rowsets->push_back(rowset);
                         }
                     }
+                    LOG_INFO(
+                            "[CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_"
+                            "input_rowsets] tablet_id={}, start={}, end={}, "
+                            "input_rowsets->size()={}",
+                            target_tablet_id, start_version, end_version, input_rowsets->size());
+                    return input_rowsets->size();
                 }
-                return input_rowsets->size();
             })
 
     size_t promotion_size = cloud_promotion_size(tablet);

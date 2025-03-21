@@ -391,9 +391,6 @@ public:
     BloomFilterFuncBase* get_bloomfilter() const { return _context->bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-        if (is_ignored()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "insert_fixed_len meet ignored rf");
-        }
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context->hybrid_set->insert_fixed_len(column, start);
@@ -1106,7 +1103,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            ctx->ignored = true;
+            ctx->disabled = true;
         } else {
             ctx->err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);

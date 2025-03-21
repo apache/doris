@@ -208,7 +208,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            "brpc_light"),
           _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
                                           ? config::brpc_arrow_flight_work_pool_threads
-                                          : std::max(512, CpuInfo::num_cores() * 16),
+                                          : std::max(512, CpuInfo::num_cores() * 2),
                                   config::brpc_arrow_flight_work_pool_max_queue_size != -1
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),

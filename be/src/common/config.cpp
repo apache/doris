@@ -729,6 +729,8 @@ DEFINE_mInt32(es_http_timeout_ms, "5000");
 // TODO(cmy): use different config to set different client cache if necessary.
 DEFINE_Int32(max_client_cache_size_per_host, "10");
 
+DEFINE_Int32(max_master_fe_client_cache_size, "10");
+
 // Dir to save files downloaded by SmallFileMgr
 DEFINE_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 // path gc
@@ -1101,6 +1103,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1208,6 +1211,10 @@ DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
+// get agg by cache for mow table
+DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
+// get agg correctness check for mow table
+DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1304,6 +1311,8 @@ DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
 DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1449,6 +1458,12 @@ DEFINE_mInt32(compaction_num_per_round, "1");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 // clang-format off
 #ifdef BE_TEST

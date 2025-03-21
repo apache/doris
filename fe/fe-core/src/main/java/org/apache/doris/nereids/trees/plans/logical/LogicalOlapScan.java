@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -46,6 +48,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -61,6 +65,8 @@ import java.util.Set;
  * Logical OlapScan.
  */
 public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan {
+
+    private static final Logger LOG = LogManager.getLogger(LogicalOlapScan.class);
 
     ///////////////////////////////////////////////////////////////////////////
     // Members for materialized index.
@@ -527,9 +533,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
-            MTMVCache cache = mtmv.getCache();
+            MTMVCache cache;
+            try {
+                cache = mtmv.getOrGenerateCache(ConnectContext.get());
+            } catch (AnalysisException e) {
+                LOG.warn(String.format("LogicalOlapScan computeUnique fail, mv name is %s", mtmv.getName()), e);
+                return;
+            }
             // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
-            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+            if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -554,9 +566,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     public void computeUniform(DataTrait.Builder builder) {
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
-            MTMVCache cache = mtmv.getCache();
+            MTMVCache cache;
+            try {
+                cache = mtmv.getOrGenerateCache(ConnectContext.get());
+            } catch (AnalysisException e) {
+                LOG.warn(String.format("LogicalOlapScan computeUniform fail, mv name is %s", mtmv.getName()), e);
+                return;
+            }
             // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
-            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+            if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -569,9 +587,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     public void computeEqualSet(DataTrait.Builder builder) {
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
-            MTMVCache cache = mtmv.getCache();
+            MTMVCache cache;
+            try {
+                cache = mtmv.getOrGenerateCache(ConnectContext.get());
+            } catch (AnalysisException e) {
+                LOG.warn(String.format("LogicalOlapScan computeEqualSet fail, mv name is %s", mtmv.getName()), e);
+                return;
+            }
             // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
-            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+            if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -584,9 +608,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     public void computeFd(DataTrait.Builder builder) {
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
-            MTMVCache cache = mtmv.getCache();
+            MTMVCache cache;
+            try {
+                cache = mtmv.getOrGenerateCache(ConnectContext.get());
+            } catch (AnalysisException e) {
+                LOG.warn(String.format("LogicalOlapScan computeFd fail, mv name is %s", mtmv.getName()), e);
+                return;
+            }
             // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
-            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+            if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -599,7 +629,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         Map<Slot, Slot> replaceMap = new HashMap<>();
         // Need remove invisible column, and then mapping them
         List<Slot> originOutputs = new ArrayList<>();
-        for (Slot originSlot : mtmv.getCache().getOriginalPlan().getOutput()) {
+        MTMVCache cache;
+        try {
+            cache = mtmv.getOrGenerateCache(ConnectContext.get());
+        } catch (AnalysisException e) {
+            LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
+            return replaceMap;
+        }
+        for (Slot originSlot : cache.getOriginalPlan().getOutput()) {
             if (!(originSlot instanceof SlotReference) || (((SlotReference) originSlot).isVisible())) {
                 originOutputs.add(originSlot);
             }

@@ -50,6 +50,7 @@ import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
+import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
@@ -369,6 +370,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -605,6 +607,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
+            ConnectContext.get().setDatabase(name.getDb());
         } else {
             throw new ParseException("tableName and tableId cannot both be null");
         }
@@ -750,8 +753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
-        return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
-                comment);
+        return new SimpleColumnDefinition(ctx.colName.getText(), comment);
     }
 
     /**
@@ -941,6 +943,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String vaultName = nameParts.get(0);
         Map<String, String> properties = this.visitPropertyClause(ctx.properties);
         return new AlterStorageVaultCommand(vaultName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterSystemRenameComputeGroup(AlterSystemRenameComputeGroupContext ctx) {
+        return new AlterSystemRenameComputeGroupCommand(ctx.name.getText(), ctx.newName.getText());
     }
 
     @Override
@@ -2814,9 +2821,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.INTEGER_VALUE() != null) {
-                defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+                if (ctx.SUBTRACT() == null) {
+                    defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+                } else {
+                    defaultValue = Optional.of(new DefaultValue("-" + ctx.INTEGER_VALUE().getText()));
+                }
             } else if (ctx.DECIMAL_VALUE() != null) {
-                defaultValue = Optional.of(new DefaultValue(ctx.DECIMAL_VALUE().getText()));
+                if (ctx.SUBTRACT() == null) {
+                    defaultValue = Optional.of(new DefaultValue(ctx.DECIMAL_VALUE().getText()));
+                } else {
+                    defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
+                }
             } else if (ctx.stringValue != null) {
                 defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
@@ -2968,6 +2983,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitPartitionValueDef(PartitionValueDefContext ctx) {
         if (ctx.INTEGER_VALUE() != null) {
+            if (ctx.SUBTRACT() != null) {
+                return Literal.of("-" + ctx.INTEGER_VALUE().getText());
+            }
             return Literal.of(ctx.INTEGER_VALUE().getText());
         } else if (ctx.STRING_LITERAL() != null) {
             return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
