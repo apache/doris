@@ -258,7 +258,7 @@ public class MTMVTask extends AbstractTask {
         List<Column> derivedColumns = derivedColumnsDefinition.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        List<Column> currentColumns = mtmv.getFullSchema();
+        List<Column> currentColumns = mtmv.getBaseSchemaColumns();
         if (derivedColumns.size() != currentColumns.size()) {
             throw new JobException("column length not equals, please check columns of base table if changed");
         }
