@@ -729,7 +729,17 @@ void get_subpaths(const TabletColumn& variant,
 }
 
 Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
-                        int64_t tablet_id) {
+                        BaseTabletSPtr tablet) {
+    // only check path stats for dup_keys since the rows may be merged in other models
+    if (tablet->keys_type() != KeysType::DUP_KEYS) {
+        return Status::OK();
+    }
+    // if there is a delete predicate in the input rowsets, we skip the path stats check
+    for (auto& rowset : intputs) {
+        if (rowset->rowset_meta()->has_delete_predicate()) {
+            return Status::OK();
+        }
+    }
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
     for (const auto& rs : intputs) {
         RETURN_IF_ERROR(collect_path_stats(rs, original_uid_to_path_stats));
@@ -739,11 +749,11 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
     for (const auto& [uid, stats] : original_uid_to_path_stats) {
         if (output_uid_to_path_stats.find(uid) == output_uid_to_path_stats.end()) {
             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
-                                         tablet_id);
+                                         tablet->tablet_id());
         }
         if (stats.size() != output_uid_to_path_stats.at(uid).size()) {
             return Status::InternalError("Path stats size not match for uid {}, tablet_id {}", uid,
-                                         tablet_id);
+                                         tablet->tablet_id());
         }
         for (const auto& [path, size] : stats) {
             if (output_uid_to_path_stats.at(uid).at(path) != size) {
@@ -751,7 +761,8 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
                         "Path stats not match for uid {} with path `{}`, input size {}, output "
                         "size {}, "
                         "tablet_id {}",
-                        uid, path, size, output_uid_to_path_stats.at(uid).at(path), tablet_id);
+                        uid, path, size, output_uid_to_path_stats.at(uid).at(path),
+                        tablet->tablet_id());
             }
         }
     }

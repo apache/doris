@@ -154,17 +154,11 @@ public:
 
         void insert_default();
 
-        void increment_default_counter() {
-            ++current_num_of_defaults;
-        }
+        void increment_default_counter() { ++current_num_of_defaults; }
 
-        void reset_current_num_of_defaults() {
-            current_num_of_defaults = 0;
-        }
+        void reset_current_num_of_defaults() { current_num_of_defaults = 0; }
 
-        size_t cur_num_of_defaults() {
-            return current_num_of_defaults;
-        }
+        size_t cur_num_of_defaults() { return current_num_of_defaults; }
 
         void insert_many_defaults(size_t length);
 

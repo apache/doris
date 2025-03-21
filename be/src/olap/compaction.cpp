@@ -1365,11 +1365,9 @@ Status Compaction::check_correctness() {
                 _tablet->tablet_id(), _input_row_num, _stats.merged_rows, _stats.filtered_rows,
                 _output_rowset->num_rows());
     }
-    if (_tablet->keys_type() == KeysType::DUP_KEYS) {
-        // only check path stats for dup_keys since the rows may be merged in other models
-        RETURN_IF_ERROR(vectorized::schema_util::check_path_stats(_input_rowsets, _output_rowset,
-                                                                  _tablet->tablet_id()));
-    }
+    // check variant column path stats
+    RETURN_IF_ERROR(
+            vectorized::schema_util::check_path_stats(_input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
