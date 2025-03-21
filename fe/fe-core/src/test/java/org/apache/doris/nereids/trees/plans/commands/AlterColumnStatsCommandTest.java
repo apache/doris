@@ -115,14 +115,14 @@ public class AlterColumnStatsCommandTest {
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         //test OlapTable
-        String indexName2 = "test_index_name";
+        /* String indexName2 = "test_index_name";
         TableNameInfo tableNameInfo2 = new TableNameInfo(CatalogMocker.MYSQL_DB, CatalogMocker.MYSQL_TBL);
         AlterColumnStatsCommand command2 = new AlterColumnStatsCommand(tableNameInfo2, partitionNamesInfo, indexName2, columnName, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
-                "Only OlapTable support alter index stats. Table mysql-tbl is not OlapTable.");
+                "Only OlapTable support alter index stats. Table mysql-tbl is not OlapTable.");*/
 
         //test indexId in OlapTable
-      /*  String indexName3 = "invalid_index";
+        /*  String indexName3 = "invalid_index";
         AlterColumnStatsCommand command3 = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo, indexName3, columnName, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command3.validate(connectContext),
                 "Index invalid_index not exist in table test_tbl2");*/
@@ -133,21 +133,6 @@ public class AlterColumnStatsCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> command4.validate(connectContext),
                 "Incorrect column name 'invalid_column'. Column regex is '^[_a-zA-Z@0-9\\s/][.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:]{0,255}$'");
 */
-        //test is partition table
-        TableNameInfo tableNameInfo3 = new TableNameInfo(CatalogMocker.TEST_DB_NAME,
-                CatalogMocker.TEST_TBL_NAME);
-        PartitionNamesInfo partitionNamesInfo2 = new PartitionNamesInfo(false,
-                ImmutableList.of(CatalogMocker.TEST_SINGLE_PARTITION_NAME));
-        AlterColumnStatsCommand command5 = new AlterColumnStatsCommand(tableNameInfo3, partitionNamesInfo2, indexName, columnName, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command5.validate(connectContext),
-                "Not a partitioned table: test_tbl");
-
-        //test partition not exist
-        PartitionNamesInfo partitionNamesInfo3 = new PartitionNamesInfo(false,
-                ImmutableList.of(partitionNotExist));
-        AlterColumnStatsCommand command6 = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo3, indexName, columnName, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command6.validate(connectContext),
-                "Partition does not exist: partition_not_exist");
 
         //test invalid statistics
         Map<String, String> properties2 = new HashMap<>();

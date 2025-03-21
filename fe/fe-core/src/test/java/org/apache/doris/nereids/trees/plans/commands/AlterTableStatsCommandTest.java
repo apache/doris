@@ -113,22 +113,6 @@ public class AlterTableStatsCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
                 "histogram is invalid statistics");
 
-        //test unPartition table
-/*        TableNameInfo tableNameInfo2 =
-                new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
-        PartitionNamesInfo partitionNamesInfo2 = new PartitionNamesInfo(false,
-                ImmutableList.of(CatalogMocker.TEST_SINGLE_PARTITION_NAME));
-        AlterTableStatsCommand command3 = new AlterTableStatsCommand(tableNameInfo2, partitionNamesInfo2, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command3.validate(connectContext),
-                "Not a partitioned table: test_tbl");*/
-
-        //test partition not exist
-       /* PartitionNamesInfo partitionNamesInfo3 = new PartitionNamesInfo(false,
-                ImmutableList.of(partitionNotExist));
-        AlterTableStatsCommand command4 = new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo3, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command4.validate(connectContext),
-                "Partition does not exist: partition_not_exist");*/
-
         //test enable stats
         connectContext.getSessionVariable().enableStats = false;
         AlterTableStatsCommand command5 = new AlterTableStatsCommand(tableNameInfo, partitionNamesInfo, properties);
