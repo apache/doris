@@ -74,7 +74,7 @@ public class AlterViewStmt extends BaseViewStmt {
         viewDefStmt.setNeedToSql(true);
         Analyzer viewAnalyzer = new Analyzer(analyzer);
         viewDefStmt.analyze(viewAnalyzer);
-        checkQueryAuth();
+        checkQueryAuth(viewAnalyzer);
         createColumnAndViewDefs(analyzer);
     }
 

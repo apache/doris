@@ -3909,7 +3909,8 @@ struct SubReplaceImpl {
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
                     if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                                StringRef {data_column->get_chars().data(),
+                                           data_column->get_chars().size()})) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
