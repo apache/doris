@@ -1230,6 +1230,14 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 "{}, error_msg: {}",
                 tablet.tablet_id(), lock_id, initiator, res.status().msg());
     }
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO(
+                "CloudMetaMgr::update_delete_bitmap, tablet={}, lock_id={}, initiator={}, "
+                "txn_id={}, is_explicit_txn={}, delete bitmap count={}, delete bitmap "
+                "cardinality={}",
+                tablet.tablet_id(), lock_id, initiator, txn_id, is_explicit_txn,
+                delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality());
+    }
     return st;
 }
 
