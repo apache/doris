@@ -935,7 +935,15 @@ public class BindExpression implements AnalysisRuleFactory {
                 buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
                 agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
-        return agg.withGroupByAndOutput(boundGroupBy, boundProjections);
+        List<NamedExpression> finalProjections = Lists.newArrayList();
+        for (NamedExpression projection : boundProjections) {
+            if (projection instanceof SlotReference && !boundGroupBy.contains(projection)) {
+                finalProjections.add(new Alias(projection, projection.getName()));
+            } else {
+                finalProjections.add(projection);
+            }
+        }
+        return agg.withGroupByAndOutput(boundGroupBy, finalProjections);
     }
 
     private Plan bindRepeat(MatchingContext<LogicalRepeat<Plan>> ctx) {
