@@ -60,7 +60,7 @@ private:
                                std::unordered_map<RowsetId, RowsetId>& rowset_id_mapping);
 
 private:
-    CloudStorageEngine &_engine;
+    CloudStorageEngine& _engine;
     std::atomic<uint64_t> _snapshot_base_id {0};
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // CloudSnapshotMgr

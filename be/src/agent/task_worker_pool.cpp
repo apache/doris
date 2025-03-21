@@ -48,9 +48,9 @@
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
-#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -1278,14 +1278,15 @@ void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTas
 
     auto status = Status::OK();
     if (download_request.__isset.remote_tablet_snapshots) {
-        status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("remote tablet snapshot is not supported.");
+        status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "remote tablet snapshot is not supported.");
     } else {
         std::unique_ptr<CloudSnapshotLoader> loader = std::make_unique<CloudSnapshotLoader>(
                 engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
         status = loader->init(download_request.__isset.storage_backend
-                              ? download_request.storage_backend
-                              : TStorageBackendType::type::BROKER,
+                                      ? download_request.storage_backend
+                                      : TStorageBackendType::type::BROKER,
                               download_request.__isset.location ? download_request.location : "",
                               download_request.vault_id);
         if (status.ok()) {
@@ -1399,7 +1400,8 @@ void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskReque
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    Status status = engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id);
+    Status status =
+            engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id);
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
                 .tag("signature", req.signature)

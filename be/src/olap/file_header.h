@@ -154,7 +154,8 @@ Status FileHeader<MessageType, ExtraType>::serialize() {
 }
 
 template <typename MessageType, typename ExtraType>
-Status FileHeader<MessageType, ExtraType>::serialize_to_memory(uint8_t* buffer, size_t buffer_size) {
+Status FileHeader<MessageType, ExtraType>::serialize_to_memory(uint8_t* buffer,
+                                                               size_t buffer_size) {
     if (buffer_size < size()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "buffer size is too small. required={}, provided={}", size(), buffer_size);
@@ -264,7 +265,8 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
 }
 
 template <typename MessageType, typename ExtraType>
-Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t* buffer, size_t buffer_size) {
+Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t* buffer,
+                                                                   size_t buffer_size) {
     if (buffer_size < sizeof(FixedFileHeaderV2)) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "buffer size is too small to contain a valid header. provided={}", buffer_size);
@@ -278,7 +280,8 @@ Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t
         VLOG_TRACE << "old fix header found, magic num=" << _fixed_file_header.magic_number;
         if (buffer_size < sizeof(FixedFileHeader)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "buffer size is too small to contain a valid old header. provided={}", buffer_size);
+                    "buffer size is too small to contain a valid old header. provided={}",
+                    buffer_size);
         }
         FixedFileHeader tmp_header;
         memcpy(&tmp_header, buffer, sizeof(tmp_header));
@@ -298,11 +301,13 @@ Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t
                 << ", magic_number=" << _fixed_file_header.magic_number
                 << ", version=" << _fixed_file_header.version;
 
-    if (buffer_size < _fixed_file_header_size + sizeof(_extra_fixed_header) + _fixed_file_header.protobuf_length) {
+    if (buffer_size < _fixed_file_header_size + sizeof(_extra_fixed_header) +
+                              _fixed_file_header.protobuf_length) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "buffer size is too small to contain the entire header and protobuf. required={}, provided={}",
-                _fixed_file_header_size + sizeof(_extra_fixed_header) + _fixed_file_header.protobuf_length,
-                buffer_size);
+                "buffer size is too small to contain the entire header and protobuf. required={}, "
+                "provided={}",
+                _fixed_file_header_size + sizeof(_extra_fixed_header) +
+                        _fixed_file_header.protobuf_length, buffer_size);
     }
 
     memcpy(&_extra_fixed_header, ptr, sizeof(_extra_fixed_header));
@@ -311,8 +316,8 @@ Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t
     std::unique_ptr<char[]> buf(new (std::nothrow) char[_fixed_file_header.protobuf_length]);
     if (nullptr == buf) {
         char errmsg[64];
-        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>(
-                "malloc protobuf buf error. error={}", strerror_r(errno, errmsg, 64));
+        return Status::Error<ErrorCode::MEM_ALLOC_FAILED>("malloc protobuf buf error. error={}",
+                                                          strerror_r(errno, errmsg, 64));
     }
     memcpy(buf.get(), ptr, _fixed_file_header.protobuf_length);
 
