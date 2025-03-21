@@ -47,18 +47,18 @@ class ExecEnv;
 class BaseSnapshotLoader {
 public:
     BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
-                   const TNetworkAddress& broker_addr = {},
-                   const std::map<std::string, std::string>& broker_prop = {});
+                       const TNetworkAddress& broker_addr = {},
+                       const std::map<std::string, std::string>& broker_prop = {});
 
     virtual ~BaseSnapshotLoader() = default;
 
     Status init(TStorageBackendType::type type, const std::string& location);
 
     virtual Status upload(const std::map<std::string, std::string>& src_to_dest_path,
-                  std::map<int64_t, std::vector<std::string>>* tablet_files) = 0;
+                          std::map<int64_t, std::vector<std::string>>* tablet_files) = 0;
 
     virtual Status download(const std::map<std::string, std::string>& src_to_dest_path,
-                    std::vector<int64_t>* downloaded_tablet_ids) = 0;
+                            std::vector<int64_t>* downloaded_tablet_ids) = 0;
 
 protected:
     Status _get_tablet_id_from_remote_path(const std::string& remote_path, int64_t* tablet_id);

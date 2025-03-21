@@ -1096,7 +1096,7 @@ TEST(KeysTest, SnapshotKeysTest) {
     // 0x01 "snapshot" ${instance_id} "tablet" ${tablet_id}
     {
         int64_t tablet_id = 10086;
-        SnapshotTabletKeyInfo tablet_key{instance_id, tablet_id};
+        SnapshotTabletKeyInfo tablet_key {instance_id, tablet_id};
         std::string encoded_key;
         snapshot_tablet_key(tablet_key, &encoded_key);
         std::cout << hex(encoded_key) << std::endl;
@@ -1125,7 +1125,7 @@ TEST(KeysTest, SnapshotKeysTest) {
     {
         int64_t tablet_id = 10086;
         int64_t version = 100;
-        SnapshotRowsetKeyInfo rowset_key{instance_id, tablet_id, version};
+        SnapshotRowsetKeyInfo rowset_key {instance_id, tablet_id, version};
         std::string encoded_key;
         snapshot_rowset_key(rowset_key, &encoded_key);
         std::cout << hex(encoded_key) << std::endl;

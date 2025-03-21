@@ -967,9 +967,10 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
     }
 }
 
-void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
-                          MetaServiceCode& code, std::string& msg,
-                          std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas) {
+void scan_snapshot_rowset(
+        Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+        std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas) {
     std::stringstream ss;
 
     TabletIndexPB tablet_idx;
@@ -998,15 +999,15 @@ void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int6
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get snapshot rs meta while committing,"
-               << " tablet_id=" << tablet_idx.tablet_id()
-               << " err=" << err;
+               << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
         }
         while (it->has_next()) {
             auto [k, v] = it->next();
-            LOG(INFO) << "range_get snapshot_rs_key=" << hex(k) << " tablet_id=" << tablet_idx.tablet_id();
+            LOG(INFO) << "range_get snapshot_rs_key=" << hex(k)
+                      << " tablet_id=" << tablet_idx.tablet_id();
             snapshot_rs_metas->emplace_back();
             if (!snapshot_rs_metas->back().second.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
@@ -1026,8 +1027,7 @@ void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int6
 }
 
 void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controller,
-                                    const SnapshotRequest* request,
-                                    SnapshotResponse* response,
+                                    const SnapshotRequest* request, SnapshotResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(make_snapshot);
     if (!request->has_tablet_id()) {
@@ -1080,7 +1080,8 @@ void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controlle
     err = txn0->get(key, &val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to check snapshot {} existence, err={}", tablet_idx.tablet_id(), err);;
+        msg = fmt::format("failed to check snapshot {} existence, err={}", tablet_idx.tablet_id(),
+                          err);
         return;
     }
     if (err == TxnErrorCode::TXN_OK) {
@@ -1149,7 +1150,8 @@ void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controlle
         // put snapshot rowset kv
         std::string snapshot_rs_key;
         std::string snapshot_rs_val;
-        SnapshotRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(), rowset_meta.end_version()};
+        SnapshotRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                           rowset_meta.end_version()};
         snapshot_rowset_key(rs_key_info, &snapshot_rs_key);
         if (!rowset_meta.SerializeToString(&snapshot_rs_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1169,8 +1171,7 @@ void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controlle
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to make snapshot,"
                << " tablet_id=" << tablet_idx.tablet_id()
-               << " rowset_id=" << rowset_meta.rowset_id_v2()
-               << " err=" << err;
+               << " rowset_id=" << rowset_meta.rowset_id_v2() << " err=" << err;
             msg = ss.str();
             return;
         }
@@ -1178,8 +1179,7 @@ void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controlle
 }
 
 void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* controller,
-                                      const SnapshotRequest* request,
-                                      SnapshotResponse* response,
+                                      const SnapshotRequest* request, SnapshotResponse* response,
                                       ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_snapshot);
     if (!request->has_tablet_id()) {
@@ -1252,7 +1252,8 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
 
     // 2. get rs snapshots
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
-    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg, &snapshot_rs_metas);
+    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg,
+                         &snapshot_rs_metas);
     if (code != MetaServiceCode::OK) {
         LOG_WARNING("scan snapshot rowset failed")
                 .tag("tablet_id", request->tablet_id())
@@ -1265,10 +1266,10 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
     TabletStats tablet_stat;
     int32_t max_batch_size = config::max_snapshot_rowsets_per_batch;
     for (size_t i = 0; i < snapshot_rs_metas.size(); i += max_batch_size) {
-        size_t end = (i + max_batch_size) > snapshot_rs_metas.size()
-                    ? snapshot_rs_metas.size() : i + max_batch_size;
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
-                sub_snapshot_rs_metas(snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
+        size_t end = (i + max_batch_size) > snapshot_rs_metas.size() ? snapshot_rs_metas.size()
+                                                                     : i + max_batch_size;
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> sub_snapshot_rs_metas(
+                snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -1299,7 +1300,8 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
             // put rowset meta
             std::string rs_key;
             std::string rs_val;
-            MetaRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(), rowset_meta.end_version()};
+            MetaRowsetKeyInfo rs_key_info {instance_id, tablet_idx.tablet_id(),
+                                           rowset_meta.end_version()};
             meta_rowset_key(rs_key_info, &rs_key);
             if (!rowset_meta.SerializeToString(&rs_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -1332,8 +1334,7 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit rowset snapshot,"
-               << " tablet_id=" << tablet_idx.tablet_id()
-               << " err=" << err;
+               << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
             msg = ss.str();
             return;
         }
@@ -1354,8 +1355,9 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
 
     DeleteBitmapPB* delete_bitmap = tablet_meta->mutable_delete_bitmap();
     for (size_t i = 0; i < delete_bitmap->rowset_ids_size(); ++i) {
-        MetaDeleteBitmapInfo key_info {instance_id, tablet_meta->tablet_id(), delete_bitmap->rowset_ids(i),
-                                       delete_bitmap->versions(i), delete_bitmap->segment_ids(i)};
+        MetaDeleteBitmapInfo key_info {instance_id, tablet_meta->tablet_id(),
+                                       delete_bitmap->rowset_ids(i), delete_bitmap->versions(i),
+                                       delete_bitmap->segment_ids(i)};
         std::string key;
         meta_delete_bitmap_key(key_info, &key);
         auto& val = delete_bitmap->segment_delete_bitmaps(i);
@@ -1414,8 +1416,8 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
             // detach TabletSchemaCloudPB from TabletMetaCloudPB
             tablet_meta->set_schema_version(tablet_meta->schema().schema_version());
             fix_column_type(tablet_meta->mutable_schema());
-            auto schema_key =
-                    meta_schema_key({instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
+            auto schema_key = meta_schema_key(
+                    {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
             put_schema_kv(code, msg, txn0.get(), schema_key, tablet_meta->schema());
             if (code != MetaServiceCode::OK) return;
             tablet_meta->set_allocated_schema(nullptr);
@@ -1483,8 +1485,7 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
 }
 
 void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* controller,
-                                       const SnapshotRequest* request,
-                                       SnapshotResponse* response,
+                                       const SnapshotRequest* request, SnapshotResponse* response,
                                        ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(release_snapshot);
     if (!request->has_tablet_id()) {
@@ -1550,7 +1551,8 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
 
     // 2. get rs snapshots
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
-    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg, &snapshot_rs_metas);
+    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg,
+                         &snapshot_rs_metas);
     if (code != MetaServiceCode::OK) {
         LOG_WARNING("scan snapshot rowset failed")
                 .tag("tablet_id", request->tablet_id())
@@ -1564,10 +1566,10 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
         // 3. convert snapshot rs to recycle rs
         int32_t max_batch_size = config::max_snapshot_rowsets_per_batch;
         for (size_t i = 0; i < snapshot_rs_metas.size(); i += max_batch_size) {
-            size_t end = (i + max_batch_size) > snapshot_rs_metas.size()
-                         ? snapshot_rs_metas.size() : i + max_batch_size;
-            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>
-                    sub_snapshot_rs_metas(snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
+            size_t end = (i + max_batch_size) > snapshot_rs_metas.size() ? snapshot_rs_metas.size()
+                                                                         : i + max_batch_size;
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> sub_snapshot_rs_metas(
+                    snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
             std::unique_ptr<Transaction> txn;
             TxnErrorCode err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
@@ -1610,8 +1612,7 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
                 ss << "failed to commit rowset snapshot,"
-                   << " tablet_id=" << tablet_idx.tablet_id()
-                   << " err=" << err;
+                   << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
                 msg = ss.str();
                 return;
             }

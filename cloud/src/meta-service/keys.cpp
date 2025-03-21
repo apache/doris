@@ -473,16 +473,16 @@ void storage_vault_key(const StorageVaultKeyInfo& in, std::string* out) {
 //==============================================================================
 
 void snapshot_tablet_key(const SnapshotTabletKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                        // 0x01 "snapshot" ${instance_id}
-    encode_bytes(META_KEY_INFIX_TABLET, out);      // "tablet"
-    encode_int64(std::get<1>(in), out);            // tablet_id
+    encode_prefix(in, out);                   // 0x01 "snapshot" ${instance_id}
+    encode_bytes(META_KEY_INFIX_TABLET, out); // "tablet"
+    encode_int64(std::get<1>(in), out);       // tablet_id
 }
 
 void snapshot_rowset_key(const SnapshotRowsetKeyInfo& in, std::string* out) {
-    encode_prefix(in, out);                        // 0x01 "snapshot" ${instance_id}
-    encode_bytes(META_KEY_INFIX_ROWSET, out);      // "rowset"
-    encode_int64(std::get<1>(in), out);            // tablet_id
-    encode_int64(std::get<2>(in), out);            // version
+    encode_prefix(in, out);                   // 0x01 "snapshot" ${instance_id}
+    encode_bytes(META_KEY_INFIX_ROWSET, out); // "rowset"
+    encode_int64(std::get<1>(in), out);       // tablet_id
+    encode_int64(std::get<2>(in), out);       // version
 }
 
 //==============================================================================

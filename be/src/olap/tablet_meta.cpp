@@ -483,7 +483,8 @@ Status TabletMeta::create_from_buffer(const uint8_t* buffer, size_t buffer_size)
     try {
         tablet_meta_pb.CopyFrom(file_header.message());
     } catch (...) {
-        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>("fail to copy protocol buffer object from buffer.");
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
+                "fail to copy protocol buffer object from buffer.");
     }
 
     init_from_pb(tablet_meta_pb);

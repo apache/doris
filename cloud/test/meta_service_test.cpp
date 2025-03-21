@@ -8983,9 +8983,10 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
     }
 }
 
-void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
-                          MetaServiceCode& code, std::string& msg,
-                          std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas);
+void scan_snapshot_rowset(
+        Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+        std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas);
 
 TEST(MetaServiceTest, SnapshotRequest) {
     auto meta_service = get_meta_service();
@@ -9001,7 +9002,7 @@ TEST(MetaServiceTest, SnapshotRequest) {
         ret->second = true;
     });
     sp->enable_processing();
-    
+
     auto reset_meta_service = [&meta_service] { meta_service = get_meta_service(); };
     constexpr int64_t table_id = 10001;
     constexpr int64_t index_id = 10002;
@@ -9009,7 +9010,7 @@ TEST(MetaServiceTest, SnapshotRequest) {
     constexpr int64_t tablet_id = 10004;
     constexpr int64_t version = 1;
     constexpr int64_t txn_id = 0;
-    
+
     TabletIndexPB tablet_idx;
     tablet_idx.set_table_id(table_id);
     tablet_idx.set_index_id(index_id);
@@ -9196,7 +9197,8 @@ TEST(MetaServiceTest, SnapshotRequest) {
         req.set_is_restore(true);
         meta_service->commit_snapshot(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
-        std::string tablet_key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string tablet_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(tablet_key, &val), TxnErrorCode::TXN_OK);
         TabletMetaCloudPB saved_tablet_meta;
@@ -9209,8 +9211,8 @@ TEST(MetaServiceTest, SnapshotRequest) {
         ASSERT_TRUE(saved_rs_meta.ParseFromString(val));
         ASSERT_EQ(saved_rs_meta.tablet_id(), tablet_id);
         ASSERT_EQ(saved_rs_meta.rowset_id_v2(), rs_meta->rowset_id_v2());
-        std::string bitmap_key = meta_delete_bitmap_key(
-                {instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 1});
+        std::string bitmap_key =
+                meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 1});
         ASSERT_EQ(txn->get(bitmap_key, &val), TxnErrorCode::TXN_OK);
         ASSERT_EQ(val, "test_bitmap");
 
@@ -9286,7 +9288,7 @@ TEST(MetaServiceTest, SnapshotRequest) {
             ASSERT_EQ(saved_rs_meta.start_version(), ver);
             ASSERT_EQ(saved_rs_meta.end_version(), ver);
         }
-        
+
         // ths snapshot key should be dropped, snapshot rowset key should not be found
         std::string snapshot_key = snapshot_tablet_key({instance_id, tablet_id});
         std::string val;
@@ -9365,8 +9367,8 @@ TEST(MetaServiceTest, SnapshotRequest) {
         req.set_tablet_id(tablet_id);
         meta_service->release_snapshot(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
-        std::string recycle_rs_key = recycle_rowset_key(
-                {instance_id, tablet_id, rs_meta->rowset_id_v2()});
+        std::string recycle_rs_key =
+                recycle_rowset_key({instance_id, tablet_id, rs_meta->rowset_id_v2()});
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(recycle_rs_key, &val), TxnErrorCode::TXN_OK);
         RecycleRowsetPB recycle_rowset;

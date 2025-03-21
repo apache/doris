@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <chrono>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+
+#include <chrono>
 
 #include "common/logging.h"
 #include "meta-service/keys.h"
@@ -372,7 +373,8 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     if (request->partition_versions_size() > 0 &&
         (request->partition_versions_size() != request->partition_ids_size())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "size is not equal, partition_versions size=" + std::to_string(request->partition_ids_size()) +
+        msg = "size is not equal, partition_versions size=" +
+              std::to_string(request->partition_ids_size()) +
               " partition_ids size=" + std::to_string(request->partition_ids_size());
         return;
     }
@@ -419,11 +421,13 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
             if (request->partition_versions_size() > 0 && request->partition_versions(i) > 1) {
                 int64_t version_update_time_ms =
                         std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch()).count();
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
                 std::string ver_key;
                 std::string ver_val;
                 partition_version_key({instance_id, request->db_id(), request->table_id(),
-                                       request->partition_ids(i)}, &ver_key);
+                                       request->partition_ids(i)},
+                                      &ver_key);
                 VersionPB version_pb;
                 version_pb.set_version(request->partition_versions(i));
                 version_pb.set_update_time_ms(version_update_time_ms);

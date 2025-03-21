@@ -154,9 +154,10 @@ static int txn_remove(TxnKv* txn_kv, std::vector<std::string> keys) {
     }
 }
 
-void scan_snapshot_rowset(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
-                          MetaServiceCode& code, std::string& msg,
-                          std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas);
+void scan_snapshot_rowset(
+        Transaction* txn, const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+        std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas);
 
 static inline void check_recycle_task(const std::string& instance_id, const std::string& task_name,
                                       int64_t num_scanned, int64_t num_recycled,
@@ -2295,7 +2296,8 @@ int InstanceRecycler::recycle_snapshots() {
             return 0L;
         }
         int64_t expiration = snapshot.expiration() > 0
-                    ? snapshot.creation_time() + snapshot.expiration() : snapshot.creation_time();
+                        ? snapshot.creation_time() + snapshot.expiration()
+                                     : snapshot.creation_time();
         int64_t final_expiration = expiration + config::retention_seconds;
         if (earlest_ts > final_expiration) {
             earlest_ts = final_expiration;
@@ -2328,7 +2330,8 @@ int InstanceRecycler::recycle_snapshots() {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot").tag("err", err)
+            LOG_WARNING("failed to recycle snapshot")
+                    .tag("err", err)
                     .tag("tablet id", tablet_id)
                     .tag("instance_id", instance_id_)
                     .tag("reason", "failed to create txn");
@@ -2351,7 +2354,8 @@ int InstanceRecycler::recycle_snapshots() {
         txn.reset();
         err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot").tag("err", err)
+            LOG_WARNING("failed to recycle snapshot")
+                    .tag("err", err)
                     .tag("tablet id", tablet_id)
                     .tag("instance_id", instance_id_)
                     .tag("reason", "failed to create txn");
@@ -2363,7 +2367,8 @@ int InstanceRecycler::recycle_snapshots() {
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot rowset kv").tag("err", err)
+            LOG_WARNING("failed to recycle snapshot rowset kv")
+                    .tag("err", err)
                     .tag("tablet id", tablet_id)
                     .tag("instance_id", instance_id_)
                     .tag("reason", "failed to commit txn");
@@ -2376,20 +2381,21 @@ int InstanceRecycler::recycle_snapshots() {
         check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
         snapshot_keys.push_back(k);
 
-        LOG(INFO) << "finish to recycle expired snapshot, key=" << hex(k) << " tablet_id=" << tablet_id;
+        LOG(INFO) << "finish to recycle expired snapshot, key=" << hex(k)
+                  << " tablet_id=" << tablet_id;
         return 0;
     };
 
     auto loop_done = [&snapshot_keys, this]() -> int {
         if (snapshot_keys.empty()) return 0;
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
-            snapshot_keys.clear();
-        });
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
+                                                              [&](int*) { snapshot_keys.clear(); });
 
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot").tag("err", err)
+            LOG_WARNING("failed to recycle snapshot")
+                    .tag("err", err)
                     .tag("instance_id", instance_id_)
                     .tag("reason", "failed to create txn");
             return -1;
@@ -2399,7 +2405,8 @@ int InstanceRecycler::recycle_snapshots() {
         }
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot").tag("err", err)
+            LOG_WARNING("failed to recycle snapshot")
+                    .tag("err", err)
                     .tag("instance_id", instance_id_)
                     .tag("reason", "failed to commit txn");
             return -1;
@@ -2407,7 +2414,8 @@ int InstanceRecycler::recycle_snapshots() {
         return 0;
     };
 
-    return scan_and_recycle(snapshot_key0, snapshot_key1, std::move(recycle_func), std::move(loop_done));
+    return scan_and_recycle(snapshot_key0, snapshot_key1, std::move(recycle_func),
+                            std::move(loop_done));
 }
 
 int InstanceRecycler::recycle_tmp_rowsets() {
