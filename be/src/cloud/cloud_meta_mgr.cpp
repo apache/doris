@@ -1149,8 +1149,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
-                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}",
-                tablet.tablet_id(), lock_id);
+                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
+                "{}, error_msg: {}",
+                tablet.tablet_id(), lock_id, initiator, res.status().msg());
     }
     return st;
 }
@@ -1231,6 +1232,15 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                 "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
+    }
+    if (st.ok()) {
+        DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.sleep", {
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            int random_sleep_time_second = std::rand() % 5;
+            LOG(INFO) << "after get delete bitmap lock for initiator: " << initiator
+                      << ", random sleep " << random_sleep_time_second << " second";
+            std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
+        })
     }
     return st;
 }
