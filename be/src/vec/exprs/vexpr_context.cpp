@@ -130,6 +130,8 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
                                             const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
+    _fn_contexts.back()->set_check_overflow_for_number_cast(
+            state->check_overflow_for_number_cast());
     return static_cast<int>(_fn_contexts.size()) - 1;
 }
 

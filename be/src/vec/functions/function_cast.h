@@ -459,6 +459,18 @@ struct ConvertImpl {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
                 } else {
+                    if (context->check_overflow_for_number_cast()) {
+                        if constexpr (!std::is_same_v<uint8_t, ToFieldType>) {
+                            for (size_t i = 0; i < size; ++i) {
+                                if (!(min_result <= vec_from[i] && vec_from[i] <= max_result)) {
+                                    return Status::InvalidArgument(
+                                            "Cast to type {} ,out of range {}",
+                                            block.get_by_position(result).type->get_name(),
+                                            vec_from[i]);
+                                }
+                            }
+                        }
+                    }
                     for (size_t i = 0; i < size; ++i) {
                         static_cast_set(vec_to[i], vec_from[i]);
                     }
