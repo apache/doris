@@ -99,6 +99,7 @@ protected:
  */
 class SnapshotLoader : public BaseSnapshotLoader {
     friend class SnapshotHttpDownloader;
+
 public:
     SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_id, int64_t task_id,
                    const TNetworkAddress& broker_addr = {},
