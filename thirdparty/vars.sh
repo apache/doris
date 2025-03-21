@@ -526,6 +526,13 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# jindofs
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.3.4-libs.tar.gz"
+JINDOFS_NAME=jindofs-6.3.4-libs.tar.gz
+JINDOFS_SOURCE=jindofs-6.3.4-libs
+JINDOFS_MD5SUM="75e4869a3f179cb1d8c4c440ae92a356"
+
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'

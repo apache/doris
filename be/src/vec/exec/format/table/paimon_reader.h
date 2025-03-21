@@ -26,7 +26,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class PaimonReader : public TableFormatReader {
+class PaimonReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     PaimonReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                  RuntimeState* state, const TFileScanRangeParams& params,
@@ -38,11 +38,8 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status gen_file_col_name(
-            const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<uint64_t, std::string>& table_col_id_table_name_map,
-            const std::unordered_map<std::string, ColumnValueRangeType>*
-                    table_col_name_to_value_range);
+    Status get_file_col_id_to_name(bool& exist_schema,
+                                   std::map<int, std::string>& file_col_id_to_name) final;
 
 protected:
     struct PaimonProfile {
@@ -51,16 +48,6 @@ protected:
     };
     std::vector<int64_t> _delete_rows;
     PaimonProfile _paimon_profile;
-
-    std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
-
-    std::unordered_map<std::string, std::string> _file_col_to_table_col;
-    std::unordered_map<std::string, std::string> _table_col_to_file_col;
-
-    std::vector<std::string> _all_required_col_names;
-    std::vector<std::string> _not_in_file_col_names;
-
-    bool _has_schema_change = false;
 
     virtual void set_delete_rows() = 0;
 };
@@ -81,20 +68,21 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<uint64_t, std::string>& table_col_id_table_name_map,
+            const std::unordered_map<int32_t, std::string>& table_col_id_table_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-        RETURN_IF_ERROR(gen_file_col_name(read_table_col_names, table_col_id_table_name_map,
-                                          table_col_name_to_value_range));
+        RETURN_IF_ERROR(TableSchemaChangeHelper::init_schema_info(
+                read_table_col_names, table_col_id_table_name_map, table_col_name_to_value_range));
+
         auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
         orc_reader->set_table_col_to_file_col(_table_col_to_file_col);
-        return orc_reader->init_reader(&_all_required_col_names, &_new_colname_to_value_range,
-                                       conjuncts, false, tuple_descriptor, row_descriptor,
-                                       not_single_slot_filter_conjuncts,
-                                       slot_id_to_filter_conjuncts);
+        return orc_reader->init_reader(
+                &_all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
+                conjuncts, false, tuple_descriptor, row_descriptor,
+                not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     }
 };
 
@@ -114,15 +102,15 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& read_table_col_names,
-            const std::unordered_map<uint64_t, std::string>& table_col_id_table_name_map,
+            const std::unordered_map<int32_t, std::string>& table_col_id_table_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* table_col_name_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-        RETURN_IF_ERROR(gen_file_col_name(read_table_col_names, table_col_id_table_name_map,
-                                          table_col_name_to_value_range));
+        RETURN_IF_ERROR(TableSchemaChangeHelper::init_schema_info(
+                read_table_col_names, table_col_id_table_name_map, table_col_name_to_value_range));
         auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
         parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
 
