@@ -1161,7 +1161,8 @@ void MetaServiceImpl::make_snapshot(::google::protobuf::RpcController* controlle
                 .tag("snapshot_rowset_key", hex(snapshot_rs_key))
                 .tag("tablet_id", tablet_idx.tablet_id())
                 .tag("rowset_id", rowset_meta.rowset_id_v2())
-                .tag("rowset_size", snapshot_rs_key.size() + snapshot_rs_val.size());
+                .tag("rowset_size", snapshot_rs_key.size() + snapshot_rs_val.size())
+                .tag("rowset_meta", rowset_meta.DebugString());
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1311,7 +1312,8 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
                     .tag("tablet_id", tablet_idx.tablet_id())
                     .tag("rowset_id", rowset_meta.rowset_id_v2())
                     .tag("version", rowset_meta.end_version())
-                    .tag("rowset_size", rs_key.size() + rs_val.size());
+                    .tag("rowset_size", rs_key.size() + rs_val.size())
+                    .tag("rowset_meta", rowset_meta.DebugString());
 
             tablet_stat.data_size += rowset_meta.total_disk_size();
             tablet_stat.num_rows += rowset_meta.num_rows();
@@ -1581,9 +1583,13 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
                 RecycleRowsetKeyInfo recycle_rs_key_info {instance_id, tablet_idx.tablet_id(),
                                                           rowset_meta.rowset_id_v2()};
                 recycle_rowset_key(recycle_rs_key_info, &recycle_rs_key);
-                if (!rowset_meta.SerializeToString(&recycle_rs_val)) {
+                RecycleRowsetPB recycle_rowset;
+                recycle_rowset.set_creation_time(::time(nullptr));
+                recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset_meta);
+                recycle_rowset.set_type(RecycleRowsetPB::DROP);
+                if (!recycle_rowset.SerializeToString(&recycle_rs_val)) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                    msg = "failed to serialize rowset meta";
+                    msg = "failed to serialize recycle rowset meta";
                     return;
                 }
                 txn->put(recycle_rs_key, recycle_rs_val);
@@ -1591,7 +1597,8 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
                         .tag("rowset_key", hex(recycle_rs_key))
                         .tag("tablet_id", tablet_idx.tablet_id())
                         .tag("rowset_id", rowset_meta.rowset_id_v2())
-                        .tag("rowset_size", recycle_rs_key.size() + recycle_rs_val.size());
+                        .tag("rowset_size", recycle_rs_key.size() + recycle_rs_val.size())
+                        .tag("rowset_meta", recycle_rowset.DebugString());
             }
 
             // 3.2 remove snapshot rs keys
