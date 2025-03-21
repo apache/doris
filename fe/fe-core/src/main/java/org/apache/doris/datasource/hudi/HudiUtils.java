@@ -25,6 +25,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -42,13 +44,17 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -296,4 +302,22 @@ public class HudiUtils {
             () -> HoodieTableMetaClient.builder()
                 .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
     }
+
+    public static Map<Integer, String> getSchemaInfo(InternalSchema internalSchema) {
+        Types.RecordType record = internalSchema.getRecord();
+        Map<Integer, String> schemaInfo = new HashMap<>(record.fields().size());
+        for (Types.Field field : record.fields()) {
+            schemaInfo.put(field.fieldId(), field.name().toLowerCase());
+        }
+        return schemaInfo;
+    }
+
+    public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchemaCache(hmsTable.getCatalog());
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(hmsTable.getDbName(), hmsTable.getName());
+        return (HudiSchemaCacheValue) schemaCacheValue.get();
+    }
+
+
 }

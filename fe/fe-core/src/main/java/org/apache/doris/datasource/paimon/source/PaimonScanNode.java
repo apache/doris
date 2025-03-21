@@ -65,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
@@ -124,7 +125,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         source = new PaimonSource(desc);
         serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
-        params.setPaimonSchemaInfo(new HashMap<>());
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override
@@ -157,12 +158,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
-    private Map<Long, String> getSchemaInfo(Long schemaId) {
+    private Map<Integer, String> getSchemaInfo(Long schemaId) {
         PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
         TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
-        Map<Long, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
+        Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
         for (DataField dataField : tableSchema.fields()) {
-            columnIdToName.put((long) dataField.id(), dataField.name().toLowerCase());
+            columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
         }
 
         return columnIdToName;
@@ -189,7 +190,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
-            params.paimon_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
+            params.history_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));

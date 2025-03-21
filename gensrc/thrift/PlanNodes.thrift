@@ -361,6 +361,7 @@ struct THudiFileDesc {
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
     11: optional string hudi_jni_scanner;
+    12: optional i64 schema_id; // for schema change. (native reader)
 }
 
 struct TLakeSoulFileDesc {
@@ -449,7 +450,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i64, string>> paimon_schema_info //paimon map<schema id, map<column unique id , column name>> : for schema change.
+    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
 }
 
 struct TFileRangeDesc {

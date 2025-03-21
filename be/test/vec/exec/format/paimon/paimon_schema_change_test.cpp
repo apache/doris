@@ -51,11 +51,26 @@ public:
         table_col_to_file_col_ans["d"] = "struct_col";
         table_col_to_file_col_ans["a"] = "vvv";
         table_col_to_file_col_ans["c"] = "k";
-        table_col_to_file_col_ans["nonono"] = "nonono";
         for (auto [table_col, file_col] : table_col_to_file_col_ans) {
             ASSERT_TRUE(_table_col_to_file_col[table_col] == file_col);
             ASSERT_TRUE(_file_col_to_table_col[file_col] == table_col);
         }
+        ASSERT_TRUE(_all_required_col_names.size() == 6);
+
+        std::set<std::string> all_required_col_names_set;
+        all_required_col_names_set.emplace("map_col");
+        all_required_col_names_set.emplace("array_col");
+        all_required_col_names_set.emplace("struct_col");
+        all_required_col_names_set.emplace("vvv");
+        all_required_col_names_set.emplace("k");
+        all_required_col_names_set.emplace("nonono");
+
+        for (auto i : _all_required_col_names) {
+            ASSERT_TRUE(all_required_col_names_set.contains(i));
+        }
+
+        ASSERT_TRUE(_not_in_file_col_names.size() == 1);
+        ASSERT_TRUE(_not_in_file_col_names.back() == "nonono");
     }
 };
 
@@ -65,7 +80,6 @@ protected:
         _profile = new RuntimeProfile("test_profile");
         _state = new RuntimeState(TQueryGlobals());
         _io_ctx = new io::IOContext();
-        _schema_file_path = "./be/test/exec/test_data/paimon_scanner/schema-0";
     }
 
     void TearDown() override {
@@ -77,11 +91,10 @@ protected:
     RuntimeProfile* _profile;
     RuntimeState* _state;
     io::IOContext* _io_ctx;
-    std::string _schema_file_path;
 };
 
 TEST_F(PaimonReaderTest, ReadSchemaFile) {
-    std::map<int64_t, std::string> file_id_to_name;
+    std::map<int32_t, std::string> file_id_to_name;
     file_id_to_name[0] = "k";
     file_id_to_name[1] = "vvv";
     file_id_to_name[2] = "array_col";
@@ -92,8 +105,8 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     params.file_type = TFileType::FILE_LOCAL;
     params.properties = {};
     params.hdfs_params = {};
-    params.__isset.paimon_schema_info = true;
-    params.paimon_schema_info[0] = file_id_to_name;
+    params.__isset.history_schema_info = true;
+    params.history_schema_info[0] = file_id_to_name;
     TFileRangeDesc range;
     range.table_format_params.paimon_params.schema_id = 0;
 
@@ -118,7 +131,7 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     read_table_col_names.emplace_back("e");
     read_table_col_names.emplace_back("nonono");
 
-    std::unordered_map<uint64_t, std::string> table_col_id_table_name_map;
+    std::unordered_map<int32_t, std::string> table_col_id_table_name_map;
     table_col_id_table_name_map[1] = "a";
     table_col_id_table_name_map[6] = "b";
     table_col_id_table_name_map[0] = "c";
@@ -127,8 +140,8 @@ TEST_F(PaimonReaderTest, ReadSchemaFile) {
     table_col_id_table_name_map[10] = "nonono";
 
     std::unordered_map<std::string, ColumnValueRangeType> table_col_name_to_value_range;
-    Status status = reader.gen_file_col_name(read_table_col_names, table_col_id_table_name_map,
-                                             &table_col_name_to_value_range);
+    Status status = reader.init_schema_info(read_table_col_names, table_col_id_table_name_map,
+                                            &table_col_name_to_value_range);
     ASSERT_TRUE(status.ok());
     reader.check();
 }
