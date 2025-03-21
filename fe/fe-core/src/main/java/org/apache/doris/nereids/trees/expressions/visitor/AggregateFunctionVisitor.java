@@ -68,8 +68,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
-import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;

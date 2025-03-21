@@ -68,8 +68,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
-import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
@@ -151,8 +151,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
             agg(PercentileArray.class, "percentile_array"),
             agg(QuantileUnion.class, "quantile_union"),
-            agg(RegrR2.class, "regr_r2"),
             agg(RegrIntercept.class, "regr_intercept"),
+            agg(RegrR2.class, "regr_r2"),
             agg(RegrSlope.class, "regr_slope"),
             agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
