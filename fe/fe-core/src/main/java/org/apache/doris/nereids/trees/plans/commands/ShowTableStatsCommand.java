@@ -332,7 +332,7 @@ public class ShowTableStatsCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         ImmutableList<String> titles;
-        if (columnNames != null) {
+        if (columnNames != null && !columnNames.isEmpty()) {
             // If columnNames != null, partitionNames is also not null. Guaranteed in analyze()
             titles = COLUMN_PARTITION_TITLE_NAMES;
         } else if (partitionNamesInfo != null) {
