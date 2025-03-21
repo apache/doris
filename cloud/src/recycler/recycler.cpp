@@ -2296,7 +2296,7 @@ int InstanceRecycler::recycle_snapshots() {
             return 0L;
         }
         int64_t expiration = snapshot.expiration() > 0
-                        ? snapshot.creation_time() + snapshot.expiration()
+                                     ? snapshot.creation_time() + snapshot.expiration()
                                      : snapshot.creation_time();
         int64_t final_expiration = expiration + config::retention_seconds;
         if (earlest_ts > final_expiration) {

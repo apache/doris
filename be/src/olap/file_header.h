@@ -307,7 +307,8 @@ Status FileHeader<MessageType, ExtraType>::deserialize_from_memory(const uint8_t
                 "buffer size is too small to contain the entire header and protobuf. required={}, "
                 "provided={}",
                 _fixed_file_header_size + sizeof(_extra_fixed_header) +
-                        _fixed_file_header.protobuf_length, buffer_size);
+                        _fixed_file_header.protobuf_length,
+                buffer_size);
     }
 
     memcpy(&_extra_fixed_header, ptr, sizeof(_extra_fixed_header));
