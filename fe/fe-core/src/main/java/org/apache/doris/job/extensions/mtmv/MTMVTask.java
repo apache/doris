@@ -331,6 +331,9 @@ public class MTMVTask extends AbstractTask {
     public synchronized void onFail() throws JobException {
         LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
         super.onFail();
+        if (super.getStatus() != TaskStatus.FAILED) {
+            return;
+        }
         after();
     }
 
@@ -340,12 +343,18 @@ public class MTMVTask extends AbstractTask {
             LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
         }
         super.onSuccess();
+        if (super.getStatus() != TaskStatus.SUCCESS) {
+            return;
+        }
         after();
     }
 
     @Override
     protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
+        if (super.getStatus() != TaskStatus.CANCELED) {
+            return;
+        }
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
