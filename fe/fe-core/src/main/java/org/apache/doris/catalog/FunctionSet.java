@@ -636,6 +636,12 @@ public class FunctionSet<T> {
 
     public static final String REGR_SLOPE = "regr_slope";
 
+    public static final String REGR_SXX = "regr_sxx";
+
+    public static final String REGR_SXY = "regr_sxy";
+
+    public static final String REGR_SYY = "regr_syy";
+
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
@@ -708,6 +714,33 @@ public class FunctionSet<T> {
                     "",
                     null, false, true, true, true));
         }
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SXX,
+                        Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                        "",
+                        "",
+                        "",
+                        null, null,
+                        "",
+                        null, false, false, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SXY,
+                        Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                        "",
+                        "",
+                        "",
+                        null, null,
+                        "",
+                        null, false, false, false, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SYY,
+                        Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                        "",
+                        "",
+                        "",
+                        null, null,
+                        "",
+                        null, false, false, false, true));
 
         // Vectorization does not need symbol any more, we should clean it in the future.
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
