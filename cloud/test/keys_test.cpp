@@ -1088,3 +1088,75 @@ TEST(KeysTest, MetaSchemaPBDictionaryTest) {
     EXPECT_EQ(instance_id, decoded_instance_id);
     EXPECT_EQ(index_id, decoded_index_id);
 }
+
+TEST(KeysTest, SnapshotKeysTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    // 0x01 "snapshot" ${instance_id} "tablet" ${tablet_id}
+    {
+        int64_t tablet_id = 10086;
+        SnapshotTabletKeyInfo tablet_key{instance_id, tablet_id};
+        std::string encoded_key;
+        snapshot_tablet_key(tablet_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_snapshot_prefix;
+        std::string dec_instance_id;
+        int64_t dec_tablet_id = 0;
+        std::string dec_tablet_prefix;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_tablet_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", dec_snapshot_prefix);
+        EXPECT_EQ("tablet", dec_tablet_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+    }
+
+    // 0x01 "snapshot" ${instance_id} "rowset" ${tablet_id} ${version}
+    {
+        int64_t tablet_id = 10086;
+        int64_t version = 100;
+        SnapshotRowsetKeyInfo rowset_key{instance_id, tablet_id, version};
+        std::string encoded_key;
+        snapshot_rowset_key(rowset_key, &encoded_key);
+        std::cout << hex(encoded_key) << std::endl;
+
+        std::string dec_snapshot_prefix;
+        std::string dec_instance_id;
+        std::string dec_rowset_prefix;
+        int64_t dec_tablet_id = 0;
+        int64_t dec_version = 0;
+
+        std::string_view key_sv(encoded_key);
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_rowset_prefix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_version), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", dec_snapshot_prefix);
+        EXPECT_EQ("rowset", dec_rowset_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(tablet_id, dec_tablet_id);
+        EXPECT_EQ(version, dec_version);
+
+        std::get<2>(rowset_key) = version + 1;
+        std::string encoded_key1;
+        snapshot_rowset_key(rowset_key, &encoded_key1);
+        std::cout << hex(encoded_key1) << std::endl;
+
+        ASSERT_GT(encoded_key1, encoded_key);
+    }
+}
