@@ -836,6 +836,20 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
+        if (internalSchemaOption.isPresent()) {
+            enableSchemaEvolution[0] = true;
+            return internalSchemaOption.get();
+        } else {
+            try {
+                // schema evolution is not enabled. (hoodie.schema.on.read.enable = false).
+                enableSchemaEvolution[0] = false;
+                // AvroInternalSchemaConverter.convert() will generator field id.
+                return AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot get hudi table schema.", e);
+            }
+        }
+    }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
