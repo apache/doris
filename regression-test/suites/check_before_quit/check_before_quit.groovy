@@ -256,6 +256,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
             def createTableSql = ""
             try {
                 createTableSql = sql "show create table ${db}.${tbl}"
+                if (createTableSql[0][1].contains("CREATE TABLE")) {
+                    sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
+                }
+                createTableSql = sql "show create table ${db}.${tbl}"
                 logger.info("create table sql: ${createTableSql}")
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
