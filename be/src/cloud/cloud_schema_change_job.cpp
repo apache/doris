@@ -464,8 +464,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     }
     std::string tmp_rowsets_msg {};
     for (const auto& [k, v] : tmp_tablet->rowset_map()) {
-        tmp_rowsets_msg += fmt::format("version={},rowset={},txn_id={}\n", k.to_string(),
-                                       v->rowset_id().to_string(), v->txn_id());
+        tmp_rowsets_msg += fmt::format("version={},rowset={},txn_id={},state={}\n", k.to_string(),
+                                       v->rowset_id().to_string(), v->txn_id(),
+                                       RowsetStatePB_Name(v->rowset_meta_state()));
     }
     LOG_INFO("new_tablet={}, before process delete bitmaps, tmp_tablet's rowsets:\n{}",
              _new_tablet->tablet_id(), tmp_rowsets_msg);
@@ -477,6 +478,16 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets without lock, version: " << start_calc_delete_bitmap_version
               << "-" << max_version << " new_table_id: " << _new_tablet->tablet_id();
+
+    tmp_rowsets_msg = "";
+    for (const auto& [k, v] : tmp_tablet->rowset_map()) {
+        tmp_rowsets_msg += fmt::format("version={},rowset={},txn_id={},state={}\n", k.to_string(),
+                                       v->rowset_id().to_string(), v->txn_id(),
+                                       RowsetStatePB_Name(v->rowset_meta_state()));
+    }
+    LOG_INFO("new_tablet={}, after without lock sync_rowsets, tmp_tablet's rowsets:\n{}",
+             _new_tablet->tablet_id(), tmp_rowsets_msg);
+
     if (max_version >= start_calc_delete_bitmap_version) {
         RETURN_IF_ERROR(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {start_calc_delete_bitmap_version, max_version}, &incremental_rowsets));
@@ -502,6 +513,16 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets with lock, version: " << max_version + 1 << "-"
               << new_max_version << " new_tablet_id: " << _new_tablet->tablet_id();
+
+    tmp_rowsets_msg = "";
+    for (const auto& [k, v] : tmp_tablet->rowset_map()) {
+        tmp_rowsets_msg += fmt::format("version={},rowset={},txn_id={},state={}\n", k.to_string(),
+                                       v->rowset_id().to_string(), v->txn_id(),
+                                       RowsetStatePB_Name(v->rowset_meta_state()));
+    }
+    LOG_INFO("new_tablet={}, after with lock sync_rowsets, tmp_tablet's rowsets:\n{}",
+             _new_tablet->tablet_id(), tmp_rowsets_msg);
+
     std::vector<RowsetSharedPtr> new_incremental_rowsets;
     if (new_max_version > max_version) {
         RETURN_IF_ERROR(tmp_tablet->capture_consistent_rowsets_unlocked(
