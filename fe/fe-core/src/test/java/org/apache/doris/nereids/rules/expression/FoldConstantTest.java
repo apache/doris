@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
@@ -49,16 +50,22 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
@@ -335,6 +342,125 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         AppendTrailingCharIfAbsent a = new AppendTrailingCharIfAbsent(StringLiteral.of("1"), StringLiteral.of("3"));
         rewritten = executor.rewrite(a, context);
         Assertions.assertEquals(new StringLiteral("13"), rewritten);
+
+        Left left = new Left(StringLiteral.of("hello world"), IntegerLiteral.of(5));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral("hello"), rewritten);
+        left = new Left(StringLiteral.of("test"), IntegerLiteral.of(10));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral("test"), rewritten);
+        left = new Left(StringLiteral.of("data"), IntegerLiteral.of(0));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+        left = new Left(StringLiteral.of("data"), IntegerLiteral.of(-3));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+
+        Right right = new Right(StringLiteral.of("hello world"), IntegerLiteral.of(5));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("world"), rewritten);
+        right = new Right(StringLiteral.of("test"), IntegerLiteral.of(10));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("test"), rewritten);
+        right = new Right(StringLiteral.of("data"), IntegerLiteral.of(0));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+        right = new Right(StringLiteral.of("data"), IntegerLiteral.of(-3));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("ata"), rewritten);
+
+        Substring substr = new Substring(
+                StringLiteral.of("database"),
+                IntegerLiteral.of(1),
+                IntegerLiteral.of(4)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("data"), rewritten);
+        substr = new Substring(
+            StringLiteral.of("database"),
+                IntegerLiteral.of(-4),
+                IntegerLiteral.of(4)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("base"), rewritten);
+        substr = new Substring(
+                StringLiteral.of("example"),
+                IntegerLiteral.of(3),
+                IntegerLiteral.of(10)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("ample"), rewritten);
+
+        Locate locate = new Locate(
+                StringLiteral.of("world"),
+                StringLiteral.of("hello world")
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(7), rewritten);
+        locate = new Locate(
+                StringLiteral.of("test"),
+                StringLiteral.of("hello world")
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(0), rewritten);
+        locate = new Locate(
+                StringLiteral.of("l"),
+                StringLiteral.of("hello world"),
+                IntegerLiteral.of(3)
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(3), rewritten);
+
+        CharacterLength len = new CharacterLength(StringLiteral.of("hello"));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(5), rewritten);
+        len = new CharacterLength(StringLiteral.of(""));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(0), rewritten);
+        len = new CharacterLength(StringLiteral.of("😊"));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(1), rewritten);
+
+        Overlay overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(2),
+                StringLiteral.of("new")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("sneww"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(0),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("snnow"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(-1),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("sn"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(-1),
+                IntegerLiteral.of(3),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("snow"), rewritten);
+
+        ReplaceEmpty replace = new ReplaceEmpty(
+                StringLiteral.of(""),
+                StringLiteral.of(""),
+                StringLiteral.of("default")
+        );
+        rewritten = executor.rewrite(replace, context);
+        Assertions.assertEquals(new StringLiteral("default"), rewritten);
     }
 
     @Test
