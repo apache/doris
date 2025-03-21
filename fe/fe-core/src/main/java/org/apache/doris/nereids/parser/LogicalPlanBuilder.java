@@ -1873,9 +1873,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Command visitCreateOutline(DorisParser.CreateOutlineContext ctx) {
         String outlineName = stripQuotes(ctx.outline_name.getText());
         boolean isReplace = ctx.REPLACE() != null;
-        OutlineInfo info = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
-                "sqlText", "outlineTarget", "outlineData");
-        return new CreateOutlineCommand(info, isReplace);
+        if (ctx.query().size() == 0) {
+            // with sql_id
+        } else if (ctx.query().size() == 1) {
+            // only on query is declared
+            LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
+            return new CreateOutlineCommand(isReplace, logicalPlan);
+        } else if (ctx.query().size() == 2) {
+            // on query to query
+        }
+
+        return new CreateOutlineCommand(isReplace, null);
     }
 
     @Override
