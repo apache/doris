@@ -442,7 +442,7 @@ public:
         const auto& nested_column_data = assert_cast<const ColumnVector<Float64>&>(nested_column);
 
         AggregateFunctionPercentileArray::data(place).add(
-                sources.get_int(row_num), nested_column_data.get_data(),
+                sources.get_element(row_num), nested_column_data.get_data(),
                 offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 
