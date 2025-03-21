@@ -25,12 +25,14 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
 import java.time.format.SignStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
+import java.util.Locale;
 
 /**
  * date util tools.
@@ -41,7 +43,7 @@ public class DateUtils {
     /**
      * format builder.
      */
-    public static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
+    public static DateTimeFormatter dateTimeFormatter(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
@@ -153,7 +155,7 @@ public class DateUtils {
                 builder.appendLiteral(character);
             }
         }
-        return builder;
+        return builder.toFormatter(Locale.US).withResolverStyle(ResolverStyle.STRICT);
     }
 
     /**
