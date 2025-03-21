@@ -257,6 +257,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             task.setJobId(getJobId());
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
+            try {
+                task.initialize();
+            } catch (JobException e) {
+                tasks.remove(task);
+                log.warn("task initialize failed, job id is {}, task id is {}", jobId, task.getTaskId(), e);
+            }
         });
         getRunningTasks().addAll(tasks);
         this.startTimeMs = System.currentTimeMillis();
@@ -460,5 +466,30 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
+    }
+
+    public void updateTaskStatusAfterRestart() {
+        List<T> tasks = queryAllTasks();
+        if (CollectionUtils.isEmpty(tasks)) {
+            return;
+        }
+        List<T> unfinishedTasksQueue = tasks.stream().filter(task -> task.getStatus().equals(TaskStatus.RUNNING)
+                        || task.getStatus().equals(TaskStatus.PENDING))
+                .collect(Collectors.toList());
+        if (CollectionUtils.isEmpty(unfinishedTasksQueue)) {
+            return;
+        }
+
+        unfinishedTasksQueue.forEach(task -> {
+            try {
+                task.onFail("Task has been marked as failed because the Master node restarted"
+                        + " or switched during failover. Previous Master node's state could not be recovered.");
+            } catch (JobException e) {
+                log.warn("Failed to mark task as failed during Master node failover. "
+                                + "Job ID: {}, Task ID: {}, Reason: {}",
+                        jobId, task.getTaskId(), e);
+            }
+        });
+
     }
 }
