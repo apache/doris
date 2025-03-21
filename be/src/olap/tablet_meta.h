@@ -465,6 +465,8 @@ public:
      */
     uint64_t cardinality() const;
 
+    uint64_t cardinality_by_version(uint64_t version) const;
+
     /**
      * return the total size of the Delete Bitmap(after serialized)
      */
