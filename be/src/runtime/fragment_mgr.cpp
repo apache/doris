@@ -17,6 +17,7 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -80,6 +81,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -1007,23 +1009,33 @@ void FragmentMgr::cancel_worker() {
             c->clear_finished_tasks();
         }
 
+        std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
-            _query_ctx_map.apply(
-                    [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map)
-                            -> Status {
-                        for (auto it = map.begin(); it != map.end();) {
-                            if (auto q_ctx = it->second.lock()) {
-                                if (q_ctx->is_timeout(now)) {
-                                    LOG_WARNING("Query {} is timeout", print_id(it->first));
-                                    queries_timeout.push_back(it->first);
+            _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
+                                             map) -> Status {
+                for (auto it = map.begin(); it != map.end();) {
+                    if (auto q_ctx = it->second.lock()) {
+                        if (q_ctx->is_timeout(now)) {
+                            LOG_WARNING("Query {} is timeout", print_id(it->first));
+                            queries_timeout.push_back(it->first);
+                        } else if (config::enable_brpc_connection_check) {
+                            auto brpc_stubs = q_ctx->get_using_brpc_stubs();
+                            for (auto& item : brpc_stubs) {
+                                if (!brpc_stub_with_queries.contains(item.second)) {
+                                    brpc_stub_with_queries.emplace(item.second,
+                                                                   BrpcItem {item.first, {q_ctx}});
+                                } else {
+                                    brpc_stub_with_queries[item.second].queries.emplace_back(q_ctx);
                                 }
-                                ++it;
-                            } else {
-                                it = map.erase(it);
                             }
                         }
-                        return Status::OK();
-                    });
+                        ++it;
+                    } else {
+                        it = map.erase(it);
+                    }
+                }
+                return Status::OK();
+            });
 
             // We use a very conservative cancel strategy.
             // 0. If there are no running frontends, do not cancel any queries.
@@ -1120,6 +1132,16 @@ void FragmentMgr::cancel_worker() {
             }
         }
 
+        if (config::enable_brpc_connection_check) {
+            for (auto it : brpc_stub_with_queries) {
+                if (!it.first) {
+                    LOG(WARNING) << "brpc stub is nullptr, skip it.";
+                    continue;
+                }
+                _check_brpc_available(it.first, it.second);
+            }
+        }
+
         if (!queries_lost_coordinator.empty()) {
             LOG(INFO) << "There are " << queries_lost_coordinator.size()
                       << " queries need to be cancelled, coordinator dead or restarted.";
@@ -1143,8 +1165,58 @@ void FragmentMgr::cancel_worker() {
                                       "Source frontend is not running or restarted"));
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
+}
+
+void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                                        const BrpcItem& brpc_item) {
+    const std::string message = "hello doris!";
+    std::string error_message;
+    int32_t failed_count = 0;
+    const int64_t check_timeout_ms =
+            std::max<int64_t>(100, config::brpc_connection_check_timeout_ms);
+
+    while (true) {
+        PHandShakeRequest request;
+        request.set_hello(message);
+        PHandShakeResponse response;
+        brpc::Controller cntl;
+        cntl.set_timeout_ms(check_timeout_ms);
+        cntl.set_max_retry(10);
+        brpc_stub->hand_shake(&cntl, &request, &response, nullptr);
+
+        if (cntl.Failed()) {
+            error_message = cntl.ErrorText();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        } else if (response.has_status() && response.status().status_code() == 0) {
+            break;
+        } else {
+            error_message = response.DebugString();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        }
+        failed_count++;
+        if (failed_count == 2) {
+            for (const auto& query_wptr : brpc_item.queries) {
+                auto query = query_wptr.lock();
+                if (query && !query->is_cancelled()) {
+                    query->cancel(Status::InternalError("brpc(dest: {}:{}) check failed: {}",
+                                                        brpc_item.network_address.hostname,
+                                                        brpc_item.network_address.port,
+                                                        error_message));
+                }
+            }
+
+            LOG(WARNING) << "remove brpc stub from cache: " << brpc_item.network_address.hostname
+                         << ":" << brpc_item.network_address.port << ", error: " << error_message;
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    brpc_item.network_address.hostname, brpc_item.network_address.port);
+            break;
+        }
+    }
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {}

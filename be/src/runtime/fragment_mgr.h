@@ -198,6 +198,9 @@ private:
                                     bool pipeline, QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
 
+    void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                               const BrpcItem& brpc_item);
+
     // This is input params
     ExecEnv* _exec_env = nullptr;
 
