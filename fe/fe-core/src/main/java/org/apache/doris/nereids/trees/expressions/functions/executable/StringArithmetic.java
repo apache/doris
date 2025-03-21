@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
@@ -60,7 +61,7 @@ import java.util.regex.Pattern;
  * concat
  */
 public class StringArithmetic {
-    private static Expression castStringLikeLiteral(StringLikeLiteral first, String value) {
+    private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
             return new StringLiteral(value);
         } else if (first instanceof VarcharLiteral) {
@@ -79,7 +80,7 @@ public class StringArithmetic {
     }
 
     private static String substringImpl(String first, int second, int third) {
-        int stringLength = first.length();
+        int stringLength = first.codePointCount(0, first.length());
         if (stringLength == 0) {
             return "";
         }
@@ -101,8 +102,11 @@ public class StringArithmetic {
         } else {
             rightIndex = third + leftIndex;
         }
+        // at here leftIndex and rightIndex can not be exceeding boundary
+        int finalLeftIndex = first.codePointCount(0, (int) leftIndex);
+        int finalRightIndex = first.codePointCount(0, (int) rightIndex);
         // left index and right index are in integer range because of definition, so we can safely cast it to int
-        return first.substring((int) leftIndex, (int) rightIndex);
+        return first.substring(finalLeftIndex, finalRightIndex);
     }
 
     /**
@@ -293,12 +297,14 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "left")
     public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
+        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() < first.getValue().length()) {
-            return castStringLikeLiteral(first, first.getValue().substring(0, second.getValue()));
-        } else {
+        } else if (second.getValue() >= inputLength) {
             return first;
+        } else {
+            int index = first.getValue().codePointCount(0, second.getValue());
+            return castStringLikeLiteral(first, first.getValue().substring(0, index));
         }
     }
 
@@ -307,17 +313,20 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "right")
     public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
+        int inputLength = first.getValue().codePointCount(0, first.getValue().length());
+        if (second.getValue() < (- inputLength) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
+        } else if (second.getValue() >= inputLength) {
             return first;
         } else {
-            if (second.getValue() > 0) {
+            if (second.getValue() >= 0) {
+                int index = first.getValue().codePointCount(0, second.getValue());
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    first.getValue().length() - second.getValue(), first.getValue().length()));
+                    inputLength - index, inputLength));
             } else {
+                int index = first.getValue().codePointCount(Math.abs(second.getValue()) - 1, first.getValue().length());
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    Math.abs(second.getValue()) - 1, first.getValue().length()));
+                    Math.abs(index) - 1, inputLength));
             }
         }
     }
@@ -337,7 +346,7 @@ public class StringArithmetic {
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
         int result = second.getValue().indexOf(first.getValue()) + 1;
         if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().length()).contains(first.getValue())) {
+                second.getValue().codePointCount(0, second.getValue().length())).contains(first.getValue())) {
             result = 0;
         }
         return new IntegerLiteral(result);
@@ -408,7 +417,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "character_length")
     public static Expression characterLength(StringLikeLiteral first) {
-        return new IntegerLiteral(first.getValue().length());
+        return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
     }
 
     private static boolean isAlphabetic(char c) {
@@ -664,6 +673,23 @@ public class StringArithmetic {
     }
 
     /**
+     * split by char by empty string considering emoji
+     * @param str input string to be split
+     * @return ArrayLiteral
+     */
+    public static List<String> splitByGrapheme(StringLikeLiteral str) {
+        List<String> result = Lists.newArrayListWithExpectedSize(str.getValue().length());
+        int length = str.getValue().length();
+        for (int i = 0; i < length; ) {
+            int codePoint = str.getValue().codePointAt(i);
+            int charCount = Character.charCount(codePoint);
+            result.add(new String(new int[]{codePoint}, 0, 1));
+            i += charCount;
+        }
+        return result;
+    }
+
+    /**
      * Executable arithmetic functions split_by_string
      */
     @ExecFunction(name = "split_by_string")
@@ -671,11 +697,17 @@ public class StringArithmetic {
         if (first.getValue().isEmpty()) {
             return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
         }
-        int limit = second.getValue().isEmpty() ? 0 : -1;
-        String[] result = first.getValue().split(Pattern.quote(second.getValue()), limit);
+        if (second.getValue().isEmpty()) {
+            List<Literal> result = Lists.newArrayListWithExpectedSize(first.getValue().length());
+            for (String resultStr : splitByGrapheme(first)) {
+                result.add(castStringLikeLiteral(first, resultStr));
+            }
+            return new ArrayLiteral(result);
+        }
+        String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
         List<Literal> items = new ArrayList<>();
         for (String s : result) {
-            items.add((Literal) castStringLikeLiteral(first, s));
+            items.add(castStringLikeLiteral(first, s));
         }
         return new ArrayLiteral(items);
     }
@@ -773,58 +805,24 @@ public class StringArithmetic {
     }
 
     /**
-     * Executable arithmetic functions strLeft
-     */
-    @ExecFunction(name = "strleft")
-    public static Expression strLeft(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() <= 0) {
-            return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
-            return first;
-        } else {
-            return castStringLikeLiteral(first, first.getValue().substring(0, second.getValue()));
-        }
-    }
-
-    /**
-     * Executable arithmetic functions strRight
-     */
-    @ExecFunction(name = "strright")
-    public static Expression strRight(StringLikeLiteral first, IntegerLiteral second) {
-        if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
-            return castStringLikeLiteral(first, "");
-        } else if (second.getValue() > first.getValue().length()) {
-            return first;
-        } else {
-            if (second.getValue() > 0) {
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    first.getValue().length() - second.getValue(), first.getValue().length()));
-            } else {
-                return castStringLikeLiteral(first, first.getValue().substring(
-                    Math.abs(second.getValue()) - 1, first.getValue().length()));
-            }
-        }
-    }
-
-    /**
      * Executable arithmetic functions overlay
      */
     @ExecFunction(name = "overlay")
     public static Expression overlay(StringLikeLiteral originStr,
             IntegerLiteral pos, IntegerLiteral len, StringLikeLiteral insertStr) {
         StringBuilder sb = new StringBuilder();
-        if (pos.getValue() <= 0 || pos.getValue() > originStr.getValue().length()) {
+        int totalLength = originStr.getValue().codePointCount(0, originStr.getValue().length());
+        if (pos.getValue() <= 0 || pos.getValue() > totalLength) {
             return originStr;
         } else {
-            if (len.getValue() < 0 || (pos.getValue() + len.getValue()) > originStr.getValue().length()) {
-                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+            if (len.getValue() < 0 || len.getValue() > (totalLength - pos.getValue())) {
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
                 sb.append(insertStr.getValue());
                 return castStringLikeLiteral(originStr, sb.toString());
             } else {
-                sb.append(originStr.getValue().substring(0, pos.getValue() - 1));
+                sb.append(substringImpl(originStr.getValue(), 1, pos.getValue() - 1));
                 sb.append(insertStr.getValue());
-                sb.append(originStr.getValue().substring(pos.getValue()
-                        + len.getValue() - 1, originStr.getValue().length()));
+                sb.append(substringImpl(originStr.getValue(), pos.getValue() + len.getValue(), totalLength));
                 return castStringLikeLiteral(originStr, sb.toString());
             }
         }
@@ -946,7 +944,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
-        if (second.getValue().length() != 1) {
+        if (second.getValue().codePointCount(0, second.getValue().length()) != 1) {
             return new NullLiteral(first.getDataType());
         }
         if (first.getValue().endsWith(second.getValue())) {
@@ -1010,6 +1008,19 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "replace_empty")
     public static Expression replaceEmpty(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
+        if (second.getValue().isEmpty()) {
+            if (first.getValue().isEmpty()) {
+                return castStringLikeLiteral(first, third.getValue());
+            }
+            List<String> inputs = splitByGrapheme(first);
+            StringBuilder sb = new StringBuilder();
+            sb.append(third.getValue());
+            for (String input : inputs) {
+                sb.append(input);
+                sb.append(third.getValue());
+            }
+            return castStringLikeLiteral(first, sb.toString());
+        }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }
 
