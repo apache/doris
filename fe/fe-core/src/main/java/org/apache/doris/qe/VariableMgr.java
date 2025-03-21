@@ -945,48 +945,49 @@ public class VariableMgr {
 
     public static void forceUpdateVariables() {
         int currentVariableVersion = GlobalVariable.variableVersion;
+        String updateInfo = currentVariableVersion + "to" + GlobalVariable.CURRENT_VARIABLE_VERSION;
         if (currentVariableVersion == GlobalVariable.VARIABLE_VERSION_0) {
             // update from 2.0.15 or below to 2.0.16 or higher
             if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
-                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
                         SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
             }
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_100) {
             // update from 2.1.6 or below to 2.1.7 or higher
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_NEREIDS_DML,
                     String.valueOf(true));
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
                     String.valueOf(true));
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_NEREIDS_PLANNER,
                     String.valueOf(true));
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
                     String.valueOf(true));
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_PIPELINE_X_ENGINE,
                     String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
             if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
                     < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
-                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
                         SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
                         String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
             }
             if (StatisticsUtil.getTableStatsHealthThreshold()
                     < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
-                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
                         SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
                         String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
             }
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_200) {
             // update from 3.0.2 or below to 3.0.3 or higher
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
                     String.valueOf(false));
         }
@@ -994,8 +995,18 @@ public class VariableMgr {
             // update to master
             // do nothing
         }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_301) {
+            // long sqlMode = defaultSessionVariable.sqlMode;
+            // if ((sqlMode & SqlModeHelper.MODE_DEFAULT) != 0) {
+            //     sqlMode ^= SqlModeHelper.MODE_DEFAULT;
+            // }
+            // sqlMode |= SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+            // VariableMgr.refreshDefaultSessionVariables(updateInfo,
+            //         SessionVariable.SQL_MODE,
+            //         String.valueOf(sqlMode));
+        }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
-            VariableMgr.refreshDefaultSessionVariables("update variable version",
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.VARIABLE_VERSION,
                     String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
         }

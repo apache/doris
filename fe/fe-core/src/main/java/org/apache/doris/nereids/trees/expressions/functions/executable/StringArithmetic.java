@@ -402,7 +402,7 @@ public class StringArithmetic {
      * Executable arithmetic functions ConcatWs
      */
     @ExecFunction(name = "concat_ws")
-    public static Expression concatWsVarcharVarchar(StringLikeLiteral first, VarcharLiteral... second) {
+    public static Expression concatWsVarcharVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.length - 1; i++) {
             sb.append(second[i].getValue());

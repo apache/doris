@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,10 +44,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -211,14 +214,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Set<NamedExpression> bottomProjects = Sets.union(pushedGroupByExprs,
                 Sets.union(pushedTrivialAggChildren, pushedTrivialAggInputSlots));
 
-        // create bottom project
-        Plan bottomPlan;
-        if (!bottomProjects.isEmpty()) {
-            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
-        } else {
-            bottomPlan = aggregate.child();
-        }
-
         // use group by context to normalize agg functions to process
         //   sql like: select sum(a + 1) from t group by a + 1
         //
@@ -268,8 +263,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             newAggOutputBuilder.add((NamedExpression) rewrittenExpr);
         }
         ImmutableList<NamedExpression> normalizedAggOutput = newAggOutputBuilder.build();
-        LogicalAggregate<?> newAggregate =
-                aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutput, bottomPlan);
 
         // create upper projects by normalize all output exprs in old LogicalAggregate
         // In aggregateOutput, the expressions inside the agg function can be rewritten
@@ -279,34 +272,55 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         List<NamedExpression> upperProjects = normalizeOutput(aggregateOutput,
                 groupByExprContext, argsOfAggFuncNeedPushDownContext, normalizedAggFuncsToSlotContext);
 
-        // create a parent project node
-        LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
         // verify project used slots are all coming from agg's output
-        List<Slot> slots = collectAllUsedSlots(upperProjects);
-        if (!slots.isEmpty()) {
-            Set<ExprId> aggOutputExprIds = new HashSet<>(slots.size());
+        List<Slot> slotsUsedInUpperProject = collectAllUsedSlots(upperProjects);
+        if (!slotsUsedInUpperProject.isEmpty()) {
+            Set<ExprId> aggOutputExprIds = new HashSet<>(slotsUsedInUpperProject.size());
             for (NamedExpression expression : normalizedAggOutput) {
                 aggOutputExprIds.add(expression.getExprId());
             }
-            List<Slot> errorSlots = new ArrayList<>(slots.size());
-            for (Slot slot : slots) {
+            Set<Slot> missingSlotsInAggregate = new HashSet<>(slotsUsedInUpperProject.size());
+            for (Slot slot : slotsUsedInUpperProject) {
                 if (!aggOutputExprIds.contains(slot.getExprId()) && !(slot instanceof SlotNotFromChildren)) {
-                    errorSlots.add(slot);
+                    missingSlotsInAggregate.add(slot);
                 }
             }
-            if (!errorSlots.isEmpty()) {
-                throw new AnalysisException(String.format("%s not in aggregate's output", errorSlots
-                        .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+            if (!missingSlotsInAggregate.isEmpty()) {
+                if (SqlModeHelper.hasOnlyFullGroupBy()) {
+                    throw new AnalysisException(String.format("%s not in aggregate's output", missingSlotsInAggregate
+                            .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                } else {
+                    // for any slots missing in aggregate's output, we should add a any_value(slot) into
+                    // aggregate's output list and slot itself into bottom project's output list
+                    bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
+                    Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    for (Slot slot : missingSlotsInAggregate) {
+                        Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
+                        replaceMap.put(slot, anyValue.toSlot());
+                        newAggOutputBuilder.add(anyValue);
+                    }
+                    upperProjects = upperProjects.stream()
+                            .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
+                            .collect(ImmutableList.toImmutableList());
+                }
             }
         }
+        // create normalized plan
+        Plan bottomPlan;
+        if (!bottomProjects.isEmpty()) {
+            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
+        } else {
+            bottomPlan = aggregate.child();
+        }
+        // NOTICE: we must call newAggOutputBuilder.build() here, newAggOutputBuilder could be updated if we need
+        //  to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
+        LogicalAggregate<?> newAggregate =
+                aggregate.withNormalized(normalizedGroupExprs, newAggOutputBuilder.build(), bottomPlan);
+        LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
         if (having.isPresent()) {
-            Set<Slot> havingUsedSlots = ExpressionUtils.getInputSlotSet(having.get().getExpressions());
-            Set<ExprId> havingUsedExprIds = new HashSet<>(havingUsedSlots.size());
-            for (Slot slot : havingUsedSlots) {
-                havingUsedExprIds.add(slot.getExprId());
-            }
-            Set<ExprId> aggOutputExprIds = newAggregate.getOutputExprIdSet();
-            if (aggOutputExprIds.containsAll(havingUsedExprIds)) {
+            Set<Slot> havingUsedSlots = having.get().getInputSlots();
+            Set<Slot> aggOutputExprIds = newAggregate.getOutputSet();
+            if (aggOutputExprIds.containsAll(havingUsedSlots)) {
                 // when having just use output slots from agg, we push down having as parent of agg
                 return project.withChildren(ImmutableList.of(
                         new LogicalHaving<>(
