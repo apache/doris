@@ -17,7 +17,7 @@
 
 suite("test_backup_restore_colocate", "backup_restore") {
     String suiteName = "test_backup_restore_colocate"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String newDbName = "${suiteName}_db_new"
     String tableName1 = "${suiteName}_table1"
@@ -350,10 +350,9 @@ suite("test_backup_restore_colocate", "backup_restore") {
     sql "DROP REPOSITORY `${repoName}`"
 }
 
-
 suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     String suiteName = "test_backup_restore_colocate_with_partition"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String newDbName = "${suiteName}_db_new"
     String tableName1 = "${suiteName}_table1"
