@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -31,6 +32,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -270,7 +272,7 @@ void MergeRangeFileReader::_read_in_box(RangeCachedData& cached_data, size_t off
             }
             if (copy_out != nullptr) {
                 memcpy(copy_out + to_handle - remaining,
-                       _boxes[box_index] + cached_data.box_start_offset[i], box_to_handle);
+                       _boxes[box_index].data() + cached_data.box_start_offset[i], box_to_handle);
             }
             remaining -= box_to_handle;
             cached_data.box_start_offset[i] += box_to_handle;
@@ -307,14 +309,15 @@ void MergeRangeFileReader::_read_in_box(RangeCachedData& cached_data, size_t off
 
 Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, size_t to_read,
                                        size_t* bytes_read, const IOContext* io_ctx) {
-    if (_read_slice == nullptr) {
-        _read_slice = new char[READ_SLICE_SIZE];
+    if (!_read_slice) {
+        _read_slice = std::make_unique<OwnedSlice>(READ_SLICE_SIZE);
     }
+
     *bytes_read = 0;
     {
         SCOPED_RAW_TIMER(&_statistics.read_time);
-        RETURN_IF_ERROR(
-                _reader->read_at(start_offset, Slice(_read_slice, to_read), bytes_read, io_ctx));
+        RETURN_IF_ERROR(_reader->read_at(start_offset, Slice(_read_slice->data(), to_read),
+                                         bytes_read, io_ctx));
         _statistics.merged_io++;
         _statistics.merged_bytes += *bytes_read;
     }
@@ -328,8 +331,8 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
 
     auto fill_box = [&](int16 fill_box_ref, uint32 box_usage, size_t box_copy_end) {
         size_t copy_size = std::min(box_copy_end - copy_start, BOX_SIZE - box_usage);
-        memcpy(_boxes[fill_box_ref] + box_usage, _read_slice + copy_start - start_offset,
-               copy_size);
+        memcpy(_boxes[fill_box_ref].data() + box_usage,
+               _read_slice->data() + copy_start - start_offset, copy_size);
         filled_boxes.emplace_back(fill_box_ref, box_usage, copy_start, copy_start + copy_size);
         copy_start += copy_size;
         _last_box_ref = fill_box_ref;
@@ -367,7 +370,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         }
         // apply for new box to copy data
         while (copy_start < range_copy_end && _boxes.size() < NUM_BOX) {
-            _boxes.emplace_back(new char[BOX_SIZE]);
+            _boxes.emplace_back(BOX_SIZE);
             _box_ref.emplace_back(0);
             fill_box(_boxes.size() - 1, 0, range_copy_end);
         }
@@ -778,8 +781,12 @@ BufferedFileStreamReader::BufferedFileStreamReader(io::FileReaderSPtr file, uint
 
 Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset,
                                             const size_t bytes_to_read, const IOContext* io_ctx) {
-    if (offset < _file_start_offset || offset >= _file_end_offset) {
-        return Status::IOError("Out-of-bounds Access");
+    if (offset < _file_start_offset || offset >= _file_end_offset ||
+        offset + bytes_to_read > _file_end_offset) {
+        return Status::IOError(
+                "Out-of-bounds Access: offset={}, bytes_to_read={}, file_start={}, "
+                "file_end={}",
+                offset, bytes_to_read, _file_start_offset, _file_end_offset);
     }
     int64_t end_offset = offset + bytes_to_read;
     if (_buf_start_offset <= offset && _buf_end_offset >= end_offset) {
@@ -862,5 +869,107 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
                 return reader;
             });
 }
+
+Status LinearProbeRangeFinder::get_range_for(int64_t desired_offset,
+                                             io::PrefetchRange& result_range) {
+    while (index < _ranges.size()) {
+        io::PrefetchRange& range = _ranges[index];
+        if (range.end_offset > desired_offset) {
+            if (range.start_offset > desired_offset) [[unlikely]] {
+                return Status::InvalidArgument("Invalid desiredOffset");
+            }
+            result_range = range;
+            return Status::OK();
+        }
+        ++index;
+    }
+    return Status::InvalidArgument("Invalid desiredOffset");
+}
+
+RangeCacheFileReader::RangeCacheFileReader(RuntimeProfile* profile, io::FileReaderSPtr inner_reader,
+                                           std::shared_ptr<RangeFinder> range_finder)
+        : _profile(profile),
+          _inner_reader(std::move(inner_reader)),
+          _range_finder(std::move(range_finder)) {
+    _size = _inner_reader->size();
+    uint64_t max_cache_size =
+            std::max((uint64_t)4096, (uint64_t)_range_finder->get_max_range_size());
+    _cache = OwnedSlice(max_cache_size);
+
+    if (_profile != nullptr) {
+        const char* random_profile = "RangeCacheFileReader";
+        ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+        _request_io =
+                ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT, random_profile, 1);
+        _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                      random_profile, 1);
+        _request_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RequestTime", random_profile, 1);
+        _read_to_cache_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadToCacheTime", random_profile, 1);
+        _cache_refresh_count = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "CacheRefreshCount",
+                                                            TUnit::UNIT, random_profile, 1);
+        _read_to_cache_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReadToCacheBytes",
+                                                            TUnit::BYTES, random_profile, 1);
+    }
+}
+
+Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                          const IOContext* io_ctx) {
+    auto request_size = result.size;
+
+    _cache_statistics.request_io++;
+    _cache_statistics.request_bytes += request_size;
+    SCOPED_RAW_TIMER(&_cache_statistics.request_time);
+
+    PrefetchRange range;
+    if (_range_finder->get_range_for(offset, range)) [[likely]] {
+        if (_current_start_offset != range.start_offset) { // need read new range to cache.
+            auto range_size = range.end_offset - range.start_offset;
+
+            _cache_statistics.cache_refresh_count++;
+            _cache_statistics.read_to_cache_bytes += range_size;
+            SCOPED_RAW_TIMER(&_cache_statistics.read_to_cache_time);
+
+            Slice cache_slice = {_cache.data(), range_size};
+            RETURN_IF_ERROR(
+                    _inner_reader->read_at(range.start_offset, cache_slice, bytes_read, io_ctx));
+
+            if (*bytes_read != range_size) [[unlikely]] {
+                return Status::InternalError(
+                        "RangeCacheFileReader use inner reader read bytes {} not eq expect size {}",
+                        *bytes_read, range_size);
+            }
+
+            _current_start_offset = range.start_offset;
+        }
+
+        int64_t buffer_offset = offset - _current_start_offset;
+        memcpy(result.data, _cache.data() + buffer_offset, request_size);
+        *bytes_read = request_size;
+
+        return Status::OK();
+    } else {
+        return Status::InternalError("RangeCacheFileReader read  not in Ranges. Offset = {}",
+                                     offset);
+        //                RETURN_IF_ERROR(_inner_reader->read_at(offset, result , bytes_read, io_ctx));
+        //                return Status::OK();
+        // think return error is ok,otherwise it will cover up the error.
+    }
+}
+
+void RangeCacheFileReader::_collect_profile_before_close() {
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_request_io, _cache_statistics.request_io);
+        COUNTER_UPDATE(_request_bytes, _cache_statistics.request_bytes);
+        COUNTER_UPDATE(_request_time, _cache_statistics.request_time);
+        COUNTER_UPDATE(_read_to_cache_time, _cache_statistics.read_to_cache_time);
+        COUNTER_UPDATE(_cache_refresh_count, _cache_statistics.cache_refresh_count);
+        COUNTER_UPDATE(_read_to_cache_bytes, _cache_statistics.read_to_cache_bytes);
+        if (_inner_reader != nullptr) {
+            _inner_reader->collect_profile_before_close();
+        }
+    }
+}
+
 } // namespace io
 } // namespace doris

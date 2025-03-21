@@ -21,6 +21,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
         logger.info("diable Hive test. then doesn't test mv rewrite")
         return;
     }
+    def suite_name = 'mv_contain_external_table'
     // prepare table and data in hive
     def hive_database = "test_mv_contain_external_table_rewrite_db"
     def hive_table = "orders"
@@ -142,7 +143,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     order_qt_query_sql """${query_sql}"""
 
     // create mv
-    def mv_name = 'mv_join'
+    def mv_name = suite_name + 'mv_join'
     sql """drop materialized view if exists ${mv_name}"""
     sql """
         CREATE MATERIALIZED VIEW ${mv_name}
@@ -160,33 +161,21 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // switch is false default
-    explain {
-        sql(""" ${query_sql}""")
-        notContains("${mv_name}(${mv_name})")
-    }
+    mv_not_part_in(query_sql, mv_name)
     sql "SET materialized_view_rewrite_enable_contain_external_table=true"
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
 
     // data change in external table doesn't influence query rewrite,
     // if want to use new data in external table should be refresh manually
     hive_docker """ ${insert_str3} """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_old_data """ ${query_sql}"""
 
     // refresh manually
     sql """REFRESH catalog ${catalog_name}"""
     sql """REFRESH MATERIALIZED VIEW ${mv_name} complete"""
     waitingMTMVTaskFinished(getJobName(db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_new_data """ ${query_sql}"""
 
 
@@ -196,19 +185,13 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def insert_str4 = """ insert into ${hive_database}.${hive_table} 
     PARTITION(o_orderdate='2023-10-20') values(3, 3, 'ok', 100.5, 'f', 'h', 3, 'ss')"""
     hive_docker """ ${insert_str4} """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_old_data_after_add_partition """ ${query_sql}"""
 
     sql """REFRESH catalog ${catalog_name}"""
     sql """REFRESH MATERIALIZED VIEW ${mv_name} complete"""
     waitingMTMVTaskFinished(getJobName(db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_new_data """ ${query_sql}"""
 
     hive_docker """ ${autogather_on_str} """

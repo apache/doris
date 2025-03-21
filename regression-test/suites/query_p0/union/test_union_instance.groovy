@@ -63,6 +63,7 @@ suite("test_union_instance") {
             
             set parallel_pipeline_task_num=1;
             set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+            set enable_nereids_distribute_planner=false;
     	"""
 	explain {
                 sql """

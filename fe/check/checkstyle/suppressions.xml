@@ -64,4 +64,5 @@ under the License.
     <suppress files="HiveVersionUtil\.java" checks="[a-zA-Z0-9]*"/>
     <suppress files="[\\/]com[\\/]amazonaws[\\/]glue[\\/]catalog[\\/]" checks="[a-zA-Z0-9]*"/>
     <suppress files="[\\/]com[\\/]aliyun[\\/]datalake[\\/]metastore[\\/]hive2[\\/]" checks="[a-zA-Z0-9]*"/>
+    <suppress files="FSDataInputStreamWrapper\.java" checks="[a-zA-Z0-9]*"/>
 </suppressions>

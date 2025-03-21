@@ -28,6 +28,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,8 +45,9 @@ import javax.servlet.http.HttpServletResponse;
  * Used to return the cluster information for the manager.
  */
 @RestController
-@RequestMapping("/rest/v2/manager/cluster")
+@RequestMapping(path = {"/rest/v2/manager/cluster", "/rest/v2/manager/compute_group"})
 public class ClusterAction extends RestBaseController {
+    private static final Logger LOG = LogManager.getLogger(ClusterAction.class);
 
     // Returns mysql and http connection information for the cluster.
     // {
@@ -54,7 +58,7 @@ public class ClusterAction extends RestBaseController {
     //     ""
     //   ]
     // }
-    @RequestMapping(path = "/cluster_info/conn_info", method = RequestMethod.GET)
+    @RequestMapping(path = {"/cluster_info/conn_info", "/compute_group_info/conn_info"}, method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
@@ -83,31 +87,58 @@ public class ClusterAction extends RestBaseController {
         public volatile int brpcPort;
         public volatile long currentFragmentNum = 0;
         public volatile long lastFragmentUpdateTime = 0;
+
+        @Override
+        public String toString() {
+            return "BeClusterInfo{"
+                + "host='" + host + '\''
+                + ", heartbeatPort=" + heartbeatPort
+                + ", bePort=" + bePort
+                + ", httpPort=" + httpPort
+                + ", brpcPort=" + brpcPort
+                + ", currentFragmentNum=" + currentFragmentNum
+                + ", lastFragmentUpdateTime=" + lastFragmentUpdateTime
+                + '}';
+        }
     }
 
-    @RequestMapping(path = "/cluster_info/cloud_cluster_status", method = RequestMethod.GET)
+    @RequestMapping(path = {"/cluster_info/cloud_cluster_status", "/compute_group_info/compute_group_status"},
+            method = RequestMethod.GET)
     public Object cloudClusterInfo(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ResponseEntity ret = null;
+        try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                ret = ResponseEntityBuilder.badRequest("this api just use in cloud master fe");
+            } else {
+                executeCheckPassword(request, response);
+                checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        // Key: cluster_name Value: be status
-        Map<String, List<BeClusterInfo>> result = Maps.newHashMap();
+                // Key: cluster_name Value: be status
+                Map<String, List<BeClusterInfo>> result = Maps.newHashMap();
 
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdToBackend()
-                .forEach((clusterId, backends) -> {
-                    List<BeClusterInfo> bis = backends.stream().map(backend -> {
-                        BeClusterInfo bi = new BeClusterInfo();
-                        bi.host = backend.getHost();
-                        bi.heartbeatPort = backend.getHeartbeatPort();
-                        bi.bePort = backend.getBePort();
-                        bi.httpPort = backend.getHttpPort();
-                        bi.brpcPort = backend.getBrpcPort();
-                        bi.currentFragmentNum = backend.getBackendStatus().currentFragmentNum;
-                        bi.lastFragmentUpdateTime = backend.getBackendStatus().lastFragmentUpdateTime;
-                        return bi; }).collect(Collectors.toList());
-                    result.put(clusterId, bis);
-                });
+                ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdToBackend()
+                        .forEach((clusterId, backends) -> {
+                            List<BeClusterInfo> bis = backends.stream().map(backend -> {
+                                BeClusterInfo bi = new BeClusterInfo();
+                                bi.host = backend.getHost();
+                                bi.heartbeatPort = backend.getHeartbeatPort();
+                                bi.bePort = backend.getBePort();
+                                bi.httpPort = backend.getHttpPort();
+                                bi.brpcPort = backend.getBrpcPort();
+                                bi.currentFragmentNum = backend.getBackendStatus().currentFragmentNum;
+                                bi.lastFragmentUpdateTime = backend.getBackendStatus().lastFragmentUpdateTime;
+                                return bi;
+                            }).collect(Collectors.toList());
+                            result.put(clusterId, bis);
+                        });
 
-        return ResponseEntityBuilder.ok(result);
+                ret = ResponseEntityBuilder.ok(result);
+            }
+        } finally {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("request {}, response {}", request.getRequestURI(), ret);
+            }
+        }
+        return ret;
     }
 }

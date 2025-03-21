@@ -41,12 +41,14 @@ suite("test_forward_query", 'docker') {
 
         sql """ INSERT INTO ${tbl} VALUES(1);"""
 
-        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true]])
+        cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true, execute:1]])
 
-        try {
-            sql """ SELECT * FROM ${tbl} """
-        } catch (Exception ignored) {
-            assertTrue(false)
-        }
+        def stmt = prepareStatement("""INSERT INTO ${tbl} VALUES(?);""")
+        stmt.setInt(1, 2)
+        stmt.executeUpdate()
+
+        def ret = sql """ SELECT * FROM ${tbl} order by k1"""
+        assertEquals(ret[0][0], 1)
+        assertEquals(ret[1][0], 2)
     }
 }

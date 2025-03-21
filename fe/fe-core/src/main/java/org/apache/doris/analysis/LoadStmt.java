@@ -98,8 +98,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
-    // temp property, just make regression test happy.
-    // should remove when Config.enable_new_load_scan_node is set to true by default.
+
+    // deprecated, keeping this property to make LoadStmt#checkProperties() happy
     public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";
 
     // for load data from Baidu Object Store(BOS)

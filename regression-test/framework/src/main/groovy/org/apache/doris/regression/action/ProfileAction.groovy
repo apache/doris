@@ -70,7 +70,7 @@ class ProfileAction implements SuiteAction {
             httpCli.op("get")
             httpCli.printResponse(false)
 
-            if (context.config.fetchRunMode()) {
+            if (context.config.isCloudMode()) {
                 httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
             } else {
                 httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
@@ -82,8 +82,10 @@ class ProfileAction implements SuiteAction {
 
                 def jsonSlurper = new JsonSlurper()
                 List profileData = jsonSlurper.parseText(body).data.rows
+                def canFindProfile = false;
                 for (final def profileItem in profileData) {
                     if (profileItem["Sql Statement"].toString().contains(tag)) {
+                        canFindProfile = true
                         def profileId = profileItem["Profile ID"].toString()
 
                         def profileCli = new HttpCliAction(context)
@@ -92,7 +94,7 @@ class ProfileAction implements SuiteAction {
                         profileCli.op("get")
                         profileCli.printResponse(false)
 
-                        if (context.config.fetchRunMode()) {
+                        if (context.config.isCloudMode()) {
                             profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
                         } else {
                             profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
@@ -112,6 +114,9 @@ class ProfileAction implements SuiteAction {
 
                         break
                     }
+                }
+                if (!canFindProfile) {
+                    throw new IllegalStateException("Missing profile with tag: " + tag)
                 }
             }
             httpCli.run()

@@ -14,3 +14,6 @@
 6	3	{"key3":"value3", "key33":"value33", "key3333":"value333"}	6	3
 7	4	{"key4":"value4", "key44":"value44", "key444":"value444", "key4444":"value4444"}	\N	\N
 
+-- !sql2 --
+3	true	true	true
+

@@ -36,10 +36,10 @@ class StorageEngine;
 class CloudStorageEngine;
 class Thread;
 class ThreadPool;
-class TMasterInfo;
 class TReportRequest;
 class TTabletInfo;
 class TAgentTaskRequest;
+class ClusterInfo;
 
 class TaskWorkerPoolIf {
 public:
@@ -109,7 +109,7 @@ private:
 
 class ReportWorker {
 public:
-    ReportWorker(std::string name, const TMasterInfo& master_info, int report_interval_s,
+    ReportWorker(std::string name, const ClusterInfo* cluster_info, int report_interval_s,
                  std::function<void()> callback);
 
     ~ReportWorker();
@@ -155,6 +155,8 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 
 void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req);
@@ -167,7 +169,7 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
-void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
+void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
                     const TAgentTaskRequest& req);
 
 void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequest& req);
@@ -180,13 +182,15 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req);
 
 void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
-void report_task_callback(const TMasterInfo& master_info);
+void report_task_callback(const ClusterInfo* cluster_info);
 
-void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);
+void report_disk_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
 
-void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
+void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
-void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
+
+void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 

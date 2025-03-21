@@ -63,7 +63,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             new Column("SucceedTaskCount", ScalarType.createStringType()),
             new Column("FailedTaskCount", ScalarType.createStringType()),
             new Column("CanceledTaskCount", ScalarType.createStringType())
-            );
+    );
     @SerializedName(value = "jid")
     private Long jobId;
 
@@ -149,12 +149,13 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     private Lock createTaskLock = new ReentrantLock();
 
     @Override
-    public void cancelAllTasks() throws JobException {
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
         for (T task : runningTasks) {
-            task.cancel();
+            task.cancel(needWaitCancelComplete);
+            canceledTaskCount.incrementAndGet();
         }
         runningTasks = new CopyOnWriteArrayList<>();
         logUpdateOperation();
@@ -183,8 +184,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel();
+                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel(true);
         runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
+        canceledTaskCount.incrementAndGet();
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
         }
@@ -290,7 +292,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             this.finishTimeMs = System.currentTimeMillis();
         }
         if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
-            cancelAllTasks();
+            cancelAllTasks(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
         }
         jobStatus = newJobStatus;
     }
@@ -413,6 +415,23 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public TRow getTvfInfo() {
         return getCommonTvfInfo();
+    }
+
+    /**
+     * Generates a common error message when the execution queue is full.
+     *
+     * @param taskId                  The ID of the task.
+     * @param queueConfigName         The name of the queue configuration.
+     * @param executeThreadConfigName The name of the execution thread configuration.
+     * @return A formatted error message.
+     */
+    protected String commonFormatMsgWhenExecuteQueueFull(Long taskId, String queueConfigName,
+                                                         String executeThreadConfigName) {
+        return String.format("Dispatch task failed, jobId: %d, jobName: %s, taskId: %d, the queue size is full, "
+                        + "you can increase the queue size by setting the property "
+                        + "%s in the fe.conf file or increase the value of "
+                        + "the property %s in the fe.conf file", getJobId(), getJobName(), taskId, queueConfigName,
+                executeThreadConfigName);
     }
 
     @Override

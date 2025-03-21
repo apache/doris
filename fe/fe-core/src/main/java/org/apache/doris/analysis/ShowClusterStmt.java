@@ -34,10 +34,16 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 
 public class ShowClusterStmt extends ShowStmt implements NotFallbackInParser {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("cluster").add("is_current").add("users").build();
+    public static final ImmutableList<String> CLUSTER_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("cluster").add("is_current").add("users").add("backend_num").build();
 
-    public ShowClusterStmt() {
+    public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("IsCurrent").add("Users").add("BackendNum").build();
+
+    boolean isComputeGroup = true;
+
+    public ShowClusterStmt(boolean isComputeGroup) {
+        this.isComputeGroup = isComputeGroup;
     }
 
     @Override
@@ -45,7 +51,11 @@ public class ShowClusterStmt extends ShowStmt implements NotFallbackInParser {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         ImmutableList<String> titleNames = null;
-        titleNames = TITLE_NAMES;
+        if (isComputeGroup) {
+            titleNames = COMPUTE_GROUP_TITLE_NAMES;
+        } else {
+            titleNames = CLUSTER_TITLE_NAMES;
+        }
 
         for (String title : titleNames) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
@@ -62,7 +72,7 @@ public class ShowClusterStmt extends ShowStmt implements NotFallbackInParser {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Config.isNotCloudMode()) {
             // just user admin
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(),
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(),
                         PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV), Operator.OR))) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }

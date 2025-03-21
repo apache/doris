@@ -45,12 +45,22 @@ public class DropDbStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        DropDbStmt stmt = new DropDbStmt(false, new DbName("test", "test"), true);
+        DropDbStmt stmt = new DropDbStmt(false, new DbName("test", "test"), false);
 
         stmt.analyze(analyzer);
         Assert.assertEquals("test", stmt.getCtlName());
         Assert.assertEquals("test", stmt.getDbName());
         Assert.assertEquals("DROP DATABASE `test`", stmt.toString());
+    }
+
+    @Test
+    public void testForce() throws UserException, AnalysisException {
+        DropDbStmt stmt = new DropDbStmt(false, new DbName("test", "test"), true);
+
+        stmt.analyze(analyzer);
+        Assert.assertEquals("test", stmt.getCtlName());
+        Assert.assertEquals("test", stmt.getDbName());
+        Assert.assertEquals("DROP DATABASE `test` FORCE", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

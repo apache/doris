@@ -44,17 +44,17 @@ public class AnalysisTaskExecutor {
                     Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
 
     public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum) {
-        this(simultaneouslyRunningTaskNum, Integer.MAX_VALUE);
+        this(simultaneouslyRunningTaskNum, Integer.MAX_VALUE, "Analysis Job Executor");
     }
 
-    public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum, int taskQueueSize) {
+    public AnalysisTaskExecutor(int simultaneouslyRunningTaskNum, int taskQueueSize, String poolName) {
         if (!Env.isCheckpointThread()) {
             executors = ThreadPoolManager.newDaemonThreadPool(
                     simultaneouslyRunningTaskNum,
                     simultaneouslyRunningTaskNum, 0,
                     TimeUnit.DAYS, new LinkedBlockingQueue<>(taskQueueSize),
                     new BlockedPolicy("Analysis Job Executor Block Policy", Integer.MAX_VALUE),
-                    "Analysis Job Executor", true);
+                    poolName, true);
             cancelExpiredTask();
         } else {
             executors = null;

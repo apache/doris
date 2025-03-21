@@ -101,7 +101,7 @@ public class HMSTransaction implements Transaction {
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
-    private String declaredIntentionsToWrite;
+    private Optional<String> stagingDirectory;
     private boolean isMockedPartitionUpdate = false;
 
     private static class UncompletedMpuPendingUpload {
@@ -184,10 +184,14 @@ public class HMSTransaction implements Transaction {
     }
 
     public void beginInsertTable(HiveInsertCommandContext ctx) {
-        declaredIntentionsToWrite = ctx.getWritePath();
         queryId = ctx.getQueryId();
         isOverwrite = ctx.isOverwrite();
         fileType = ctx.getFileType();
+        if (fileType == TFileType.FILE_S3) {
+            stagingDirectory = Optional.empty();
+        } else {
+            stagingDirectory = Optional.of(ctx.getWritePath());
+        }
     }
 
     public void finishInsertTable(SimpleTableInfo tableInfo) {
@@ -207,10 +211,12 @@ public class HMSTransaction implements Transaction {
                             }
                         });
                     } else {
-                        fs.makeDir(declaredIntentionsToWrite);
-                        setLocation(new THiveLocationParams() {{
-                                setWritePath(declaredIntentionsToWrite);
-                            }
+                        stagingDirectory.ifPresent((v) -> {
+                            fs.makeDir(v);
+                            setLocation(new THiveLocationParams() {{
+                                    setWritePath(v);
+                                }
+                            });
                         });
                     }
                 }
@@ -528,6 +534,11 @@ public class HMSTransaction implements Transaction {
             return partitions;
         }
 
+        public void clear() {
+            partitions.clear();
+            createdPartitionValues.clear();
+        }
+
         public void addPartition(HivePartitionWithStatistics partition) {
             partitions.add(partition);
         }
@@ -643,15 +654,23 @@ public class HMSTransaction implements Transaction {
         if (!deleteResult.getNotDeletedEligibleItems().isEmpty()) {
             LOG.warn("Failed to delete directory {}. Some eligible items can't be deleted: {}.",
                     directory.toString(), deleteResult.getNotDeletedEligibleItems());
+            throw new RuntimeException(
+                "Failed to delete directory for files: " + deleteResult.getNotDeletedEligibleItems());
         } else if (deleteEmptyDir && !deleteResult.dirNotExists()) {
             LOG.warn("Failed to delete directory {} due to dir isn't empty", directory.toString());
+            throw new RuntimeException("Failed to delete directory for empty dir: " + directory.toString());
         }
     }
 
     private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir, boolean reverse) {
         try {
-            if (!fs.directoryExists(directory.toString()).ok()) {
+            Status status = fs.directoryExists(directory.toString());
+            if (status.getErrCode().equals(Status.ErrCode.NOT_FOUND)) {
                 return new DeleteRecursivelyResult(true, ImmutableList.of());
+            } else if (!status.ok()) {
+                ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
+                notDeletedEligibleItems.add(directory.toString() + "/*");
+                return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
             }
         } catch (Exception e) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
@@ -1129,6 +1148,7 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> undoUpdateFuture : undoUpdateFutures.build()) {
                 MoreFutures.getFutureValue(undoUpdateFuture);
             }
+            updateStatisticsTasks.clear();
         }
 
         private void undoAddPartitionsTask() {
@@ -1143,6 +1163,7 @@ public class HMSTransaction implements Transaction {
                 LOG.warn("Failed to rollback: add_partition for partition values {}.{}",
                         tableInfo, rollbackFailedPartitions);
             }
+            addPartitionsTask.clear();
         }
 
         private void waitForAsyncFileSystemTaskSuppressThrowable() {
@@ -1155,6 +1176,7 @@ public class HMSTransaction implements Transaction {
                     // ignore
                 }
             }
+            asyncFileSystemTaskFutures.clear();
         }
 
         public void prepareInsertExistingTable(SimpleTableInfo tableInfo, TableAndMore tableAndMore) {
@@ -1305,6 +1327,7 @@ public class HMSTransaction implements Transaction {
             for (DirectoryCleanUpTask cleanUpTask : directoryCleanUpTasksForAbort) {
                 recursiveDeleteItems(cleanUpTask.getPath(), cleanUpTask.isDeleteEmptyDir(), false);
             }
+            directoryCleanUpTasksForAbort.clear();
         }
 
         private void runRenameDirTasksForAbort() {
@@ -1320,6 +1343,7 @@ public class HMSTransaction implements Transaction {
                     }
                 }
             }
+            renameDirectoryTasksForAbort.clear();
         }
 
         private void runClearPathsForFinish() {
@@ -1447,7 +1471,7 @@ public class HMSTransaction implements Transaction {
         }
 
         private void pruneAndDeleteStagingDirectories() {
-            recursiveDeleteItems(new Path(declaredIntentionsToWrite), true, false);
+            stagingDirectory.ifPresent((v) -> recursiveDeleteItems(new Path(v), true, false));
         }
 
         private void abortMultiUploads() {
@@ -1472,6 +1496,7 @@ public class HMSTransaction implements Transaction {
                             .build());
                 }, fileSystemExecutor));
             }
+            uncompletedMpuPendingUploads.clear();
         }
 
         public void doNothing() {
@@ -1506,6 +1531,7 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
+            asyncFileSystemTaskFutures.clear();
         }
 
         public void shutdownExecutorService() {

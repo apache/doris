@@ -19,30 +19,33 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
@@ -50,6 +53,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -61,11 +65,11 @@ import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -77,18 +81,24 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.netty.util.concurrent.FastThreadLocal;
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -117,11 +127,14 @@ public class ConnectContext {
     // set for http_stream
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
+    // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
+    protected int preparedStmtId = Integer.MIN_VALUE;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
+    protected volatile TUniqueId lastQueryId = null;
     // id for this connection
     protected volatile int connectionId;
     // Timestamp when the connection is make
@@ -130,10 +143,7 @@ public class ConnectContext {
     protected volatile String peerIdentity;
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
-    private TNetworkAddress resultFlightServerAddr;
-    private TNetworkAddress resultInternalServiceAddr;
-    private ArrayList<Expr> resultOutputExprs;
-    private TUniqueId finstId;
+    private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
@@ -229,13 +239,17 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
-    private Map<String, String> resultAttachedInfo = Maps.newHashMap();
+    private List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
 
     private String workloadGroupName = "";
-    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
     private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
+    private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
+
+    // unique session id in the doris cluster
+    private String sessionId;
 
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
@@ -248,6 +262,12 @@ public class ConnectContext {
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
     private boolean isProxy = false;
+
+    @Getter
+    @Setter
+    private ByteBuffer prepareExecuteBuffer;
+
+    private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -265,8 +285,6 @@ public class ConnectContext {
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
-
-    private List<TableIf> tables = null;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -305,7 +323,8 @@ public class ConnectContext {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
-            insertResult = new InsertResult(txnId, label, db, tbl, txnStatus, loadedRows, filteredRows);
+            insertResult = new InsertResult(txnId, label, db, Util.getTempTableDisplayName(tbl),
+                txnStatus, loadedRows, filteredRows);
         }
     }
 
@@ -341,6 +360,11 @@ public class ConnectContext {
         return lastDBOfCatalog.get(catalog);
     }
 
+    // Used by COM_RESET_CONNECTION
+    public void clearLastDBOfCatalog() {
+        lastDBOfCatalog.clear();
+    }
+
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
         this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
     }
@@ -363,6 +387,11 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+
+        sessionId = UUID.randomUUID().toString();
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().registerSessionInfo(sessionId);
+        }
     }
 
     public ConnectContext() {
@@ -371,6 +400,12 @@ public class ConnectContext {
 
     public ConnectContext(StreamConnection connection) {
         this(connection, false);
+    }
+
+    public ConnectContext(StreamConnection connection, boolean isProxy, String sessionId) {
+        this(connection, isProxy);
+        // used for binding new created temporary table with its original session
+        this.sessionId = sessionId;
     }
 
     public ConnectContext(StreamConnection connection, boolean isProxy) {
@@ -413,10 +448,11 @@ public class ConnectContext {
         }
         if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
             throw new UserException("Failed to create a server prepared statement"
-                    + "possibly because there are too many active prepared statements on server already."
+                    + " possibly because there are too many active prepared statements on server already."
                     + "set max_prepared_stmt_count with larger number than " + sessionVariable.maxPreparedStmtCount);
         }
         this.preparedStatementContextMap.put(stmtName, ctx);
+        incPreparedStmtId();
     }
 
     public void removePrepareStmt(String stmtName) {
@@ -425,14 +461,6 @@ public class ConnectContext {
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
         return this.preparedStatementContextMap.get(stmtName);
-    }
-
-    public List<TableIf> getTables() {
-        return tables;
-    }
-
-    public void setTables(List<TableIf> tables) {
-        this.tables = tables;
     }
 
     public void closeTxn() {
@@ -449,6 +477,14 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getPreparedStmtId() {
+        return preparedStmtId;
+    }
+
+    public void incPreparedStmtId() {
+        ++preparedStmtId;
     }
 
     public long getBackendId() {
@@ -530,6 +566,10 @@ public class ConnectContext {
 
     public void setUserVar(SetVar setVar) {
         userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
+    }
+
+    public void setUserVar(String name, LiteralExpr value) {
+        userVars.put(name.toLowerCase(), value);
     }
 
     public @Nullable Literal getLiteralForUserVar(String varName) {
@@ -705,36 +745,16 @@ public class ConnectContext {
         return runningQuery;
     }
 
-    public void setResultFlightServerAddr(TNetworkAddress resultFlightServerAddr) {
-        this.resultFlightServerAddr = resultFlightServerAddr;
+    public void addFlightSqlEndpointsLocation(FlightSqlEndpointsLocation flightSqlEndpointsLocation) {
+        this.flightSqlEndpointsLocations.add(flightSqlEndpointsLocation);
     }
 
-    public TNetworkAddress getResultFlightServerAddr() {
-        return resultFlightServerAddr;
+    public List<FlightSqlEndpointsLocation> getFlightSqlEndpointsLocations() {
+        return flightSqlEndpointsLocations;
     }
 
-    public void setResultInternalServiceAddr(TNetworkAddress resultInternalServiceAddr) {
-        this.resultInternalServiceAddr = resultInternalServiceAddr;
-    }
-
-    public TNetworkAddress getResultInternalServiceAddr() {
-        return resultInternalServiceAddr;
-    }
-
-    public void setResultOutputExprs(ArrayList<Expr> resultOutputExprs) {
-        this.resultOutputExprs = resultOutputExprs;
-    }
-
-    public ArrayList<Expr> getResultOutputExprs() {
-        return resultOutputExprs;
-    }
-
-    public void setFinstId(TUniqueId finstId) {
-        this.finstId = finstId;
-    }
-
-    public TUniqueId getFinstId() {
-        return finstId;
+    public void clearFlightSqlEndpointsLocations() {
+        flightSqlEndpointsLocations.clear();
     }
 
     public void setReturnResultFromLocal(boolean returnResultFromLocal) {
@@ -790,6 +810,10 @@ public class ConnectContext {
         return getCatalog(defaultCatalog);
     }
 
+    public String getSessionId() {
+        return sessionId;
+    }
+
     /**
      * Maybe return when catalogName is not exist. So need to check nullable.
      */
@@ -832,6 +856,11 @@ public class ConnectContext {
         return executor;
     }
 
+    public void clear() {
+        executor = null;
+        statementContext = null;
+    }
+
     public PlSqlOperation getPlSqlOperation() {
         if (plSqlOperation == null) {
             plSqlOperation = new PlSqlOperation();
@@ -849,6 +878,50 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
+        deleteTempTable();
+        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+    }
+
+    protected void deleteTempTable() {
+        // only delete temporary table in its creating session, not proxy session in master fe
+        if (isProxy) {
+            return;
+        }
+
+        // if current fe is master, delete temporary table directly
+        if (Env.getCurrentEnv().isMaster()) {
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
+                    try {
+                        Env.getCurrentEnv().getInternalCatalog()
+                            .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
+                    } catch (DdlException e) {
+                        LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
+                    }
+                }
+            }
+        } else {
+            // forward to master fe to drop table
+            RedirectStatus redirectStatus = new RedirectStatus(true, false);
+            for (String dbName : dbToTempTableNamesMap.keySet()) {
+                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+                    LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
+                    String dropTableSql = String.format("drop table `%s`", tableName);
+                    OriginStatement originStmt = new OriginStatement(dropTableSql, 0);
+                    MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, this, redirectStatus, false);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("need to transfer to Master. stmt: {}", this.getStmtId());
+                    }
+                    try {
+                        masterOpExecutor.execute();
+                    } catch (Exception e) {
+                        LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
+                    }
+                }
+            }
+        }
     }
 
     public boolean isKilled() {
@@ -861,6 +934,9 @@ public class ConnectContext {
     }
 
     public void setQueryId(TUniqueId queryId) {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.putTraceId2QueryId(traceId, queryId);
@@ -879,8 +955,16 @@ public class ConnectContext {
         return queryId;
     }
 
+    public TUniqueId getLastQueryId() {
+        return lastQueryId;
+    }
+
     public TUniqueId nextInstanceId() {
-        return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        if (loadId != null) {
+            return new TUniqueId(loadId.hi, loadId.lo + instanceIdGenerator.incrementAndGet());
+        } else {
+            return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+        }
     }
 
     public String getSqlHash() {
@@ -917,20 +1001,7 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
-
-        if (killConnection) {
-            isKilled = true;
-            // Close channel to break connection with client
-            closeChannel();
-        }
-        // Now, cancel running query.
-        cancelQuery();
-    }
-
-    // kill operation with no protect by timeout.
-    private void killByTimeout(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
+        LOG.warn("kill query from {}, kill {} connection: {}", getRemoteHostPortString(), getConnectType(),
                 killConnection);
 
         if (killConnection) {
@@ -939,18 +1010,36 @@ public class ConnectContext {
             closeChannel();
         }
         // Now, cancel running query.
+        cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
+    }
+
+    // kill operation with no protect by timeout.
+    private void killByTimeout(boolean killConnection) {
+        if (killConnection) {
+            LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
+                            + "wait timeout: {}",
+                    getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+            isKilled = true;
+            // Close channel to break connection with client
+            closeChannel();
+        }
+        // Now, cancel running query.
         // cancelQuery by time out
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
+            LOG.warn("kill time out query, remote: {}, at the same time kill connection is {},"
+                            + " connection type: {}, connectionId: {}",
+                    getRemoteHostPortString(), killConnection,
+                    getConnectType(), connectionId);
             executorRef.cancel(new Status(TStatusCode.TIMEOUT,
                     "query is timeout, killed by timeout checker"));
         }
     }
 
-    public void cancelQuery() {
+    public void cancelQuery(Status cancelReason) {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
-            executorRef.cancel();
+            executorRef.cancel(cancelReason);
         }
     }
 
@@ -965,9 +1054,6 @@ public class ConnectContext {
         if (command == MysqlCommand.COM_SLEEP) {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
-                LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-
                 killFlag = true;
                 killConnection = true;
             }
@@ -981,7 +1067,7 @@ public class ConnectContext {
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
-                        timeoutTag, getRemoteHostPortString(), timeout, queryId);
+                        timeoutTag, getRemoteHostPortString(), timeout, DebugUtil.printId(queryId));
                 killFlag = true;
             }
         }
@@ -1030,20 +1116,80 @@ public class ConnectContext {
     public int getExecTimeout() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
-            return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
+            return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
         } else if (executor != null && executor.isAnalyzeStmt()) {
             return sessionVariable.getAnalyzeTimeoutS();
         } else {
             // normal query stmt
-            return sessionVariable.getQueryTimeoutS();
+            return getQueryTimeoutS();
         }
     }
 
-    public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
-        this.resultAttachedInfo = resultAttachedInfo;
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return insertTimeoutS
+     */
+    public int getInsertTimeoutS() {
+        int userInsertTimeout = getInsertTimeoutSFromProperty();
+        if (userInsertTimeout > 0) {
+            return userInsertTimeout;
+        }
+        return sessionVariable.getInsertTimeoutS();
     }
 
-    public Map<String, String> getResultAttachedInfo() {
+    private int getInsertTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getInsertTimeout(getQualifiedUser());
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return queryTimeoutS
+     */
+    public int getQueryTimeoutS() {
+        int userQueryTimeout = getQueryTimeoutSFromProperty();
+        if (userQueryTimeout > 0) {
+            return userQueryTimeout;
+        }
+        return sessionVariable.getQueryTimeoutS();
+    }
+
+    private int getQueryTimeoutSFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0;
+        }
+        return env.getAuth().getQueryTimeout(getQualifiedUser());
+    }
+
+    /**
+     * First, retrieve from the user's attributes. If not, retrieve from the session variable
+     *
+     * @return maxExecMemByte
+     */
+    public long getMaxExecMemByte() {
+        long userLimit = getMaxExecMemByteFromProperty();
+        if (userLimit > 0) {
+            return userLimit;
+        }
+        return sessionVariable.getMaxExecMemByte();
+    }
+
+    private long getMaxExecMemByteFromProperty() {
+        if (env == null || env.getAuth() == null || StringUtils.isEmpty(getQualifiedUser())) {
+            return 0L;
+        }
+        return env.getAuth().getExecMemLimit(getQualifiedUser());
+    }
+
+    public void addResultAttachedInfo(Map<String, String> resultAttachedInfo) {
+        this.resultAttachedInfo.add(resultAttachedInfo);
+    }
+
+    public List<Map<String, String>> getResultAttachedInfo() {
         return resultAttachedInfo;
     }
 
@@ -1110,9 +1256,13 @@ public class ConnectContext {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
 
+    public boolean supportHandleByFe() {
+        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
+    }
+
     // maybe user set cluster by SQL hint of session variable: cloud_cluster
     // so first check it and then get from connect context.
-    public String getCurrentCloudCluster() {
+    public String getCurrentCloudCluster() throws ComputeGroupException {
         String cluster = getSessionVariable().getCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = getCloudCluster();
@@ -1124,7 +1274,7 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    public String getCloudCluster() {
+    public String getCloudCluster() throws ComputeGroupException {
         return getCloudCluster(true);
     }
 
@@ -1153,30 +1303,6 @@ public class ConnectContext {
         }
     }
 
-    public static String cloudNoBackendsReason() {
-        StringBuilder sb = new StringBuilder();
-        if (ConnectContext.get() != null) {
-            String clusterName = ConnectContext.get().getCloudCluster();
-            String hits = "or you may not have permission to access the current cluster = ";
-            sb.append(" ");
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return sb.append(hits).append("cluster name empty").toString();
-            }
-            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getCloudStatusByName(clusterName);
-            if (!Strings.isNullOrEmpty(clusterStatus)
-                    && Cloud.ClusterStatus.valueOf(clusterStatus)
-                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                LOG.warn("auto start cluster {} in manual shutdown status", clusterName);
-                sb.append("cluster ").append(clusterName)
-                    .append(" is shutdown manually, please start it first");
-            } else {
-                sb.append(hits).append(clusterName);
-            }
-        }
-        return sb.toString();
-    }
-
     // can't get cluster from context, use the following strategy to obtain the cluster name
     // 当用户有多个集群的权限时，会按照如下策略进行拉取：
     // 如果当前mysql用户没有指定cluster(没有default 或者 use), 选择有权限的cluster。
@@ -1193,12 +1319,12 @@ public class ConnectContext {
                 // valid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.FOUND_BY_DEFAULT_CLUSTER);
-                LOG.info("use default cluster {}", defaultCloudCluster);
+                LOG.info("use default compute group {}", defaultCloudCluster);
             } else {
                 // invalid
                 r = new CloudClusterResult(defaultCloudCluster,
                     CloudClusterResult.Comment.DEFAULT_CLUSTER_SET_BUT_NOT_EXIST);
-                LOG.warn("default cluster {} current invalid, please change it", r);
+                LOG.warn("default compute group {} current invalid, please change it", r);
             }
             return r;
         }
@@ -1206,7 +1332,7 @@ public class ConnectContext {
         List<String> hasAuthCluster = new ArrayList<>();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
-            if (Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
+            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 hasAuthCluster.add(cloudClusterName);
                 // find a cluster has more than one alive be
@@ -1214,7 +1340,7 @@ public class ConnectContext {
                         .getBackendsByClusterName(cloudClusterName);
                 AtomicBoolean hasAliveBe = new AtomicBoolean(false);
                 bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
-                    LOG.debug("get a clusterName {}, it's has more than one alive be {}", cloudCluster, backend);
+                    LOG.debug("get a compute group {}, it's has more than one alive be {}", cloudCluster, backend);
                     hasAliveBe.set(true);
                 });
                 if (hasAliveBe.get()) {
@@ -1239,10 +1365,11 @@ public class ConnectContext {
      *
      * @param updateErr whether set the connect state to error if the returned cluster is null or empty
      * @return non-empty cluster name if a cluster has been chosen otherwise null or empty string
+     * @throws ComputeGroupException, outer get reason by exception
      */
-    public String getCloudCluster(boolean updateErr) {
+    public String getCloudCluster(boolean updateErr) throws ComputeGroupException {
         if (!Config.isCloudMode()) {
-            return null;
+            throw new ComputeGroupException("not cloud mode", ComputeGroupException.FailedTypeEnum.NOT_CLOUD_MODE);
         }
 
         String cluster = null;
@@ -1250,7 +1377,7 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             cluster = this.cloudCluster;
             choseWay = "use context cluster";
-            LOG.debug("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
             return cluster;
         }
@@ -1258,7 +1385,7 @@ public class ConnectContext {
         String defaultCluster = getDefaultCloudCluster();
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
-            choseWay = "default cluster";
+            choseWay = "default compute group";
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
             if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
@@ -1268,14 +1395,17 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            ComputeGroupException exception = new ComputeGroupException(
+                    "the user is not granted permission to the compute group",
+                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
             if (updateErr) {
-                getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
-                        "Cant get a Valid cluster for you to use, plz connect admin");
+                getState().setError(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, exception.getMessage());
             }
+            throw exception;
         } else {
             this.cloudCluster = cluster;
-            LOG.info("finally set context cluster name {} for user {} with chose way '{}'",
+            LOG.info("finally set context compute group name {} for user {} with chose way '{}'",
                     cloudCluster, getCurrentUserIdentity(), choseWay);
         }
 
@@ -1307,14 +1437,6 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
-    }
-
-    public void setInsertGroupCommit(long tableId, Backend backend) {
-        insertGroupCommitTableToBeMap.put(tableId, backend);
-    }
-
-    public Backend getInsertGroupCommit(long tableId) {
-        return insertGroupCommitTableToBeMap.get(tableId);
     }
 
     public boolean isSkipAuth() {
@@ -1367,5 +1489,39 @@ public class ConnectContext {
 
     public boolean isProxy() {
         return isProxy;
+    }
+
+    public void setMysqlHandshakePacket(MysqlHandshakePacket mysqlHandshakePacket) {
+        this.mysqlHandshakePacket = mysqlHandshakePacket;
+    }
+
+    public byte[] getAuthPluginData() {
+        return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ":" + qualifiedUser;
+    }
+
+    public Map<String, Set<String>> getDbToTempTableNamesMap() {
+        return dbToTempTableNamesMap;
+    }
+
+    public void addTempTableToDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet == null) {
+            tableNameSet = new HashSet<>();
+            dbToTempTableNamesMap.put(database, tableNameSet);
+        }
+
+        tableNameSet.add(tableName);
+    }
+
+    public void removeTempTableFromDB(String database, String tableName) {
+        Set<String> tableNameSet = dbToTempTableNamesMap.get(database);
+        if (tableNameSet != null) {
+            tableNameSet.remove(tableName);
+        }
     }
 }

@@ -37,6 +37,8 @@ suite ("diffrent_serialize") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,3,null,'c';"
 
+    sql """alter table d_table modify column k4 set stats ('row_count'='7');"""
+
     createMV("create materialized view mv1_1 as select k1,bitmap_intersect(to_bitmap(k2)) from d_table group by k1;")
     createMV("create materialized view mv1 as select k1,bitmap_agg(k2) from d_table group by k1;")
     createMV("create materialized view mv1_2 as select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;")
@@ -53,37 +55,22 @@ suite ("diffrent_serialize") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;")
-        contains "(mv1)"
-    }
+    mv_rewrite_success("select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;", "mv1")
     qt_select_mv "select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;"
 
-    explain {
-        sql("select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;")
-        contains "(mv1_1)"
-    }
+    mv_rewrite_success("select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;", "mv1_1")
     qt_select_mv "select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;"
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 1,2,1,'a';"
 
-    explain {
-        sql("select k1,bitmap_count(bitmap_agg(k2)) from d_table group by k1 order by 1;")
-        contains "(mv1)"
-    }
+    mv_rewrite_success("select k1,bitmap_count(bitmap_agg(k2)) from d_table group by k1 order by 1;", "mv1")
     qt_select_mv "select k1,bitmap_count(bitmap_agg(k2)) from d_table group by k1 order by 1;"
 
-    explain {
-        sql("select k1, multi_distinct_sum(k3) from d_table group by k1 order by k1;")
-        contains "(mv1_3)"
-    }
+    mv_rewrite_success("select k1, multi_distinct_sum(k3) from d_table group by k1 order by k1;", "mv1_3")
     qt_select_mv "select k1, multi_distinct_sum(k3) from d_table group by k1 order by k1;"
 
-    explain {
-        sql("select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;")
-        contains "(mv1_2)"
-    }
+    mv_rewrite_success("select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;", "mv1_2")
     qt_select_mv "select k1, multi_distinct_group_concat(k4) from d_table group by k1 order by k1;"
 
 

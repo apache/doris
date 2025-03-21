@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalOlapScan[table_join]
-------------PhysicalOlapScan[table_join]
+------------PhysicalStorageLayerAggregate[table_join]
 
 -- !push_down_topn_through_join_data --
 0

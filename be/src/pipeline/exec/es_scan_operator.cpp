@@ -19,10 +19,10 @@
 
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
-#include "vec/exec/scan/new_es_scanner.h"
+#include "vec/exec/scan/es_scanner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 // Prefer to the local host
 static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
     std::string host_port;
@@ -44,12 +44,10 @@ static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& 
 
 Status EsScanLocalState::_init_profile() {
     RETURN_IF_ERROR(Base::_init_profile());
-    _es_profile.reset(new RuntimeProfile("EsIterator"));
-    Base::_scanner_profile->add_child(_es_profile.get(), true, nullptr);
 
-    _rows_read_counter = ADD_COUNTER(_es_profile, "RowsRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_es_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_es_profile, "MaterializeTupleTime(*)");
+    _blocks_read_counter = ADD_COUNTER(_runtime_profile, "BlocksRead", TUnit::UNIT);
+    _read_timer = ADD_TIMER(_runtime_profile, "TotalRawReadTime(*)");
+    _materialize_timer = ADD_TIMER(_runtime_profile, "MaterializeTupleTime(*)");
     return Status::OK();
 }
 
@@ -64,7 +62,7 @@ Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -94,7 +92,7 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
-        std::shared_ptr<vectorized::NewEsScanner> scanner = vectorized::NewEsScanner::create_shared(
+        std::shared_ptr<vectorized::EsScanner> scanner = vectorized::EsScanner::create_shared(
                 RuntimeFilterConsumer::_state, this, p._limit, p._tuple_id, properties,
                 p._docvalue_context, doc_value_mode,
                 RuntimeFilterConsumer::_state->runtime_profile());
@@ -138,8 +136,8 @@ Status EsScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::open(state));
+Status EsScanOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::prepare(state));
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {

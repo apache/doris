@@ -19,10 +19,48 @@ package org.apache.doris.datasource.jdbc.client;
 
 public class JdbcClientException extends RuntimeException {
     public JdbcClientException(String format, Throwable cause, Object... msg) {
-        super(String.format(format, msg), cause);
+        super(formatMessage(format, msg), cause);
     }
 
     public JdbcClientException(String format, Object... msg) {
-        super(String.format(format, msg));
+        super(formatMessage(format, msg));
+    }
+
+    private static String formatMessage(String format, Object... msg) {
+        if (msg == null || msg.length == 0) {
+            return format;
+        } else {
+            return String.format(format, escapePercentInArgs(msg));
+        }
+    }
+
+    private static Object[] escapePercentInArgs(Object... args) {
+        if (args == null) {
+            return null;
+        }
+        Object[] escapedArgs = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            if (args[i] instanceof String) {
+                escapedArgs[i] = ((String) args[i]).replace("%", "%%");
+            } else {
+                escapedArgs[i] = args[i];
+            }
+        }
+        return escapedArgs;
+    }
+
+    public static String getAllExceptionMessages(Throwable throwable) {
+        StringBuilder sb = new StringBuilder();
+        while (throwable != null) {
+            String message = throwable.getMessage();
+            if (message != null && !message.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append(" | Caused by: ");
+                }
+                sb.append(message);
+            }
+            throwable = throwable.getCause();
+        }
+        return sb.toString();
     }
 }

@@ -29,8 +29,9 @@
 #include "vec/exec/scan/split_source_connector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
-class VFileScanner;
+class FileScanner;
 } // namespace vectorized
 } // namespace doris
 
@@ -48,7 +49,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status _process_conjuncts(RuntimeState* state) override;
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
@@ -76,14 +77,21 @@ public:
         _output_tuple_id = tnode.file_scan_node.tuple_id;
     }
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     bool is_file_scan_operator() const override { return true; }
+
+    // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
+    int query_parallel_instance_num() const override {
+        return _batch_split_mode ? 1 : _query_parallel_instance_num;
+    }
 
 private:
     friend class FileScanLocalState;
 
     const std::string _table_name;
+    bool _batch_split_mode = false;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

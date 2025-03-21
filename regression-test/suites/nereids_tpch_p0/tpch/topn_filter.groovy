@@ -21,6 +21,7 @@ suite("topn_filter") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql "set topn_opt_limit_threshold=1024"
+    sql """ set topn_filter_ratio = 1 """
     sql "analyze table nation with sync"
     // limit + offset > table.rows, do not generate topn filter
     explain{

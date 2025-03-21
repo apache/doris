@@ -16,17 +16,7 @@
 // under the License.
 import groovy.json.JsonBuilder
 
-suite("regression_test_variant_column_limit", "nonConcurrent"){
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
+suite("regression_test_variant_column_limit"){
     def table_name = "var_column_limit"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
@@ -38,21 +28,18 @@ suite("regression_test_variant_column_limit", "nonConcurrent"){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
-    try {
-        def jsonBuilder = new JsonBuilder()
-        def root = jsonBuilder {
-            // Generate 2049 fields
-            (1..2049).each { fieldNumber ->
-                "field$fieldNumber" fieldNumber
-            }
+    def jsonBuilder = new JsonBuilder()
+    def root = jsonBuilder {
+        // Generate 4097 fields
+        (1..4097).each { fieldNumber ->
+            "field$fieldNumber" fieldNumber
         }
+    }
 
-        String jsonString = jsonBuilder.toPrettyString()
+    String jsonString = jsonBuilder.toPrettyString()
+    test {
         sql """insert into ${table_name} values (1, '$jsonString')"""
-    } catch(Exception ex) {
-        logger.info("""INSERT INTO ${table_name} failed: """ + ex)
-        assertTrue(ex.toString().contains("Reached max column"));
-    } finally {
+        exception("Reached max column size limit")
     }
     sql """insert into ${table_name} values (1, '{"a" : 1, "b" : 2, "c" : 3}')"""
 

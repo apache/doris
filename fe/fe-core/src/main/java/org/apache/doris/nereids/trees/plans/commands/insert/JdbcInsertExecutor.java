@@ -91,11 +91,6 @@ public class JdbcInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
-    protected void setCollectCommitInfoFunc() {
-        // do nothing
-    }
-
-    @Override
     protected void doBeforeCommit() throws UserException {
         // do nothing
     }

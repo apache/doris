@@ -58,6 +58,15 @@ public class CancelExportStmt extends DdlStmt implements NotFallbackInParser {
         this.whereClause = whereClause;
     }
 
+    public CancelExportStmt(String dbName, Expr whereClause, String label, CompoundPredicate.Operator operator,
+                            String state) {
+        this.dbName = dbName;
+        this.whereClause = whereClause;
+        this.label = label;
+        this.operator = operator;
+        this.state = state;
+    }
+
     private void checkColumn(Expr expr, boolean like) throws AnalysisException {
         String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
         if (!SUPPORT_COLUMNS.contains(inputCol.toLowerCase())) {

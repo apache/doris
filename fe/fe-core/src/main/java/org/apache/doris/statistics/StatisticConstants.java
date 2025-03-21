@@ -35,7 +35,7 @@ public class StatisticConstants {
     public static final String PARTITION_STATISTIC_TBL_NAME = "partition_statistics";
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
-    public static final int MAX_NAME_LEN = 64;
+    public static final int MAX_NAME_LEN = 1024;
 
     public static final int ID_LEN = 4096;
 
@@ -93,15 +93,19 @@ public class StatisticConstants {
 
     public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
 
-    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 90;
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
     public static final int TASK_QUEUE_CAP = 1;
 
-    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 300;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
+
+    public static final int PARTITION_SAMPLE_COUNT = 30;
+
+    public static final long PARTITION_SAMPLE_ROW_COUNT = 3_000_000_000L;
 
     static {
         SYSTEM_DBS.add(FeConstants.INTERNAL_DB_NAME);

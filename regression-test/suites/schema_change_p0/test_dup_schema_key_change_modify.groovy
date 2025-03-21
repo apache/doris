@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_dup_schema_key_change_modify","p0") {
-     def tbName1 = "test_dup_schema_key_change_modify1"
-     def tbName2 = "test_dup_schema_key_change_modify_1"
+     def tbName1 = "test_dup_schema_key_change_modify1_v2"
+     def tbName2 = "test_dup_schema_key_change_modify_1_v2"
      def initTable1 = ""
      def initTableData1 = ""
 
@@ -55,6 +55,7 @@ suite("test_dup_schema_key_change_modify","p0") {
 
      //TODO Test the dup model by modify a key type from BOOLEAN to TINYINT
      def errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT"
+     def insertSql = ""
      expectException({
           sql initTable
           sql initTableData
@@ -127,7 +128,7 @@ suite("test_dup_schema_key_change_modify","p0") {
 
 
      //TODO Test the dup model by modify a key type from BOOLEAN to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -155,7 +156,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      },errorMessage)
 
      //TODO Test the dup model by modify a key type from BOOLEAN to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_teacher]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_teacher]"
      expectException({
           sql initTable
           sql initTableData
@@ -402,7 +403,7 @@ suite("test_dup_schema_key_change_modify","p0") {
 
 
      //TODO Test the dup model by modify a key type from TINYINT  to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -441,7 +442,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
      //Test the dup model by modify a key type from TINYINT  to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_student]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[is_student]"
      expectException({
           sql initTable
           sql initTableData
@@ -644,7 +645,7 @@ suite("test_dup_schema_key_change_modify","p0") {
 
 
      //TODO Test the dup model by modify a key type from SMALLINT  to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -683,7 +684,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
      //Test the dup model by modify a key type from SMALLINT  to STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[car_number]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[car_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -902,7 +903,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      }, errorMessage)
 
      //Test the dup model by modify a key type from INT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData
@@ -1094,7 +1095,7 @@ suite("test_dup_schema_key_change_modify","p0") {
      }, errorMessage)
 
      //Test the dup model by modify a key type from BIGINT  to STRING
-     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]."
+     errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[sn_number]"
      expectException({
           sql initTable
           sql initTableData

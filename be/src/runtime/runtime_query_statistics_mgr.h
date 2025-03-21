@@ -31,38 +31,14 @@
 #include <unordered_map>
 
 #include "gutil/integral_types.h"
-#include "runtime/query_statistics.h"
+#include "runtime/workload_management/resource_context.h"
 #include "runtime/workload_management/workload_condition.h"
-#include "util/hash_util.hpp"
-#include "util/time.h"
 
 namespace doris {
 
 namespace vectorized {
 class Block;
 } // namespace vectorized
-
-class QueryStatisticsCtx {
-public:
-    QueryStatisticsCtx(TNetworkAddress fe_addr, TQueryType::type query_type)
-            : _fe_addr(fe_addr), _query_type(query_type) {
-        this->_is_query_finished = false;
-        this->_wg_id = -1;
-        this->_query_start_time = MonotonicMillis();
-    }
-    ~QueryStatisticsCtx() = default;
-
-    void collect_query_statistics(TQueryStatistics* tq_s);
-
-public:
-    std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
-    bool _is_query_finished;
-    const TNetworkAddress _fe_addr;
-    const TQueryType::type _query_type;
-    int64_t _query_finish_time;
-    int64_t _wg_id;
-    int64_t _query_start_time;
-};
 
 class RuntimeQueryStatisticsMgr {
 public:
@@ -75,20 +51,10 @@ public:
                     fragment_id_to_profile,
             std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profile, bool is_done);
 
-    void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
-                                   TNetworkAddress fe_addr, TQueryType::type query_type);
+    void register_resource_context(std::string query_id,
+                                   std::shared_ptr<ResourceContext> resource_ctx);
 
     void report_runtime_query_statistics();
-
-    void set_query_finished(std::string query_id);
-
-    std::shared_ptr<QueryStatistics> get_runtime_query_statistics(std::string query_id);
-
-    void set_workload_group_id(std::string query_id, int64_t wg_id);
-
-    // used for workload scheduler policy
-    void get_metric_map(std::string query_id,
-                        std::map<WorkloadMetricType, std::string>& metric_map);
 
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
@@ -104,8 +70,11 @@ public:
                                    std::shared_ptr<TRuntimeProfileTree> load_channel_profile_x);
 
 private:
-    std::shared_mutex _qs_ctx_map_lock;
-    std::map<std::string, std::unique_ptr<QueryStatisticsCtx>> _query_statistics_ctx_map;
+    std::shared_mutex _resource_contexts_map_lock;
+    // Must be shared_ptr of ResourceContext, because ResourceContext can only be removed from
+    // _resource_contexts_map after QueryStatistics is reported to FE,
+    // at which time the Query may have ended.
+    std::map<std::string, std::shared_ptr<ResourceContext>> _resource_contexts_map;
 
     std::mutex _report_profile_mutex;
     std::atomic_bool started = false;

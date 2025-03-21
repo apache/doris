@@ -16,6 +16,7 @@
 // under the License.
 #include "data_type_serde.h"
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -26,6 +27,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 DataTypeSerDe::~DataTypeSerDe() = default;
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
@@ -55,7 +57,7 @@ void DataTypeSerDe::convert_variant_map_to_rapidjson(
             continue;
         }
         rapidjson::Value key;
-        key.SetString(item.first.data(), item.first.size());
+        key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
         rapidjson::Value val;
         convert_field_to_rapidjson(item.second, val, allocator);
         if (val.IsNull() && item.first.empty()) {
@@ -99,7 +101,7 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
     }
     case vectorized::Field::Types::String: {
         const String& val = field.get<String>();
-        target.SetString(val.data(), val.size());
+        target.SetString(val.data(), cast_set<rapidjson::SizeType>(val.size()));
         break;
     }
     case vectorized::Field::Types::Array: {
@@ -121,7 +123,7 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
 
 Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                              rapidjson::Document::AllocatorType& allocator,
-                                             Arena& mem_pool, int row_num) const {
+                                             Arena& mem_pool, int64_t row_num) const {
     return Status::InternalError("Not support write {} to rapidjson", column.get_name());
 }
 

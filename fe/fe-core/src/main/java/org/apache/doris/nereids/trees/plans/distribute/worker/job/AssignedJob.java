@@ -36,4 +36,5 @@ public interface AssignedJob {
     ScanSource getScanSource();
 
     String toString(boolean showUnassignedJob);
+
 }

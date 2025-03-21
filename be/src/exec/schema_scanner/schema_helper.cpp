@@ -23,8 +23,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-class TDescribeTableParams;
-class TDescribeTableResult;
 class TDescribeTablesParams;
 class TDescribeTablesResult;
 class TGetDbsParams;

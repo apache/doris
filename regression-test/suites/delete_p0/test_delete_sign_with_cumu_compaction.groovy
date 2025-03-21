@@ -20,7 +20,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite('test_delete_sign_with_cumu_compaction') {
     def table = 'test_delete_sign_with_cumu_compaction'
-    
+
     sql """ DROP TABLE IF EXISTS ${table};"""
     sql """
     CREATE TABLE ${table}
@@ -66,51 +66,19 @@ suite('test_delete_sign_with_cumu_compaction') {
         return
     }
 
-    def waitForCompaction = { be_host, be_http_port ->
-        // wait for all compactions done
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until {
-            String tablet_id = tablet[0]
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
-            logger.info("Get compaction status: code=" + code + ", out=" + out)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-
-            !compactionStatus.run_status
-        }
-    }
-
     (1..10).each { i ->
         sql """INSERT into ${table} (col1,col2,col3) values (${i}, 2, 3)"""
     }
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
-    waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
+    trigger_and_wait_compaction(table, "cumulative")
 
     (11..12).each { i ->
         sql """INSERT into ${table} (col1,col2,col3) values (${i}, 2, 3)"""
     }
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
-    waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
-
-    be_run_base_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
-    waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
-
+    trigger_and_wait_compaction(table, "cumulative")
+    trigger_and_wait_compaction(table, "base")
     (1..10).each { i ->
         sql """ INSERT into ${table} (col1,col2,col3,__DORIS_DELETE_SIGN__) values (${i}, 2, 3, 1) """
     }
-
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
-    waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
-
+    trigger_and_wait_compaction(table, "cumulative")
     qt_select_default """ SELECT * FROM ${table} ORDER BY col1 """
-    
 }

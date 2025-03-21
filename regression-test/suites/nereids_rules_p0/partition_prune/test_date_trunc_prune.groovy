@@ -334,4 +334,29 @@ suite("test_date_trunc_prune") {
     ( NOT (  ( table1 . `col_int_undef_signed` != table1 . `col_int_undef_signed` ) AND table1 . `col_date_undef_signed` <= '2025-06-18' ) AND 
     table1 . `col_date_undef_signed`  IN ( '2023-12-20' ) )  GROUP BY field1  ORDER BY field1 LIMIT 1000;
     """
+
+    // test multi column partition table and predicate with date_trunc
+    sql "drop table if exists t_multi_column_partition"
+    sql """
+    create table t_multi_column_partition(a int, dt datetime, v int) partition by range(a, dt)
+    (
+    partition p0 values [(0,'2024-01-01 00:00:00'), (10,'2024-01-10 00:00:00')),
+    partition p10 values [(10,'2024-01-10 00:00:00'), (20,'2024-01-20 00:00:00')),
+    partition p20 values [(20,'2024-01-20 00:00:00'), (30,'2024-01-31 00:00:00')),
+    partition p30 values [(30,'2024-01-31 00:00:00'), (40,'2024-02-10 00:00:00')),
+    partition p40 values [(40,'2024-02-10 00:00:00'), (50,'2024-02-20 00:00:00'))
+    )
+    distributed by hash(a) properties("replication_num"="1");
+    """
+    sql """
+    insert into t_multi_column_partition values(0,'2024-01-01 00:00:00',2),(1,'2024-01-01 00:00:00',2),(1,'2025-01-01 00:00:00',2),
+    (10,'2024-01-10 00:00:00',3),(10,'2024-01-11 00:00:00',200),(12,'2021-01-01 00:00:00',2),
+    (25,'2024-01-10 00:00:00',3),(20,'2024-01-11 00:00:00',200),(30,'2021-01-01 00:00:00',2),
+    (40,'2024-01-01 00:00:00',2),(40,'2024-01-31 00:00:00',2),(10,'2024-01-9 00:00:00',1000),(10,'2024-01-10 00:00:00',1000),(10,'2024-01-10 01:00:00',1000),
+    (2,'2023-01-10 01:00:00',1000)
+    """
+    explain {
+        sql """select * from t_multi_column_partition where a=2 and date_trunc(dt,'day') <'2024-01-1 00:00:00';"""
+        contains ("partitions=1/5 (p0)")
+    }
 }

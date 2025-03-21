@@ -51,8 +51,8 @@ Status CloudRowsetBuilder::init() {
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
 
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -92,7 +92,8 @@ Status CloudRowsetBuilder::check_tablet_version_count() {
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
-                "tablet: {}",
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
                 version_count, config::max_tablet_version_num, _tablet->tablet_id());
     }
     return Status::OK();
@@ -105,7 +106,7 @@ void CloudRowsetBuilder::update_tablet_stats() {
     tablet->fetch_add_approximate_num_rowsets(1);
     tablet->fetch_add_approximate_num_segments(_rowset->num_segments());
     tablet->fetch_add_approximate_num_rows(_rowset->num_rows());
-    tablet->fetch_add_approximate_data_size(_rowset->data_disk_size());
+    tablet->fetch_add_approximate_data_size(_rowset->total_disk_size());
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_deltas(_rowset->num_segments());
     tablet->write_count.fetch_add(1, std::memory_order_relaxed);

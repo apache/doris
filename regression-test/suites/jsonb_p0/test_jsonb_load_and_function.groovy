@@ -57,7 +57,7 @@ suite("test_jsonb_load_and_function", "p0") {
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))
             assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
             log.info("url: " + json.ErrorURL)
@@ -532,15 +532,6 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
-    // old planner do not support explode_json_object
-    test {
-        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
-        exception "errCode = 2"
-    }
-    test {
-        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
-        exception "errCode = 2"
-    }
 
     // json_parse
     qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":"v1"}')"""

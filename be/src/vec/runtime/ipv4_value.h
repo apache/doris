@@ -27,6 +27,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class IPv4Value {
 public:
@@ -101,3 +102,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

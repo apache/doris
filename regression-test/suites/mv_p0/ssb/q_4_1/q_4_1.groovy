@@ -92,8 +92,9 @@ suite ("mv_ssb_q_4_1") {
 
     sql """analyze table lineorder_flat with sync;"""
 
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='2');"""
+
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
                 FROM lineorder_flat
@@ -102,9 +103,7 @@ suite ("mv_ssb_q_4_1") {
                 AND S_REGION = 'AMERICA'
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_q_4_1)"
-    }
+                ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_q_4_1")
     qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit

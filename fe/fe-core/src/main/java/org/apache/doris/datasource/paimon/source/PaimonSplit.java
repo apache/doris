@@ -23,30 +23,49 @@ import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
 
 import com.google.common.collect.Maps;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class PaimonSplit extends FileSplit {
     private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
     private Split split;
     private TableFormatType tableFormatType;
-    private Optional<DeletionFile> optDeletionFile;
+    private Optional<DeletionFile> optDeletionFile = Optional.empty();
+    private Optional<Long> optRowCount = Optional.empty();
 
     public PaimonSplit(Split split) {
         super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
-        this.optDeletionFile = Optional.empty();
+
+        if (split instanceof DataSplit) {
+            List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
+            this.path = new LocationPath("/" + dataFileMetas.get(0).fileName());
+            this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
+        } else {
+            this.selfSplitWeight = split.rowCount();
+        }
     }
 
     private PaimonSplit(LocationPath file, long start, long length, long fileLength, long modificationTime,
             String[] hosts, List<String> partitionList) {
         super(file, start, length, fileLength, modificationTime, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
-        this.optDeletionFile = Optional.empty();
+        this.selfSplitWeight = length;
+    }
+
+    @Override
+    public String getConsistentHashString() {
+        if (this.path == DUMMY_PATH) {
+            return UUID.randomUUID().toString();
+        }
+        return getPathString();
     }
 
     public Split getSplit() {
@@ -66,7 +85,16 @@ public class PaimonSplit extends FileSplit {
     }
 
     public void setDeletionFile(DeletionFile deletionFile) {
+        this.selfSplitWeight += deletionFile.length();
         this.optDeletionFile = Optional.of(deletionFile);
+    }
+
+    public Optional<Long> getRowCount() {
+        return optRowCount;
+    }
+
+    public void setRowCount(long rowCount) {
+        this.optRowCount = Optional.of(rowCount);
     }
 
     public static class PaimonSplitCreator implements SplitCreator {
@@ -78,10 +106,14 @@ public class PaimonSplit extends FileSplit {
                 long start,
                 long length,
                 long fileLength,
+                long fileSplitSize,
                 long modificationTime,
                 String[] hosts,
                 List<String> partitionValues) {
-            return new PaimonSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+            PaimonSplit split = new PaimonSplit(path, start, length, fileLength,
+                    modificationTime, hosts, partitionValues);
+            split.setTargetSplitSize(fileSplitSize);
+            return split;
         }
     }
 }

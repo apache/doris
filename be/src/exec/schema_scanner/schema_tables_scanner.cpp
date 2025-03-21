@@ -112,6 +112,9 @@ Status SchemaTablesScanner::_get_new_table() {
     if (nullptr != _param->common_param->wild) {
         table_params.__set_pattern(*(_param->common_param->wild));
     }
+    if (nullptr != _param->common_param->table) {
+        table_params.__set_table(*(_param->common_param->table));
+    }
     if (nullptr != _param->common_param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     } else {
@@ -236,7 +239,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::vector<int64_t> srcs(table_num);
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
-            if (tbl_status.__isset.avg_row_length) {
+            if (tbl_status.__isset.data_length) {
                 srcs[i] = tbl_status.data_length;
                 datas[i] = srcs.data() + i;
             } else {
@@ -248,7 +251,19 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     // max_data_length
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas)); }
     // index_length
-    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, null_datas)); }
+    {
+        std::vector<int64_t> srcs(table_num);
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.index_length) {
+                srcs[i] = tbl_status.index_length;
+                datas[i] = srcs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
+    }
     // data_free
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
     // auto_increment

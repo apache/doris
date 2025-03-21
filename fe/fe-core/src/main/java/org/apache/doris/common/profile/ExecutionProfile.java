@@ -17,17 +17,13 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
-import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -88,7 +84,7 @@ public class ExecutionProfile {
         this.queryId = queryId;
         root = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
-        root.addChild(fragmentsProfile);
+        root.addChild(fragmentsProfile, true);
         fragmentProfiles = Maps.newHashMap();
         multiBeProfile = Maps.newHashMap();
         fragmentIdBeNum = Maps.newHashMap();
@@ -97,14 +93,14 @@ public class ExecutionProfile {
         for (int fragmentId : fragmentIds) {
             RuntimeProfile runtimeProfile = new RuntimeProfile("Fragment " + i);
             fragmentProfiles.put(fragmentId, runtimeProfile);
-            fragmentsProfile.addChild(runtimeProfile);
+            fragmentsProfile.addChild(runtimeProfile, true);
             multiBeProfile.put(fragmentId, Maps.newHashMap());
             fragmentIdBeNum.put(fragmentId, 0);
             seqNoToFragmentId.put(i, fragmentId);
             ++i;
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
-        root.addChild(loadChannelProfile);
+        root.addChild(loadChannelProfile, true);
     }
 
     private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
@@ -162,7 +158,8 @@ public class ExecutionProfile {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
-            fragmentsProfile.addChild(newFragmentProfile);
+            fragmentsProfile.addChild(newFragmentProfile, true);
+            // All pipeline profiles of this fragment on all BEs
             List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(seqNoToFragmentId.get(i));
             int pipelineIdx = 0;
             for (List<RuntimeProfile> allPipelineTask : allPipelines) {
@@ -180,7 +177,7 @@ public class ExecutionProfile {
                             allPipelineTask.get(0).nodeId());
                     RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
                 }
-                newFragmentProfile.addChild(mergedpipelineProfile);
+                newFragmentProfile.addChild(mergedpipelineProfile, true);
                 pipelineIdx++;
                 fragmentsProfile.rowsProducedMap.putAll(mergedpipelineProfile.rowsProducedMap);
             }
@@ -235,21 +232,22 @@ public class ExecutionProfile {
             List<TDetailedReportParams> fragmentProfile = entry.getValue();
             int pipelineIdx = 0;
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
-            // The naming rule must be same with the one in updateProfile(TReportExecStatusParams params)
-            // Because we relay on the name of RuntimeProfile to eliminate the duplicate profile
             String suffix = " (host=" + backendHBAddress + ")";
             for (TDetailedReportParams pipelineProfile : fragmentProfile) {
                 String name = "";
-                if (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level) {
+                boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
+                if (isFragmentLevel) {
+                    // Fragment Level profile is also represented by TDetailedReportParams.
                     name = "Fragment Level Profile: " + suffix;
                 } else {
                     name = "Pipeline :" + pipelineIdx + " " + suffix;
                     pipelineIdx++;
                 }
+
                 RuntimeProfile profileNode = new RuntimeProfile(name);
-                // The taskprofile is used to save the profile of the pipeline, without
+                // The taskProfile is used to save the profile of the pipeline, without
                 // considering the FragmentLevel.
-                if (!(pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level)) {
+                if (!isFragmentLevel) {
                     taskProfile.add(profileNode);
                 }
                 if (!pipelineProfile.isSetProfile()) {
@@ -259,10 +257,13 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                fragmentProfiles.get(fragmentId).addChild(profileNode);
+                fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
             setMultiBeProfile(fragmentId, backendHBAddress, taskProfile);
         }
+
+        LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
+                DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfile().size(), isDone);
 
         if (profile.isSetLoadChannelProfiles()) {
             for (TRuntimeProfileTree loadChannelProfile : profile.getLoadChannelProfiles()) {
@@ -271,54 +272,6 @@ public class ExecutionProfile {
         }
 
         return new Status(TStatusCode.OK, "Success");
-    }
-
-    public void updateProfile(TReportExecStatusParams params) {
-        Backend backend  = null;
-        if (params.isSetBackendId()) {
-            backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
-            if (backend == null) {
-                LOG.warn("could not find backend with id {}", params.getBackendId());
-                return;
-            }
-        } else {
-            LOG.warn("backend id is not set in report profile request, bad message");
-            return;
-        }
-
-        int pipelineIdx = 0;
-        List<RuntimeProfile> taskProfile = Lists.newArrayList();
-        String suffix = " (host=" + backend.getHeartbeatAddress() + ")";
-        // Each datailed report params is a fragment level profile or a pipeline profile
-        for (TDetailedReportParams param : params.detailed_report) {
-            String name = "";
-            if (param.isSetIsFragmentLevel() && param.is_fragment_level) {
-                name = "Fragment Level Profile: " + suffix;
-            } else {
-                name = "Pipeline :" + pipelineIdx + " " + suffix;
-                pipelineIdx++;
-            }
-            RuntimeProfile profile = new RuntimeProfile(name);
-            // The taskprofile is used to save the profile of the pipeline, without
-            // considering the FragmentLevel.
-            if (!(param.isSetIsFragmentLevel() && param.is_fragment_level)) {
-                taskProfile.add(profile);
-            }
-            if (param.isSetProfile()) {
-                profile.update(param.profile);
-            }
-            if (params.done) {
-                profile.setIsDone(true);
-            }
-            profile.sortChildren();
-            fragmentProfiles.get(params.fragment_id).addChild(profile);
-        }
-        // TODO ygl: is this right? there maybe multi Backends, what does
-        // update load profile do???
-        if (params.isSetLoadChannelProfile()) {
-            loadChannelProfile.update(params.loadChannelProfile);
-        }
-        setMultiBeProfile(params.fragment_id, backend.getHeartbeatAddress(), taskProfile);
     }
 
     public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
@@ -363,5 +316,15 @@ public class ExecutionProfile {
 
     public void setSummaryProfile(SummaryProfile summaryProfile) {
         this.summaryProfile = summaryProfile;
+    }
+
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("ExecutionProfile: ").append(DebugUtil.printId(queryId)).append("\n");
+        for (Entry<Integer, RuntimeProfile> entry : fragmentProfiles.entrySet()) {
+            sb.append("Fragment ").append(entry.getKey()).append(":\n");
+            entry.getValue().prettyPrint(sb, " ");
+        }
+        return sb.toString();
     }
 }

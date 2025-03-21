@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -37,9 +39,10 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
     private final SchemaScanNode schemaScanNode;
     private final ScanWorkerSelector scanWorkerSelector;
 
-    public UnassignedScanMetadataJob(PlanFragment fragment, SchemaScanNode schemaScanNode,
-            ScanWorkerSelector scanWorkerSelector) {
-        super(fragment, ImmutableList.of(schemaScanNode), ArrayListMultimap.create());
+    public UnassignedScanMetadataJob(
+            StatementContext statementContext, PlanFragment fragment,
+            SchemaScanNode schemaScanNode, ScanWorkerSelector scanWorkerSelector) {
+        super(statementContext, fragment, ImmutableList.of(schemaScanNode), ArrayListMultimap.create());
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
         this.schemaScanNode = schemaScanNode;
@@ -47,8 +50,10 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(schemaScanNode);
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(
+                schemaScanNode, statementContext.getConnectContext()
+        );
     }
 
     @Override

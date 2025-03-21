@@ -77,21 +77,39 @@ function ensure_port_is_listenable() {
 
 function download_fdb() {
     if [[ -d "${FDB_PKG_DIR}" ]]; then
-        echo "FDB ${FDB_VERSION} already exists"
+        echo "FDB package for ${FDB_VERSION} already exists"
         return
     fi
 
-    local URL="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/"
-    local TMP="${FDB_PKG_DIR}-tmp"
+    arch=$(uname -m)
+    if [[ "${arch}" == "x86_64" ]]; then
+        local URL="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/"
+        local TMP="${FDB_PKG_DIR}-tmp"
 
-    rm -rf "${TMP}"
-    mkdir -p "${TMP}"
+        rm -rf "${TMP}"
+        mkdir -p "${TMP}"
 
-    wget "${URL}/fdbbackup.x86_64" -O "${TMP}/fdbbackup"
-    wget "${URL}/fdbserver.x86_64" -O "${TMP}/fdbserver"
-    wget "${URL}/fdbcli.x86_64" -O "${TMP}/fdbcli"
-    wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
-    wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
+        wget "${URL}/fdbbackup.x86_64" -O "${TMP}/fdbbackup"
+        wget "${URL}/fdbserver.x86_64" -O "${TMP}/fdbserver"
+        wget "${URL}/fdbcli.x86_64" -O "${TMP}/fdbcli"
+        wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
+        wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
+    elif [[ "${arch}" == "aarch64" ]]; then
+        local URL="https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64"
+        local TMP="${FDB_PKG_DIR}-tmp"
+
+        rm -rf "${TMP}"
+        mkdir -p "${TMP}"
+
+        wget "${URL}/fdbbackup" -O "${TMP}/fdbbackup"
+        wget "${URL}/fdbserver" -O "${TMP}/fdbserver"
+        wget "${URL}/fdbcli" -O "${TMP}/fdbcli"
+        wget "${URL}/fdbmonitor" -O "${TMP}/fdbmonitor"
+        wget "${URL}/libfdb_c.aarch64.so" -O "${TMP}/libfdb_c.aarch64.so"
+    else
+        echo "Unsupported architecture: ""${arch}"
+    fi
+
     chmod +x "${TMP}"/fdb*
 
     mv "${TMP}" "${FDB_PKG_DIR}"
@@ -135,37 +153,94 @@ get_fdb_mode() {
 
 # Function to calculate number of processes
 calculate_process_numbers() {
-    # local memory_gb=$1
-    local cpu_cores=$2
+    local memory_limit_gb=$1
+    local cpu_cores_limit=$2
 
-    local min_processes=1
     local data_dir_count
 
     # Convert comma-separated DATA_DIRS into an array
     IFS=',' read -r -a DATA_DIR_ARRAY <<<"${DATA_DIRS}"
     data_dir_count=${#DATA_DIR_ARRAY[@]}
 
-    # Stateless processes (at least 1, up to 1/4 of CPU cores)
-    local stateless_processes=$((cpu_cores / 4))
-    [[ ${stateless_processes} -lt ${min_processes} ]] && stateless_processes=${min_processes}
+    # Parse the ratio input
+    IFS=':' read -r num_storage num_stateless num_log <<<"${STORAGE_STATELESS_LOG_RATIO}"
 
-    # Storage processes (must be a multiple of the number of data directories)
-    local storage_processes=$((cpu_cores / 4))
-    [[ ${storage_processes} -lt ${data_dir_count} ]] && storage_processes=${data_dir_count}
-    storage_processes=$(((storage_processes / data_dir_count) * data_dir_count))
+    # Initialize process counts
+    local storage_processes=0   # Storage processes
+    local stateless_processes=0 # Stateless processes
+    local log_processes=0       # Log processes
 
-    # Transaction processes (must be a multiple of the number of data directories)
-    local transaction_processes=$((cpu_cores / 8))
-    [[ ${transaction_processes} -lt ${min_processes} ]] && transaction_processes=${min_processes}
-    [[ ${transaction_processes} -lt ${data_dir_count} ]] && transaction_processes=${data_dir_count}
-    transaction_processes=$(((transaction_processes / data_dir_count) * data_dir_count))
+    local storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_SSD * data_dir_count))
+    local log_process_num_limit=$((LOG_PROCESSES_NUM_PER_SSD * data_dir_count))
+
+    if [[ "#${MEDIUM_TYPE}" = "#HDD" ]]; then
+        storage_process_num_limit=$((STORAGE_PROCESSES_NUM_PER_HDD * data_dir_count))
+        log_process_num_limit=$((LOG_PROCESSES_NUM_PER_HDD * data_dir_count))
+    fi
+
+    # Find maximum number of processes while maintaining the specified ratio
+    while true; do
+        # Calculate process counts based on the ratio
+        storage_processes=$((storage_processes + num_storage))
+        stateless_processes=$((storage_processes * num_stateless / num_storage))
+        log_processes=$((storage_processes * num_log / num_storage))
+
+        # Calculate total CPUs used
+        local total_cpu_used=$((storage_processes + stateless_processes + log_processes))
+
+        # Check memory constraint
+        local total_memory_used=$(((MEMORY_STORAGE_GB * storage_processes) + (MEMORY_STATELESS_GB * stateless_processes) + (MEMORY_LOG_GB * log_processes)))
+
+        # Check datadir limits
+        if ((storage_processes > storage_process_num_limit || log_processes > log_process_num_limit)); then
+            break
+        fi
+
+        # Check overall constraints
+        if ((total_memory_used <= memory_limit_gb && total_cpu_used <= cpu_cores_limit)); then
+            continue
+        else
+            # If constraints are violated, revert back
+            storage_processes=$((storage_processes - num_storage))
+            stateless_processes=$((storage_processes * num_stateless / num_storage))
+            log_processes=$((storage_processes * num_log / num_storage))
+            break
+        fi
+    done
 
     # Return the values
-    echo "${stateless_processes} ${storage_processes} ${transaction_processes}"
+    echo "${stateless_processes} ${storage_processes} ${log_processes}"
+}
+
+function check_vars() {
+    IFS=',' read -r -a IPS <<<"${FDB_CLUSTER_IPS}"
+
+    command -v ping || echo "ping is not available to check machines are available, please install ping."
+
+    for IP_ADDRESS in "${IPS[@]}"; do
+        if ping -c 1 "${IP_ADDRESS}" &>/dev/null; then
+            echo "${IP_ADDRESS} is reachable"
+        else
+            echo "${IP_ADDRESS} is not reachable"
+            exit 1
+        fi
+    done
+
+    if [[ ${CPU_CORES_LIMIT} -gt $(nproc) ]]; then
+        echo "CPU_CORES_LIMIT beyonds number of machine, which is $(nproc)"
+        exit 1
+    fi
+
+    if [[ ${MEMORY_LIMIT_GB} -gt $(free -g | awk '/^Mem:/{print $2}') ]]; then
+        echo "MEMORY_LIMIT_GB beyonds memory of machine, which is $(free -g | awk '/^Mem:/{print $2}')"
+        exit 1
+    fi
 }
 
 function deploy_fdb() {
+    check_vars
     download_fdb
+    check_fdb_running
 
     ln -sf "${FDB_PKG_DIR}/fdbserver" "${FDB_HOME}/fdbserver"
     ln -sf "${FDB_PKG_DIR}/fdbmonitor" "${FDB_HOME}/fdbmonitor"
@@ -178,6 +253,10 @@ function deploy_fdb() {
     IFS=',' read -r -a DATA_DIR_ARRAY <<<"${DATA_DIRS}"
     for DIR in "${DATA_DIR_ARRAY[@]}"; do
         mkdir -p "${DIR}" || handle_error "Failed to create data directory ${DIR}"
+        if [[ -n "$(ls -A "${DIR}")" ]]; then
+            echo "Error: ${DIR} is not empty. DO NOT run deploy on a node running fdb. If you are sure that the node is not in a fdb cluster, run fdb_ctl.sh clean."
+            exit 1
+        fi
     done
 
     echo -e "\tCreate fdb.cluster, coordinator: $(get_coordinators)"
@@ -210,7 +289,14 @@ EOF
     CPU_CORES_LIMIT=${CPU_CORES_LIMIT:-1}
 
     # Calculate number of processes based on resources and data directories
-    read -r stateless_processes storage_processes transaction_processes <<<"$(calculate_process_numbers "${MEMORY_LIMIT_GB}" "${CPU_CORES_LIMIT}")"
+    read -r stateless_processes storage_processes log_processes <<<"$(calculate_process_numbers "${MEMORY_LIMIT_GB}" "${CPU_CORES_LIMIT}")"
+    echo "stateless process num : ${stateless_processes}, storage_processes : ${storage_processes}, log_processes : ${log_processes}"
+    if [[ ${storage_processes} -eq 0 ]]; then
+        # Add one process
+        PORT=$((FDB_PORT))
+        echo "[fdbserver.${PORT}]
+" >>"${FDB_HOME}/conf/fdb.conf"
+    fi
 
     # Add stateless processes
     for ((i = 0; i < stateless_processes; i++)); do
@@ -233,12 +319,12 @@ datadir = ${DATA_DIR_ARRAY[${DIR_INDEX}]}/${PORT}" | tee -a "${FDB_HOME}/conf/fd
 
     FDB_PORT=$((FDB_PORT + storage_processes))
 
-    # Add transaction processes
-    for ((i = 0; i < transaction_processes; i++)); do
+    # Add log processes
+    for ((i = 0; i < log_processes; i++)); do
         PORT=$((FDB_PORT + i))
         DIR_INDEX=$((i % STORAGE_DIR_COUNT))
         echo "[fdbserver.${PORT}]
-class = transaction
+class = log
 datadir = ${DATA_DIR_ARRAY[${DIR_INDEX}]}/${PORT}" | tee -a "${FDB_HOME}/conf/fdb.conf" >/dev/null
     done
 
@@ -250,6 +336,8 @@ logdir = ${LOG_DIR}" >>"${FDB_HOME}/conf/fdb.conf"
 }
 
 function start_fdb() {
+    check_fdb_running
+
     if [[ ! -f "${FDB_HOME}/fdbmonitor" ]]; then
         echo 'Please run setup before start fdb server'
         exit 1
@@ -265,12 +353,26 @@ function start_fdb() {
 }
 
 function stop_fdb() {
-    if [[ -f "${FDB_HOME}/fdbmonitor.pid" ]]; then
+    fdb_pid_file="${FDB_HOME}/fdbmonitor.pid"
+    if [[ -f "${fdb_pid_file}" ]]; then
         local fdb_pid
-        fdb_pid=$(cat "${FDB_HOME}/fdbmonitor.pid")
+        fdb_pid=$(cat "${fdb_pid_file}")
         if ps -p "${fdb_pid}" >/dev/null; then
             echo "Stop fdbmonitor with pid ${fdb_pid}"
             kill -9 "${fdb_pid}"
+            rm -f "${fdb_pid_file}"
+        fi
+    fi
+}
+
+function check_fdb_running() {
+    if [[ -f "${FDB_HOME}/fdbmonitor.pid" ]]; then
+        local fdb_pid
+
+        fdb_pid=$(cat "${FDB_HOME}/fdbmonitor.pid")
+        if ps -p "${fdb_pid}" >/dev/null; then
+            echo "fdbmonitor with pid ${fdb_pid} is running, stop it first."
+            exit 1
         fi
     fi
 }
@@ -307,8 +409,6 @@ function clean_fdb() {
 
 function deploy() {
     local job="$1"
-    local skip_pkg="$2"
-    local skip_config="$3"
 
     if [[ ${job} =~ ^(all|fdb)$ ]]; then
         deploy_fdb
@@ -324,16 +424,21 @@ function start() {
     fi
 
     if [[ ${init} =~ ^(all|fdb)$ ]]; then
-        echo "Try create database ..."
         local fdb_mode
 
         fdb_mode=$(get_fdb_mode)
+
+        echo "Try create database in fdb ${fdb_mode}"
+
         "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" \
-            --exec "configure new ${fdb_mode} ssd" || true
+            --exec "configure new ${fdb_mode} ssd" ||
+            "${FDB_HOME}/fdbcli" -C "${FDB_HOME}/conf/fdb.cluster" --exec "status" ||
+            (echo "failed to start fdb, please check that all nodes have same FDB_CLUSTER_ID" &&
+                exit 1)
     fi
 
-    echo "Start fdb success, and the cluster is:"
-    cat "${FDB_HOME}/conf/fdb.cluster"
+    echo "Start fdb success, and you can set conf for MetaService:"
+    echo "fdb_cluster = $(cat "${FDB_HOME}"/conf/fdb.cluster)"
 }
 
 function stop() {
@@ -359,16 +464,12 @@ function status() {
 }
 
 function usage() {
-    echo "Usage: $0 <CMD> [--skip-pkg] [--skip-config]"
+    echo "Usage: $0 <CMD> "
     echo -e "\t deploy \t setup fdb env (dir, binary, conf ...)"
     echo -e "\t clean  \t clean fdb data"
     echo -e "\t start  \t start fdb"
     echo -e "\t stop   \t stop fdb"
-    echo -e ""
-    echo -e ""
-    echo -e "Args:"
-    echo -e "\t --skip-pkg    \t skip to update binary pkgs during deploy"
-    echo -e "\t --skip-config \t skip to update config during deploy"
+    echo -e "\t fdbcli \t execute fdbcli"
     echo -e ""
     exit 1
 }
@@ -390,12 +491,10 @@ shift
 job="fdb"
 
 init="fdb"
-skip_pkg="false"
-skip_config="false"
 
 case ${cmd} in
 deploy)
-    deploy "${job}" "${skip_pkg}" "${skip_config}"
+    deploy "${job}"
     ;;
 start)
     start "${job}" "${init}"

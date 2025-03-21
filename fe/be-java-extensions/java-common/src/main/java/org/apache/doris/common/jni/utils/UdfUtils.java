@@ -197,6 +197,12 @@ public class UdfUtils {
                 StructType structType = (StructType) parameterTypes[finalI];
                 ArrayList<StructField> fields = structType.getFields();
                 inputArgTypes[i].setFields(fields);
+            } else if (parameterTypes[finalI].isIP()) {
+                if (parameterTypes[finalI].isIPv4()) {
+                    inputArgTypes[i] = new JavaUdfDataType(JavaUdfDataType.IPV4);
+                } else {
+                    inputArgTypes[i] = new JavaUdfDataType(JavaUdfDataType.IPV6);
+                }
             }
             if (res.length == 0) {
                 return Pair.of(false, inputArgTypes);

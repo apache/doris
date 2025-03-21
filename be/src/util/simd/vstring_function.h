@@ -309,8 +309,11 @@ public:
     // is to say, counting bytes which do not match 10xx_xxxx pattern.
     // All 0xxx_xxxx, 110x_xxxx, 1110_xxxx and 1111_0xxx are greater than 1011_1111 when use int8_t arithmetic,
     // so just count bytes greater than 1011_1111 in a byte string as the result of utf8_length.
-    static inline size_t get_char_len(const char* src, size_t len) {
-        size_t char_len = 0;
+    // get_char_len is used to return the UTF-8 length of a string.
+    // The return value will never exceed len.
+    template <typename T>
+    static inline T get_char_len(const char* src, T len) {
+        T char_len = 0;
         const char* p = src;
         const char* end = p + len;
 #if defined(__SSE2__) || defined(__aarch64__)

@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(

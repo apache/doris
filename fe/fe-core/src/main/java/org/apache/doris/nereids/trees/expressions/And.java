@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -28,7 +28,6 @@ import java.util.List;
  * And predicate expression.
  */
 public class And extends CompoundPredicate {
-
     /**
      * Desc: Constructor for CompoundPredicate.
      *
@@ -36,16 +35,18 @@ public class And extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public And(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "AND");
+        super(ExpressionUtils.mergeList(
+                ExpressionUtils.extractConjunction(left),
+                ExpressionUtils.extractConjunction(right)), "AND");
     }
 
-    private And(List<Expression> children) {
+    public And(List<Expression> children) {
         super(children, "AND");
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
+        Preconditions.checkArgument(children.size() >= 2);
         return new And(children);
     }
 
@@ -56,16 +57,35 @@ public class And extends CompoundPredicate {
 
     @Override
     public CompoundPredicate flip() {
-        return new Or(left(), right());
+        return new Or(children);
     }
 
     @Override
-    public CompoundPredicate flip(Expression left, Expression right) {
-        return new Or(left, right);
+    public CompoundPredicate flip(List<Expression> children) {
+        return new Or(children);
     }
 
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return Or.class;
+    }
+
+    @Override
+    protected List<Expression> extract() {
+        return ExpressionUtils.extractConjunction(this);
+    }
+
+    @Override
+    public List<Expression> children() {
+        if (flattenChildren.isEmpty()) {
+            for (Expression child : children) {
+                if (child instanceof And) {
+                    flattenChildren.addAll(((And) child).extract());
+                } else {
+                    flattenChildren.add(child);
+                }
+            }
+        }
+        return flattenChildren;
     }
 }

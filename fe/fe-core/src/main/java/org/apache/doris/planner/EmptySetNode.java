@@ -80,5 +80,4 @@ public class EmptySetNode extends PlanNode {
     public int getNumInstances() {
         return 1;
     }
-
 }

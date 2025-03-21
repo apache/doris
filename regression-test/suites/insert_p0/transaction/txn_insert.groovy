@@ -42,6 +42,11 @@ suite("txn_insert") {
         return null
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     for (def use_nereids_planner : [/*false,*/ true]) {
         sql " SET enable_nereids_planner = $use_nereids_planner; "
 
@@ -102,7 +107,7 @@ suite("txn_insert") {
             sql """ DROP TABLE IF EXISTS $tableMV """
             sql """
                 create table $tableMV (
-                    id int default '10', 
+                    id int not null, 
                     c1 int default '10'
                 ) distributed by hash(id, c1) 
                 properties('replication_num'="1");
@@ -116,6 +121,19 @@ suite("txn_insert") {
             sql "sync"
             order_qt_select5 """select * from $tableMV"""
             order_qt_select6 """select c1 from $tableMV"""
+        } while (0);
+        do {
+            try {
+                sql "begin"
+                sql """insert into $tableMV values(9, 2), (10, 4)"""
+                sql """insert into $tableMV values('aa', 6)"""
+                sql "commit"
+            } catch (Exception e) {
+                sql "rollback"
+                logger.info("insert into $tableMV failed: " + e.getMessage())
+                assertTrue(e.getMessage().contains("too many filtered rows"))
+                assertTrue(e.getMessage().contains("url"))
+            }
         } while (0);
 
         // ------------------- insert into select -------------------
@@ -286,7 +304,7 @@ suite("txn_insert") {
             def observer_fe_url = get_observer_fe_url()
             if (observer_fe_url != null) {
                 logger.info("observer url: $observer_fe_url")
-                connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
+                connect( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
                     result = sql """ select count() from regression_test_insert_p0_transaction.${table}_0 """
                     logger.info("select from observer result: $result")
                     assertEquals(79, result[0][0])
@@ -503,7 +521,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("timeout"))
                 } finally {
                     try {
                         sql "rollback"
@@ -579,17 +597,8 @@ suite("txn_insert") {
             } catch (Exception e) {
                 logger.info("exception: " + e)
                 sql """ rollback """
-                if (isCloudMode()) {
-                    assertTrue(e.getMessage().contains("Transaction load is not supported for merge on write unique keys table in cloud mode"))
-                } else {
-                    assertTrue(false, "should not reach here")
-                }
+                assertTrue(false, "should not reach here")
             }
-        }
-
-        // the following cases are not supported in cloud mode
-        if (isCloudMode()) {
-            break
         }
 
         // 16. update stmt(mow table)
@@ -721,7 +730,7 @@ suite("txn_insert") {
         }
 
         // 18. column update(mow table)
-        if (use_nereids_planner) {
+        if (use_nereids_planner && !isClusterKeyEnabled()) {
             def unique_table = "txn_insert_cu"
             for (def i in 0..3) {
                 sql """ drop table if exists ${unique_table}_${i} """
@@ -734,6 +743,7 @@ suite("txn_insert") {
                     UNIQUE KEY(`id`)
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES (
+                        "enable_mow_light_delete" = "false",
                         "replication_num" = "1"
                     );
                 """

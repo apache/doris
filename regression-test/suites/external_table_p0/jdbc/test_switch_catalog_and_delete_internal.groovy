@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_switch_catalog_and_delete_internal") {
+suite("test_switch_catalog_and_delete_internal", "p0,external,external_docker") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String db = context.config.getDbNameByFile(context.file)
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // 0.create internal db and table
-        String db = context.config.getDbNameByFile(new File(context.file))
         sql "drop table if exists test_switch_catalog_and_delete_internal"
         sql """
         create table test_switch_catalog_and_delete_internal(pk int, a int, b int) distributed by hash(pk) buckets 10
@@ -50,9 +50,9 @@ suite("test_switch_catalog_and_delete_internal") {
         sql "switch test_switch_catalog_and_delete_internal_catalog"
         sql "refresh catalog test_switch_catalog_and_delete_internal_catalog"
         // 3.delete table
-        sql "delete from internal.${db}.test_switch_catalog_and_delete_internal;"
+        sql "delete from internal.${db}.test_switch_catalog_and_delete_internal where pk < 2;"
         // 4.select table
-        qt_test "select * from internal.maldb.test_switch_catalog_and_delete_internal;"
+        qt_test "select * from internal.${db}.test_switch_catalog_and_delete_internal order by pk;"
     }
 
 }

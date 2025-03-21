@@ -23,12 +23,13 @@ DIR=$(
 source $DIR/common.sh
 
 REGISTER_FILE=$DORIS_HOME/status/fe-$MY_IP-register
+MASTER_EDITLOG_PORT=""
 
 add_local_fe() {
     wait_master_fe_ready
 
     while true; do
-        output=$(mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD FOLLOWER '$MY_IP:$FE_EDITLOG_PORT';" 2>&1)
+        output=$(mysql -P $MASTER_FE_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD FOLLOWER '$MY_IP:$MY_EDITLOG_PORT';" 2>&1)
         res=$?
         health_log "${output}\n"
         [ $res -eq 0 ] && break
@@ -43,10 +44,10 @@ fe_daemon() {
     set +e
     while true; do
         sleep 1
-        output=$(mysql -P $FE_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;")
+        output=$(mysql -P $MY_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;")
         code=$?
-        health_log "$output"
         if [ $code -ne 0 ]; then
+            health_log "daemon get frontends exec show frontends bad: $output"
             continue
         fi
         header=$(grep IsMaster <<<$output)
@@ -56,10 +57,12 @@ fe_daemon() {
         fi
         host_index=-1
         is_master_index=-1
+        query_port_index=-1
         i=1
         for field in $header; do
             [[ "$field" = "Host" ]] && host_index=$i
             [[ "$field" = "IsMaster" ]] && is_master_index=$i
+            [[ "$field" = "QueryPort" ]] && query_port_index=$i
             ((i = i + 1))
         done
         if [ $host_index -eq -1 ]; then
@@ -70,21 +73,43 @@ fe_daemon() {
             health_log "header not found IsMaster"
             continue
         fi
-        echo "$output" | awk -v is_master="$is_master_index" -v host="$host_index" '{print $is_master $host}' | grep $MY_IP | grep true 2>&1
+        if [ $query_port_index -eq -1 ]; then
+            health_log "header not found QueryPort"
+            continue
+        fi
+        echo "$output" | awk -v query_port="$query_port_index" -v is_master="$is_master_index" -v host="$host_index" '{print $query_port $is_master $host}' | grep $MY_QUERY_PORT | grep $MY_IP | grep true 2>&1
         if [ $? -eq 0 ]; then
-            echo $MY_IP >$MASTER_FE_IP_FILE
-            if [ "$MASTER_FE_IP" != "$MY_IP" ]; then
-                health_log "change to master, last master is $MASTER_FE_IP"
+            echo ${MY_IP}:${MY_QUERY_PORT} >$MASTER_FE_QUERY_ADDR_FILE
+            if [ "$MASTER_FE_IP" != "$MY_IP" -o "${MASTER_FE_PORT}" != "${MY_QUERY_PORT}" ]; then
+                health_log "change to master, last master is ${MASTER_FE_IP}:${MASTER_FE_PORT}"
                 MASTER_FE_IP=$MY_IP
+                MASTER_FE_PORT=$MY_QUERY_PORT
             fi
         fi
     done
 }
 
+run_fe() {
+    health_log "run start_fe.sh"
+    bash $DORIS_HOME/bin/start_fe.sh --daemon $@ | tee -a $DORIS_HOME/log/fe.out
+}
+
 start_cloud_fe() {
     if [ -f "$REGISTER_FILE" ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
+        return
+    fi
+
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+
+        touch $REGISTER_FILE
+
+        fe_daemon &
+        run_fe
+
         return
     fi
 
@@ -105,7 +130,7 @@ start_cloud_fe() {
     nodes='{
         "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
         "ip": "'"${MY_IP}"'",
-        "edit_log_port": "'"${FE_EDITLOG_PORT}"'",
+        "edit_log_port": "'"${MY_EDITLOG_PORT}"'",
         "node_type": "'"${node_type}"'"
     }'
 
@@ -147,11 +172,7 @@ start_cloud_fe() {
     touch $REGISTER_FILE
 
     fe_daemon &
-    bash $DORIS_HOME/bin/start_fe.sh --daemon
-
-    if [ "$MY_ID" == "1" ]; then
-        echo $MY_IP >$MASTER_FE_IP_FILE
-    fi
+    run_fe
 }
 
 stop_frontend() {
@@ -177,6 +198,23 @@ wait_process() {
     wait_pid $pid
 }
 
+fetch_master_fe_editlog_port() {
+    set +e
+    while true; do
+        output=$(mysql -P $MY_QUERY_PORT -h $MASTER_FE_IP -u root -N -s --execute "select EditLogPort from frontends() where IsMaster = 'true';")
+        code=$?
+        if [ $code -ne 0 ]; then
+            health_log "get editlog port exec show frontends bad: $output"
+            sleep 1
+            continue
+        fi
+        if [ -n "$output" ]; then
+            MASTER_EDITLOG_PORT=${output}
+            break
+        fi
+    done
+}
+
 start_local_fe() {
     if [ "$MY_ID" = "1" -a ! -f $REGISTER_FILE ]; then
         touch $REGISTER_FILE
@@ -184,11 +222,12 @@ start_local_fe() {
 
     if [ -f $REGISTER_FILE ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
     else
         add_local_fe
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
+        fetch_master_fe_editlog_port
+        run_fe --helper $MASTER_FE_IP:$MASTER_EDITLOG_PORT
     fi
 }
 

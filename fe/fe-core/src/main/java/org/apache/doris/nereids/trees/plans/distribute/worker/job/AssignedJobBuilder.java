@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragmentId;
@@ -34,8 +35,9 @@ import java.util.Map.Entry;
 public class AssignedJobBuilder {
     /** buildJobs */
     public static ListMultimap<PlanFragmentId, AssignedJob> buildJobs(
-            Map<PlanFragmentId, UnassignedJob> unassignedJobs) {
-        BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager();
+            Map<PlanFragmentId, UnassignedJob> unassignedJobs, BackendDistributedPlanWorkerManager workerManager,
+            boolean isLoadJob) {
+        DistributeContext distributeContext = new DistributeContext(workerManager, isLoadJob);
         ListMultimap<PlanFragmentId, AssignedJob> allAssignedJobs = ArrayListMultimap.create();
         for (Entry<PlanFragmentId, UnassignedJob> kv : unassignedJobs.entrySet()) {
             PlanFragmentId fragmentId = kv.getKey();
@@ -43,7 +45,11 @@ public class AssignedJobBuilder {
             ListMultimap<ExchangeNode, AssignedJob> inputAssignedJobs
                     = getInputAssignedJobs(unassignedJob, allAssignedJobs);
             List<AssignedJob> fragmentAssignedJobs =
-                    unassignedJob.computeAssignedJobs(workerManager, inputAssignedJobs);
+                    unassignedJob.computeAssignedJobs(distributeContext, inputAssignedJobs);
+            for (AssignedJob assignedJob : fragmentAssignedJobs) {
+                distributeContext.selectedWorkers.onCreateAssignedJob(assignedJob);
+            }
+
             if (fragmentAssignedJobs.isEmpty()) {
                 throw new IllegalStateException("Fragment has no instance, unassignedJob: " + unassignedJob
                         + ", fragment: " + unassignedJob.getFragment().getExplainString(TExplainLevel.VERBOSE));

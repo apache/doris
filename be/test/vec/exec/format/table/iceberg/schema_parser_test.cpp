@@ -78,6 +78,15 @@ const std::string valid_map_json = R"({
     "value-required": true
 })";
 
+const std::string valid_map_json2 = R"({
+    "type": "map",
+    "key-id": 4,
+    "key": "string",
+    "value-id": 5,
+    "value": "int",
+    "value-required": false
+})";
+
 const std::string nested_list_json = R"({
     "type": "list",
     "element-id": 6,
@@ -209,6 +218,21 @@ TEST(SchemaParserTest, parse_valid_map) {
             SchemaParser::_type_from_json(rapidjson::Document().Parse(valid_map_json.c_str()));
     ASSERT_NE(type, nullptr);
     EXPECT_EQ(type->to_string(), "map<string, int>");
+    EXPECT_TRUE(type->is_map_type());
+    MapType* mt = type->as_map_type();
+    EXPECT_TRUE(mt->field(4)->is_required());
+    EXPECT_TRUE(mt->field(5)->is_required());
+}
+
+TEST(SchemaParserTest, parse_valid_map2) {
+    std::unique_ptr<Type> type =
+            SchemaParser::_type_from_json(rapidjson::Document().Parse(valid_map_json2.c_str()));
+    ASSERT_NE(type, nullptr);
+    EXPECT_EQ(type->to_string(), "map<string, int>");
+    EXPECT_TRUE(type->is_map_type());
+    MapType* mt = type->as_map_type();
+    EXPECT_TRUE(mt->field(4)->is_required());
+    EXPECT_TRUE(mt->field(5)->is_optional());
 }
 
 TEST(SchemaParserTest, parse_nested_list) {

@@ -157,7 +157,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override;
+                        uint32_t result, size_t /*input_rows_count*/) const override;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
@@ -256,6 +256,10 @@ public:
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
+    static Status construct_like_const_state(FunctionContext* ctx, const StringRef& pattern,
+                                             std::shared_ptr<LikeState>& state,
+                                             bool try_hyperscan = true);
+
     friend struct LikeSearchState;
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;
@@ -276,12 +280,12 @@ private:
     static void remove_escape_character(std::string* search_string);
 };
 
-class FunctionRegexp : public FunctionLikeBase {
+class FunctionRegexpLike : public FunctionLikeBase {
 public:
     static constexpr auto name = "regexp";
     static constexpr auto alias = "rlike";
 
-    static FunctionPtr create() { return std::make_shared<FunctionRegexp>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpLike>(); }
 
     String get_name() const override { return name; }
 

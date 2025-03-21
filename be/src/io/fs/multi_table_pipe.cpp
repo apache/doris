@@ -197,7 +197,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         // plan this load
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        TNetworkAddress master_addr = exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
         int64_t stream_load_put_start_time = MonotonicNanos();
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -263,9 +263,9 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
                     {
                         std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                        auto commit_infos = state->tablet_commit_infos();
                         _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                                    state->tablet_commit_infos().begin(),
-                                                    state->tablet_commit_infos().end());
+                                                    commit_infos.begin(), commit_infos.end());
                     }
                     _number_total_rows += state->num_rows_load_total();
                     _number_loaded_rows += state->num_rows_load_success();

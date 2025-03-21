@@ -17,14 +17,21 @@
 
 #include "cloud/cloud_stream_load_executor.h"
 
+#include <bvar/bvar.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/debug_points.h"
 
 namespace doris {
+
+bvar::Adder<uint64_t> stream_load_commit_retry_counter("stream_load_commit_retry_counter");
+bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
+        "stream_load_commit_retry_counter", "1m", &stream_load_commit_retry_counter, 60);
 
 enum class TxnOpParamType : int {
     ILLEGAL,
@@ -96,6 +103,7 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 }
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
     // forward to fe to excute commit transaction for MoW table
     if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be ||
         ctx->load_type == TLoadType::ROUTINE_LOAD) {
@@ -112,6 +120,7 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
                     .tag("retry_times", retry_times)
                     .error(st);
             retry_times++;
+            stream_load_commit_retry_counter << 1;
         }
         return st;
     }

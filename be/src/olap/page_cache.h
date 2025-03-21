@@ -92,28 +92,29 @@ public:
         }
     };
 
-    class DataPageCache : public LRUCachePolicyTrackingAllocator {
+    class DataPageCache : public LRUCachePolicy {
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicyTrackingAllocator(
-                          CachePolicy::CacheType::DATA_PAGE_CACHE, capacity, LRUCacheType::SIZE,
-                          config::data_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
+                                 num_shards, DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, true, true) {
+        }
     };
 
-    class IndexPageCache : public LRUCachePolicyTrackingAllocator {
+    class IndexPageCache : public LRUCachePolicy {
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicyTrackingAllocator(
-                          CachePolicy::CacheType::INDEXPAGE_CACHE, capacity, LRUCacheType::SIZE,
-                          config::index_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
+                                 num_shards) {}
     };
 
-    class PKIndexPageCache : public LRUCachePolicyTrackingAllocator {
+    class PKIndexPageCache : public LRUCachePolicy {
     public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicyTrackingAllocator(
-                          CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity, LRUCacheType::SIZE,
-                          config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
+                : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
@@ -164,7 +165,7 @@ private:
     // delete bitmap in unique key with mow
     std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;
 
-    LRUCachePolicyTrackingAllocator* _get_page_cache(segment_v2::PageTypePB page_type) {
+    LRUCachePolicy* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
             return _data_page_cache.get();
@@ -176,11 +177,9 @@ private:
             return _pk_index_page_cache.get();
         }
         default:
-            LOG(FATAL) << "get error type page cache";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("get error type page cache"));
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 };
 

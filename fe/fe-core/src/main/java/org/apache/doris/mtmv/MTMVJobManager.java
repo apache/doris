@@ -48,6 +48,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -55,6 +57,8 @@ import java.util.List;
  * when do some operation, do something about job
  */
 public class MTMVJobManager implements MTMVHookService {
+    private static final Logger LOG = LogManager.getLogger(MTMVJobManager.class);
+
     public static final String MTMV_JOB_PREFIX = "inner_mtmv_";
 
     /**
@@ -100,17 +104,18 @@ public class MTMVJobManager implements MTMVHookService {
 
     private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.RECURRING);
+        MTMVRefreshInfo refreshMTMVInfo = mtmv.getRefreshInfo();
         TimerDefinition timerDefinition = new TimerDefinition();
         timerDefinition
-                .setInterval(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getInterval());
+                .setInterval(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getInterval());
         timerDefinition
-                .setIntervalUnit(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
+                .setIntervalUnit(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getTimeUnit());
         if (!StringUtils
-                .isEmpty(mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
+                .isEmpty(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
-                    mtmv.getRefreshInfo().getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+                    refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
         }
-        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (refreshMTMVInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
             jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
@@ -124,16 +129,12 @@ public class MTMVJobManager implements MTMVHookService {
      */
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
-        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
-        if (!CollectionUtils.isEmpty(jobs)) {
-            try {
-                Env.getCurrentEnv().getJobManager()
-                        .unregisterJob(jobs.get(0).getJobId());
-            } catch (JobException e) {
-                e.printStackTrace();
-                throw new DdlException(e.getMessage());
-            }
+        try {
+            Env.getCurrentEnv().getJobManager()
+                    .unregisterJob(mtmv.getJobInfo().getJobName(), true);
+        } catch (JobException e) {
+            LOG.warn("drop mtmv job failed, mtmvName: {}", mtmv.getName(), e);
+            throw new DdlException(e.getMessage());
         }
     }
 
@@ -212,6 +213,13 @@ public class MTMVJobManager implements MTMVHookService {
 
     public void onCommit(MTMV mtmv) throws DdlException, JobException {
         MTMVJob job = getJobByMTMV(mtmv);
+        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("job status of async materialized view: [{}] is: [{}], ignore this event.", mtmv.getName(),
+                        job.getJobStatus());
+            }
+            return;
+        }
         MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.COMMIT, Lists.newArrayList(),
                 false);
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);

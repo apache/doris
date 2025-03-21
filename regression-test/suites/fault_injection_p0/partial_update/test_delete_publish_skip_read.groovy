@@ -86,7 +86,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
             sql "insert into ${table1}(k1,c1,c2) values(1,999,999),(2,888,888),(3,777,777);"
         }
 
-        Thread.sleep(500)
+        Thread.sleep(1000)
 
         def t2 = Thread.start {
             sql "insert into ${table1}(k1,__DORIS_DELETE_SIGN__) values(2,1);"
@@ -106,7 +106,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
         sql "set show_hidden_columns=true;"
         sql "sync;"
 
-        order_qt_sql "select * from ${table1};"
+        order_qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${table1};"
 
 
         

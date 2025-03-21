@@ -31,6 +31,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -91,10 +92,10 @@ protected:
 
 private:
     void init_timers(RuntimeProfile* profile);
-
-    /// In pipeline engine, return false if need to read one more block from sender.
-    bool next_heap(MergeSortCursor& current);
-    bool has_next_block(MergeSortCursor& current);
+    // If current stream is exhausted and not eof, we should break this loop and read more blocks.
+    bool _need_more_data(MergeSortCursor& current);
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

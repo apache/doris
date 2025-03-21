@@ -37,6 +37,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -86,9 +87,9 @@ private:
     DISALLOW_COPY_AND_ASSIGN(QueryCacheHandle);
 };
 
-class QueryCache : public LRUCachePolicyTrackingManual {
+class QueryCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     struct CacheValue : public LRUCacheValueBase {
         int64_t version;
@@ -140,8 +141,8 @@ public:
     QueryCache() = delete;
 
     QueryCache(size_t capacity, uint32_t num_shards)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::QUERY_CACHE, capacity,
-                                           LRUCacheType::SIZE, 3600 * 24, num_shards) {}
+            : LRUCachePolicy(CachePolicy::CacheType::QUERY_CACHE, capacity, LRUCacheType::SIZE,
+                             3600 * 24, num_shards) {}
 
     bool lookup(const CacheKey& key, int64_t version, QueryCacheHandle* handle);
 

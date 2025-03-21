@@ -35,6 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPartitionUtilTest {
@@ -112,7 +113,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                baseOlapTable.getTableSnapshot((MTMVRefreshContext) any);
+                baseOlapTable.getTableSnapshot((MTMVRefreshContext) any, (Optional) any);
                 minTimes = 0;
                 result = baseSnapshotIf;
 
@@ -132,7 +133,7 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = true;
 
-                baseOlapTable.getPartitionSnapshot(anyString, (MTMVRefreshContext) any);
+                baseOlapTable.getPartitionSnapshot(anyString, (MTMVRefreshContext) any, (Optional) any);
                 minTimes = 0;
                 result = baseSnapshotIf;
 

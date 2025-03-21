@@ -33,7 +33,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private static final MysqlCapability SSL_CAPABILITY = MysqlCapability.SSL_CAPABILITY;
     // status flags not supported in palo
     private static final int STATUS_FLAGS = 0;
-    private static final String AUTH_PLUGIN_NAME = "mysql_native_password";
+    public static final String AUTH_PLUGIN_NAME = "mysql_native_password";
 
     // connection id used in KILL statement.
     private int connectionId;

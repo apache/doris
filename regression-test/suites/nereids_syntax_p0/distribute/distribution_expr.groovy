@@ -88,8 +88,8 @@ suite("distribution_expr") {
                 ON tmp1 . `pk` = tmp2 . `pk`;
                     """
 	        contains "BUCKET_SHUFFLE"
-	        contains "distribute expr lists: pk[#22]"
-	        contains "distribute expr lists: pk[#11]"
+	        contains "distribute expr lists: pk[#27]"
+	        contains "distribute expr lists: pk[#14]"
     	}
 
         multi_sql """
@@ -124,7 +124,7 @@ suite("distribution_expr") {
 		select tmp.k1 from baseall d join (select a.k1 as k1 from baseall b join test a on (a.k1=b.k1)) tmp on tmp.k1 = d.k1;
                 """
     	        contains "COLOCATE"
+    	        contains "distribute expr lists: k1[#6]"
     	        contains "distribute expr lists: k1[#5]"
-    	        contains "distribute expr lists: k1[#4]"
         }
 }

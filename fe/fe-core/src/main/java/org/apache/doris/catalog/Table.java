@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -78,6 +79,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected long id;
     @SerializedName(value = "name")
     protected volatile String name;
+    @SerializedName(value = "qualifiedDbName")
     protected volatile String qualifiedDbName;
     @SerializedName(value = "type")
     protected TableType type;
@@ -129,6 +131,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    @SerializedName(value = "isTemporary")
+    private boolean isTemporary = false;
+
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
@@ -138,6 +143,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             this.readLockThreads = Maps.newConcurrentMap();
         }
         this.commitLock = new MonitoredReentrantLock(true);
+    }
+
+    public Table(long id, String tableName, TableType type, boolean isTemporary, List<Column> fullSchema) {
+        this(id, tableName, type, fullSchema);
+        this.isTemporary = isTemporary;
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -323,13 +333,17 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             boolean res = this.commitLock.tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                        name, timeout, unit.name(), this.commitLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try cloud commit lock at table[" + name + "]", e);
             return false;
         }
+    }
+
+    public Thread getCommitLockOwner() {
+        return this.commitLock.getOwner();
     }
 
     public void commitUnlock() {
@@ -378,6 +392,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public String getDisplayName() {
+        return isTemporary ? Util.getTempTableDisplayName(name) : name;
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }
@@ -392,7 +410,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     }
 
     public List<Column> getFullSchema() {
-        return fullSchema;
+        return ImmutableList.copyOf(fullSchema);
     }
 
     // should override in subclass if necessary
@@ -402,7 +420,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
-            return fullSchema;
+            return ImmutableList.copyOf(fullSchema);
         } else {
             return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
@@ -444,6 +462,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
+
+    public boolean isTemporary() {
+        return isTemporary;
+    }
 
     public TTableDescriptor toThrift() {
         return null;
@@ -622,7 +647,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -638,5 +663,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public boolean autoAnalyzeEnabled() {
         return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

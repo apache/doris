@@ -17,32 +17,27 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "arrow/io/interfaces.h"
-#include "io/file_factory.h"
+#include "common/factory_creator.h"
+#include "io/fs/file_reader.h"
 
 namespace doris {
-
 namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
 
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 class ArrowPipInputStream : public arrow::io::InputStream {
     ENABLE_FACTORY_CREATOR(ArrowPipInputStream);
 
 public:
     ArrowPipInputStream(io::FileReaderSPtr file_reader);
-    ~ArrowPipInputStream() override {}
+    ~ArrowPipInputStream() override = default;
 
     arrow::Status Close() override;
     bool closed() const override;
@@ -63,4 +58,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

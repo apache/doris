@@ -26,7 +26,6 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
-class LocalMergeSortExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final : public PipelineXLocalState<LocalExchangeSharedState> {
 public:
@@ -48,7 +47,6 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
-    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
     template <typename BlockType>
     friend class Exchanger;
@@ -65,12 +63,15 @@ class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceL
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
     LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, id, id) {}
+#ifdef BE_TEST
+    LocalExchangeSourceOperatorX() = default;
+#endif
     Status init(ExchangeType type) override {
         _op_name = "LOCAL_EXCHANGE_OPERATOR (" + get_exchange_type_name(type) + ")";
         _exchange_type = type;
         return Status::OK();
     }
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     const RowDescriptor& intermediate_row_desc() const override {
         return _child->intermediate_row_desc();
     }
@@ -80,9 +81,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
-
-    // If input data distribution is ignored by this fragment, this first local exchange source in this fragment will re-assign all data.
-    bool ignore_data_distribution() const override { return false; }
 
 private:
     friend class LocalExchangeSourceLocalState;

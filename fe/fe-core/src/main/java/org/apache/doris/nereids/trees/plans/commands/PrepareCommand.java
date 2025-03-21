@@ -39,7 +39,7 @@ import java.util.List;
  * Prepared Statement
  */
 public class PrepareCommand extends Command {
-    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(PrepareCommand.class);
 
     private final List<Placeholder> placeholders = new ArrayList<>();
     private final LogicalPlan logicalPlan;
@@ -110,8 +110,8 @@ public class PrepareCommand extends Command {
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
-        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            executor.sendStmtPrepareOK((int) ctx.getStmtId(), labels);
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && !ctx.isProxy()) {
+            executor.sendStmtPrepareOK(Integer.parseInt(name), labels);
         }
     }
 

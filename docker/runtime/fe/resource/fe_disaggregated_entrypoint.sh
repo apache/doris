@@ -16,192 +16,375 @@
 # specific language governing permissions and limitations
 # under the License.
 
-
-# ms address, fe pod's address should register in it.
-MS_ENDPOINT=${MS_ENDPOINT}
-MS_TOKEN=${MS_TOKEN:="greedisgood9999"}
+DORIS_ROOT=${DORIS_ROOT:-"/opt/apache-doris"}
+# if config secret for basic auth about operate node of doris, the path must be `/etc/doris/basic_auth`. This is set by operator and the key of password must be `password`.
+AUTH_PATH="/etc/basic_auth"
+# annotations_for_recovery_start
+ANNOTATION_PATH="/etc/podinfo/annotations"
+RECOVERY_KEY=""
+# fe location
+DORIS_HOME=${DORIS_ROOT}/fe
+# participant election number of fe.
 ELECT_NUMBER=${ELECT_NUMBER:=1}
-FE_EDIT_PORT=${FE_EDIT_PORT:=9010}
-# cloud_id is default.
-CLUSTER_ID=${CLUSTER_ID:="RESERVED_CLUSTER_ID_FOR_SQL_SERVER"}
-# cloud_name is default.
-CLUSTER_NAME=${CLUSTER_NAME:="RESERVED_CLUSTER_NAME_FOR_SQL_SERVER"}
-#the instance id, pod's address should register in instance->cluster.
-INSTANCE_ID=${INSTANCE_ID}
-MY_SELF=
-HOSTNAME=`hostname`
-STATEFULSET_NAME=${STATEFULSET_NAME}
-POD_NAME=${POD_NAME}
-CLOUD_UNIQUE_ID_PRE=${CLOUD_UNIQUE_ID_PRE:="1:$INSTANCE_ID"}
-CLOUD_UNIQUE_ID="$CLOUD_UNIQUE_ID_PRE:$POD_NAME"
+# query port for mysql connection.
+QUERY_PORT=${FE_QUERY_PORT:-9030}
+EDIT_LOG_PORT=9010
+CLUSTER_ID=${CLUSTER_ID:=10000001}
 
-CONFIGMAP_PATH=${CONFIGMAP_MOUNT_PATH:="/etc/doris"}
-DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
-CONFIG_FILE="$DORIS_HOME/fe/conf/fe.conf"
+# location of fe config store.
+FE_CONFFILE=$DORIS_HOME/conf/fe.conf
+# represents the type for fe communication: domain or IP.
+START_TYPE=
+# the master node in fe cluster.
+FE_MASTER=
+# pod ordinal of statefulset deployed pod.
+POD_INDEX=$(hostname | awk -F '-' '{print $NF}')
 
-SEQUENCE_NUMBER=$(hostname | awk -F '-' '{print $NF}')
-NODE_TYPE="FE_MASTER"
+# probe interval: 2 seconds
+PROBE_INTERVAL=2
+# timeout for probe master: 60 seconds
+PROBE_MASTER_POD0_TIMEOUT=30 # at most 30 attempts, no less than the times needed for an election
+# no-0 ordinal pod timeout for probe master: 90 times
+PROBE_MASTER_PODX_TIMEOUT=180 # at most 90 attempts
+# administrator for administrate the cluster.
+DB_ADMIN_USER=${USER:-"root"}
 
-if [ "$SEQUENCE_NUMBER" -ge "$ELECT_NUMBER" ]; then
-    NODE_TYPE="FE_OBSERVER"
-fi
-
-# 1. add default config in config file or link config files.
-# 2. assign global variables.
-# 3. register myself.
-
+DB_ADMIN_PASSWD=$PASSWD
+# myself as IP or FQDN
+MYSELF=
 
 function log_stderr()
 {
-    echo "[`date`] $@" >& 1
+  echo "[`date`] $@" >& 2
 }
 
-function add_cluster_info_to_conf()
+#parse the `$FE_CONFFILE` file, passing the key need resolve as parameter.
+parse_confval_from_fe_conf()
 {
-    echo "meta_service_endpoint=$MS_ENDPOINT" >> $DORIS_HOME/fe/conf/fe.conf
-    echo "cloud_unique_id=$CLOUD_UNIQUE_ID" >> $DORIS_HOME/fe/conf/fe.conf
+    # a naive script to grep given confkey from fe conf file
+    # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
+    local confkey=$1
+    local confvalue=`grep "\<$confkey\>" $FE_CONFFILE | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    echo "$confvalue"
 }
 
-function link_config_files()
+collect_env_info()
 {
-    if [[ -d $CONFIGMAP_PATH ]]; then
-        #backup files want to replace
-        for file in `ls $CONFIGMAP_PATH`;
-        do
-            if [[ -f $DORIS_HOME/fe/conf/$file ]]; then
-                mv $DORIS_HOME/fe/conf/$file $DORIS_HOME/fe/conf/$file.bak
-            fi
-        done
-
-        for file in `ls $CONFIGMAP_PATH`;
-        do
-            if [[ "$file" == "fe.conf" ]]; then
-                cp $CONFIGMAP_PATH/$file $DORIS_HOME/fe/conf/$file
-                add_cluster_info_to_conf
-                continue
-            fi
-
-            ln -sfT $CONFIGMAP_PATH/$file $DORIS_HOME/fe/conf/$file
-        done
+    # set POD_IP, POD_FQDN, EDIT_LOG_PORT, QUERY_PORT
+    if [[ "x$POD_IP" == "x" ]] ; then
+        POD_IP=`hostname -i | awk '{print $1}'`
     fi
-}
 
-parse_config_file_with_key()
-{
-    local key=$1
-    local value=`grep "^\s*$key\s*=" $CONFIG_FILE | sed "s|^\s*$key\s*=\s*\(.*\)\s*$|\1|g"`
-    echo $value
-}
+    if [[ "x$POD_FQDN" == "x" ]] ; then
+        POD_FQDN=`hostname -f`
+    fi
 
-# confirm the register address, if config `enable_fqdn_mode=true` use fqdn start or use ip.
-function parse_my_self_address()
-{
-    local value=`parse_config_file_with_key "enable_fqdn_mode"`
+    # fqdn is forced to open without using ip method(enable_fqdn_mode = true).
+    # Therefore START_TYPE is true
+    START_TYPE=`parse_confval_from_fe_conf "enable_fqdn_mode"`
 
-    local my_ip=`hostname -i | awk '{print $1}'`
-    local my_fqdn=`hostname -f`
-    if [[ $value == "true" ]]; then
-        MY_SELF=$my_fqdn
+    if [[ "x$START_TYPE" == "xtrue" ]]; then
+        MYSELF=$POD_FQDN
     else
-        MY_SELF=$my_ip
+        MYSELF=$POD_IP
+    fi
+
+    # edit_log_port from conf file
+    local edit_log_port=`parse_confval_from_fe_conf "edit_log_port"`
+    if [[ "x$edit_log_port" != "x" ]] ; then
+        EDIT_LOG_PORT=$edit_log_port
+    fi
+
+    # query_port from conf file
+    local query_port=`parse_confval_from_fe_conf "query_port"`
+    if [[ "x$query_port" != "x" ]] ; then
+        QUERY_PORT=$query_port
     fi
 }
 
-function variables_inital()
+# get all registered fe in cluster.
+function show_frontends()
 {
-    parse_my_self_address
-    local edit_port=$(parse_config_file_with_key "edit_log_port")
-    if [[ "x$edit_port" != "x" ]]; then
-        FE_EDIT_PORT=${edit_port:=$FE_EDIT_PORT}
+    local addr=$1
+    # fist start use root and no password check. avoid use pre setted username and password.
+    frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] use root no password show frontends result '$frontends'"
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configured show frontends."
+        frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;' 2>&1`
     fi
-    
+   echo "$frontends"
+
 }
 
-function check_or_register_in_ms()
+# add myself in cluster for FOLLOWER.
+function add_self_follower()
 {
-    interval=5
-    start=$(date +%s)
-    timeout=60
-    while true;
+    add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    log_stderr "[info] use root no password to add follower result '$add_result'"
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configured to add self as follower."
+        mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
+    fi
+
+}
+
+# add myself in cluster for OBSERVER.
+function add_self_observer()
+{
+    add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    log_stderr "[info] use root no password to add self as observer result '$add_result'."
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        log_stderr "[info] use username and password that configed to add self as observer."
+        mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
+    fi
+
+}
+
+# `dori-meta/image` not exist start as first time.
+function start_fe_no_meta()
+{
+    local opts="--console"
+    local start=`date +%s`
+    local has_member=false
+    local member_list=
+    if [[ "x$FE_MASTER" != "x" ]] ; then
+        local start=`date +%s`
+        while true
+        do
+            # for statefulset manage fe pods, when `ELECT_NUMBER` greater than `POD_INDEX`
+            if [[ ELECT_NUMBER -gt $POD_INDEX ]]; then
+                log_stderr "Add myself($MYSELF:$EDIT_LOG_PORT) to master as follower ..."
+                add_self_follower
+            else
+                log_stderr "Add myself($MYSELF:$EDIT_LOG_PORT) to master as observer ..."
+                add_self_observer
+            fi
+               # if successfully exit circulate register logic and start fe.
+            if show_frontends $addr | grep -q -w "$MYSELF" &>/dev/null ; then
+                break;
+            fi
+
+            local now=`date +%s`
+            let "expire=start+30" # 30s timeout
+            # if timeout for register self exit 1.
+            if [[ $expire -le $now ]] ; then
+                log_stderr "Timed out, abort!"
+                exit 1
+            fi
+
+            log_stderr "Sleep a while and retry adding ..."
+            sleep $PROBE_INTERVAL
+        done
+    fi
+    log_stderr "first start with no meta run start_fe.sh with additional options: '$opts'"
+    $DORIS_HOME/bin/start_fe.sh $opts
+}
+
+# the ordinal is 0, probe timeout as 60s, when have not meta and not `MASTER` in fe cluster, 0 start as master.
+probe_master_for_pod()
+{
+    # possible to have no result at all, because myself is the first FE instance in the cluster
+    local svc=$1
+    local start=`date +%s`
+    local has_member=false
+    local memlist=
+    while true
     do
-        local find_address="http://$MS_ENDPOINT/MetaService/http/get_cluster?token=$MS_TOKEN"
-        local output=$(curl -s $find_address \
-                  -d '{"cloud_unique_id": "'$CLOUD_UNIQUE_ID'",
-                  "cluster_id": "RESERVED_CLUSTER_ID_FOR_SQL_SERVER"}')
-        if grep -q -w $MY_SELF <<< $output &>/dev/null ; then
-            log_stderr "[INFO] $MY_SELF have registerd in metaservice!"
-            return
+        memlist=`show_frontends $svc`
+        # find master by column `IsMaster`
+        local pos=`echo "$memlist" | grep '\<IsMaster\>' | awk -F '\t' '{for(i=1;i<NF;i++) {if ($i == "IsMaster") print i}}'`
+        local master=`echo "$memlist" | grep '\<FOLLOWER\>' | awk -v p="$pos" -F '\t' '{if ($p=="true") print $2}'`
+
+        log_stderr "'IsMaster' sequence in columns is $pos, master=$master."
+        if [[ "x$master" == "x" ]]; then
+            log_stderr "[info] resolve the eighth column for finding master !"
+            master=`echo "$memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($8=="true") print $2}'`
         fi
 
-        local code=$(jq -r ".code" <<< $output)
-        if [[ "$code" == "NOT_FOUND" ]]; then
-        #    if grep -q -w "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER" <<< $output &>/dev/null; then
-        #        log_stderr "[INFO] RESERVED_CLUSTER_NAME_FOR_SQL_SERVER fe cluster have exist, register node $MY_SELF."
-        #        add_my_self
-        #    else
-             log_stderr "[INFO] RESERVED_CLUSTER_NAME_FOR_SQL_SERVER fe cluster not exist, register fe clsuter."
-             add_my_self_with_cluster
-        #    fi
-        else
-            log_stderr "[INFO] register myself $MY_SELF into fe cluster cloud_unique_id $CLOUD_UNIQUE_ID."
-            add_my_self 
+        if [[ "x$master" == "x" ]]; then
+           log_stderr "[info] resoluve the ninth column for finding master!"
+           master=`echo "$memlist" | grep '\<FOLLOWER\>' | awk -F '\t' '{if ($9=="true") print $2}'`
         fi
 
-        local now=$(date +%s)
+        if [[ "x$master" != "x" ]] ; then
+            # has master, done
+            log_stderr "Find master: $master!"
+            FE_MASTER=$master
+            return 0
+        fi
+
+        # show frontens has members
+        if [[ "x$memlist" != "x" && "x$pos" != "x" ]] ; then
+            # has member list ever before
+            has_member=true
+        fi
+
+        # no master yet, check if needs timeout and quit
+        log_stderr "[info] master is not elected, has_member: $has_member, this may be first start or master changing, wait $PROBE_INTERVAL s to next probe..."
+        local timeout=$PROBE_MASTER_POD0_TIMEOUT
+        if  "$has_member" == true || [ "$POD_INDEX" -ne "0" ] ; then
+            # set timeout to the same as PODX since there are other members
+            timeout=$PROBE_MASTER_PODX_TIMEOUT
+        fi
+
+        local now=`date +%s`
         let "expire=start+timeout"
-        if [[ $expire -le $now ]]; then
-            log_stderr "[ERROR] Timeout for register myself to ms, abort!"
-            exit 1
+        if [[ $expire -le $now ]] ; then
+            log_stderr "[info]  exit probe master for probing timeout, if it is the first pod will start as master. .."
+            # empty FE_MASTER
+            FE_MASTER=""
+            return 0
         fi
-        sleep $interval
+        sleep $PROBE_INTERVAL
     done
 }
 
-function add_my_self()
+# when not meta exist, fe start should probe
+probe_master()
 {
-    local register_address="http://$MS_ENDPOINT/MetaService/http/add_node?token=$MS_TOKEN"
-    local curl_cmd="curl -s $register_address -d '{\"instance_id\":\"$INSTANCE_ID\",\"cluster\":{\"type\":\"SQL\",\"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",\"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\",\"nodes\":[{\"cloud_unique_id\":\"$CLOUD_UNIQUE_ID\",\"ip\":\"$MY_SELF\",\"host\":\"$MY_SELF\",\"edit_log_port\":9010,\"node_type\":\"$NODE_TYPE\"}]}}'"
-    # echo "add_my_self: $curl_cmd"
-    local output=$(eval "$curl_cmd")
-    # echo "add_my_self response:$output"
-    local code=$(jq -r ".code" <<< $output)
-    if [[ "$code" == "OK" ]]; then
-        log_stderr "[INFO] my_self $MY_SELF register to ms $MS_ENDPOINT instance_id $INSTANCE_ID fe cluster RESERVED_CLUSTER_NAME_FOR_SQL_SERVER success!"
-    else
-        log_stderr "[ERROR] my_self register ms $MS_ENDPOINT instance_id $INSTANCE_ID fe cluster failed, response $output!"
-    fi
-}
+    # fe endpoint
+    local svc=$1
+    # resolve svc as array.
+    local addArr=${svc//,/ }
+    for addr in ${addArr[@]}
+    do
+        # if have master break for register or check.
+        if [[ "x$FE_MASTER" != "x" ]]; then
+            break
+        fi
 
-function add_my_self_with_cluster()
-{
-    local register_address="http://$MS_ENDPOINT/MetaService/http/add_cluster?token=$MS_TOKEN"
-    local curl_data="{\"instance_id\":\"$INSTANCE_ID\",\"cluster\":{\"type\":\"SQL\",\"cluster_name\":\"RESERVED_CLUSTER_NAME_FOR_SQL_SERVER\",\"cluster_id\":\"RESERVED_CLUSTER_ID_FOR_SQL_SERVER\",\"nodes\":[{\"cloud_unique_id\":\"$CLOUD_UNIQUE_ID\",\"ip\":\"$MY_SELF\",\"host\":\"$MY_SELF\",\"node_type\":\"$NODE_TYPE\",\"edit_log_port\":$FE_EDIT_PORT}]}}"
-    local curl_cmd="curl -s $register_address -d '$curl_data'"
-    # echo "add_my_self_with_cluster: $curl_cmd"
-    local output=$(eval "$curl_cmd")
-    # echo "add_my_self_with_cluster response: $output"
-    code=$(jq -r ".code" <<< $output)
-    if [[ "$code" == "OK" ]]; then
-        log_stderr "[INFO] fe cluster contains $MY_SELF node_type $NODE_TYPE register to ms $MS_ENDPOINT instance_id $INSTANCE_ID success."
-    else
-        log_stderr "[ERROR] fe cluster contains $MY_SELF node_type $NODE_TYPE register to ms $MS_ENDPOINT instance_id $INSTANCE_ID faied, $output!"
+        # find master under current service and set to FE_MASTER
+        probe_master_for_pod $addr
+    done
+
+    # if first pod assume first start should as master. others first start have not master exit.
+    if [[ "x$FE_MASTER" == "x" ]]; then
+        if [[ "$POD_INDEX" -eq 0 ]]; then
+            return 0
+        else
+            log_stderr "the pod can't connect to pod 0, the network may be not work. please verify domain connectivity with two pods in different node and verify the pod 0 ready or not."
+            exit 1
+        fi
     fi
 }
 
 function check_and_modify_fqdn_config()
 {
-    local enable_fqdn=`parse_config_file_with_key "enable_fqdn_mode"`
+    local enable_fqdn=`parse_confval_from_fe_conf "enable_fqdn_mode"`
     log_stderr "enable_fqdn is : $enable_fqdn"
+    if [[ "x$enable_fqdn" == "xfalse" ]] ; then
+        return 0
+    fi
     if [[ "x$enable_fqdn" != "xtrue" ]] ; then
-        log_stderr "add enable_fqdn_mode = true to $CONFIG_FILE"
-        echo "enable_fqdn_mode = true" >> $CONFIG_FILE
+        log_stderr "add enable_fqdn_mode = true to ${DORIS_HOME}/conf/fe.conf"
+        echo "enable_fqdn_mode = true" >>${DORIS_HOME}/conf/fe.conf
     fi
 }
+
+function add_cluster_info_to_conf()
+{
+    echo "meta_service_endpoint=$MS_ENDPOINT" >> ${DORIS_HOME}/conf/fe.conf
+    echo "cluster_id=$CLUSTER_ID" >> ${DORIS_HOME}/conf/fe.conf
+    echo "deploy_mode=cloud" >> ${DORIS_HOME}/conf/fe.conf
+}
+
+function link_config_files()
+{
+    if [[ -d $CONFIGMAP_MOUNT_PATH ]]; then
+        #backup files want to replace
+        for file in `ls $CONFIGMAP_MOUNT_PATH`;
+        do
+            if [[ -f $DORIS_HOME/conf/$file ]]; then
+                mv $DORIS_HOME/conf/$file $DORIS_HOME/conf/$file.bak
+            fi
+        done
+
+        for file in `ls $CONFIGMAP_MOUNT_PATH`;
+        do
+            if [[ "$file" == "fe.conf" ]]; then
+                cp $CONFIGMAP_MOUNT_PATH/$file $DORIS_HOME/conf/$file
+                add_cluster_info_to_conf
+                continue
+            fi
+
+            ln -sfT $CONFIGMAP_MOUNT_PATH/$file $DORIS_HOME/conf/$file
+        done
+    fi
+}
+
+# resolve password for root
+resolve_password_from_secret()
+{
+    if [[ -f "$AUTH_PATH/password" ]]; then
+        DB_ADMIN_PASSWD=`cat $AUTH_PATH/password`
+    fi
+
+    if [[ -f "$AUTH_PATH/username" ]]; then
+        DB_ADMIN_USER=`cat $AUTH_PATH/username`
+    fi
+}
+
+start_fe_with_meta()
+{
+    # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
+    local opts="--console"
+    local recovery=`grep "\<selectdb.com.doris/recovery\>" $ANNOTATION_PATH | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    if [[ "x$recovery" != "x" ]]; then
+        opts=${opts}" --metadata_failure_recovery"
+    fi
+
+    log_stderr "start with meta run start_fe.sh with additional options: '$opts'"
+    $DORIS_HOME/bin/start_fe.sh  $opts
+}
+
+#fist start create account and grant 'NODE_PRIV'
+create_account()
+{
+    if [[ "x$FE_MASTER" == "x" ]]; then
+		return 0
+	fi
+
+    # if not set password, the account not config.
+    if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        return 0
+    fi
+
+    users=`timeout 15 mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set paasword! not need auto create management account."
+        return 0
+    fi
+
+    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exit in doris."
+       return 0
+    fi
+
+    `mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
+    log_stderr "created new account and grant NODE_PRIV!"
+}
+
+fe_addrs=$1
+if [[ "x$fe_addrs" == "x" ]]; then
+    echo "need fe address as parameter!"
+    exit
+fi
 
 add_cluster_info_to_conf
 check_and_modify_fqdn_config
 link_config_files
-variables_inital
-check_or_register_in_ms
-/opt/apache-doris/fe/bin/start_fe.sh --console
-
+# resolve password for root to manage nodes in doris.
+resolve_password_from_secret
+if [[ -f "$DORIS_HOME/doris-meta/image/ROLE" ]]; then
+    log_stderr "start fe with exist meta."
+    ./doris-debug --component fe
+    start_fe_with_meta
+else
+    log_stderr "first start fe with meta not exist."
+    collect_env_info
+    probe_master $fe_addrs
+    #create account about node management
+    create_account
+    start_fe_no_meta
+fi

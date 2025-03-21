@@ -18,10 +18,8 @@
 suite("test_date_function_prune") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "set runtime_filter_mode=OFF";
+    sql "set runtime_filter_mode=OFF"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists dp"
     sql """
@@ -106,18 +104,10 @@ suite("test_date_function_prune") {
         PROPERTIES("replication_num" = "1");
     """
     explain {
-        sql """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
-        contains("partitions=0/2")
-    }
-    explain {
         sql """ select * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
         contains("VEMPTYSET")
     }
     sql """ insert into test_to_date_trunc values ("20230807000000"); """
-    explain {
-        sql """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
-        contains("partitions=1/2 (p20230807)")
-    }
     explain {
         sql """ select * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
         contains("partitions=1/2 (p20230807)")

@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <ctime>
 #include <map>
@@ -31,6 +33,7 @@
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
+#include "vec/sink/varrow_flight_result_writer.h"
 
 namespace arrow {
 class RecordBatch;
@@ -39,10 +42,16 @@ class Schema;
 
 namespace doris {
 
-class BufferControlBlock;
-struct GetResultBatchCtx;
+class ResultBlockBufferBase;
 class PUniqueId;
+class RuntimeState;
+class MemTrackerLimiter;
 class Thread;
+namespace vectorized {
+class GetArrowResultBatchCtx;
+class GetResultBatchCtx;
+class Block;
+} // namespace vectorized
 
 // manage all result buffer control block in one backend
 class ResultBufferMgr {
@@ -58,30 +67,23 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         std::shared_ptr<BufferControlBlock>* sender, int exec_timeout,
-                         int batch_size);
+                         std::shared_ptr<ResultBlockBufferBase>* sender, RuntimeState* state,
+                         bool arrow_flight, std::shared_ptr<arrow::Schema> schema = nullptr);
 
-    // fetch data result to FE
-    void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
-    // fetch data result to Arrow Flight Server
-    Status fetch_arrow_data(const TUniqueId& finst_id, std::shared_ptr<arrow::RecordBatch>* result);
-
-    void register_arrow_schema(const TUniqueId& query_id,
-                               const std::shared_ptr<arrow::Schema>& arrow_schema);
-    std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
-
+    template <typename ResultBlockBufferType>
+    Status find_buffer(const TUniqueId& finst_id, std::shared_ptr<ResultBlockBufferType>& buffer);
     // cancel
-    void cancel(const TUniqueId& fragment_id);
+    bool cancel(const TUniqueId& query_id, const Status& reason);
 
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
-    using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>>;
+    using BufferMap = std::unordered_map<TUniqueId, std::shared_ptr<ResultBlockBufferBase>>;
     using TimeoutMap = std::map<time_t, std::vector<TUniqueId>>;
-    using ArrowSchemaMap = std::unordered_map<TUniqueId, std::shared_ptr<arrow::Schema>>;
 
-    std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
+    template <typename ResultBlockBufferType>
+    std::shared_ptr<ResultBlockBufferType> _find_control_block(const TUniqueId& query_id);
 
     // used to erase the buffer that fe not clears
     // when fe crush, this thread clear the buffer avoid memory leak in this backend
@@ -91,10 +93,6 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
-    // lock for arrow schema map
-    std::shared_mutex _arrow_schema_map_lock;
-    // for arrow flight
-    ArrowSchemaMap _arrow_schema_map;
 
     // lock for timeout map
     std::mutex _timeout_lock;

@@ -96,7 +96,7 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
             backendIdForRequest = backendId;
         } else {
             Preconditions.checkState(sharedStorage);
-            List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> beIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (beIds.isEmpty()) {
                 throw new AnalysisException("No available backend");
             }

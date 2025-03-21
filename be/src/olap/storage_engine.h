@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -69,9 +70,10 @@ class Thread;
 class ThreadPool;
 class TxnManager;
 class ReportWorker;
-class CreateTabletIdxCache;
+class CreateTabletRRIdxCache;
 struct DirInfo;
 class SnapshotManager;
+class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,7 +107,7 @@ public:
     virtual bool stopped() = 0;
 
     // start all background threads. This should be call after env is ready.
-    virtual Status start_bg_threads() = 0;
+    virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
     virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
 
@@ -167,6 +169,9 @@ protected:
     int _disk_num {-1};
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
 };
 
 class CompactionSubmitRegistry {
@@ -264,7 +269,6 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     SnapshotManager* snapshot_mgr() { return _snapshot_mgr.get(); }
-    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
     PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
@@ -278,7 +282,7 @@ public:
         return _default_rowset_type;
     }
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
@@ -429,6 +433,8 @@ private:
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
+    void _check_tablet_delete_bitmap_score_callback();
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -532,15 +538,18 @@ private:
     // next index for create tablet
     std::map<TStorageMedium::type, int> _last_use_index;
 
-    std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
+    std::unique_ptr<CreateTabletRRIdxCache> _create_tablet_idx_lru_cache;
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
+
+    // thread to check tablet delete bitmap count tasks
+    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 };
 
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
+class CreateTabletRRIdxCache : public LRUCachePolicy {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -557,10 +566,10 @@ public:
         int idx = 0;
     };
 
-    CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
-                                           capacity, LRUCacheType::NUMBER,
-                                           /*stale_sweep_time_s*/ 30 * 60) {}
+    CreateTabletRRIdxCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             /*stale_sweep_time_s*/ 30 * 60, 1) {}
 };
 
 struct DirInfo {

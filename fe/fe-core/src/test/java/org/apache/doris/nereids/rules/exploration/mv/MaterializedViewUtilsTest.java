@@ -248,7 +248,27 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                 + ");\n");
         // Should not make scan to empty relation when the table used by materialized view has no data
-        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY_BY_UNIFORM");
+    }
+
+    // Test when join both side are all partition table and partition column name is same
+    @Test
+    public void joinPartitionNameSameTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select t1.upgrade_day, t2.batch_no, count(*) "
+                                + "from test2 t2 join test1 t1 on "
+                                + "t1.upgrade_day = t2.upgrade_day "
+                                + "group by t1.upgrade_day, t2.batch_no;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "test1",
+                                    "upgrade_day",
+                                    true);
+                        });
     }
 
     @Test
@@ -389,6 +409,26 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "        left anti join orders_list_partition\n"
                                 + "        on l_shipdate = o_orderdate\n"
                                 + "        group by l_shipdate, l_orderkey",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem_list_partition",
+                                    "l_orderkey",
+                                    true);
+                        });
+    }
+
+    // if select * used in partition table side, should get related table
+    @Test
+    public void getRelatedTableInfoLeftJoinSelectStarTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l1.*, O_CUSTKEY \n"
+                                + "        from lineitem_list_partition l1\n"
+                                + "        left outer join orders_list_partition\n"
+                                + "        on l1.l_shipdate = o_orderdate\n",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             RelatedTableInfo relatedTableInfo =

@@ -105,8 +105,9 @@ suite("test_routine_load_restart_fe", "docker") {
                             continue;
                         }
                     }
-                } catch (Exception e) {
                     sql "stop routine load for ${jobName}"
+                } catch (Exception e) {
+                    log.info("exception: {}", e)
                     sql "DROP TABLE IF EXISTS ${tableName}"
                 }
             }

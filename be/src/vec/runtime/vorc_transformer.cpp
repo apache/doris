@@ -24,6 +24,7 @@
 #include <exception>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
@@ -59,6 +60,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -344,7 +346,7 @@ Status VOrcTransformer::write(const Block& block) {
         }
     }};
 
-    size_t sz = block.rows();
+    int sz = cast_set<int>(block.rows());
     auto row_batch = _create_row_batch(sz);
     auto* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
     try {

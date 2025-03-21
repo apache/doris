@@ -16,7 +16,7 @@
 -- under the License.
 
 CREATE TABLE IF NOT EXISTS customer_demographics (
-    cd_demo_sk bigint not null,
+    cd_demo_sk integer not null,
     cd_gender char(1),
     cd_marital_status char(1),
     cd_education_status char(20),
@@ -32,7 +32,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS reason (
-    r_reason_sk bigint not null,
+    r_reason_sk integer not null,
     r_reason_id char(16) not null,
     r_reason_desc char(100)
  )
@@ -42,7 +42,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS date_dim (
-    d_date_sk bigint not null,
+    d_date_sk integer not null,
     d_date_id char(16) not null,
     d_date date,
     d_month_seq integer,
@@ -77,7 +77,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS warehouse (
-    w_warehouse_sk bigint not null,
+    w_warehouse_sk integer not null,
     w_warehouse_id char(16) not null,
     w_warehouse_name varchar(20),
     w_warehouse_sq_ft integer,
@@ -98,24 +98,24 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS catalog_sales (
-    cs_item_sk bigint not null,
-    cs_order_number bigint not null,
-    cs_sold_date_sk bigint,
-    cs_sold_time_sk bigint,
-    cs_ship_date_sk bigint,
-    cs_bill_customer_sk bigint,
-    cs_bill_cdemo_sk bigint,
-    cs_bill_hdemo_sk bigint,
-    cs_bill_addr_sk bigint,
-    cs_ship_customer_sk bigint,
-    cs_ship_cdemo_sk bigint,
-    cs_ship_hdemo_sk bigint,
-    cs_ship_addr_sk bigint,
-    cs_call_center_sk bigint,
-    cs_catalog_page_sk bigint,
-    cs_ship_mode_sk bigint,
-    cs_warehouse_sk bigint,
-    cs_promo_sk bigint,
+    cs_item_sk integer not null,
+    cs_order_number integer not null,
+    cs_sold_date_sk integer,
+    cs_sold_time_sk integer,
+    cs_ship_date_sk integer,
+    cs_bill_customer_sk integer,
+    cs_bill_cdemo_sk integer,
+    cs_bill_hdemo_sk integer,
+    cs_bill_addr_sk integer,
+    cs_ship_customer_sk integer,
+    cs_ship_cdemo_sk integer,
+    cs_ship_hdemo_sk integer,
+    cs_ship_addr_sk integer,
+    cs_call_center_sk integer,
+    cs_catalog_page_sk integer,
+    cs_ship_mode_sk integer,
+    cs_warehouse_sk integer,
+    cs_promo_sk integer,
     cs_quantity integer,
     cs_wholesale_cost decimal(7,2),
     cs_list_price decimal(7,2),
@@ -140,7 +140,7 @@ PROPERTIES (
   "colocate_with" = "catalog"
 );
 CREATE TABLE IF NOT EXISTS call_center (
-  cc_call_center_sk bigint not null,
+  cc_call_center_sk integer not null,
   cc_call_center_id char(16) not null,
   cc_rec_start_date date,
   cc_rec_end_date date,
@@ -179,9 +179,9 @@ PROPERTIES (
 );
 
 CREATE TABLE IF NOT EXISTS inventory (
-    inv_date_sk bigint not null,
-    inv_item_sk bigint not null,
-    inv_warehouse_sk bigint,
+    inv_date_sk integer not null,
+    inv_item_sk integer not null,
+    inv_warehouse_sk integer,
     inv_quantity_on_hand integer
 )
 DUPLICATE KEY(inv_date_sk, inv_item_sk, inv_warehouse_sk)
@@ -190,23 +190,23 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS catalog_returns (
-  cr_item_sk bigint not null,
-  cr_order_number bigint not null,
-  cr_returned_date_sk bigint,
-  cr_returned_time_sk bigint,
-  cr_refunded_customer_sk bigint,
-  cr_refunded_cdemo_sk bigint,
-  cr_refunded_hdemo_sk bigint,
-  cr_refunded_addr_sk bigint,
-  cr_returning_customer_sk bigint,
-  cr_returning_cdemo_sk bigint,
-  cr_returning_hdemo_sk bigint,
-  cr_returning_addr_sk bigint,
-  cr_call_center_sk bigint,
-  cr_catalog_page_sk bigint,
-  cr_ship_mode_sk bigint,
-  cr_warehouse_sk bigint,
-  cr_reason_sk bigint,
+  cr_item_sk integer not null,
+  cr_order_number integer not null,
+  cr_returned_date_sk integer,
+  cr_returned_time_sk integer,
+  cr_refunded_customer_sk integer,
+  cr_refunded_cdemo_sk integer,
+  cr_refunded_hdemo_sk integer,
+  cr_refunded_addr_sk integer,
+  cr_returning_customer_sk integer,
+  cr_returning_cdemo_sk integer,
+  cr_returning_hdemo_sk integer,
+  cr_returning_addr_sk integer,
+  cr_call_center_sk integer,
+  cr_catalog_page_sk integer,
+  cr_ship_mode_sk integer,
+  cr_warehouse_sk integer,
+  cr_reason_sk integer,
   cr_return_quantity integer,
   cr_return_amount decimal(7,2),
   cr_return_tax decimal(7,2),
@@ -226,8 +226,8 @@ PROPERTIES (
 );
 
 CREATE TABLE IF NOT EXISTS household_demographics (
-    hd_demo_sk bigint not null,
-    hd_income_band_sk bigint,
+    hd_demo_sk integer not null,
+    hd_income_band_sk integer,
     hd_buy_potential char(15),
     hd_dep_count integer,
     hd_vehicle_count integer
@@ -238,7 +238,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS customer_address (
-    ca_address_sk bigint not null,
+    ca_address_sk integer not null,
     ca_address_id char(16) not null,
     ca_street_number char(10),
     ca_street_name varchar(60),
@@ -258,7 +258,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS income_band (
-    ib_income_band_sk bigint not null,
+    ib_income_band_sk integer not null,
     ib_lower_bound integer,
     ib_upper_bound integer
 )
@@ -268,7 +268,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS catalog_page (
-  cp_catalog_page_sk bigint not null,
+  cp_catalog_page_sk integer not null,
   cp_catalog_page_id char(16) not null,
   cp_start_date_sk integer,
   cp_end_date_sk integer,
@@ -284,7 +284,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS item (
-    i_item_sk bigint not null,
+    i_item_sk integer not null,
     i_item_id char(16) not null,
     i_rec_start_date date,
     i_rec_end_date date,
@@ -313,20 +313,20 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS web_returns (
-    wr_item_sk bigint not null,
-    wr_order_number bigint not null,
-    wr_returned_date_sk bigint,
-    wr_returned_time_sk bigint,
-    wr_refunded_customer_sk bigint,
-    wr_refunded_cdemo_sk bigint,
-    wr_refunded_hdemo_sk bigint,
-    wr_refunded_addr_sk bigint,
-    wr_returning_customer_sk bigint,
-    wr_returning_cdemo_sk bigint,
-    wr_returning_hdemo_sk bigint,
-    wr_returning_addr_sk bigint,
-    wr_web_page_sk bigint,
-    wr_reason_sk bigint,
+    wr_item_sk integer not null,
+    wr_order_number integer not null,
+    wr_returned_date_sk integer,
+    wr_returned_time_sk integer,
+    wr_refunded_customer_sk integer,
+    wr_refunded_cdemo_sk integer,
+    wr_refunded_hdemo_sk integer,
+    wr_refunded_addr_sk integer,
+    wr_returning_customer_sk integer,
+    wr_returning_cdemo_sk integer,
+    wr_returning_hdemo_sk integer,
+    wr_returning_addr_sk integer,
+    wr_web_page_sk integer,
+    wr_reason_sk integer,
     wr_return_quantity integer,
     wr_return_amt decimal(7,2),
     wr_return_tax decimal(7,2),
@@ -345,13 +345,13 @@ PROPERTIES (
   "colocate_with" = "web"
 );
 CREATE TABLE IF NOT EXISTS web_site (
-    web_site_sk bigint not null,
+    web_site_sk integer not null,
     web_site_id char(16) not null,
     web_rec_start_date date,
     web_rec_end_date date,
     web_name varchar(50),
-    web_open_date_sk bigint,
-    web_close_date_sk bigint,
+    web_open_date_sk integer,
+    web_close_date_sk integer,
     web_class varchar(50),
     web_manager varchar(40),
     web_mkt_id integer,
@@ -378,11 +378,11 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS promotion (
-    p_promo_sk bigint not null,
+    p_promo_sk integer not null,
     p_promo_id char(16) not null,
-    p_start_date_sk bigint,
-    p_end_date_sk bigint,
-    p_item_sk bigint,
+    p_start_date_sk integer,
+    p_end_date_sk integer,
+    p_item_sk integer,
     p_cost decimal(15,2),
     p_response_targe integer,
     p_promo_name char(50),
@@ -404,24 +404,24 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS web_sales (
-    ws_item_sk bigint not null,
-    ws_order_number bigint not null,
-    ws_sold_date_sk bigint,
-    ws_sold_time_sk bigint,
-    ws_ship_date_sk bigint,
-    ws_bill_customer_sk bigint,
-    ws_bill_cdemo_sk bigint,
-    ws_bill_hdemo_sk bigint,
-    ws_bill_addr_sk bigint,
-    ws_ship_customer_sk bigint,
-    ws_ship_cdemo_sk bigint,
-    ws_ship_hdemo_sk bigint,
-    ws_ship_addr_sk bigint,
-    ws_web_page_sk bigint,
-    ws_web_site_sk bigint,
-    ws_ship_mode_sk bigint,
-    ws_warehouse_sk bigint,
-    ws_promo_sk bigint,
+    ws_item_sk integer not null,
+    ws_order_number integer not null,
+    ws_sold_date_sk integer,
+    ws_sold_time_sk integer,
+    ws_ship_date_sk integer,
+    ws_bill_customer_sk integer,
+    ws_bill_cdemo_sk integer,
+    ws_bill_hdemo_sk integer,
+    ws_bill_addr_sk integer,
+    ws_ship_customer_sk integer,
+    ws_ship_cdemo_sk integer,
+    ws_ship_hdemo_sk integer,
+    ws_ship_addr_sk integer,
+    ws_web_page_sk integer,
+    ws_web_site_sk integer,
+    ws_ship_mode_sk integer,
+    ws_warehouse_sk integer,
+    ws_promo_sk integer,
     ws_quantity integer,
     ws_wholesale_cost decimal(7,2),
     ws_list_price decimal(7,2),
@@ -446,11 +446,11 @@ PROPERTIES (
   "colocate_with" = "web"
 );
 CREATE TABLE IF NOT EXISTS store (
-    s_store_sk bigint not null,
+    s_store_sk integer not null,
     s_store_id char(16) not null,
     s_rec_start_date date,
     s_rec_end_date date,
-    s_closed_date_sk bigint,
+    s_closed_date_sk integer,
     s_store_name varchar(50),
     s_number_employees integer,
     s_floor_space integer,
@@ -482,7 +482,7 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS time_dim (
-    t_time_sk bigint not null,
+    t_time_sk integer not null,
     t_time_id char(16) not null,
     t_time integer,
     t_hour integer,
@@ -499,14 +499,14 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS web_page (
-        wp_web_page_sk bigint not null,
+        wp_web_page_sk integer not null,
         wp_web_page_id char(16) not null,
         wp_rec_start_date date,
         wp_rec_end_date date,
-        wp_creation_date_sk bigint,
-        wp_access_date_sk bigint,
+        wp_creation_date_sk integer,
+        wp_access_date_sk integer,
         wp_autogen_flag char(1),
-        wp_customer_sk bigint,
+        wp_customer_sk integer,
         wp_url varchar(100),
         wp_type char(50),
         wp_char_count integer,
@@ -520,16 +520,16 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS store_returns (
-    sr_item_sk bigint not null,
+    sr_item_sk integer not null,
     sr_ticket_number bigint not null,
-    sr_returned_date_sk bigint,
-    sr_return_time_sk bigint,
-    sr_customer_sk bigint,
-    sr_cdemo_sk bigint,
-    sr_hdemo_sk bigint,
-    sr_addr_sk bigint,
-    sr_store_sk bigint,
-    sr_reason_sk bigint,
+    sr_returned_date_sk integer,
+    sr_return_time_sk integer,
+    sr_customer_sk integer,
+    sr_cdemo_sk integer,
+    sr_hdemo_sk integer,
+    sr_addr_sk integer,
+    sr_store_sk integer,
+    sr_reason_sk integer,
     sr_return_quantity integer,
     sr_return_amt decimal(7,2),
     sr_return_tax decimal(7,2),
@@ -548,16 +548,16 @@ properties (
   "colocate_with" = "store"
 );
 CREATE TABLE IF NOT EXISTS store_sales (
-    ss_item_sk bigint not null,
+    ss_item_sk integer not null,
     ss_ticket_number bigint not null,
-    ss_sold_date_sk bigint,
-    ss_sold_time_sk bigint,
-    ss_customer_sk bigint,
-    ss_cdemo_sk bigint,
-    ss_hdemo_sk bigint,
-    ss_addr_sk bigint,
-    ss_store_sk bigint,
-    ss_promo_sk bigint,
+    ss_sold_date_sk integer,
+    ss_sold_time_sk integer,
+    ss_customer_sk integer,
+    ss_cdemo_sk integer,
+    ss_hdemo_sk integer,
+    ss_addr_sk integer,
+    ss_store_sk integer,
+    ss_promo_sk integer,
     ss_quantity integer,
     ss_wholesale_cost decimal(7,2),
     ss_list_price decimal(7,2),
@@ -579,7 +579,7 @@ PROPERTIES (
   "colocate_with" = "store"
 );
 CREATE TABLE IF NOT EXISTS ship_mode (
-    sm_ship_mode_sk bigint not null,
+    sm_ship_mode_sk integer not null,
     sm_ship_mode_id char(16) not null,
     sm_type char(30),
     sm_code char(10),
@@ -592,13 +592,13 @@ PROPERTIES (
   "replication_num" = "1"
 );
 CREATE TABLE IF NOT EXISTS customer (
-    c_customer_sk bigint not null,
+    c_customer_sk integer not null,
     c_customer_id char(16) not null,
-    c_current_cdemo_sk bigint,
-    c_current_hdemo_sk bigint,
-    c_current_addr_sk bigint,
-    c_first_shipto_date_sk bigint,
-    c_first_sales_date_sk bigint,
+    c_current_cdemo_sk integer,
+    c_current_hdemo_sk integer,
+    c_current_addr_sk integer,
+    c_first_shipto_date_sk integer,
+    c_first_sales_date_sk integer,
     c_salutation char(10),
     c_first_name char(20),
     c_last_name char(30),
@@ -609,7 +609,7 @@ CREATE TABLE IF NOT EXISTS customer (
     c_birth_country varchar(20),
     c_login char(13),
     c_email_address char(50),
-    c_last_review_date_sk bigint
+    c_last_review_date_sk integer
 )
 DUPLICATE KEY(c_customer_sk)
 DISTRIBUTED BY HASH(c_customer_id) BUCKETS 12

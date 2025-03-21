@@ -29,9 +29,9 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableBiMap.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -92,39 +92,25 @@ public class RelationMapping extends Mapping {
             }
             // relation appear more than once, should cartesian them and power set to correct combination
             // if query is select * from tableA0, tableA1, materialized view is select * from tableA2, tableA3,
-            // tableA is the same table used by both query and materialized view
-            // relationMapping will be
-            // tableA0 tableA2
-            // tableA0 tableA3
-            // tableA1 tableA2
-            // tableA1 tableA3
-            ImmutableList<Pair<MappedRelation, MappedRelation>> relationMapping = Sets.cartesianProduct(
-                            sourceMappedRelations, targetMappedRelations)
-                    .stream()
-                    .map(listPair -> Pair.of(listPair.get(0), listPair.get(1)))
-                    .collect(ImmutableList.toImmutableList());
-
-            // the mapping in relationMappingPowerList should be bi-direction
+            // the relationMappingPowerList in relationMappingPowerList should be bi-direction
             // [
-            //    {tableA0 tableA2, tableA1 tableA3}
-            //    {tableA0 tableA3, tableA1 tableA2}
+            //    {tableA0 -> tableA2, tableA1 -> tableA3}
+            //    {tableA0 -> tableA3, tableA1 -> tableA2}
             // ]
+            // query is select * from tableA0, tableA1, tableA4
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
-            int relationMappingSize = relationMapping.size();
-            int relationMappingMinSize = Math.min(sourceMappedRelations.size(), targetMappedRelations.size());
-            for (int i = 0; i < relationMappingSize; i++) {
-                HashBiMap<MappedRelation, MappedRelation> relationBiMap = HashBiMap.create();
-                relationBiMap.put(relationMapping.get(i).key(), relationMapping.get(i).value());
-                for (int j = i + 1; j < relationMappingSize; j++) {
-                    if (!relationBiMap.containsKey(relationMapping.get(j).key())
-                            && !relationBiMap.containsValue(relationMapping.get(j).value())) {
-                        relationBiMap.put(relationMapping.get(j).key(), relationMapping.get(j).value());
-                    }
+            List<Pair<MappedRelation[], MappedRelation[]>> combinations = getUniquePermutation(
+                    sourceMappedRelations.toArray(sourceMappedRelations.toArray(new MappedRelation[0])),
+                    targetMappedRelations.toArray(new MappedRelation[0]));
+            for (Pair<MappedRelation[], MappedRelation[]> combination : combinations) {
+                BiMap<MappedRelation, MappedRelation> combinationBiMap = HashBiMap.create();
+                MappedRelation[] key = combination.key();
+                MappedRelation[] value = combination.value();
+                int length = Math.min(key.length, value.length);
+                for (int i = 0; i < length; i++) {
+                    combinationBiMap.put(key[i], value[i]);
                 }
-                // mapping should contain min num of relation in source or target at least
-                if (relationBiMap.size() >= relationMappingMinSize) {
-                    relationMappingPowerList.add(relationBiMap);
-                }
+                relationMappingPowerList.add(combinationBiMap);
             }
             mappedRelations.add(relationMappingPowerList);
         }
@@ -166,5 +152,59 @@ public class RelationMapping extends Mapping {
     @Override
     public int hashCode() {
         return Objects.hash(mappedRelationMap);
+    }
+
+    /**
+     * Permutation and remove duplicated element
+     * For example:
+     * Given [1, 4, 5] and [191, 194, 195]
+     * This would return
+     * [
+     * [(1, 191) (4, 194) (5, 195)],
+     * [(1, 191) (4, 195) (5, 194)],
+     * [(1, 194) (4, 191) (5, 195)],
+     * [(1, 194) (4, 195) (5, 191)],
+     * [(1, 195) (4, 191) (5, 194)],
+     * [(1, 195) (4, 194) (5, 191)]
+     * ]
+     * */
+    private static List<Pair<MappedRelation[], MappedRelation[]>> getUniquePermutation(
+            MappedRelation[] left, MappedRelation[] right) {
+        boolean needSwap = left.length > right.length;
+        if (needSwap) {
+            MappedRelation[] temp = left;
+            left = right;
+            right = temp;
+        }
+
+        boolean[] used = new boolean[right.length];
+        MappedRelation[] current = new MappedRelation[left.length];
+        List<Pair<MappedRelation[], MappedRelation[]>> results = new ArrayList<>();
+        backtrack(left, right, 0, used, current, results);
+        if (needSwap) {
+            List<Pair<MappedRelation[], MappedRelation[]>> tmpResults = results;
+            results = new ArrayList<>();
+            for (Pair<MappedRelation[], MappedRelation[]> relation : tmpResults) {
+                results.add(Pair.of(relation.value(), relation.key()));
+            }
+        }
+        return results;
+    }
+
+    private static void backtrack(MappedRelation[] left, MappedRelation[] right, int index,
+            boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results) {
+        if (index == left.length) {
+            results.add(Pair.of(Arrays.copyOf(left, left.length), Arrays.copyOf(current, current.length)));
+            return;
+        }
+
+        for (int i = 0; i < right.length; i++) {
+            if (!used[i]) {
+                used[i] = true;
+                current[index] = right[i];
+                backtrack(left, right, index + 1, used, current, results);
+                used[i] = false;
+            }
+        }
     }
 }

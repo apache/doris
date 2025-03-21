@@ -164,4 +164,91 @@ public class ColStatsDataTest {
         Assertions.assertEquals(400, columnStatistic.dataSize);
         Assertions.assertEquals("500", columnStatistic.updatedTime);
     }
+
+    @Test
+    public void testIsNull() {
+        ColStatsData stats = new ColStatsData();
+        Assertions.assertTrue(stats.isNull(null));
+        Assertions.assertTrue(stats.isNull("null"));
+        Assertions.assertTrue(stats.isNull("NuLl"));
+        Assertions.assertFalse(stats.isNull(""));
+        Assertions.assertFalse(stats.isNull(" "));
+        Assertions.assertFalse(stats.isNull("123"));
+    }
+
+    @Test
+    public void testIsValid() {
+        List<String> values = Lists.newArrayList();
+        values.add("id");
+        values.add("10000");
+        values.add("20000");
+        values.add("30000");
+        values.add("0");
+        values.add("col");
+        values.add(null);
+        values.add("100"); // count
+        values.add("1100"); // ndv
+        values.add("300"); // null
+        values.add("min");
+        values.add("max");
+        values.add("400");
+        values.add("500");
+        ResultRow row = new ResultRow(values);
+        ColStatsData data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // Set count = 200
+        values.set(7, "200");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertTrue(data.isValid());
+
+        // Set ndv = 0, min/max is not null
+        values.set(8, "0");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // Set min to null, min/max is not null
+        values.set(10, null);
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // Set max to null, min/max is not null
+        values.set(11, null);
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertTrue(data.isValid());
+
+        // Set min to not null, min/max is not null
+        values.set(10, "min");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // Set min and max to null, nullNum = 0
+        values.set(9, "0");
+        values.set(10, "nuLl");
+        values.set(11, null);
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // nullNum = 19, count = 200
+        values.set(9, "19");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertFalse(data.isValid());
+
+        // nullNum = 21, count = 200, so count < nullNum * 10
+        values.set(9, "21");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertTrue(data.isValid());
+
+        // Empty table stats is valid.
+        data = new ColStatsData();
+        Assertions.assertTrue(data.isValid());
+    }
 }

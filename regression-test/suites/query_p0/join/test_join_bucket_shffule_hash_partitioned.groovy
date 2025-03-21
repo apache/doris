@@ -48,7 +48,7 @@ suite("test_join_bucket_shffule_hash_partitioned", "query,p0") {
                           (2,2,"2023-04-26 00:00:00", 2);
     """
 
-    qt_sql_join1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/
+    qt_sql_join1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/
         t1.k1,
         t1.k2,
         t1.kdate,
@@ -69,7 +69,7 @@ suite("test_join_bucket_shffule_hash_partitioned", "query,p0") {
         t2.kdate;
     """
 
-     qt_sql_join1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=4)*/
+     qt_sql_join1 """ select /*+SET_VAR(parallel_pipeline_task_num=4)*/
         t1.k1,
         t1.k2,
         t1.kdate,

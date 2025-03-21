@@ -151,6 +151,8 @@ suite ("multiple_ssb_between") {
 
     sql "analyze table lineorder_flat with sync;"
     sql """set enable_stats=true;"""
+
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat

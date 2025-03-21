@@ -5,19 +5,19 @@ internal	test_manager_metadata_name_ids	\N
 -- !metadata_2 --
 internal	test_manager_metadata_name_ids	test_metadata_name_ids
 
--- !metadata_2 --
+-- !metadata_3 --
 
 -- !tables_1 --
-k1	TINYINT	Yes	true	\N	
-k2	DECIMAL(10, 2)	Yes	true	10.05	
-k3	CHAR(10)	Yes	true	\N	BLOOM_FILTER
-k4	INT	No	false	1	NONE
-k5	TEXT	Yes	false	\N	NONE,BLOOM_FILTER
+k1	tinyint	Yes	true	\N	
+k2	decimal(10,2)	Yes	true	10.05	
+k3	char(10)	Yes	true	\N	BLOOM_FILTER
+k4	int	No	false	1	NONE
+k5	text	Yes	false	\N	NONE,BLOOM_FILTER
 
 -- !tables_2 --
-test_manager_tb_1	DUP_KEYS	k1	TINYINT	TINYINT	Yes	true	\N		true		
-		k2	DECIMAL(10, 2)	DECIMALV3(10, 2)	Yes	true	10.05		true		
-		k3	CHAR(10)	CHAR(10)	Yes	true	\N	BLOOM_FILTER	true		
-		k4	INT	INT	No	false	1	NONE	true		
-		k5	TEXT	TEXT	Yes	false	\N	NONE,BLOOM_FILTER	true		
+test_manager_tb_1	DUP_KEYS	k1	tinyint	tinyint	Yes	true	\N		true		
+		k2	DECIMAL(10, 2)	decimalv3(10,2)	Yes	true	10.05		true		
+		k3	char(10)	char(10)	Yes	true	\N	BLOOM_FILTER	true		
+		k4	int	int	No	false	1	NONE	true		
+		k5	text	text	Yes	false	\N	NONE,BLOOM_FILTER	true		
 

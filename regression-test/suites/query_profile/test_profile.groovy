@@ -66,6 +66,7 @@ suite('test_profile') {
     """
 
     sql "set enable_profile=true"
+    sql "set profile_level=2"
     def simpleSql = "select count(*) from test_profile"
     sql "${simpleSql}"
     def isRecorded = false
@@ -78,6 +79,22 @@ suite('test_profile') {
         }
     }
     assertTrue(isRecorded)
+
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
+
+    int randomInt = Math.random() * 2000000000
+    profile("test_profile_time_${randomInt}") {
+        run {
+            sql "/* test_profile_time_${randomInt} */ select ${randomInt} from test_profile"
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("Nereids  GarbageCollect  Time"))
+            assertTrue(profileString.contains("Nereids  BeFoldConst  Time"))
+        }
+    }
 
     sql """ SET enable_profile = false """
     sql """ DROP TABLE IF EXISTS test_profile """

@@ -31,6 +31,8 @@ public class DropTableRecord {
     private long tableId;
     @SerializedName(value = "tableName")
     private String tableName;
+    @SerializedName(value = "isView")
+    private boolean isView = false;
     @SerializedName(value = "rawSql")
     private String rawSql;
 
@@ -39,7 +41,10 @@ public class DropTableRecord {
         this.dbId = info.getDbId();
         this.tableId = info.getTableId();
         this.tableName = info.getTableName();
-        this.rawSql = String.format("DROP TABLE IF EXISTS `%s`", this.tableName);
+        this.isView = info.isView();
+        this.rawSql = info.isView()
+            ? String.format("DROP VIEW IF EXISTS `%s`", this.tableName)
+            : String.format("DROP TABLE IF EXISTS `%s`", this.tableName);
     }
 
     public long getCommitSeq() {

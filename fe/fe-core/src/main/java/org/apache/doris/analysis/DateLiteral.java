@@ -110,6 +110,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
+    private static String MICRO_SECOND_FORMATTER = "%f";
     private static final int[] DAYS_IN_MONTH = new int[]{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
@@ -669,7 +670,7 @@ public class DateLiteral extends LiteralExpr {
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }
 
     @Override
@@ -725,6 +726,39 @@ public class DateLiteral extends LiteralExpr {
                 fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
                 return new String(dateTimeChars, 0, 20 + scale);
             }
+        }
+
+        return new String(dateTimeChars, 0, 19);
+    }
+
+    public String getStringValue(Type type) {
+        char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
+
+        // Populate the date part
+        fillPaddedValue(dateTimeChars, 0, year, 4);
+        dateTimeChars[4] = '-';
+        fillPaddedValue(dateTimeChars, 5, month, 2);
+        dateTimeChars[7] = '-';
+        fillPaddedValue(dateTimeChars, 8, day, 2);
+
+        if (type.isDate() || type.isDateV2()) {
+            return new String(dateTimeChars, 0, 10);
+        }
+
+        // Populate the time part
+        dateTimeChars[10] = ' ';
+        fillPaddedValue(dateTimeChars, 11, hour, 2);
+        dateTimeChars[13] = ':';
+        fillPaddedValue(dateTimeChars, 14, minute, 2);
+        dateTimeChars[16] = ':';
+        fillPaddedValue(dateTimeChars, 17, second, 2);
+
+        if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
+            long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
+            dateTimeChars[19] = '.';
+            fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            return new String(dateTimeChars, 0, 20 + scale);
         }
 
         return new String(dateTimeChars, 0, 19);
@@ -992,6 +1026,10 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasTimePart(String format) {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
+    }
+
+    public static boolean hasMicroSecondPart(String format) {
+        return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
     }
 
     // Return the date stored in the dateliteral as pattern format.

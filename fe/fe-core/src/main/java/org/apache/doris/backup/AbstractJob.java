@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -41,9 +42,10 @@ import java.util.Map;
  * 2. isDone() method is used to check whether we can submit the next job.
  */
 public abstract class AbstractJob implements Writable {
+    public static final String COMPRESSED_JOB_ID = "COMPRESSED";
 
     public enum JobType {
-        BACKUP, RESTORE
+        BACKUP, RESTORE, BACKUP_COMPRESSED, RESTORE_COMPRESSED
     }
 
     @SerializedName("t")
@@ -168,16 +170,18 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract boolean isFinished();
+
     public abstract Status updateRepo(Repository repo);
 
     public static AbstractJob read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
             AbstractJob job = null;
             JobType type = JobType.valueOf(Text.readString(in));
-            if (type == JobType.BACKUP) {
-                job = new BackupJob();
-            } else if (type == JobType.RESTORE) {
-                job = new RestoreJob();
+            if (type == JobType.BACKUP || type == JobType.BACKUP_COMPRESSED) {
+                job = new BackupJob(type);
+            } else if (type == JobType.RESTORE || type == JobType.RESTORE_COMPRESSED) {
+                job = new RestoreJob(type);
             } else {
                 throw new IOException("Unknown job type: " + type.name());
             }
@@ -186,7 +190,12 @@ public abstract class AbstractJob implements Writable {
             job.readFields(in);
             return job;
         } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), AbstractJob.class);
+            String json = Text.readString(in);
+            if (COMPRESSED_JOB_ID.equals(json)) {
+                return GsonUtils.fromJsonCompressed(in, AbstractJob.class);
+            } else {
+                return GsonUtils.GSON.fromJson(json, AbstractJob.class);
+            }
         }
     }
 
@@ -203,7 +212,16 @@ public abstract class AbstractJob implements Writable {
             count++;
         }
 
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        // For a completed job, there's no need to save it with compressed serialization as it has
+        // no snapshot or backup meta info, making it small in size. This helps maintain compatibility
+        // more easily.
+        if (!isDone() && ((type == JobType.BACKUP && Config.backup_job_compressed_serialization)
+                || (type == JobType.RESTORE && Config.restore_job_compressed_serialization))) {
+            Text.writeString(out, COMPRESSED_JOB_ID);
+            GsonUtils.toJsonCompressed(out, this);
+        } else {
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
+        }
     }
 
     @Deprecated

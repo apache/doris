@@ -17,20 +17,9 @@
 
 #include "testutil/desc_tbl_builder.h"
 
-#include <glog/logging.h>
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
-#include <vector>
-
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "gtest/gtest_pred_impl.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/descriptors.h"
-#include "util/bit_util.h"
-
-using std::vector;
 
 namespace doris {
 
@@ -44,7 +33,7 @@ TupleDescBuilder& DescriptorTblBuilder::declare_tuple() {
 
 // item_id of -1 indicates no itemTupleId
 static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDescriptor& type,
-                                            int slot_idx, int item_id) {
+                                            const std::string& name, int slot_idx, int item_id) {
     int null_byte = slot_idx / 8;
     int null_bit = slot_idx % 8;
     TSlotDescriptor slot_desc;
@@ -58,6 +47,7 @@ static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDes
     slot_desc.__set_nullIndicatorBit(null_bit);
     slot_desc.__set_slotIdx(slot_idx);
     slot_desc.__set_isMaterialized(true);
+    slot_desc.__set_colName(name);
     // if (item_id != -1) {
     //     slot_desc.__set_itemTupleId(item_id);
     // }
@@ -78,8 +68,9 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     int tuple_id = 0;
     int slot_id = 0;
 
-    for (int i = 0; i < _tuples_descs.size(); ++i) {
-        build_tuple(_tuples_descs[i]->slot_types(), &thrift_desc_tbl, &tuple_id, &slot_id);
+    for (auto& _tuples_desc : _tuples_descs) {
+        build_tuple(_tuples_desc->slot_types(), _tuples_desc->slot_names(), &thrift_desc_tbl,
+                    &tuple_id, &slot_id);
     }
 
     Status status = DescriptorTbl::create(_obj_pool, thrift_desc_tbl, &desc_tbl);
@@ -87,7 +78,8 @@ DescriptorTbl* DescriptorTblBuilder::build() {
     return desc_tbl;
 }
 
-TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>& slot_types,
+TTupleDescriptor DescriptorTblBuilder::build_tuple(const std::vector<TypeDescriptor>& slot_types,
+                                                   const std::vector<std::string>& slot_names,
                                                    TDescriptorTable* thrift_desc_tbl,
                                                    int* next_tuple_id, int* slot_id) {
     // We never materialize struct slots (there's no in-memory representation of structs,
@@ -95,7 +87,8 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
     // still have a struct item type. In this case, the array item tuple contains the
     // "inlined" struct fields.
     if (slot_types.size() == 1 && slot_types[0].type == TYPE_STRUCT) {
-        return build_tuple(slot_types[0].children, thrift_desc_tbl, next_tuple_id, slot_id);
+        return build_tuple(slot_types[0].children, slot_types[0].field_names, thrift_desc_tbl,
+                           next_tuple_id, slot_id);
     }
 
     int tuple_id = *next_tuple_id;
@@ -111,7 +104,7 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
         // }
 
         thrift_desc_tbl->slotDescriptors.push_back(
-                make_slot_descriptor(*slot_id, tuple_id, slot_types[i], i, item_id));
+                make_slot_descriptor(*slot_id, tuple_id, slot_types[i], slot_names[i], i, item_id));
         thrift_desc_tbl->__isset.slotDescriptors = true;
         ++(*slot_id);
     }

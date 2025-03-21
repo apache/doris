@@ -36,6 +36,7 @@ comment_to_pipeline=(
     ['performance']='Doris_DorisPerformance_Performance'
     ['cloud_p0']='Doris_DorisRegression_CloudP0'
     ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
+    ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
 )
 
 # github中评论的要触发的流水线名字
@@ -56,6 +57,7 @@ conment_to_context=(
     ['performance']='performance (Doris Performance)'
     ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
+    ['vault_p0']='vault_p0 (Doris Cloud Regression)'
 )
 
 get_commit_id_of_build() {
@@ -280,6 +282,7 @@ trigger_or_skip_build() {
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
         fi
     fi
 }

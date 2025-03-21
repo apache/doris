@@ -476,7 +476,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "  `username` varchar(255) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
-                        + "PARTITION BY LIST(`userId`)\n"
+                        + "PARTITION BY LIST (`userId`)\n"
                         + "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n"
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"

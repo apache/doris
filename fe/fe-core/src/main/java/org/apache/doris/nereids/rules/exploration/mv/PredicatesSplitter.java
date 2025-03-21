@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -28,9 +29,9 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Split the expression to equal, range and residual predicate.
@@ -39,9 +40,9 @@ import java.util.Set;
  */
 public class PredicatesSplitter {
 
-    private final Set<Expression> equalPredicates = new LinkedHashSet<>();
-    private final Set<Expression> rangePredicates = new LinkedHashSet<>();
-    private final Set<Expression> residualPredicates = new LinkedHashSet<>();
+    private final Map<Expression, ExpressionInfo> equalPredicates = new HashMap<>();
+    private final Map<Expression, ExpressionInfo> rangePredicates = new HashMap<>();
+    private final Map<Expression, ExpressionInfo> residualPredicates = new HashMap<>();
     private final List<Expression> conjunctExpressions;
 
     public PredicatesSplitter(Expression target) {
@@ -65,19 +66,19 @@ public class PredicatesSplitter {
             boolean rightArgOnlyContainsColumnRef = containOnlyColumnRef(rightArg, true);
             if (comparisonPredicate instanceof EqualPredicate) {
                 if (leftArgOnlyContainsColumnRef && rightArgOnlyContainsColumnRef) {
-                    equalPredicates.add(comparisonPredicate);
+                    equalPredicates.put(comparisonPredicate, ExpressionInfo.EMPTY);
                     return null;
                 } else if ((leftArgOnlyContainsColumnRef && rightArg instanceof Literal)
                         || (rightArgOnlyContainsColumnRef && leftArg instanceof Literal)) {
-                    rangePredicates.add(comparisonPredicate);
+                    rangePredicates.put(comparisonPredicate, ExpressionInfo.EMPTY);
                 } else {
-                    residualPredicates.add(comparisonPredicate);
+                    residualPredicates.put(comparisonPredicate, ExpressionInfo.EMPTY);
                 }
             } else if ((leftArgOnlyContainsColumnRef && rightArg instanceof Literal)
                     || (rightArgOnlyContainsColumnRef && leftArg instanceof Literal)) {
-                rangePredicates.add(comparisonPredicate);
+                rangePredicates.put(comparisonPredicate, ExpressionInfo.EMPTY);
             } else {
-                residualPredicates.add(comparisonPredicate);
+                residualPredicates.put(comparisonPredicate, ExpressionInfo.EMPTY);
             }
             return null;
         }
@@ -85,26 +86,23 @@ public class PredicatesSplitter {
         @Override
         public Void visitInPredicate(InPredicate inPredicate, Void context) {
             if (containOnlyColumnRef(inPredicate.getCompareExpr(), true)
-                    && (ExpressionUtils.isAllLiteral(inPredicate.getOptions()))) {
-                rangePredicates.add(inPredicate);
+                    && (inPredicate.optionsAreLiterals())) {
+                rangePredicates.put(inPredicate, ExpressionInfo.EMPTY);
             } else {
-                residualPredicates.add(inPredicate);
+                residualPredicates.put(inPredicate, ExpressionInfo.EMPTY);
             }
             return null;
         }
 
         @Override
         public Void visit(Expression expr, Void context) {
-            residualPredicates.add(expr);
+            residualPredicates.put(expr, ExpressionInfo.EMPTY);
             return null;
         }
     }
 
     public Predicates.SplitPredicate getSplitPredicate() {
-        return Predicates.SplitPredicate.of(
-                equalPredicates.isEmpty() ? null : ExpressionUtils.and(equalPredicates),
-                rangePredicates.isEmpty() ? null : ExpressionUtils.and(rangePredicates),
-                residualPredicates.isEmpty() ? null : ExpressionUtils.and(residualPredicates));
+        return Predicates.SplitPredicate.of(equalPredicates, rangePredicates, residualPredicates);
     }
 
     private static boolean containOnlyColumnRef(Expression expression, boolean allowCast) {

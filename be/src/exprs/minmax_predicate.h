@@ -17,16 +17,8 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "common/object_pool.h"
 #include "exprs/runtime_filter.h"
-#include "runtime/type_limit.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
+#include "exprs/runtime_filter_convertor.h"
 
 namespace doris {
 // only used in Runtime Filter
@@ -44,6 +36,8 @@ public:
     bool contain_null() const { return _null_aware && _contain_null; }
 
     void set_contain_null() { _contain_null = true; }
+
+    virtual void to_pb(PMinMaxFilter* filter) = 0;
 
 protected:
     bool _contain_null = false;
@@ -164,6 +158,17 @@ public:
         _max = *(T*)max_data;
         return Status::OK();
     }
+
+    void set_pb(PMinMaxFilter* filter, auto f) {
+        if constexpr (NeedMin) {
+            f(filter->mutable_min_val(), _min);
+        }
+        if constexpr (NeedMax) {
+            f(filter->mutable_max_val(), _max);
+        }
+    }
+
+    void to_pb(PMinMaxFilter* filter) override { set_pb(filter, get_convertor<T>()); }
 
 protected:
     T _max = type_limit<T>::min();

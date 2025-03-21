@@ -89,11 +89,11 @@ public class UseCloudClusterStmt extends StatementBase implements NotFallbackInP
         if (Strings.isNullOrEmpty(cluster)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_CLUSTER_ERROR);
         }
-        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
                 cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
                 + "'@'" + ConnectContext.get().getRemoteIP()
-                + "' for cloud cluster '" + cluster + "'");
+                + "' for compute group '" + cluster + "'");
         }
 
         if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(cluster)) {

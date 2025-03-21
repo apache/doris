@@ -90,9 +90,7 @@ public:
                             const TExecPlanFragmentParams& params) override;
 
     void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                              const TCancelPlanFragmentParams& params) override;
-
-    void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) override;
+                              const TCancelPlanFragmentParams& params) override {};
 
     void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
 

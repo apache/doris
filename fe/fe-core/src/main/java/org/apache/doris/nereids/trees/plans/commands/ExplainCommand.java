@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -78,12 +79,16 @@ public class ExplainCommand extends Command implements NoForward {
         if (!(logicalPlan instanceof Explainable)) {
             throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
         }
-        explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan(ctx));
+        Explainable explainable = (Explainable) logicalPlan;
+        explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
+        NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
+            new NereidsPlanner(ctx.getStatementContext())
+        );
+
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());
         ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
         logicalPlanAdapter.setIsExplain(explainOptions);
         executor.setParsedStmt(logicalPlanAdapter);
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
             ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
@@ -94,6 +99,9 @@ public class ExplainCommand extends Command implements NoForward {
             executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
         } else {
             executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
+        }
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            scanNode.stop();
         }
     }
 

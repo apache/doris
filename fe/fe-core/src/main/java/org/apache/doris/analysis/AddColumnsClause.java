@@ -34,6 +34,7 @@ import java.util.Map;
  */
 public class AddColumnsClause extends AlterTableClause {
     private List<ColumnDef> columnDefs;
+    private String sql;
     private String rollupName;
 
     private Map<String, String> properties;
@@ -43,6 +44,15 @@ public class AddColumnsClause extends AlterTableClause {
     public AddColumnsClause(List<ColumnDef> columnDefs, String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDefs = columnDefs;
+        this.rollupName = rollupName;
+        this.properties = properties;
+    }
+
+    // for nereids
+    public AddColumnsClause(String sql, List<Column> columns, String rollupName, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.sql = sql;
+        this.columns = columns;
         this.rollupName = rollupName;
         this.properties = properties;
     }
@@ -90,21 +100,25 @@ public class AddColumnsClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ADD COLUMN (");
-        int idx = 0;
-        for (ColumnDef columnDef : columnDefs) {
-            if (idx != 0) {
-                sb.append(", ");
+        if (sql != null) {
+            return sql;
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("ADD COLUMN (");
+            int idx = 0;
+            for (ColumnDef columnDef : columnDefs) {
+                if (idx != 0) {
+                    sb.append(", ");
+                }
+                sb.append(columnDef.toSql());
+                idx++;
             }
-            sb.append(columnDef.toSql());
-            idx++;
+            sb.append(")");
+            if (rollupName != null) {
+                sb.append(" IN `").append(rollupName).append("`");
+            }
+            return sb.toString();
         }
-        sb.append(")");
-        if (rollupName != null) {
-            sb.append(" IN `").append(rollupName).append("`");
-        }
-        return sb.toString();
     }
 
     @Override

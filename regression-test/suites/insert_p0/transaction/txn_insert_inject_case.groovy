@@ -96,6 +96,8 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     } catch (Exception e) {
         logger.error("failed", e)
     } finally {
+        sql """ rollback """
+        disableDebugPoint()
         GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
     }
     sql "sync"
@@ -132,7 +134,7 @@ suite("txn_insert_inject_case", "nonConcurrent") {
         }
 
         def result = sql "SELECT COUNT(*) FROM ${table}_0"
-        rowCount = result[0][0]
+        def rowCount = result[0][0]
         assertEquals(0, rowCount)
         // sleep(10000)
     } finally {

@@ -43,7 +43,7 @@
 #include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_avoid_begin.h"
 /** For zero argument, result is zero.
   * For arguments with most significand bit set, result is zero.
   * For other arguments, returns value, rounded up to power of two.
@@ -114,8 +114,7 @@ protected:
     /// pad_left is also rounded up to 16 bytes to maintain alignment of allocated memory.
     static constexpr size_t pad_left = integerRoundUp(integerRoundUp(pad_left_, ELEMENT_SIZE), 16);
     /// Empty array will point to this static memory as padding.
-    static constexpr char* null =
-            pad_left ? const_cast<char*>(empty_pod_array) + EmptyPODArraySize : nullptr;
+    static constexpr char* null = const_cast<char*>(empty_pod_array) + pad_left;
 
     static_assert(pad_left <= EmptyPODArraySize &&
                   "Left Padding exceeds EmptyPODArraySize. Is the element size too large?");
@@ -356,14 +355,14 @@ public:
     /// The index is signed to access -1th element without pointer overflow.
     T& operator[](ssize_t n) {
         /// <= size, because taking address of one element past memory range is Ok in C++ (expression like &arr[arr.size()] is perfectly valid).
-        assert((n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)) &&
-               (n <= static_cast<ssize_t>(this->size())));
+        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
+        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
     const T& operator[](ssize_t n) const {
-        assert((n >= (static_cast<ssize_t>(pad_left_) ? -1 : 0)) &&
-               (n <= static_cast<ssize_t>(this->size())));
+        DCHECK_GE(n, (static_cast<ssize_t>(pad_left_) ? -1 : 0));
+        DCHECK_LE(n, static_cast<ssize_t>(this->size()));
         return t_start()[n];
     }
 
@@ -445,8 +444,7 @@ public:
       */
     template <typename... Args>
     void emplace_back(Args&&... args) {
-        if (UNLIKELY(this->c_end == nullptr ||
-                     (this->c_end + sizeof(T) > this->c_end_of_storage))) {
+        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
             this->reserve_for_next_size();
         }
 
@@ -687,3 +685,4 @@ void swap(PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& lhs,
 }
 
 } // namespace doris::vectorized
+#include "common/compile_check_avoid_end.h"

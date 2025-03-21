@@ -49,7 +49,7 @@ public class MTMVTest {
     @Test
     public void testToInfoString() {
         String expect
-                = "MTMV{refreshInfo=BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 2 SECOND STARTS ss, "
+                = "MTMV{refreshInfo=BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 2 SECOND STARTS \"ss\", "
                 + "querySql='select * from xxx;', "
                 + "status=MTMVStatus{state=INIT, schemaChangeDetail='null', refreshState=INIT}, "
                 + "jobInfo=MTMVJobInfo{jobName='job1', "

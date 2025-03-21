@@ -35,6 +35,7 @@
 #include "vec/data_types/serde/data_type_date64_serde.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class BufferWritable;
 class ReadBuffer;
@@ -92,5 +93,5 @@ public:
         return std::make_shared<DataTypeDate64SerDe>(nesting_level);
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

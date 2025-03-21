@@ -21,6 +21,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 import io.grpc.ConnectivityState;
@@ -33,11 +34,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class MetaServiceClient {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
+    private static final Map<String, ?> serviceConfig;
 
     private final String address;
     private final MetaServiceGrpc.MetaServiceFutureStub stub;
@@ -45,9 +48,16 @@ public class MetaServiceClient {
     private final ManagedChannel channel;
     private final long expiredAt;
     private final boolean isMetaServiceEndpointList;
+    private Random random = new Random();
 
     static {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
+
+        // https://github.com/grpc/proposal/blob/master/A6-client-retries.md#retry-policy-capabilities
+        serviceConfig = new Gson().fromJson(new JsonReader(new InputStreamReader(
+                MetaServiceClient.class.getResourceAsStream("/retrying_service_config.json"),
+                StandardCharsets.UTF_8)), Map.class);
+        LOG.info("serviceConfig:{}", serviceConfig);
     }
 
     public MetaServiceClient(String address) {
@@ -59,10 +69,12 @@ public class MetaServiceClient {
         if (isMetaServiceEndpointList) {
             target = MetaServiceListResolverProvider.MS_LIST_SCHEME_PREFIX + address;
         }
+
+        Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
         channel = NettyChannelBuilder.forTarget(target)
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .defaultServiceConfig(getRetryingServiceConfig())
+                .defaultServiceConfig(serviceConfig)
                 .defaultLoadBalancingPolicy("round_robin")
                 .enableRetry()
                 .usePlaintext().build();
@@ -76,18 +88,11 @@ public class MetaServiceClient {
         // Disable connection age if the endpoint is a list.
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
-            return base + System.currentTimeMillis() % base;
+            long now = System.currentTimeMillis();
+            long rand = random.nextLong() % base;
+            return now + base + rand;
         }
         return Long.MAX_VALUE;
-    }
-
-    protected Map<String, ?> getRetryingServiceConfig() {
-        // https://github.com/grpc/proposal/blob/master/A6-client-retries.md#retry-policy-capabilities
-        Map<String, ?> serviceConfig = new Gson().fromJson(new JsonReader(new InputStreamReader(
-                MetaServiceClient.class.getResourceAsStream("/retrying_service_config.json"),
-                StandardCharsets.UTF_8)), Map.class);
-        LOG.info("serviceConfig:{}", serviceConfig);
-        return serviceConfig;
     }
 
     // Is the connection age has expired?
@@ -341,6 +346,17 @@ public class MetaServiceClient {
         return blockingStub.getDeleteBitmapUpdateLock(request);
     }
 
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.RemoveDeleteBitmapUpdateLockRequest.Builder builder = Cloud.RemoveDeleteBitmapUpdateLockRequest
+                    .newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.removeDeleteBitmapUpdateLock(request);
+    }
+
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();
@@ -402,5 +418,10 @@ public class MetaServiceClient {
             return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.finishTabletJob(request);
+    }
+
+    public Cloud.CreateInstanceResponse
+            createInstance(Cloud.CreateInstanceRequest request) {
+        return blockingStub.createInstance(request);
     }
 }

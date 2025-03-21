@@ -251,7 +251,7 @@ public class PartitionRebalancer extends Rebalancer {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Move {} is completed. The cur dist: {}", move,
                             invertedIndex.getReplicasByTabletId(move.tabletId).stream()
-                                    .map(Replica::getBackendId).collect(Collectors.toList()));
+                                    .map(Replica::getBackendIdWithoutException).collect(Collectors.toList()));
                 }
                 counterBalanceMoveSucceeded.incrementAndGet();
             }
@@ -262,7 +262,7 @@ public class PartitionRebalancer extends Rebalancer {
     private boolean checkMoveCompleted(TabletMove move) {
         Long tabletId = move.tabletId;
         List<Long> bes = invertedIndex.getReplicasByTabletId(tabletId).stream()
-                .map(Replica::getBackendId).collect(Collectors.toList());
+                .map(Replica::getBackendIdWithoutException).collect(Collectors.toList());
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
@@ -284,8 +284,9 @@ public class PartitionRebalancer extends Rebalancer {
             // Check src replica's validation
             Replica srcReplica = tabletCtx.getTablet().getReplicaByBackendId(move.fromBe);
             Preconditions.checkNotNull(srcReplica);
-            TabletScheduler.PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendId());
-            Preconditions.checkNotNull(slot, "unable to get fromBe " + srcReplica.getBackendId() + " slot");
+            TabletScheduler.PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendIdWithoutException());
+            Preconditions.checkNotNull(slot, "unable to get fromBe "
+                    + srcReplica.getBackendIdWithoutException() + " slot");
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {

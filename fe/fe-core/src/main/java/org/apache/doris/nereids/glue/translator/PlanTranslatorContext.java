@@ -303,6 +303,9 @@ public class PlanTranslatorContext {
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
+        if (column.isPresent()) {
+            slotDescriptor.setAutoInc(column.get().isAutoInc());
+        }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
         return slotDescriptor;

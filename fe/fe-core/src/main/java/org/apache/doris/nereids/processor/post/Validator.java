@@ -44,13 +44,6 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         Preconditions.checkArgument(!project.getProjects().isEmpty(), "Project list can't be empty");
-
-        Plan child = project.child();
-        // Forbidden project-project, we must merge project.
-        if (child instanceof PhysicalProject) {
-            throw new AnalysisException("Nereids must merge a project-project plan");
-        }
-
         return visit(project, context);
     }
 
@@ -58,13 +51,6 @@ public class Validator extends PlanPostProcessor {
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
                 && filter.getPredicate() != BooleanLiteral.TRUE, "Filter predicate can't be empty or true");
-
-        Plan child = filter.child();
-        // Forbidden filter-project, we must make filter-project -> project-filter.
-        if (child instanceof PhysicalProject) {
-            throw new AnalysisException(
-                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
-        }
 
         return visit(filter, context);
     }
@@ -80,9 +66,8 @@ public class Validator extends PlanPostProcessor {
             List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
                     Collectors.toList());
             throw new AnalysisException("A expression contains slot not from children\n"
-                    + "Plan: " + plan + "\n"
-                    + "Children Output:" + childrenOutput + "\n"
-                    + "Slot: " + opt.get() + "\n");
+                    + "Slot: " + opt.get() + "  Children Output:" + childrenOutput + "\n"
+                    + "Plan: " + plan.treeString() + "\n");
         }
         return plan;
     }

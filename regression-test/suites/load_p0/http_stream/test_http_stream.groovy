@@ -377,7 +377,7 @@ suite("test_http_stream", "p0") {
             }
         }
 
-        qt_sql8 "select * from ${tableName8}"
+        order_qt_sql8 "select * from ${tableName8}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName8}"
     }
@@ -425,7 +425,7 @@ suite("test_http_stream", "p0") {
             }
         }
 
-        qt_sql9 "select * from ${tableName9}"
+        order_qt_sql9 "select * from ${tableName9}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName9}"
     }

@@ -20,10 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -40,7 +39,7 @@ import java.util.List;
  * GenerateFunction.
  */
 public class AutoPartitionName extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
@@ -69,11 +68,11 @@ public class AutoPartitionName extends ScalarFunction
             throw new AnalysisException("function auto_partition_name must contains at least two arguments");
         }
         if (!child(0).isLiteral()) {
-            throw new AnalysisException("auto_partition_name must accept literal for 1nd argument");
+            throw new AnalysisException("auto_partition_name must accept literal for 1st argument");
         }
         final String partition_type = ((VarcharLiteral) getArgument(0)).getStringValue().toLowerCase();
         if (!Lists.newArrayList("range", "list").contains(partition_type)) {
-            throw new AnalysisException("function auto_partition_name must accept range|list for 1nd argument");
+            throw new AnalysisException("function auto_partition_name must accept range|list for 1st argument");
         } else if (Lists.newArrayList("range").contains(partition_type)) {
             if (!child(1).isLiteral()) {
                 throw new AnalysisException("auto_partition_name must accept literal for 2nd argument");
@@ -91,6 +90,11 @@ public class AutoPartitionName extends ScalarFunction
             }
 
         }
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
     }
 
     @Override

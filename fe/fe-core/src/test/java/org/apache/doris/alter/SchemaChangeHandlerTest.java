@@ -19,9 +19,11 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -49,7 +51,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        //create database db1
+        // create database db1
         createDatabase("test");
 
         //create tables
@@ -108,12 +110,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process agg add value column schema change
+        // process agg add value column schema change
         String addValColStmtStr = "alter table test.sc_agg add column new_v1 int MAX default '0'";
         AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
         jobSize++;
-        //check alter job, do not create job
+        // check alter job, do not create job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         Assertions.assertEquals(jobSize, alterJobs.size());
 
@@ -124,18 +126,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
             Assertions.assertNotNull(indexMeta);
-            //col_unique_id 0-9
+            // col_unique_id 0-9
             Assertions.assertEquals(9, indexMeta.getMaxColUniqueId());
         } finally {
             tbl.readUnlock();
         }
 
-        //process agg add  key column schema change
+        // process agg add key column schema change
         String addKeyColStmtStr = "alter table test.sc_agg add column new_k1 int default '1'";
         AlterTableStmt addKeyColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addKeyColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addKeyColStmt);
 
-        //check alter job
+        // check alter job
         jobSize++;
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
@@ -151,12 +153,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process agg drop value column schema change
+        // process agg drop value column schema change
         String dropValColStmtStr = "alter table test.sc_agg drop column new_v1";
         AlterTableStmt dropValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropValColStmt);
         jobSize++;
-        //check alter job, do not create job
+        // check alter job, do not create job
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
 
@@ -172,7 +174,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
 
         try {
-            //process agg drop key column with replace schema change, expect exception.
+            // process agg drop key column with replace schema change, expect exception.
             String dropKeyColStmtStr = "alter table test.sc_agg drop column new_k1";
             AlterTableStmt dropKeyColStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropKeyColStmtStr);
             Env.getCurrentEnv().getAlterInstance().processAlterTable(dropKeyColStmt);
@@ -194,16 +196,16 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         LOG.info("getIndexIdToSchema 2: {}", tbl.getIndexIdToSchema(true));
 
-        //process agg drop value column with rollup schema change
+        // process agg drop value column with rollup schema change
         String dropRollUpValColStmtStr = "alter table test.sc_agg drop column max_dwell_time";
         AlterTableStmt dropRollUpValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropRollUpValColStmtStr);
         try {
             Env.getCurrentEnv().getAlterInstance().processAlterTable(dropRollUpValColStmt);
-            Assertions.assertTrue(false);
+            org.junit.jupiter.api.Assertions.fail();
         } catch (Exception e) {
             LOG.info("{}", e);
         }
-        //check alter job, need create job
+        // check alter job, need create job
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(materializedViewAlterJobs);
@@ -219,13 +221,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process agg add mul value column schema change
+        // process agg add mul value column schema change
         String addMultiValColStmtStr
                 = "alter table test.sc_agg add column new_v2 int MAX default '0', add column new_v3 int MAX default '1';";
         AlterTableStmt addMultiValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addMultiValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addMultiValColStmt);
         jobSize++;
-        //check alter job, do not create job
+        // check alter job, do not create job
         Assertions.assertEquals(jobSize, alterJobs.size());
 
         tbl.readLock();
@@ -257,12 +259,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq add value column schema change
+        // process uniq add value column schema change
         String addValColStmtStr = "alter table test.sc_uniq add column new_v1 int default '0'";
         AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
         jobSize++;
-        //check alter job, do not create job
+        // check alter job, do not create job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
@@ -278,12 +280,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq drop val column schema change
+        // process uniq drop val column schema change
         String dropValColStmtStr = "alter table test.sc_uniq drop column new_v1";
         AlterTableStmt dropValColStm = (AlterTableStmt) parseAndAnalyzeStmt(dropValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropValColStm);
         jobSize++;
-        //check alter job
+        // check alter job
         Assertions.assertEquals(jobSize, alterJobs.size());
         tbl.readLock();
         try {
@@ -313,12 +315,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq add value column schema change
+        // process uniq add value column schema change
         String addValColStmtStr = "alter table test.sc_dup add column new_v1 int default '0'";
         AlterTableStmt addValColStmt = (AlterTableStmt) parseAndAnalyzeStmt(addValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addValColStmt);
         jobSize++;
-        //check alter job, do not create job
+        // check alter job, do not create job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
@@ -334,12 +336,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq drop val column schema change
+        // process uniq drop val column schema change
         String dropValColStmtStr = "alter table test.sc_dup drop column new_v1";
         AlterTableStmt dropValColStm = (AlterTableStmt) parseAndAnalyzeStmt(dropValColStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropValColStm);
         jobSize++;
-        //check alter job
+        // check alter job
         Assertions.assertEquals(jobSize, alterJobs.size());
         tbl.readLock();
         try {
@@ -372,7 +374,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
-                    new Long(2), new Long(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
+                    Long.valueOf(2), Long.valueOf(1), Maps.newHashMap(), Sets.newHashSet(), false, Maps.newHashMap());
             Assert.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -395,12 +397,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process agg add inverted index schema change
-        String addInvertedIndexStmtStr = "alter table test.sc_agg add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
+        // process agg add inverted index schema change
+        String addInvertedIndexStmtStr =
+                "alter table test.sc_agg add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
         AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
         jobSize++;
-        //check alter job
+        // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
@@ -417,12 +420,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process agg drop inverted index schema change
+        // process agg drop inverted index schema change
         String dropInvertedIndexStmtStr = "alter table test.sc_agg drop index idx_city";
         AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
         jobSize++;
-        //check alter job
+        // check alter job
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
@@ -455,12 +458,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq add inverted index schema change
-        String addInvertedIndexStmtStr = "alter table test.sc_uniq add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
+        // process uniq add inverted index schema change
+        String addInvertedIndexStmtStr =
+                "alter table test.sc_uniq add index idx_city(city) using inverted properties(\"parser\"=\"english\")";
         AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
         jobSize++;
-        //check alter job
+        // check alter job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
@@ -477,12 +481,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process uniq drop inverted indexn schema change
+        // process uniq drop inverted indexn schema change
         String dropInvertedIndexStmtStr = "alter table test.sc_uniq drop index idx_city";
         AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
         jobSize++;
-        //check alter job
+        // check alter job
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
@@ -514,12 +518,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process dup add inverted index schema change
-        String addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg) using inverted properties(\"parser\"=\"standard\")";
+        // process dup add inverted index schema change
+        String addInvertedIndexStmtStr =
+                "alter table test.sc_dup add index idx_error_msg(error_msg) using inverted properties(\"parser\"=\"standard\")";
         AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
         jobSize++;
-        //check dup job
+        // check dup job
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         LOG.info("alterJobs:{}", alterJobs);
         Assertions.assertEquals(jobSize, alterJobs.size());
@@ -536,12 +541,12 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
 
-        //process dup drop inverted index schema change
+        // process dup drop inverted index schema change
         String dropInvertedIndexStmtStr = "alter table test.sc_dup drop index idx_error_msg";
         AlterTableStmt dropInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropInvertedIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropInvertedIndexStmt);
         jobSize++;
-        //check alter job
+        // check alter job
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
@@ -556,4 +561,113 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             tbl.readUnlock();
         }
     }
+
+    @Test
+    public void testAddDuplicateInvertedIndexException() throws Exception {
+
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+
+        String addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
+                + "add index idx_error_msg1(error_msg)";
+        AlterTableStmt addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        try {
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        } catch (Exception e) {
+            // Verify the error message contains relevant info
+            Assertions.assertTrue(e.getMessage().contains("INVERTED index for columns (error_msg) already exist"));
+        }
+        addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
+                + "add index idx_error_msg(error_msg)";
+        addInvertedIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addInvertedIndexStmtStr);
+        try {
+            Env.getCurrentEnv().getAlterInstance().processAlterTable(addInvertedIndexStmt);
+        } catch (Exception e) {
+            // Verify the error message contains relevant info
+            Assertions.assertTrue(e.getMessage().contains("index `idx_error_msg` already exist."));
+        }
+    }
+
+    @Test
+    public void testDupAddOrDropNgramBfIndex() throws Exception {
+        LOG.info("dbName: {}", Env.getCurrentInternalCatalog().getDbNames());
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertNotNull(tbl);
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+        } finally {
+            tbl.readUnlock();
+        }
+        String addNgramBfIndexStmtStr = "ALTER TABLE test.sc_dup "
+                + "ADD INDEX idx_error_msg(error_msg) USING NGRAM_BF "
+                + "PROPERTIES(\"gram_size\"=\"2\", \"bf_size\"=\"256\")";
+        AlterTableStmt addNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(addNgramBfIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(addNgramBfIndexStmt);
+
+        jobSize++;
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+
+        waitAlterJobDone(alterJobs);
+
+        String buildNgramBfIndexStmtStr = "BUILD INDEX idx_error_msg on test.sc_dup ";
+        AlterTableStmt buildNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(buildNgramBfIndexStmtStr);
+        org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.DdlException.class,
+                () -> Env.getCurrentEnv().getAlterInstance().processAlterTable(buildNgramBfIndexStmt));
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+
+            Assertions.assertEquals("idx_error_msg", tbl.getIndexes().get(0).getIndexName());
+            Assertions.assertEquals(IndexDef.IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
+            Map<String, String> props = tbl.getIndexes().get(0).getProperties();
+            Assertions.assertEquals("2", props.get("gram_size"));
+            Assertions.assertEquals("256", props.get("bf_size"));
+            Index index = tbl.getIndexes().get(0);
+            LOG.warn("index:{}", index.toString());
+            Assertions.assertEquals(IndexDef.IndexType.NGRAM_BF, index.getIndexType());
+            Assertions.assertTrue(index.toString().contains("USING NGRAM_BF"));
+        } finally {
+            tbl.readUnlock();
+        }
+
+        String dropNgramBfIndexStmtStr = "ALTER TABLE test.sc_dup DROP INDEX idx_error_msg";
+        AlterTableStmt dropNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropNgramBfIndexStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(dropNgramBfIndexStmt);
+        jobSize++;
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
+
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(0, tbl.getIndexes().size());
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assertions.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assertions.assertNotNull(indexMeta);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
 }

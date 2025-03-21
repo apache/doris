@@ -22,7 +22,7 @@ import org.awaitility.Awaitility;
 import org.apache.doris.regression.util.Http
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-suite('test_auto_start_in_cloud', 'multi_cluster') {
+suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -100,7 +100,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        String cloudClusterId = jsonObject.cloud_cluster_id
+        String cloudClusterId = jsonObject.compute_group_id
         String uniqueId = jsonObject.cloud_unique_id
 
         sleep(5 * 1000)
@@ -130,7 +130,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster') {
             tag = getCloudBeTagByName(clusterName)
             logger.info("tag = {}", tag) 
             jsonObject = jsonSlurper.parseText(tag)
-            String cluster_status = jsonObject.cloud_cluster_status
+            String cluster_status = jsonObject.compute_group_status
             cluster_status == "SUSPENDED"
         }
 
@@ -141,7 +141,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster') {
             def begin = System.currentTimeMillis();
             // root cant resume, due to deamon thread use root
             def connInfo = context.threadLocalConn.get()
-            result = connect(user = 'admin', password = '', url = connInfo.conn.getMetaData().getURL()) {
+            result = connect('admin', '', connInfo.conn.getMetaData().getURL()) {
                 sql 'SELECT * FROM table1'
             }
             def cost = System.currentTimeMillis() - begin;
@@ -158,7 +158,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster') {
                 tag = getCloudBeTagByName(clusterName)
                 logger.info("tag = {}", tag) 
                 jsonObject = jsonSlurper.parseText(tag)
-                String cluster_status = jsonObject.cloud_cluster_status
+                String cluster_status = jsonObject.compute_group_status
                 cluster_status == "TO_RESUME"
             }
             sleep(5 * 1000)
@@ -168,5 +168,29 @@ suite('test_auto_start_in_cloud', 'multi_cluster') {
 
         future1.get()
         future2.get()
+
+        tag = getCloudBeTagByName(clusterName)
+        logger.info("tag check = {}", tag) 
+        jsonObject = jsonSlurper.parseText(tag)
+        String cluster_status = jsonObject.compute_group_status
+        assertEquals("NORMAL", cluster_status)
+
+        // add 1 nodes, check it status NORMAL
+        cluster.addBackend(1, null)
+        dockerAwaitUntil(5) {
+            result = sql """SHOW BACKENDS"""
+            result.size() == 4
+        }
+
+        def bes = sql_return_maparray "SHOW BACKENDS"
+        bes.each {
+            tag = it.Tag
+            if (!tag.contains(clusterName)) {
+                return
+            }
+            jsonObject = jsonSlurper.parseText(tag)
+            cluster_status = jsonObject.compute_group_status
+            assertEquals("NORMAL", cluster_status)
+        }
     }
 }

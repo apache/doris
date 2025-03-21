@@ -122,9 +122,10 @@ enum TStorageBackendType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexFileStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    V3 = 3       // Position and dictionary compression
 }
 
 struct TScalarType {
@@ -240,13 +241,6 @@ enum TTaskType {
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
-}
-
-enum TStmtType {
-  QUERY,
-  DDL,  // Data definition, e.g. CREATE TABLE (includes read-only functions e.g. SHOW)
-  DML,  // Data modification e.g. INSERT
-  EXPLAIN   // EXPLAIN
 }
 
 // level of verboseness for "explain" output
@@ -419,7 +413,8 @@ enum TOdbcTableType {
     OCEANBASE,
     OCEANBASE_ORACLE,
     NEBULA, // Deprecated
-    DB2
+    DB2,
+    GBASE
 }
 
 struct TJdbcExecutorCtorParams {
@@ -453,6 +448,7 @@ struct TJdbcExecutorCtorParams {
   14: optional i32 connection_pool_cache_clear_time
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
+  17: optional string jdbc_driver_checksum
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -717,6 +713,12 @@ enum TMergeType {
   DELETE
 }
 
+enum TUniqueKeyUpdateMode {
+  UPSERT,
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
+}
+
 enum TSortType {
     LEXICAL,
     ZORDER,
@@ -732,11 +734,17 @@ enum TMetadataType {
   JOBS,
   TASKS,
   WORKLOAD_SCHED_POLICY,
-  PARTITIONS;
+  PARTITIONS,
+  PARTITION_VALUES,
+  HUDI,
 }
 
 enum TIcebergQueryType {
   SNAPSHOTS
+}
+
+enum THudiQueryType {
+  TIMELINE
 }
 
 // represent a user identity

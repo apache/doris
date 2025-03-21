@@ -46,6 +46,21 @@ suite("sql_create_time_range_table") {
 	);
 		"""
 
+    // variant type column named with '.' character is disabled
+    sql "DROP TABLE IF EXISTS disable_variant_column_with_dot"
+    test {
+        sql """
+            CREATE TABLE disable_variant_column_with_dot (
+                k int,
+                `v1.v2` variant
+            )
+            DUPLICATE KEY (`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES ( "replication_num" = "1");
+        """
+        exception "Disable to create table"
+    }
+
     // DDL/DML return 1 row and 1 column, the only value is update row count
     assertTrue(result1.size() == 1)
     assertTrue(result1[0].size() == 1)
@@ -58,4 +73,19 @@ suite("sql_create_time_range_table") {
     def res_show = sql "show create table varchar_0_char_0"
     mustContain(res_show[0][1], "varchar(65533)")
     mustContain(res_show[0][1], "char(1)")
+
+    // variant type column named with '.' character is disabled
+    sql "DROP TABLE IF EXISTS disable_variant_column_with_dot"
+    test {
+        sql """
+            CREATE TABLE disable_variant_column_with_dot (
+                k int,
+                `v1.v2` variant
+            )
+            DUPLICATE KEY (`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES ( "replication_num" = "1");
+        """
+        exception "Disable to create table"
+    }
 }

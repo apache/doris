@@ -250,10 +250,7 @@ public class StatisticsCache {
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(statsId.catalogId, statsId.dbId, statsId.tblId, statsId.idxId,
                                 statsId.colId);
-                ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                if (c.count > 0 && c.ndv == 0 && c.count != c.numNulls) {
-                    c = ColumnStatistic.UNKNOWN;
-                }
+                final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache. reason: [{}]. Row:[{}]", t.getMessage(), r);

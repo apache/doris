@@ -203,7 +203,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 string test_str = std::get<1>(type_pair)[i];
                 // data_type from_string
                 ReadBuffer rb_test(test_str.data(), test_str.size());
-                Status st = data_type_ptr->from_string(rb_test, col);
+                Status st = data_type_ptr->from_string(rb_test, col.get());
                 if (std::get<3>(type_pair)[i].empty()) {
                     EXPECT_EQ(st.ok(), false);
                     std::cout << "deserialize failed: " << st.to_json() << std::endl;
@@ -256,11 +256,11 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             ReadBuffer rand_rb(rand_date.data(), rand_date.size());
 
             auto col = data_type_ptr->create_column();
-            Status st = data_type_ptr->from_string(min_rb, col);
+            Status st = data_type_ptr->from_string(min_rb, col.get());
             EXPECT_EQ(st.ok(), true);
-            st = data_type_ptr->from_string(max_rb, col);
+            st = data_type_ptr->from_string(max_rb, col.get());
             EXPECT_EQ(st.ok(), true);
-            st = data_type_ptr->from_string(rand_rb, col);
+            st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
 
             string min_s_d = data_type_ptr->to_string(*col, 0);
@@ -319,7 +319,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             string rand_ip = rand_wf->to_string();
             ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
             auto col = data_type_ptr->create_column();
-            st = data_type_ptr->from_string(rand_rb, col);
+            st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
             string rand_s_d = data_type_ptr->to_string(*col, 0);
             rtrim(rand_ip);
@@ -336,7 +336,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             EXPECT_EQ(st.ok(), false);
             ReadBuffer rand_rb(pair.second.data(), pair.second.size());
             auto col = data_type_ptr->create_column();
-            st = data_type_ptr->from_string(rand_rb, col);
+            st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), false);
         }
     }

@@ -281,17 +281,10 @@ suite('nereids_insert_no_partition') {
     sql '''delete from uni_light_sc_mow_nop_t where id is not null'''
     sql '''delete from uni_light_sc_mow_nop_t where id is null'''
 
-    // TODO turn off fallback when storage layer support true predicate
-    sql '''set enable_fallback_to_original_planner=true'''
     sql '''delete from uni_mow_not_null_nop_t where id is not null'''
-    sql '''set enable_fallback_to_original_planner=false'''
-
     sql '''delete from uni_mow_not_null_nop_t where id is null'''
 
-    // TODO turn off fallback when storage layer support true predicate
-    sql '''set enable_fallback_to_original_planner=true'''
     sql '''delete from uni_light_sc_mow_not_null_nop_t where id is not null'''
-    sql '''set enable_fallback_to_original_planner=false'''
 
     sql '''delete from uni_light_sc_mow_not_null_nop_t where id is null'''
     sql 'alter table agg_light_sc_nop_t rename column ktinyint ktint'

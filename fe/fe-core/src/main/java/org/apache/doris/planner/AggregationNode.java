@@ -488,6 +488,12 @@ public class AggregationNode extends PlanNode {
         }
     }
 
+    // If `GroupingExprs` is empty and agg need to finalize, the result must be output by single instance
+    @Override
+    public boolean isSerialOperator() {
+        return aggInfo.getGroupingExprs().isEmpty() && needsFinalize;
+    }
+
     public void setColocate(boolean colocate) {
         isColocate = colocate;
     }

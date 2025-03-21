@@ -138,39 +138,40 @@ public:
     RowsetId rowset_id() const { return _segment->rowset_id(); }
     int64_t tablet_id() const { return _tablet_id; }
 
-    bool update_profile(RuntimeProfile* profile) override {
-        bool updated = false;
-        updated |= _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
-        updated |= _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+    void update_profile(RuntimeProfile* profile) override {
+        _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+        _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
 
         if (_opts.delete_condition_predicates != nullptr) {
             std::set<const ColumnPredicate*> delete_predicate_set;
             _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
-            updated |= _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
+            _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
         }
-
-        return updated;
     }
 
     std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
         return _inverted_index_iterators;
     }
 
+    bool has_inverted_index_in_iterators() const {
+        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+                           [](const auto& iterator) { return iterator != nullptr; });
+    }
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
     template <typename Container>
-    bool _update_profile(RuntimeProfile* profile, const Container& predicates,
+    void _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
         if (predicates.empty()) {
-            return false;
+            return;
         }
         std::string info;
         for (auto pred : predicates) {
             info += "\n" + pred->debug_string();
         }
         profile->add_info_string(title, info);
-        return true;
     }
 
     [[nodiscard]] Status _lazy_init();
@@ -229,6 +230,7 @@ private:
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    void _collect_runtime_filter_predicate();
     void _output_non_pred_columns(vectorized::Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
@@ -377,6 +379,8 @@ private:
 
     void _calculate_expr_in_remaining_conjunct_root();
 
+    void _clear_iterators();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -426,8 +430,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _first_read_column_ids;
-    std::vector<ColumnId> _second_read_column_ids;
+    std::vector<ColumnId> _predicate_column_ids;
+    std::vector<ColumnId> _non_predicate_column_ids;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block

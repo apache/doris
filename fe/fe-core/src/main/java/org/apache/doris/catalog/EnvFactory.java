@@ -32,14 +32,21 @@ import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -50,6 +57,7 @@ import org.apache.thrift.TException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // EnvFactory is responsed for create none-cloud object.
 // CloudEnvFactory is responsed for create cloud object.
@@ -134,6 +142,9 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsCoordinator(context, analyzer, (NereidsPlanner) planner, statsErrorEstimator);
+        }
         return new Coordinator(context, analyzer, planner, statsErrorEstimator);
     }
 
@@ -141,8 +152,37 @@ public class EnvFactory {
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
-        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
-                            enableProfile);
+        if (SessionVariable.canUseNereidsDistributePlanner()) {
+            if (queryId == null) {
+                UUID taskId = UUID.randomUUID();
+                queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            }
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                connectContext = new ConnectContext();
+            }
+            if (connectContext.getLoadId() == null) {
+                connectContext.setLoadId(queryId);
+            }
+            if (connectContext.getEnv() == null) {
+                connectContext.setEnv(Env.getCurrentEnv());
+            }
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext == null) {
+                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+            }
+            DistributePlanner distributePlanner = new DistributePlanner(
+                    statementContext, fragments, false, true);
+            FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
+
+            return new NereidsCoordinator(
+                    jobId, queryId, descTable, fragments, distributedPlans.valueList(),
+                    scanNodes, timezone, loadZeroTolerance, enableProfile
+            );
+        }
+        return new Coordinator(
+                jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile
+        );
     }
 
     public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,

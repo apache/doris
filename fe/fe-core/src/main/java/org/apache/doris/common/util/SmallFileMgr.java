@@ -177,6 +177,12 @@ public class SmallFileMgr implements Writable {
                 stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
+    public void createFile(String dbName, String catalog, String fileName, String downloadUrl, String md5sum,
+                            boolean saveContent) throws DdlException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        downloadAndAddFile(db.getId(), catalog, fileName, downloadUrl, md5sum, saveContent);
+    }
+
     public void dropFile(DropFileStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);

@@ -165,7 +165,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             } catch (HMSClientException hmsClientException) {
                 if (hmsClientException.getCause() != null
                         && hmsClientException.getCause() instanceof NoSuchObjectException) {
-                    LOG.warn(event.debugString("Failed to process event and skip"), hmsClientException);
+                    LOG.warn(event.getMsgWithEventInfo("Failed to process event and skip"), hmsClientException);
                 } else {
                     updateLastSyncedEventId(hmsExternalCatalog, event.getEventId() - 1);
                     throw hmsClientException;
@@ -269,7 +269,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
-                Config.hms_events_batch_size_per_rpc);
+                hmsExternalCatalog.getHmsEventsBatchSizePerRpc());
         try {
             return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {

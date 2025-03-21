@@ -8,3 +8,43 @@ catalog_test_hive00	hms	type	hms
 -- !create --
 catalog_test_es00	es	type	es
 
+-- !test_10 --
+catalog_tvf_test_dlf	hms	dlf.catalog.id	987654321
+
+-- !test_11 --
+catalog_tvf_test_dlf	hms	dlf.secret_key	*XXX
+
+-- !test_12 --
+catalog_tvf_test_dlf	hms	dlf.access_key	AAAAAAAAAAAAAAAAAAAAAA
+
+-- !test_13 --
+catalog_tvf_test_dlf	hms	dlf.uid	123456789
+
+-- !test_14 --
+catalog_tvf_test_dlf	hms	type	hms
+
+-- !test_15 --
+
+-- !test_16 --
+internal	internal	NULL	NULL
+
+-- !test_17 --
+catalog_tvf_test_dlf	hms	dlf.secret_key	*XXX
+
+-- !test_18 --
+catalog_tvf_test_dlf	hms	dlf.access_key	AAAAAAAAAAAAAAAAAAAAAA
+
+-- !test_19 --
+catalog_tvf_test_dlf	hms	dlf.uid	123456789
+
+-- !test_20 --
+catalog_tvf_test_dlf	hms	type	hms
+
+-- !test_21 --
+
+-- !test_22 --
+
+-- !test_23 --
+
+-- !test_24 --
+

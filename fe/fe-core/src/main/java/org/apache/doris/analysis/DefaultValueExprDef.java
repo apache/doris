@@ -64,7 +64,7 @@ public class DefaultValueExprDef implements Writable, GsonPostProcessable {
      */
     public FunctionCallExpr getExpr(Type type) {
         List<Expr> exprs = null;
-        if (precision != null) {
+        if (precision != null && precision != 0) {
             exprs = Lists.newArrayList();
             exprs.add(new IntLiteral(precision));
         }
@@ -101,8 +101,6 @@ public class DefaultValueExprDef implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (precision == null) {
-            precision = 0L;
-        }
+        // nothing to do
     }
 }

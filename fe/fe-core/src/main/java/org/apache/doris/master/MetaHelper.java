@@ -26,6 +26,7 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,7 +48,7 @@ public class MetaHelper {
     public static final String X_IMAGE_MD5 = "X-Image-Md5";
     private static final int BUFFER_BYTES = 8 * 1024;
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
-    private static final String VALID_FILENAME_REGEX = "^image\\.\\d+(\\.part)?$";
+    private static final String VALID_FILENAME_REGEX = "^(?!\\.)[a-zA-Z0-9_\\-.]+$";
 
 
     public static File getMasterImageDir() {
@@ -115,13 +116,15 @@ public class MetaHelper {
         }
     }
 
-
-    private static void checkIsValidFileName(String filename) {
+    protected static void checkIsValidFileName(String filename) {
         if (!Config.meta_helper_security_mode) {
             return;
         }
+        if (StringUtils.isBlank(filename)) {
+            return;
+        }
         if (!filename.matches(VALID_FILENAME_REGEX)) {
-            throw new IllegalArgumentException("Invalid filename");
+            throw new IllegalArgumentException("Invalid filename : " + filename);
         }
     }
 
@@ -156,7 +159,6 @@ public class MetaHelper {
             throws IOException {
         HttpURLConnection conn = null;
         checkFile(file);
-        boolean md5Matched = true;
         OutputStream out = new FileOutputStream(file);
         try {
             conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
@@ -186,7 +188,6 @@ public class MetaHelper {
             if (remoteMd5 != null) {
                 String localMd5 = DigestUtils.md5Hex(new FileInputStream(file));
                 if (!remoteMd5.equals(localMd5)) {
-                    md5Matched = false;
                     throw new IOException("Unexpected image md5, expected: " + remoteMd5 + ", actual: " + localMd5);
                 }
             }
@@ -196,9 +197,6 @@ public class MetaHelper {
             }
             if (out != null) {
                 out.close();
-            }
-            if (!md5Matched && file.exists() & Config.meta_helper_security_mode) {
-                file.delete();
             }
         }
     }

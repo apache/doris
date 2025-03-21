@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -98,6 +100,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(command, context);
     }
 
+
     // *******************************
     // relations
     // *******************************
@@ -129,6 +132,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     // *******************************
     // Logical plans
     // *******************************
+    public R visitUnboundInlineTable(UnboundInlineTable unboundInlineTable, C context) {
+        return visit(unboundInlineTable, context);
+    }
+
     public R visitLogicalSqlCache(LogicalSqlCache sqlCache, C context) {
         return visit(sqlCache, context);
     }
@@ -166,6 +173,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalFilter(LogicalFilter<? extends Plan> filter, C context) {
+        return visit(filter, context);
+    }
+
+    public R visitLogicalQualify(LogicalQualify<? extends Plan> filter, C context) {
         return visit(filter, context);
     }
 

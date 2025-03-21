@@ -87,6 +87,7 @@ enum OLAPDataVersion {
 // Different types of folder names under storage_root_path
 static const std::string MINI_PREFIX = "mini_download";
 static const std::string CLUSTER_ID_PREFIX = "cluster_id";
+static const std::string DEPLOY_MODE_PREFIX = "deploy_mode";
 static const std::string DATA_PREFIX = "data";
 static const std::string DPP_PREFIX = "dpp_download";
 static const std::string SNAPSHOT_PREFIX = "snapshot";

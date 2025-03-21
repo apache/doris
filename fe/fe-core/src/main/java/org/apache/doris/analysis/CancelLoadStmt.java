@@ -59,6 +59,15 @@ public class CancelLoadStmt extends DdlStmt implements NotFallbackInParser {
         this.SUPPORT_COLUMNS.add("state");
     }
 
+    public CancelLoadStmt(String dbName, Expr whereClause, String label, CompoundPredicate.Operator operator,
+                          String state) {
+        this.dbName = dbName;
+        this.whereClause = whereClause;
+        this.label = label;
+        this.operator = operator;
+        this.state = state;
+    }
+
     private void checkColumn(Expr expr, boolean like) throws AnalysisException {
         String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
         if (!SUPPORT_COLUMNS.contains(inputCol)) {

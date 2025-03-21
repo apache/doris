@@ -90,6 +90,7 @@ S3FileWriter::~S3FileWriter() {
 }
 
 Status S3FileWriter::_create_multi_upload_request() {
+    LOG(INFO) << "create_multi_upload_request " << _obj_storage_path_opts.path.native();
     const auto& client = _obj_client->get();
     if (nullptr == client) {
         return Status::InternalError<false>("invalid obj storage client");
@@ -204,12 +205,12 @@ Status S3FileWriter::_build_upload_buffer() {
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
 
-    if (_cur_part_num == 1 && _pending_buf) {
+    if (_cur_part_num == 1 && _pending_buf) { // data size is less than config::s3_write_buffer_size
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
     if (_bytes_appended == 0) {
-        DCHECK(_cur_part_num == 1);
+        DCHECK_EQ(_cur_part_num, 1);
         // No data written, but need to create an empty file
         RETURN_IF_ERROR(_build_upload_buffer());
         if (!_used_by_s3_committer) {
@@ -220,7 +221,7 @@ Status S3FileWriter::_close_impl() {
         }
     }
 
-    if (_pending_buf != nullptr) {
+    if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
         _countdown_event.add_count();
         RETURN_IF_ERROR(FileBuffer::submit(std::move(_pending_buf)));
         _pending_buf = nullptr;
@@ -260,12 +261,13 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                     Slice {data[i].get_data() + pos, data_size_to_append}));
             TEST_SYNC_POINT_CALLBACK("s3_file_writer::appenv_1", &_pending_buf, _cur_part_num);
 
-            // if it's the last part, it could be less than 5MB, or it must
-            // satisfy that the size is larger than or euqal to 5MB
-            // _complete() would handle the first situation
+            // If this is the last part and the data size is less than s3_write_buffer_size,
+            // the pending_buf will be handled by _close_impl() and _complete()
+            // If this is the last part and the data size is equal to s3_write_buffer_size,
+            // the pending_buf is handled here and submitted. it will be waited by _complete()
             if (_pending_buf->get_size() == buffer_size) {
-                // only create multiple upload request when the data is more
-                // than one memory buffer
+                // only create multiple upload request when the data size is
+                // larger or equal to s3_write_buffer_size than one memory buffer
                 if (_cur_part_num == 1) {
                     RETURN_IF_ERROR(_create_multi_upload_request());
                 }
@@ -281,6 +283,8 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
+    VLOG_DEBUG << "upload_one_part " << _obj_storage_path_opts.path.native()
+               << " part=" << part_num;
     if (buf.is_cancelled()) {
         LOG_INFO("file {} skip part {} because previous failure {}",
                  _obj_storage_path_opts.path.native(), part_num, _st);
@@ -327,26 +331,41 @@ Status S3FileWriter::_complete() {
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
-    if (!_used_by_s3_committer) { // S3 committer will complete multipart upload file on FE side.
-        if (_failed || _completed_parts.size() != _cur_part_num) {
-            _st = Status::InternalError(
-                    "error status {}, have failed {}, complete parts {}, cur part num {}, whole "
-                    "parts {}, file path {}, file size {}, has left buffer {}",
-                    _st, _failed, _completed_parts.size(), _cur_part_num, _dump_completed_part(),
-                    _obj_storage_path_opts.path.native(), _bytes_appended, _pending_buf != nullptr);
-            LOG(WARNING) << _st;
-            return _st;
-        }
-        // make sure _completed_parts are ascending order
-        std::sort(_completed_parts.begin(), _completed_parts.end(),
-                  [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
-        TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
-        auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
-        if (resp.status.code != ErrorCode::OK) {
-            LOG_WARNING("Compltet multi part upload failed because {}, file path {}",
-                        resp.status.msg, _obj_storage_path_opts.path.native());
-            return {resp.status.code, std::move(resp.status.msg)};
-        }
+    if (_used_by_s3_committer) {    // S3 committer will complete multipart upload file on FE side.
+        s3_file_created_total << 1; // Assume that it will be created successfully
+        return Status::OK();
+    }
+
+    // check number of parts
+    int expected_num_parts1 = (_bytes_appended / config::s3_write_buffer_size) +
+                              !!(_bytes_appended % config::s3_write_buffer_size);
+    int expected_num_parts2 =
+            (_bytes_appended % config::s3_write_buffer_size) ? _cur_part_num : _cur_part_num - 1;
+    DCHECK_EQ(expected_num_parts1, expected_num_parts2)
+            << " bytes_appended=" << _bytes_appended << " cur_part_num=" << _cur_part_num
+            << " s3_write_buffer_size=" << config::s3_write_buffer_size;
+    if (_failed || _completed_parts.size() != expected_num_parts1 ||
+        expected_num_parts1 != expected_num_parts2) {
+        _st = Status::InternalError(
+                "error status={} failed={} #complete_parts={} #expected_parts={} "
+                "completed_parts_list={} file_path={} file_size={} has left buffer not uploaded={}",
+                _st, _failed, _completed_parts.size(), expected_num_parts1, _dump_completed_part(),
+                _obj_storage_path_opts.path.native(), _bytes_appended, _pending_buf != nullptr);
+        LOG(WARNING) << _st;
+        return _st;
+    }
+    // make sure _completed_parts are ascending order
+    std::sort(_completed_parts.begin(), _completed_parts.end(),
+              [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
+    TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
+    LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
+              << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
+              << " s3_write_buffer_size=" << config::s3_write_buffer_size;
+    auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
+    if (resp.status.code != ErrorCode::OK) {
+        LOG_WARNING("Compltet multi part upload failed because {}, file path {}", resp.status.msg,
+                    _obj_storage_path_opts.path.native());
+        return {resp.status.code, std::move(resp.status.msg)};
     }
     s3_file_created_total << 1;
     return Status::OK();
@@ -371,7 +390,16 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    DCHECK(state() != State::CLOSED) << fmt::format("state is {}", state());
+    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
+              << " size=" << _bytes_appended;
+    if (state() == State::CLOSED) {
+        DCHECK(state() != State::CLOSED)
+                << "state=" << (int)state() << " path=" << _obj_storage_path_opts.path.native();
+        LOG_WARNING("failed to put object because file closed, file path {}",
+                    _obj_storage_path_opts.path.native());
+        buf.set_status(Status::InternalError<false>("try to put closed file"));
+        return;
+    }
     const auto& client = _obj_client->get();
     if (nullptr == client) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));

@@ -32,6 +32,8 @@ docker run hello-world
 
 if have problem with permission denied, then [add-docker-permission](https://docs.docker.com/engine/install/linux-postinstall/).
 
+Make sure BuildKit configured in the machine. if not follow [docker-with-BuildKit](https://docs.docker.com/build/buildkit/).
+
 ##### 2. The doris image should contains
 
 ```
@@ -154,3 +156,22 @@ steps:
 2. Generate regression-conf-custom.groovy: `python docker/runtime/doris-compose/doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
+## Problem investigation
+
+#### Log
+
+Each cluster has logs in /tmp/doris/{cluster-name}/{node-xxx}/log. For each node, doris compose will also print log in /tmp/doris/{cluster-name}/{node-xxx}/log/health.out
+
+#### Up cluster using non-detach mode
+
+```
+python docker/runtime/doris-compose/doris-compose.py up ...   -no-detach
+```
+
+## Developer
+
+Before submitting code, pls format code.
+
+```
+bash format-code.sh
+```

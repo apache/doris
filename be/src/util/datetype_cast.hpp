@@ -29,8 +29,10 @@
 /*
  * We use these function family to clarify our types of datelike type. for example:
  *      DataTypeDate -------------------> ColumnDate -----------------------> Int64
- *           |          TypeToColumn                    ValueTypeOfColumn
- *           | TypeToValueType
+ *           |   |      TypeToColumn                    ValueTypeOfColumn       |
+ *           |   ↘--------------------------------------------------------------↗
+ *           |                           ::FieldType
+ *           ↓ TypeToValueType
  *      VecDateTimeValue
  */
 namespace doris::date_cast {
@@ -102,6 +104,7 @@ constexpr bool IsV1() {
                              std::is_same_v<Type, vectorized::Int64>);
 }
 
+// only for datelike types.
 template <typename Type>
 constexpr bool IsV2() {
     return !IsV1<Type>();

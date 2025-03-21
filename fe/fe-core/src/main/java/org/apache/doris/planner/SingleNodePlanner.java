@@ -58,6 +58,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -74,9 +75,12 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
@@ -114,6 +118,8 @@ public class SingleNodePlanner {
     private final PlannerContext ctx;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
     private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
+
+    private DirectoryLister directoryLister;
 
     public SingleNodePlanner(PlannerContext ctx) {
         this.ctx = ctx;
@@ -313,7 +319,6 @@ public class SingleNodePlanner {
             boolean useTopN = true;
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
-            ((SortNode) root).setDefaultLimit(limit == -1);
             root.setOffset(stmt.getOffset());
             if (useTopN) {
                 if (sqlSelectLimit >= 0) {
@@ -1917,8 +1922,8 @@ public class SingleNodePlanner {
      */
     private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
-        ScanNode scanNode = null;
-
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        ScanNode scanNode;
         switch (tblRef.getTable().getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
@@ -1938,9 +1943,10 @@ public class SingleNodePlanner {
             case SCHEMA:
                 if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                         tblRef.getDesc().getTable().getName())) {
-                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                        null, null, null);
                 } else {
-                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(), null, null, null);
                 }
                 break;
             case BROKER:
@@ -1956,9 +1962,13 @@ public class SingleNodePlanner {
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
             case TABLE_VALUED_FUNCTION:
-                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
+                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId(), sv);
                 break;
             case HMS_EXTERNAL_TABLE:
+                if (directoryLister == null) {
+                    this.directoryLister = new TransactionScopeCachingDirectoryListerFactory(
+                            Config.max_external_table_split_file_meta_cache_num).get(new FileSystemDirectoryLister());
+                }
                 TableIf table = tblRef.getDesc().getTable();
                 switch (((HMSExternalTable) table).getDlaType()) {
                     case HUDI:
@@ -1969,13 +1979,13 @@ public class SingleNodePlanner {
                                     + "please set enable_nereids_planner = true to enable new optimizer");
                         }
                         scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
-                                Optional.empty(), Optional.empty());
+                                Optional.empty(), Optional.empty(), sv, directoryLister);
                         break;
                     case ICEBERG:
-                        scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                         break;
                     case HIVE:
-                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv, directoryLister);
                         ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
@@ -1983,18 +1993,16 @@ public class SingleNodePlanner {
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
-                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case PAIMON_EXTERNAL_TABLE:
-                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                scanNode = new TrinoConnectorScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new TrinoConnectorScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                // TODO: support max compute scan node
-                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "MCScanNode",
-                        StatisticalType.MAX_COMPUTE_SCAN_NODE, true);
+                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
@@ -2003,7 +2011,7 @@ public class SingleNodePlanner {
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case LAKESOUl_EXTERNAL_TABLE:
-                scanNode = new LakeSoulScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new LakeSoulScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case TEST_EXTERNAL_TABLE:
                 scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());

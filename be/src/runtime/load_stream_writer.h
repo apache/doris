@@ -70,14 +70,23 @@ public:
 
     Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
 
-    Status _calc_file_size(uint32_t segid, FileType file_type, size_t* file_size);
+    Status pre_close() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _pre_close();
+    }
 
     // wait for all memtables to be flushed.
     Status close();
 
 private:
+    Status _calc_file_size(uint32_t segid, FileType file_type, size_t* file_size);
+
+    // without lock
+    Status _pre_close();
+
     bool _is_init = false;
     bool _is_canceled = false;
+    bool _pre_closed = false;
     WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<RowsetWriter> _rowset_writer;
@@ -87,7 +96,7 @@ private:
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
     std::vector<io::FileWriterPtr> _inverted_file_writers;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 using LoadStreamWriterSharedPtr = std::shared_ptr<LoadStreamWriter>;

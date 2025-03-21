@@ -18,16 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
@@ -55,54 +50,6 @@ public interface LogicalPlan extends Plan {
     default LogicalPlan recomputeLogicalProperties() {
         return (LogicalPlan) withChildren(ImmutableList.copyOf(children()));
     }
-
-    /**
-     * Compute DataTrait for different plan
-     * Note: Unless you really know what you're doing, please use the following interface.
-     *   - BlockFDPropagation: clean the fd
-     *   - PropagateFD: propagate the fd
-     */
-    default DataTrait computeDataTrait() {
-        DataTrait.Builder fdBuilder = new DataTrait.Builder();
-        computeUniform(fdBuilder);
-        computeUnique(fdBuilder);
-        computeEqualSet(fdBuilder);
-        computeFd(fdBuilder);
-
-        for (Slot slot : getOutput()) {
-            Set<Slot> o = ImmutableSet.of(slot);
-            // all slots dependent unique slot
-            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
-                fdBuilder.addDeps(uniqueSlot, o);
-            }
-            // uniform slot dependents all slots
-            for (Set<Slot> uniformSlot : fdBuilder.getAllUniformAndNotNull()) {
-                fdBuilder.addDeps(o, uniformSlot);
-            }
-        }
-        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
-            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
-            fdBuilder.addDepsByEqualSet(validEqualSet);
-            fdBuilder.addUniformByEqualSet(validEqualSet);
-            fdBuilder.addUniqueByEqualSet(validEqualSet);
-        }
-        Set<Slot> output = this.getOutputSet();
-        for (Plan child : children()) {
-            if (!output.containsAll(child.getOutputSet())) {
-                fdBuilder.pruneSlots(output);
-                break;
-            }
-        }
-        return fdBuilder.build();
-    }
-
-    void computeUnique(DataTrait.Builder builder);
-
-    void computeUniform(DataTrait.Builder builder);
-
-    void computeEqualSet(DataTrait.Builder builder);
-
-    void computeFd(DataTrait.Builder builder);
 
     default StmtType stmtType() {
         return StmtType.OTHER;

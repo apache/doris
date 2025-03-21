@@ -88,7 +88,10 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
+                        load_counters = etl_info[i].split('; ');
+                        for (String counter : load_counters) {
+                            assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
+                        }
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {

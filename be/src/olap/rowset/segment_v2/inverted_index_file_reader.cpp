@@ -27,25 +27,21 @@
 
 namespace doris::segment_v2 {
 
-Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_file_cache) {
+Status InvertedIndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
+    std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
-        _open_idx_file_cache = open_idx_file_cache;
-        if (_storage_format == InvertedIndexStorageFormatPB::V2) {
-            auto st = _init_from_v2(read_buffer_size);
-            if (!st.ok()) {
-                return st;
-            }
+        if (_storage_format >= InvertedIndexStorageFormatPB::V2) {
+            RETURN_IF_ERROR(_init_from(read_buffer_size, io_ctx));
         }
         _inited = true;
     }
     return Status::OK();
 }
 
-Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
+Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
-    std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     try {
         CLuceneError err;
         CL_NS(store)::IndexInput* index_input = nullptr;
@@ -76,12 +72,13 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_full_path,
                     err.what());
         }
-        index_input->setIdxFileCache(_open_idx_file_cache);
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
+        _stream->setIoContext(io_ctx);
+        _stream->setIndexFile(true);
 
         // 3. read file
         int32_t version = _stream->readInt(); // Read version number
-        if (version == InvertedIndexStorageFormatPB::V2) {
+        if (version >= InvertedIndexStorageFormatPB::V2) {
             DCHECK(version == _storage_format);
             int32_t numIndices = _stream->readInt(); // Read number of indices
             ReaderFileEntry* entry = nullptr;
@@ -154,7 +151,7 @@ Result<InvertedIndexDirectoryMap> InvertedIndexFileReader::get_all_directories()
 }
 
 Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
-        int64_t index_id, const std::string& index_suffix) const {
+        int64_t index_id, const std::string& index_suffix, const io::IOContext* io_ctx) const {
     std::unique_ptr<DorisCompoundReader> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
@@ -198,7 +195,6 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
             }
 
             // 3. read file in DorisCompoundReader
-            index_input->setIdxFileCache(_open_idx_file_cache);
             compound_reader = std::make_unique<DorisCompoundReader>(index_input, _read_buffer_size);
         } catch (CLuceneError& err) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -225,15 +221,16 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
         }
         // Need to clone resource here, because index searcher cache need it.
         compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream->clone(), index_it->second.get(), _read_buffer_size);
+                _stream->clone(), index_it->second.get(), _read_buffer_size, io_ctx);
     }
     return compound_reader;
 }
+
 Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
-        const TabletIndex* index_meta) const {
+        const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
-    return _open(index_id, index_suffix);
+    return _open(index_id, index_suffix, io_ctx);
 }
 
 std::string InvertedIndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {

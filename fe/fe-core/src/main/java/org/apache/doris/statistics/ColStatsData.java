@@ -131,14 +131,8 @@ public class ColStatsData {
     }
 
     public ColumnStatistic toColumnStatistic() {
-        // For non-empty table, return UNKNOWN if we can't collect ndv value.
-        // Because inaccurate ndv is very misleading.
-        if (count > 0 && ndv == 0 && count != nullCount) {
-            return ColumnStatistic.UNKNOWN;
-        }
         try {
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            columnStatisticBuilder.setCount(count);
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(nullCount);
             columnStatisticBuilder.setDataSize(dataSizeInBytes);
@@ -185,5 +179,26 @@ public class ColStatsData {
             LOG.warn("Failed to convert column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
+    }
+
+    public boolean isNull(String value) {
+        // Checking "NULL" as null is a historical bug which treat literal value "NULL" as null. Will fix it soon.
+        return value == null || value.equalsIgnoreCase("NULL");
+    }
+
+    public boolean isValid() {
+        if (ndv > 10 * count) {
+            LOG.debug("Ndv {} is much larger than count {}", ndv, count);
+            return false;
+        }
+        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit))) {
+            LOG.debug("Ndv is 0 but min or max exists");
+            return false;
+        }
+        if (count > 0 && ndv == 0 && isNull(minLit) && isNull(maxLit) && (nullCount == 0 || count > nullCount * 10)) {
+            LOG.debug("count {} not 0, ndv is 0, min and max are all null, null count {} is too small", count, count);
+            return false;
+        }
+        return true;
     }
 }

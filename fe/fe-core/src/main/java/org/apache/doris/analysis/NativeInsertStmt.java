@@ -154,7 +154,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     // Used for group commit insert
     private boolean isGroupCommit = false;
-    private int baseSchemaVersion = -1;
     private TUniqueId loadId = null;
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
@@ -167,7 +166,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
-    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -331,11 +329,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
-    }
-
-    public NativeInsertStmt withAutoDetectOverwrite() {
-        this.withAutoDetectOverwrite = true;
-        return this;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
@@ -502,7 +495,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -1309,7 +1303,8 @@ public class NativeInsertStmt extends InsertStmt {
         OlapTable olapTable = (OlapTable) getTargetTable();
         olapTable.readLock();
         try {
-            if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            if (groupCommitPlanner != null
+                    && olapTable.getBaseSchemaVersion() == groupCommitPlanner.baseSchemaVersion) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("reuse group commit plan, table={}", olapTable);
                 }
@@ -1327,7 +1322,6 @@ public class NativeInsertStmt extends InsertStmt {
                     targetColumnNames, queryId, ConnectContext.get().getSessionVariable().getGroupCommit());
             // save plan message to be reused for prepare stmt
             loadId = queryId;
-            baseSchemaVersion = olapTable.getBaseSchemaVersion();
             return groupCommitPlanner;
         } finally {
             olapTable.readUnlock();
@@ -1339,7 +1333,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public int getBaseSchemaVersion() {
-        return baseSchemaVersion;
+        return groupCommitPlanner.baseSchemaVersion;
     }
 
     public void setIsFromDeleteOrUpdateStmt(boolean isFromDeleteOrUpdateStmt) {
@@ -1351,7 +1345,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
-        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
             return;
         }
         // when enable_unique_key_partial_update = true,
@@ -1365,6 +1359,14 @@ public class NativeInsertStmt extends InsertStmt {
         if (hasEmptyTargetColumns) {
             return;
         }
+
+        boolean hasSyncMaterializedView = olapTable.getFullSchema().stream()
+                .anyMatch(col -> col.isMaterializedViewColumn());
+        if (hasSyncMaterializedView) {
+            throw new UserException("Can't do partial update on merge-on-write Unique table"
+                    + " with sync materialized view.");
+        }
+
         boolean hasMissingColExceptAutoIncKey = false;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;

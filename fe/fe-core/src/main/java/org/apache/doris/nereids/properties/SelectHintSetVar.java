@@ -17,6 +17,13 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -36,6 +43,29 @@ public class SelectHintSetVar extends SelectHint {
 
     public Map<String, Optional<String>> getParameters() {
         return parameters;
+    }
+
+    /**
+     * set session variable in sql level
+     * @param context statement context
+     */
+    public void setVarOnceInSql(StatementContext context) {
+        SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
+        // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
+        sessionVariable.setIsSingleSetVar(true);
+        for (Map.Entry<String, Optional<String>> kv : getParameters().entrySet()) {
+            String key = kv.getKey();
+            Optional<String> value = kv.getValue();
+            if (value.isPresent()) {
+                try {
+                    VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(value.get())));
+                    context.invalidCache(key);
+                } catch (Throwable t) {
+                    throw new AnalysisException("Can not set session variable '"
+                        + key + "' = '" + value.get() + "'", t);
+                }
+            }
+        }
     }
 
     @Override

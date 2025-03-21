@@ -63,7 +63,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg_column =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
 
@@ -164,7 +164,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg_column =
                 assert_cast<const ColumnInt128&>(*block.get_by_position(arguments[0]).column);
         auto result_column = ColumnString::create();
@@ -180,6 +180,7 @@ public:
             col_offset[row] = col_offset[row - 1] + str_length;
             deserialize((char*)arg, col_data.data() + str_length * row);
         }
+        col_data.resize(str_length * input_rows_count);
         block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }

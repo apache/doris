@@ -158,7 +158,7 @@ public class BinlogGcer extends MasterDaemon {
                     for (Tablet tablet : tablets) {
                         List<Replica> replicas = tablet.getReplicas();
                         for (Replica replica : replicas) {
-                            long beId = replica.getBackendId();
+                            long beId = replica.getBackendIdWithoutException();
                             long signature = -1;
                             BinlogGcTask binlogGcTask = null;
                             if (beBinlogGcTaskMap.containsKey(beId)) {

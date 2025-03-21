@@ -24,7 +24,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/columns_number.h"
+#include "vec/core/column_numbers.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vslot_ref.h"
@@ -32,6 +32,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 // only used for dynamic topn filter
 class VTopNPred : public VExpr {
@@ -71,7 +72,7 @@ public:
 
         _function = SimpleFunctionFactory::instance().get_function(
                 _predicate->is_asc() ? "le" : "ge", argument_template, _data_type,
-                state->be_exec_version());
+                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
         if (!_function) {
             return Status::InternalError("get function failed");
         }
@@ -94,10 +95,11 @@ public:
 
         int slot_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &slot_id));
+        // if error(slot_id == -1), will return.
+        ColumnNumbers arguments = {static_cast<uint32_t>(slot_id),
+                                   static_cast<uint32_t>(topn_value_id)};
 
-        std::vector<size_t> arguments = {(size_t)slot_id, (size_t)topn_value_id};
-
-        size_t num_columns_without_result = block->columns();
+        uint32_t num_columns_without_result = block->columns();
         block->insert({nullptr, _data_type, _expr_name});
         RETURN_IF_ERROR(_function->execute(nullptr, *block, arguments, num_columns_without_result,
                                            block->rows(), false));
@@ -119,4 +121,6 @@ private:
     FunctionBasePtr _function;
     VExprContextSPtr _target_ctx;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

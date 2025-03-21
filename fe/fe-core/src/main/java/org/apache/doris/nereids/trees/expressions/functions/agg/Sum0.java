@@ -20,11 +20,14 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -41,15 +44,17 @@ import org.apache.doris.nereids.types.TinyIntType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 
 /**
  * AggregateFunction 'sum0'. sum0 returns the sum of the values which go into it like sum.
  * It differs in that when no non null values are applied zero is returned instead of null.
  */
-public class Sum0 extends AggregateFunction
-        implements UnaryExpression, AlwaysNotNullable, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait {
+public class Sum0 extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE),
@@ -76,6 +81,7 @@ public class Sum0 extends AggregateFunction
         super("sum0", distinct, arg);
     }
 
+    @Override
     public MultiDistinctSum0 convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_sum because there is no distinct args");
@@ -126,5 +132,21 @@ public class Sum0 extends AggregateFunction
     @Override
     public boolean canRollUp() {
         return true;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        DataType dataType = getDataType();
+        if (dataType.isBigIntType()) {
+            return new BigIntLiteral(0);
+        } else if (dataType.isLargeIntType()) {
+            return new LargeIntLiteral(new BigInteger("0"));
+        } else if (dataType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal("0"));
+        } else if (dataType.isDoubleType()) {
+            return new DoubleLiteral(0);
+        } else {
+            return new DoubleLiteral(0);
+        }
     }
 }

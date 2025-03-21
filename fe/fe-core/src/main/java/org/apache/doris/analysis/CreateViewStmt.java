@@ -25,6 +25,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -38,17 +39,23 @@ public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser 
     private static final Logger LOG = LogManager.getLogger(CreateViewStmt.class);
 
     private final boolean ifNotExists;
+    private final boolean orReplace;
     private final String comment;
 
-    public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
+    public CreateViewStmt(boolean ifNotExists, boolean orReplace, TableName tableName, List<ColWithComment> cols,
             String comment, QueryStmt queryStmt) {
         super(tableName, cols, queryStmt);
         this.ifNotExists = ifNotExists;
+        this.orReplace = orReplace;
         this.comment = Strings.nullToEmpty(comment);
     }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isSetOrReplace() {
+        return orReplace;
     }
 
     public String getComment() {
@@ -63,6 +70,10 @@ public class CreateViewStmt extends BaseViewStmt implements NotFallbackInParser 
         viewDefStmt.setNeedToSql(true);
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+
+        if (orReplace && ifNotExists) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
 
         // check privilege
         if (!Env.getCurrentEnv().getAccessManager()

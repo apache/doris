@@ -43,6 +43,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/client_cache.h"
+#include "runtime/cluster_info.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
@@ -58,11 +59,10 @@ using apache::thrift::transport::TTransportException;
 
 namespace doris {
 
-static FrontendServiceClientCache s_client_cache;
 static std::unique_ptr<MasterServerClient> s_client;
 
-MasterServerClient* MasterServerClient::create(const TMasterInfo& master_info) {
-    s_client.reset(new MasterServerClient(master_info));
+MasterServerClient* MasterServerClient::create(const ClusterInfo* cluster_info) {
+    s_client.reset(new MasterServerClient(cluster_info));
     return s_client.get();
 }
 
@@ -70,18 +70,22 @@ MasterServerClient* MasterServerClient::instance() {
     return s_client.get();
 }
 
-MasterServerClient::MasterServerClient(const TMasterInfo& master_info)
-        : _master_info(master_info) {}
+MasterServerClient::MasterServerClient(const ClusterInfo* cluster_info)
+        : _cluster_info(cluster_info),
+          _client_cache(std::make_unique<FrontendServiceClientCache>(
+                  config::max_master_fe_client_cache_size)) {
+    _client_cache->init_metrics("master_fe");
+}
 
 Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _master_info.network_address,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
-                     << "host=" << _master_info.network_address.hostname
-                     << ", port=" << _master_info.network_address.port
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port
                      << ", code=" << client_status.code();
         return Status::InternalError("Failed to get master client");
     }
@@ -90,15 +94,15 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
         try {
             client->finishTask(*result, request);
         } catch ([[maybe_unused]] TTransportException& e) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to get master client from cache. "
-                             << "host=" << _master_info.network_address.hostname
-                             << ", port=" << _master_info.network_address.port
+                             << "host=" << _cluster_info->master_fe_addr.hostname
+                             << ", port=" << _cluster_info->master_fe_addr.port
                              << ", code=" << client_status.code();
 #endif
                 return Status::RpcError("Master client finish task failed");
@@ -108,8 +112,8 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to finish_task. "
-                     << "host=" << _master_info.network_address.hostname
-                     << ", port=" << _master_info.network_address.port << ", error=" << e.what();
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port << ", error=" << e.what();
         return Status::InternalError("Fail to finish task");
     }
 
@@ -118,13 +122,13 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
 
 Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _master_info.network_address,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "fail to get master client from cache. "
-                     << "host=" << _master_info.network_address.hostname
-                     << ", port=" << _master_info.network_address.port
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port
                      << ", code=" << client_status;
         return Status::InternalError("Fail to get master client from cache");
     }
@@ -135,17 +139,17 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                     LOG(WARNING) << "fail to get master client from cache. "
-                                 << "host=" << _master_info.network_address.hostname
-                                 << ", port=" << _master_info.network_address.port
+                                 << "host=" << _cluster_info->master_fe_addr.hostname
+                                 << ", port=" << _cluster_info->master_fe_addr.port
                                  << ", code=" << client_status.code();
 #endif
                     return Status::InternalError("Fail to get master client from cache");
@@ -155,7 +159,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to report to master: " << e.what();
 #endif
                 return Status::InternalError("Fail to report to master");
@@ -164,8 +168,8 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
     } catch (std::exception& e) {
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to report to master. "
-                     << "host=" << _master_info.network_address.hostname
-                     << ", port=" << _master_info.network_address.port
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port
                      << ", code=" << client_status.code() << ", reason=" << e.what();
         return Status::InternalError("Fail to report to master");
     }
@@ -176,13 +180,13 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
 Status MasterServerClient::confirm_unused_remote_files(
         const TConfirmUnusedRemoteFilesRequest& request, TConfirmUnusedRemoteFilesResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _master_info.network_address,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         return Status::InternalError(
                 "fail to get master client from cache. host={}, port={}, code={}",
-                _master_info.network_address.hostname, _master_info.network_address.port,
+                _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
                 client_status.code());
     }
     try {
@@ -191,15 +195,17 @@ Status MasterServerClient::confirm_unused_remote_files(
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
+#endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
                     return Status::InternalError(
                             "fail to get master client from cache. host={}, port={}, code={}",
-                            _master_info.network_address.hostname,
-                            _master_info.network_address.port, client_status.code());
+                            _cluster_info->master_fe_addr.hostname,
+                            _cluster_info->master_fe_addr.port, client_status.code());
                 }
 
                 client->confirmUnusedRemoteFiles(*result, request);
@@ -208,7 +214,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                 // actually we don't care what FE returns.
                 return Status::InternalError(
                         "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
-                        _master_info.network_address.hostname, _master_info.network_address.port,
+                        _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
                         client_status.code(), e.what());
             }
         }
@@ -216,7 +222,7 @@ Status MasterServerClient::confirm_unused_remote_files(
         RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         return Status::InternalError(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
-                _master_info.network_address.hostname, _master_info.network_address.port,
+                _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
                 client_status.code(), e.what());
     }
 

@@ -21,6 +21,9 @@ suite("single_table_without_aggregate") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set enable_materialized_view_rewrite=true"
+    // TODO remove this variable after mv rewrite support defer materialized nodes
+    sql 'set enable_two_phase_read_opt = false'
+
 
     sql """
     drop table if exists orders
@@ -52,16 +55,14 @@ suite("single_table_without_aggregate") {
     """
 
     sql "analyze table orders with sync;"
+    sql """alter table orders modify column o_comment set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
         createMV("create materialized view ${mv_name} as ${mv_sql}")
-        explain {
-            sql("${query_sql}")
-            contains "(${mv_name})"
-        }
+        mv_rewrite_success(query_sql, mv_name)
         order_qt_query1_0 "${query_sql}"
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name} ON orders"""
     }

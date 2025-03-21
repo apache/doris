@@ -47,13 +47,7 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
-    public void setCollectCommitInfoFunc() {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        coordinator.setIcebergCommitDataFunc(transaction::updateIcebergCommitData);
-    }
-
-    @Override
-    protected void beforeExec() {
+    protected void beforeExec() throws UserException {
         String dbName = ((IcebergExternalTable) table).getDbName();
         String tbName = table.getName();
         SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);

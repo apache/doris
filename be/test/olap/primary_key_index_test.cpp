@@ -80,12 +80,12 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
-    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta, nullptr).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta, nullptr).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    EXPECT_TRUE(index_reader.new_iterator(&index_iterator).ok());
+    EXPECT_TRUE(index_reader.new_iterator(&index_iterator, nullptr).ok());
     bool exact_match = false;
     uint32_t row_id;
     for (size_t i = 0; i < keys.size(); i++) {
@@ -142,7 +142,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
         int batch_size = 1024;
         while (remaining > 0) {
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-            EXPECT_TRUE(index_reader.new_iterator(&iter).ok());
+            EXPECT_TRUE(index_reader.new_iterator(&iter, nullptr).ok());
 
             size_t num_to_read = std::min(batch_size, remaining);
             auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
@@ -199,12 +199,12 @@ TEST_F(PrimaryKeyIndexTest, multiple_pages) {
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
-    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta, nullptr).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta, nullptr).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    EXPECT_TRUE(index_reader.new_iterator(&index_iterator).ok());
+    EXPECT_TRUE(index_reader.new_iterator(&index_iterator, nullptr).ok());
     bool exact_match = false;
     uint32_t row_id;
     for (size_t i = 0; i < keys.size(); i++) {
@@ -283,12 +283,12 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
-    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta).ok());
-    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta).ok());
+    EXPECT_TRUE(index_reader.parse_index(file_reader, index_meta, nullptr).ok());
+    EXPECT_TRUE(index_reader.parse_bf(file_reader, index_meta, nullptr).ok());
     EXPECT_EQ(num_rows, index_reader.num_rows());
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    EXPECT_TRUE(index_reader.new_iterator(&index_iterator).ok());
+    EXPECT_TRUE(index_reader.new_iterator(&index_iterator, nullptr).ok());
     bool exact_match = false;
     uint32_t row_id;
     for (size_t i = 0; i < keys.size(); i++) {

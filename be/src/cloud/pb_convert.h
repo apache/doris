@@ -24,10 +24,14 @@ RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB&);
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(RowsetMetaPB&&);
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in);
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in);
-RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB&);
-RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&&);
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in);
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in);
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB&,
+                                        const SchemaCloudDictionary* dict = nullptr);
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&&,
+                                        const SchemaCloudDictionary* dict = nullptr);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
+                                const SchemaCloudDictionary* dict = nullptr);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
+                                const SchemaCloudDictionary* dict = nullptr);
 
 // TabletSchemaPB <=> TabletSchemaCloudPB
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB&);

@@ -39,11 +39,6 @@ suite("agg_on_none_agg") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -61,6 +56,8 @@ suite("agg_on_none_agg") {
     (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
+
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
 
     sql """
     drop table if exists lineitem
@@ -86,10 +83,6 @@ suite("agg_on_none_agg") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -103,6 +96,8 @@ suite("agg_on_none_agg") {
     (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
 
     sql """
     drop table if exists partsupp
@@ -129,9 +124,16 @@ suite("agg_on_none_agg") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
+
+    // inject column statistic
+    sql """alter table orders modify column o_orderkey set stats ('row_count'='8')"""
+    sql """alter table lineitem modify column l_orderkey set stats ('row_count'='5')"""
+    sql """alter table partsupp modify column ps_partkey set stats ('row_count'='2')"""
 
     // query used expression is in mv
     def mv1_0 = """

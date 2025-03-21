@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.metric.MetricRepo;
@@ -300,5 +301,29 @@ public class SqlBlockRuleMgrTest extends TestWithFeService {
                 String.format("the sql block rule %s not exist", "test_rule"),
                 () -> dropSqlBlockRule("DROP SQL_BLOCK_RULE test_rule"));
         dropSqlBlockRule("DROP SQL_BLOCK_RULE if exists test_rule");
+    }
+
+    @Test
+    public void testIgnoreAdmin() throws Exception {
+        String sql = "select * from test_table1 limit 10";
+        String sqlHash = DigestUtils.md5Hex(sql);
+        String sqlRule = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table1\","
+                + " \"global\"=\"true\", \"enable\"=\"true\");";
+        createSqlBlockRule(sqlRule);
+        Config.sql_block_rule_ignore_admin = false;
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "sql match regex sql block rule: test_rule",
+                () -> mgr.matchSql(sql, sqlHash, "root"));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "sql match regex sql block rule: test_rule",
+                () -> mgr.matchSql(sql, sqlHash, "admin"));
+        Config.sql_block_rule_ignore_admin = true;
+        ExceptionChecker.expectThrowsNoException(() -> mgr.matchSql(sql, sqlHash, "root"));
+        ExceptionChecker.expectThrowsNoException(() -> mgr.matchSql(sql, sqlHash, "admin"));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "sql match regex sql block rule: test_rule",
+                () -> mgr.matchSql(sql, sqlHash, "other_user"));
+        Config.sql_block_rule_ignore_admin = false;
+        dropSqlBlockRule(dropSqlRule);
     }
 }

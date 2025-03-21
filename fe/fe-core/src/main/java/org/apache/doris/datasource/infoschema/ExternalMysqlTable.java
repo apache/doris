@@ -19,8 +19,8 @@ package org.apache.doris.datasource.infoschema;
 
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.catalog.MysqlDBTable;
-import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TSchemaTable;
@@ -30,8 +30,8 @@ import org.apache.doris.thrift.TTableType;
 import java.util.Optional;
 
 public class ExternalMysqlTable extends ExternalTable {
-    public ExternalMysqlTable(long id, String name, ExternalCatalog catalog) {
-        super(id, name, catalog, MysqlDb.DATABASE_NAME, TableType.SCHEMA);
+    public ExternalMysqlTable(long id, String name, ExternalCatalog catalog, ExternalDatabase db) {
+        super(id, name, name, catalog, db, TableType.SCHEMA);
     }
 
     @Override

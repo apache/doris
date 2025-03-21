@@ -74,26 +74,47 @@ suite("test_show_data_warehouse") {
     
         // wait for heartbeat
 
+        def res1 = sql """ show data from  ${db1Name}.`table`""";
+        def replicaCount1 = res1[0][3].toInteger();
+        def res2 = sql """ show data from  ${db2Name}.`table`""";
+        def replicaCount2 = res2[0][3].toInteger();
+        assertEquals(replicaCount1, replicaCount2);
+        log.info("replicaCount: ${replicaCount1}|${replicaCount2}");
+
         long start = System.currentTimeMillis()
         long dataSize = 0
         long current = -1
+
+        boolean hitDb1 = false;
+        boolean hitDb2 = false;
+        def result;
         do {
             current = System.currentTimeMillis()
-            def res = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
-            if (res[0][1].toInteger() > 0 && res[1][1].toInteger() > 0) {
-                break;
+            result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+            if ((result.size() == 2) && result[0][1].toInteger() == 785 * replicaCount1) {
+                hitDb1 = true;
+            }
+
+            result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+            if (result.size() == 2 && result[0][1].toInteger() == 762 * replicaCount1) {
+                hitDb2 = true;
+            }
+            if (hitDb1 && hitDb2) {
+                break
             }
             sleep(30000)
-        } while (current - start < 600000)
+        } while (current - start < 1200 * 1000)
 
-        qt_show_1 """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+        // because asan be report maybe cost too much time
+        assertTrue((hitDb1 && hitDb2), "data size check fail after 1200s")
 
-        qt_show_2 """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
+        assertEquals(result.size(), 3)
+        assertEquals(result[0][1].toInteger(), 785 * replicaCount1)
+        assertEquals(result[1][1].toInteger(), 762 * replicaCount1)
+        assertEquals(result[2][1].toInteger(), (785 + 762) * replicaCount1)
 
-        qt_show_3 """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
-
-        def result = sql """show data properties("entire_warehouse"="true")"""
-
+        result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() >= 3)
 
         sql """ DROP DATABASE IF EXISTS ${db1Name}; """

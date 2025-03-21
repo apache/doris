@@ -1536,3 +1536,4 @@ Other dependencies:
     * xxhash: 0.8.1  -- licenses/LICENSE-xxhash.txt
     * concurrentqueue: 1.0.3  -- licenses/LICENSE-concurrentqueue.txt
     * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
+    * icu 75.1 -- licenses/LICENSE-icu.txt

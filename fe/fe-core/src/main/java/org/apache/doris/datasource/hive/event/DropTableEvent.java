@@ -48,7 +48,7 @@ public class DropTableEvent extends MetastoreTableEvent {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.DROP_TABLE.equals(getEventType()));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
         try {
             JSONDropTableMessage dropTableMessage =
                     (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
@@ -77,11 +77,11 @@ public class DropTableEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
             Env.getCurrentEnv().getCatalogMgr().unregisterExternalTable(dbName, tableName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

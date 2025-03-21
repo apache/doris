@@ -24,9 +24,13 @@ suite("test_es_catalog_http_open_api", "p0,external,es,external_docker,external_
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
-        // test old create-catalog syntax for compatibility
+        sql """drop catalog if exists test_es_catalog_http_open_api_es5;"""
+        sql """drop catalog if exists test_es_catalog_http_open_api_es6;"""
+        sql """drop catalog if exists test_es_catalog_http_open_api_es7;"""
+        sql """drop catalog if exists test_es_catalog_http_open_api_es8;"""
+        
         sql """
-            create catalog if not exists test_es_query_es5
+            create catalog if not exists test_es_catalog_http_open_api_es5
             properties (
                 "type"="es",
                 "elasticsearch.hosts"="http://${externalEnvIp}:$es_5_port",
@@ -35,7 +39,7 @@ suite("test_es_catalog_http_open_api", "p0,external,es,external_docker,external_
             );
         """
         sql """
-            create catalog if not exists test_es_query_es6
+            create catalog if not exists test_es_catalog_http_open_api_es6
             properties (
                 "type"="es",
                 "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
@@ -45,7 +49,7 @@ suite("test_es_catalog_http_open_api", "p0,external,es,external_docker,external_
         """
 
         // test new create catalog syntax
-        sql """create catalog if not exists test_es_query_es7 properties(
+        sql """create catalog if not exists test_es_catalog_http_open_api_es7 properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_7_port",
             "nodes_discovery"="false",
@@ -53,7 +57,7 @@ suite("test_es_catalog_http_open_api", "p0,external,es,external_docker,external_
         );
         """
 
-        sql """create catalog if not exists test_es_query_es8 properties(
+        sql """create catalog if not exists test_es_catalog_http_open_api_es8 properties(
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_8_port",
             "nodes_discovery"="false",
@@ -64,7 +68,7 @@ suite("test_es_catalog_http_open_api", "p0,external,es,external_docker,external_
         List<String> feHosts = getFrontendIpHttpPort()
         // for each catalog 5..8, send a request
         for (int i = 5; i <= 8; i++) {
-            String catalog = String.format("test_es_query_es%s", i)
+            String catalog = String.format("test_es_catalog_http_open_api_es%s", i)
             def (code, out, err) = curl("GET", String.format("http://%s/rest/v2/api/es_catalog/get_mapping?catalog=%s&table=test1", feHosts[0], catalog))
             logger.info("Get mapping response: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(code == 0)

@@ -31,6 +31,7 @@ class ExplainAction implements SuiteAction {
     private boolean verbose = false
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
+    private Set<String> containsAnyStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
     private Map<String, Integer> multiContainsStrings = new HashMap<>()
     private String coonType
@@ -55,6 +56,10 @@ class ExplainAction implements SuiteAction {
 
     void contains(String subString) {
         containsStrings.add(subString)
+    }
+
+    void containsAny(String subString) {
+        containsAnyStrings.add(subString)
     }
 
     void multiContains(String subString, int n) {
@@ -118,11 +123,23 @@ class ExplainAction implements SuiteAction {
             for (Map.Entry entry : multiContainsStrings) {
                 int count = explainString.count(entry.key);
                 if (count != entry.value) {
-                    String msg = ("Explain and check failed, expect multiContains '${string}' , '${entry.value}' times, actural '${count}' times."
+                    String msg = ("Explain and check failed, expect multiContains '${entry.key}' , '${entry.value}' times, actural '${count}' times."
                             + "Actual explain string is:\n${explainString}").toString()
                     def t = new IllegalStateException(msg)
                     throw t
                 }
+            }
+            boolean any = false;
+            for (String string : containsAnyStrings) {
+                if (explainString.contains(string)) {
+                    any = true;
+                }
+            }
+            if (!containsAnyStrings.isEmpty() && !any) {
+                    String msg = ("Explain and check failed, expect contains any '${containsAnyStrings}',"
+                            + " but actual explain string is:\n${explainString}").toString()
+                    def t = new IllegalStateException(msg)
+                    throw t
             }
         }
     }

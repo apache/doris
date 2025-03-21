@@ -18,6 +18,7 @@ suite("test_cte_filter_pushdown") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_pipeline_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set runtime_filter_type=2;"
     sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
@@ -86,7 +87,6 @@ suite("test_cte_filter_pushdown") {
     """
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-    sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'

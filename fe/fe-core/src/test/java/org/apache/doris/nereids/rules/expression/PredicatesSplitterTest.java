@@ -24,7 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -67,23 +67,27 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
 
         if (!StringUtils.isEmpty(expectedEqualExpr)) {
             Expression equalExpression = replaceUnboundSlot(PARSER.parseExpression(expectedEqualExpr), mem);
-            Assertions.assertEquals(equalExpression, splitPredicate.getEqualPredicate());
+            Assertions.assertEquals(ExpressionUtils.extractConjunctionToSet(equalExpression),
+                    splitPredicate.getEqualPredicateMap().keySet());
         } else {
-            Assertions.assertEquals(splitPredicate.getEqualPredicate(), BooleanLiteral.TRUE);
+            Assertions.assertTrue(splitPredicate.getEqualPredicateMap().isEmpty());
         }
 
         if (!StringUtils.isEmpty(expectedRangeExpr)) {
             Expression rangeExpression = replaceUnboundSlot(PARSER.parseExpression(expectedRangeExpr), mem);
-            Assertions.assertEquals(rangeExpression, splitPredicate.getRangePredicate());
+            Assertions.assertEquals(ExpressionUtils.extractConjunctionToSet(rangeExpression),
+                    splitPredicate.getRangePredicateMap().keySet());
         } else {
-            Assertions.assertEquals(splitPredicate.getRangePredicate(), BooleanLiteral.TRUE);
+            Assertions.assertTrue(splitPredicate.getRangePredicateMap().isEmpty());
         }
 
         if (!StringUtils.isEmpty(expectedResidualExpr)) {
             Expression residualExpression = replaceUnboundSlot(PARSER.parseExpression(expectedResidualExpr), mem);
-            Assertions.assertEquals(residualExpression, splitPredicate.getResidualPredicate());
+            Assertions.assertEquals(
+                    ExpressionUtils.extractConjunctionToSet(residualExpression),
+                    splitPredicate.getResidualPredicateMap().keySet());
         } else {
-            Assertions.assertEquals(splitPredicate.getResidualPredicate(), BooleanLiteral.TRUE);
+            Assertions.assertTrue(splitPredicate.getResidualPredicateMap().isEmpty());
         }
     }
 

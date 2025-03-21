@@ -279,7 +279,7 @@ public class StringLiteral extends LiteralExpr {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
                         // consistent with CastExpr's getResultValue() method
-                        return new NullLiteral();
+                        return NullLiteral.create(targetType);
                     }
                 case DECIMALV2:
                 case DECIMAL32:

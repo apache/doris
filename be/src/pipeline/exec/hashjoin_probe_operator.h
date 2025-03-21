@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
@@ -26,7 +27,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
 using HashTableCtxVariants =
@@ -43,7 +44,7 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState final
+class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
@@ -56,7 +57,6 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    void add_tuple_is_null_column(vectorized::Block* block) override;
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
                                         bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
@@ -73,8 +73,7 @@ public:
         return _shared_state->build_block;
     }
     bool empty_right_table_shortcut() const {
-        // !Base::_projections.empty() means nereids planner
-        return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
+        return _shared_state->empty_right_table_need_probe_dispose;
     }
     std::string debug_string(int indentation_level) const override;
 
@@ -92,7 +91,6 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
-
     // For mark join, last probe index of null mark
     int _last_probe_null_mark;
 
@@ -116,23 +114,24 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
+    ssize_t _estimated_mem_in_push = -1;
+
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
-    RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
+    RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
+class HashJoinProbeOperatorX MOCK_REMOVE(final)
+        : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
@@ -152,10 +151,7 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
-    }
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
@@ -179,9 +175,6 @@ private:
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    bool _probe_ignore_null = false;
-
-    std::vector<bool> _should_convert_to_nullable;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;
@@ -194,3 +187,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

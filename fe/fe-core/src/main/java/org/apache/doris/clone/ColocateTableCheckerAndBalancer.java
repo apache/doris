@@ -561,15 +561,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                                    if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                                    if (res == AddResult.DISABLED) {
                                         // tablet in scheduler exceed limit, or scheduler is disabled,
                                         // skip this group and check next one.
                                         LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
                                         break OUT;
                                     } else if (res == AddResult.ADDED) {
                                         counter.addToSchedulerTabletNum++;
-                                    }  else {
+                                    } else if (res == AddResult.ALREADY_IN) {
                                         counter.tabletInScheduler++;
+                                    } else if (res == AddResult.REPLACE_ADDED || res == AddResult.LIMIT_EXCEED) {
+                                        counter.tabletExceedLimit++;
                                     }
                                 }
                             }
@@ -589,9 +591,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         } // end for groups
 
         long cost = System.currentTimeMillis() - start;
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{}, "
+                + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+                counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
     }
 
     private GlobalColocateStatistic buildGlobalColocateStatistic() {

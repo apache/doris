@@ -42,6 +42,7 @@
 #include "io/fs/multi_table_pipe.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/memory_profile.h"
 #include "runtime/message_body_sink.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "runtime/routine_load/data_consumer_group.h"
@@ -230,7 +231,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->db = task.db;
     ctx->table = task.tbl;
     ctx->label = task.label;
+    // deprecated, removed in 3.1, use auth token instead.
     ctx->auth.auth_code = task.auth_code;
+    ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
 
     if (task.__isset.max_interval_s) {
         ctx->max_interval_s = task.max_interval_s;
@@ -314,8 +317,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
 bool RoutineLoadTaskExecutor::_reach_memory_limit() {
     bool is_exceed_soft_mem_limit = GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
-    auto current_load_mem_value =
-            MemTrackerLimiter::TypeMemSum[MemTrackerLimiter::Type::LOAD]->current_value();
+    auto current_load_mem_value = MemoryProfile::load_current_usage();
     if (is_exceed_soft_mem_limit || current_load_mem_value > _load_mem_limit) {
         LOG(INFO) << "is_exceed_soft_mem_limit: " << is_exceed_soft_mem_limit
                   << " current_load_mem_value: " << current_load_mem_value

@@ -132,14 +132,20 @@ public:
     // for read
     // use deep copy to acquire the data
     virtual Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+        if (size <= 1) {
+            return Status::InvalidArgument("invalid size:{}", size);
+        }
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
             return Status::InvalidArgument("invalid strategy:{}", strategy);
         }
-        if (size == 0) {
-            return Status::InvalidArgument("invalid size:{}", size);
+        if (buf == nullptr) {
+            return Status::InvalidArgument("buf is nullptr");
+        }
+        if (((size - 1) & (size - 2)) != 0) {
+            return Status::InvalidArgument("size - 1 must be power of two");
         }
         _data = new char[size];
         memcpy(_data, buf, size);
@@ -161,6 +167,16 @@ public:
         return hash_code;
     }
 
+    static Result<uint64_t> hash(const char* buf, uint32_t size, HashStrategyPB strategy) {
+        if (strategy == HASH_MURMUR3_X64_64) {
+            uint64_t hash_code;
+            murmur_hash3_x64_64(buf, size, DEFAULT_SEED, &hash_code);
+            return hash_code;
+        } else {
+            return Status::InvalidArgument("invalid strategy:{}", strategy);
+        }
+    }
+
     virtual void add_bytes(const char* buf, uint32_t size) {
         if (buf == nullptr) {
             *_has_null = true;
@@ -180,7 +196,7 @@ public:
 
     /// Checks if this contains everything from another bloom filter.
     /// Bloom filters must have equal size and seed.
-    virtual bool contains(const BloomFilter& bf_) const = 0;
+    virtual bool contains(const BloomFilter& bf_) const { return true; };
 
     virtual char* data() const { return _data; }
 

@@ -115,11 +115,13 @@ public class EsScanNode extends ExternalScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
+        buildQuery();
         doFinalize();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
+        buildQuery();
         doFinalize();
     }
 
@@ -363,10 +365,14 @@ public class EsScanNode extends ExternalScanNode {
             boolean hasFilter = false;
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             List<Expr> notPushDownList = new ArrayList<>();
+            if (table.getColumn2typeMap() == null) {
+                table.genColumnsFromEs();
+            }
             for (Expr expr : conjuncts) {
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
                         BuilderOptions.builder().likePushDown(table.isLikePushDown())
-                                .needCompatDateFields(table.needCompatDateFields()).build());
+                                .needCompatDateFields(table.needCompatDateFields()).build(),
+                        table.getColumn2typeMap());
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

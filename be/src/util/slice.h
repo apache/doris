@@ -302,27 +302,6 @@ inline int Slice::compare(const Slice& b) const {
     return r;
 }
 
-/// @brief STL map whose keys are Slices.
-///
-/// An example of usage:
-/// @code
-///   typedef SliceMap<int>::type MySliceMap;
-///
-///   MySliceMap my_map;
-///   my_map.insert(MySliceMap::value_type(a, 1));
-///   my_map.insert(MySliceMap::value_type(b, 2));
-///   my_map.insert(MySliceMap::value_type(c, 3));
-///
-///   for (const MySliceMap::value_type& pair : my_map) {
-///     ...
-///   }
-/// @endcode
-template <typename T>
-struct SliceMap {
-    /// A handy typedef for the slice map with appropriate comparison operator.
-    typedef std::map<Slice, T, Slice::Comparator> type;
-};
-
 // A move-only type which manage the lifecycle of externally allocated data.
 // Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
 // the underlying buffer as a Slice.
@@ -343,6 +322,10 @@ struct SliceMap {
 class OwnedSlice : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
+
+    OwnedSlice(size_t length)
+            : _slice(reinterpret_cast<char*>(Allocator::alloc(length)), length),
+              _capacity(length) {}
 
     OwnedSlice(OwnedSlice&& src) : _slice(src._slice), _capacity(src._capacity) {
         src._slice.data = nullptr;
@@ -368,6 +351,8 @@ public:
             Allocator::free(_slice.data, _capacity);
         }
     }
+
+    char* data() const { return _slice.data; }
 
     const Slice& slice() const { return _slice; }
 

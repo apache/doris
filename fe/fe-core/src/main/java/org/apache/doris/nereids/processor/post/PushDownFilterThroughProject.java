@@ -18,11 +18,16 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * merge consecutive projects
@@ -32,14 +37,19 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter = (PhysicalFilter<? extends Plan>) super.visit(filter, context);
         Plan child = filter.child();
-        if (!(child instanceof PhysicalProject)) {
+        // don't push down filter if child project contains NoneMovableFunction
+        if (!(child instanceof PhysicalProject) || ((PhysicalProject) child).containsNoneMovableFunction()) {
             return filter;
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+        Map<Slot, Expression> childAlias = project.getAliasToProducer();
+        if (filter.getInputSlots().stream().map(childAlias::get).filter(Objects::nonNull)
+                .anyMatch(Expression::containsNonfoldable)) {
+            return filter;
+        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
-                ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                project.child());
+                ExpressionUtils.replace(filter.getConjuncts(), childAlias), project.child());
         return ((AbstractPhysicalPlan) project.withChildren(newFilter.accept(this, context)))
                 .copyStatsAndGroupIdFrom(project);
     }

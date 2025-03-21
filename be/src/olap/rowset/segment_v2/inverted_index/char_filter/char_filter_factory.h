@@ -27,6 +27,7 @@ class CharFilterFactory {
 public:
     template <typename... Args>
     static lucene::analysis::CharFilter* create(const std::string& name, Args&&... args) {
+        DBUG_EXECUTE_IF("CharFilterFactory::create_return_nullptr", { return nullptr; })
         if (name == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
             return new CharReplaceCharFilter(std::forward<Args>(args)...);
         }

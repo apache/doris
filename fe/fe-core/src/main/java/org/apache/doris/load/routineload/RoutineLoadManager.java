@@ -487,6 +487,7 @@ public class RoutineLoadManager implements Writable {
         // check if be has idle slot
         readLock();
         try {
+            updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             int previousBeIdleTaskNum = 0;
 

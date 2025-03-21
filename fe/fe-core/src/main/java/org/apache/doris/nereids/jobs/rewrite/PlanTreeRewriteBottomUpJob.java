@@ -116,7 +116,6 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
 
         // some rule return new plan tree, which the number of new plan node > 1,
         // we should transform this new plan nodes too.
-        // NOTICE: this relay on pull up cte anchor
         if (isTraverseChildren.test(plan)) {
             pushChildrenJobs(plan);
         }

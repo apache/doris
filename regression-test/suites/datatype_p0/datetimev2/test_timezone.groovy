@@ -31,27 +31,8 @@ suite("test_timezone") {
 
     sql """ set time_zone = '+02:00' """
 
-    sql """ set enable_nereids_planner = false """
-    if (isGroupCommitMode()) {
-        sql """ set enable_nereids_planner = true """
-    }
-    sql """insert into test_timezone values('2022-01-01 01:02:55', '2022-01-01 01:02:55.123')"""
-    sql """insert into test_timezone values('2022-02-01 01:02:55Z', '2022-02-01 01:02:55.123Z')"""
-    sql """insert into test_timezone values('2022-03-01 01:02:55+08:00', '2022-03-01 01:02:55.123UTC')"""
-    sql """insert into test_timezone values('2022-04-01T01:02:55-06:00', '2022-04-01T01:02:55.123+06:00')"""
-    sql """insert into test_timezone values('2022-05-01 01:02:55+02:30', '2022-05-01 01:02:55.123-02:30')"""
-    sql """insert into test_timezone values('2022-06-01T01:02:55+04:30', '2022-06-01 01:02:55.123-07:30')"""
-    sql """insert into test_timezone values('20220701010255+07:00', '20220701010255-05:00')"""
-    if (isGroupCommitMode()) {
-        sql """insert into test_timezone values('2022-07-31 21:00', '2022-08-01')"""
-    } else {
-        sql """insert into test_timezone values('20220801+05:00', '20220801America/Argentina/Buenos_Aires')"""
-    }
-    qt_legacy "select * from test_timezone order by k1"
-
     sql """ truncate table test_timezone """
     
-    sql """ set enable_nereids_planner = true """
     sql """insert into test_timezone values('2022-01-01 01:02:55', '2022-01-01 01:02:55.123')"""
     sql """insert into test_timezone values('2022-02-01 01:02:55Z', '2022-02-01 01:02:55.123Z')"""
     sql """insert into test_timezone values('2022-05-01 01:02:55+02:30', '2022-05-01 01:02:55.123-02:30')"""

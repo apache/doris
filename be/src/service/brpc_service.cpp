@@ -83,6 +83,8 @@ Status BRpcService::start(int port, int num_threads) {
         sslOptions->default_cert.private_key = config::ssl_private_key_path;
     }
 
+    options.has_builtin_services = config::enable_brpc_builtin_services;
+
     butil::EndPoint point;
     if (butil::str2endpoint(BackendOptions::get_service_bind_address(), port, &point) < 0) {
         return Status::InternalError("convert address failed, host={}, port={}", "[::0]", port);

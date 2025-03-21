@@ -114,6 +114,7 @@ public:
     using Base = StringHashTable<StringHashMapSubMaps<TMapped, Allocator>>;
     using Self = StringHashMap;
     using LookupResult = typename Base::LookupResult;
+    using Value = TMapped;
 
     using Base::Base;
 
