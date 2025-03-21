@@ -1070,11 +1070,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY.update(costTime);
             }
+            if (commitCostTimeStatisticMap.containsKey(transactionId)) {
+                commitCostTimeStatisticMap.get(transactionId).setWaitDeleteBitmapLockCostTimeMs(costTime);
+            }
             String status = res ? "successfully" : "fail";
-            LOG.info("get delete bitmap lock {} . txnId: {}. totalRetryTime: {}. "
-                            + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", status,
-                    transactionId, totalRetryTime, lockContext.getTableToPartitions().size(), costTime,
-                    mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
+            if (costTime > 1000) {
+                LOG.info("get delete bitmap lock {} . txnId: {}. totalRetryTime: {}. "
+                                + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", status,
+                        transactionId, totalRetryTime, lockContext.getTableToPartitions().size(), costTime,
+                        mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
+            }
         }
     }
 
@@ -1186,8 +1191,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 commitCostTimeStatisticMap.get(transactionId).setCalculateDeleteBitmapCostTimeMs(costTime);
             }
             String status = res ? "successfully" : "fail";
-            LOG.info("calc delete bitmap task {}. txns: {}. time cost: {} ms.",
-                    status, transactionId, stopWatch.getTime());
+            if (costTime > 1000) {
+                LOG.info("calc delete bitmap task {}. txns: {}. time cost: {} ms.",
+                        status, transactionId, stopWatch.getTime());
+            }
         }
     }
 
@@ -1295,25 +1302,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         } finally {
             stopWatch.stop();
             String detailMsg = "";
-            if (commitCostTimeStatisticMap.containsKey(transactionId)) {
-                StringBuilder sb = new StringBuilder();
-                CommitCostTimeStatistic statistic = commitCostTimeStatisticMap.get(transactionId);
-                sb.append("get commit lock cost ").append(statistic.getWaitCommitLockCostTimeMs())
-                        .append(" ms, get delete bitmap lock cost ")
-                        .append(statistic.getWaitDeleteBitmapLockCostTimeMs())
-                        .append(" ms, calculate delete bitmap cost ")
-                        .append(statistic.getCalculateDeleteBitmapCostTimeMs()).append(" ms, commit to ms cost ")
-                        .append(statistic.getCommitToMsCostTimeMs()).append(" ms");
-                detailMsg = sb.toString();
-            }
             long costTimeMs = stopWatch.getTime();
             if (costTimeMs > 1000) {
+                if (commitCostTimeStatisticMap.containsKey(transactionId)) {
+                    StringBuilder sb = new StringBuilder();
+                    CommitCostTimeStatistic statistic = commitCostTimeStatisticMap.get(transactionId);
+                    sb.append("get commit lock cost ").append(statistic.getWaitCommitLockCostTimeMs())
+                            .append(" ms, get delete bitmap lock cost ")
+                            .append(statistic.getWaitDeleteBitmapLockCostTimeMs())
+                            .append(" ms, calculate delete bitmap cost ")
+                            .append(statistic.getCalculateDeleteBitmapCostTimeMs()).append(" ms, commit to ms cost ")
+                            .append(statistic.getCommitToMsCostTimeMs()).append(" ms");
+                    detailMsg = sb.toString();
+                }
                 LOG.info(
                         "commit transaction {} cost {} ms, detail={}, tableIds={}",
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList);
+            afterCommitTransaction(tableList, transactionId);
         }
         return true;
     }
@@ -1436,7 +1443,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void afterCommitTransaction(List<Table> tableList) {
+    private void afterCommitTransaction(List<Table> tableList, Long transactionId) {
+        if (commitCostTimeStatisticMap.containsKey(transactionId)) {
+            commitCostTimeStatisticMap.remove(transactionId);
+        }
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
@@ -1462,26 +1472,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             stopWatch.stop();
-            String detailMsg = "";
-            if (commitCostTimeStatisticMap.containsKey(transactionId)) {
-                StringBuilder sb = new StringBuilder();
-                CommitCostTimeStatistic statistic = commitCostTimeStatisticMap.get(transactionId);
-                sb.append("get commit lock cost ").append(statistic.getWaitCommitLockCostTimeMs())
-                        .append(" ms, get delete bitmap lock cost ")
-                        .append(statistic.getWaitDeleteBitmapLockCostTimeMs())
-                        .append(" ms, calculate delete bitmap cost ")
-                        .append(statistic.getCalculateDeleteBitmapCostTimeMs()).append(" ms, commit to ms cost ")
-                        .append(statistic.getCommitToMsCostTimeMs()).append(" ms");
-                detailMsg = sb.toString();
-            }
             long costTimeMs = stopWatch.getTime();
             if (costTimeMs > 1000) {
+                String detailMsg = "";
+                if (commitCostTimeStatisticMap.containsKey(transactionId)) {
+                    StringBuilder sb = new StringBuilder();
+                    CommitCostTimeStatistic statistic = commitCostTimeStatisticMap.get(transactionId);
+                    sb.append("get commit lock cost ").append(statistic.getWaitCommitLockCostTimeMs())
+                            .append(" ms, get delete bitmap lock cost ")
+                            .append(statistic.getWaitDeleteBitmapLockCostTimeMs())
+                            .append(" ms, calculate delete bitmap cost ")
+                            .append(statistic.getCalculateDeleteBitmapCostTimeMs()).append(" ms, commit to ms cost ")
+                            .append(statistic.getCommitToMsCostTimeMs()).append(" ms");
+                    detailMsg = sb.toString();
+                }
                 LOG.info(
                         "commit transaction {} cost {} ms, detail={}, tableIds={}",
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList);
+            afterCommitTransaction(tableList, transactionId);
         }
         return true;
     }
