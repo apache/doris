@@ -398,8 +398,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -1956,14 +1954,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
-    }
-
-    default R visitStrLeft(StrLeft strLeft, C context) {
-        return visitScalarFunction(strLeft, context);
-    }
-
-    default R visitStrRight(StrRight strRight, C context) {
-        return visitScalarFunction(strRight, context);
     }
 
     default R visitStrToDate(StrToDate strToDate, C context) {
