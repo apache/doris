@@ -83,7 +83,7 @@ public class OutlineMgr implements Writable {
             if (!ignoreIfExists && OutlineMgr.getOutline(outlineInfo.getOutlineName()).isPresent()) {
                 LOG.info("outline already exists, ignored to create outline: {}, is replay: {}",
                         outlineInfo.getOutlineName(), isReplay);
-                throw new DdlException("outline already exists, is replay: " + isReplay);
+                throw new DdlException(outlineInfo.getOutlineName() + " already exists");
             }
 
             createOutline(outlineInfo);
@@ -111,15 +111,16 @@ public class OutlineMgr implements Writable {
             throws DdlException {
         writeLock();
         try {
-            if (!ifExists && !OutlineMgr.getOutline(outlineName).isPresent()) {
+            boolean isPresent = outlineMap.containsKey(outlineName);
+            if (!ifExists && !isPresent) {
                 LOG.info("outline not exists, ignored to drop outline: {}, is replay: {}",
                         outlineName, isReplay);
-                throw new DdlException("outline already exists, is replay: " + isReplay);
+                throw new DdlException(outlineName + " not exists");
             }
 
             OutlineInfo outlineInfo = outlineMap.get(outlineName);
             dropOutline(outlineName);
-            if (!isReplay) {
+            if (!isReplay && isPresent) {
                 Env.getCurrentEnv().getEditLog().logDropOutline(outlineInfo);
             }
         } finally {
