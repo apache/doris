@@ -434,6 +434,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
+    public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(),
+                ImmutableList.of(left(), right()), joinReorderContext);
+    }
+
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
