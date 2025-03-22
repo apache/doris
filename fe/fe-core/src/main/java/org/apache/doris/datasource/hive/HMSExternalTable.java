@@ -48,6 +48,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -1072,6 +1073,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
+    }
+
+
+    public boolean firstColumnIsString() {
+        List<Column> columns = getColumns();
+        if (columns == null || columns.isEmpty()) {
+            return false;
+        }
+        return columns.get(0).getType().isScalarType(PrimitiveType.STRING);
+    }
+
+    public boolean canReadHiveJsonInOneColumn() {
+        return ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()
+                && firstColumnIsString();
     }
 
     public HoodieTableMetaClient getHudiClient() {

@@ -24,7 +24,7 @@ suite("test_hive_openx_json",  "p0,external,hive,external_docker,external_docker
         return;
     }
 
-    for (String hivePrefix : ["hive2"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
@@ -62,6 +62,19 @@ suite("test_hive_openx_json",  "p0,external,hive,external_docker,external_docker
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("DATA_QUALITY_ERROR"))
             }
+
+            sql """ set read_hive_json_in_one_column = true; """
+
+            order_qt_2 """ select * from json_data_arrays_tb """
+            order_qt_3 """ select * from json_one_column_table """
+
+            try{
+                sql  """ select * from scalar_to_array_tb """;
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("DATA_QUALITY_ERROR"))
+            }
+
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {

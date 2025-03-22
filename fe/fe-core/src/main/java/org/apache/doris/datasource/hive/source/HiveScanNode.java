@@ -411,9 +411,14 @@ public class HiveScanNode extends FileQueryScanNode {
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
             String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
             if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)
-                    || serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
+                if (hmsTable.canReadHiveJsonInOneColumn()) {
+                    type = TFileFormatType.FORMAT_CSV_PLAIN;
+                } else {
+                    type = TFileFormatType.FORMAT_JSON;
+                }
             } else {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
             }
@@ -483,21 +488,32 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
         } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
-            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-            textParams.setColumnSeparator("\t");
-            textParams.setLineDelimiter("\n");
-            fileAttributes.setTextParams(textParams);
+            if (hmsTable.canReadHiveJsonInOneColumn()) {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                textParams.setLineDelimiter("\n");
+                textParams.setColumnSeparator("\n");
+                //First, perform row splitting according to `\n`. When performing column splitting,
+                // since there is no `\n`, only one column of data will be generated.
+                fileAttributes.setTextParams(textParams);
+                fileAttributes.setHeaderType("");
 
-            fileAttributes.setJsonpaths("");
-            fileAttributes.setJsonRoot("");
-            fileAttributes.setNumAsString(true);
-            fileAttributes.setFuzzyParse(false);
-            fileAttributes.setReadJsonByLine(true);
-            fileAttributes.setStripOuterArray(false);
-            fileAttributes.setHeaderType("");
+            } else {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                textParams.setColumnSeparator("\t");
+                textParams.setLineDelimiter("\n");
+                fileAttributes.setTextParams(textParams);
 
-            fileAttributes.setOpenxJsonIgnoreMalformed(
-                    Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
+                fileAttributes.setJsonpaths("");
+                fileAttributes.setJsonRoot("");
+                fileAttributes.setNumAsString(true);
+                fileAttributes.setFuzzyParse(false);
+                fileAttributes.setReadJsonByLine(true);
+                fileAttributes.setStripOuterArray(false);
+                fileAttributes.setHeaderType("");
+
+                fileAttributes.setOpenxJsonIgnoreMalformed(
+                        Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
+            }
         } else {
             throw new UserException(
                     "unsupported hive table serde: " + serDeLib);
