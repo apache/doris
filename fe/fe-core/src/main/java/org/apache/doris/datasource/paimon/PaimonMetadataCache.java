@@ -97,7 +97,7 @@ public class PaimonMetadataCache {
         Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
                 key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
         // snapshotId and schemaId
-        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}, {1}}, null);
+        List<InternalRow> rows = PaimonUtil.read(table, new int[] {0, 1}, null);
         long latestSnapshotId = 0L;
         long latestSchemaId = 0L;
         for (InternalRow row : rows) {
