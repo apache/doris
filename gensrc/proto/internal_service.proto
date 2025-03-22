@@ -536,6 +536,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL256 = 20;
     COLUMN_TYPE_IPV4 = 21;
     COLUMN_TYPE_IPV6 = 22;
+    COLUMN_TYPE_TIMEV2 = 23;
 }
 
 message PMinMaxFilter {
