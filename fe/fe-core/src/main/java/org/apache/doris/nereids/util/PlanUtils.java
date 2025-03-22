@@ -17,7 +17,17 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -30,11 +40,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -42,6 +55,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -343,6 +357,44 @@ public class PlanUtils {
         public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
                 OutermostPlanFinderContext ctx) {
             return null;
+        }
+    }
+
+    /**
+     * translate to legacy expr, which do not need complex expression and table columns
+     */
+    public static Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) {
+        LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                PhysicalProperties.ANY);
+        ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(cascadesContext);
+        expression = analyzer.analyze(expression);
+
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
+        ExpressionToExpr translator = new ExpressionToExpr();
+        return expression.accept(translator, translatorContext);
+    }
+
+    private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {
+        public CustomExpressionAnalyzer(CascadesContext cascadesContext) {
+            super(null, new Scope(ImmutableList.of()), cascadesContext, false, false);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+            return new SlotReference(unboundSlot.getName(), NullType.INSTANCE);
+        }
+    }
+
+    private static class ExpressionToExpr extends ExpressionTranslator {
+        @Override
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
+            slotRef.setLabel(slotReference.getName());
+            slotRef.setCol(slotReference.getName());
+            slotRef.setDisableTableName(true);
+            return slotRef;
         }
     }
 }
