@@ -259,6 +259,7 @@ int Network::init() {
                 bool expected = true;
                 Network::working.compare_exchange_strong(expected, false);
             });
+    pthread_setname_np(network_thread_->native_handle(), "fdb_network_thread");
 
     return 0;
 }
