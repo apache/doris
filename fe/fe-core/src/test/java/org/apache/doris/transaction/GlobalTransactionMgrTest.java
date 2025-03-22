@@ -172,8 +172,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo3);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
-                transTablets, null);
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets, null);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         // check status is committed
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -213,7 +213,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo2);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
                 transTablets, null);
 
         // follower catalog replay the transaction
@@ -235,7 +236,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
                     transTablets, null);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
@@ -265,7 +267,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
                 transTablets, null);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit
@@ -366,7 +369,8 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
+        masterTransMgr.commitTransactionWithoutLock(
+                1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
         RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
@@ -439,7 +443,8 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
+        masterTransMgr.commitTransactionWithoutLock(
+                1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
         // current total rows and error rows will be reset after job pause, so here they should be 0.
         RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob, "jobStatistic");
@@ -471,7 +476,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo3);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
                 transTablets, null);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -537,7 +543,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo2);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
                 transTablets, null);
 
         // follower catalog replay the transaction
@@ -607,7 +614,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
                     transTablets, null);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
@@ -624,7 +632,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
                 transTablets, null);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit

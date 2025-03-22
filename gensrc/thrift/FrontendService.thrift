@@ -824,6 +824,8 @@ struct TCommitTxnRequest {
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string token
     12: optional i64 db_id
+    // used for ccr
+    15: optional bool only_commit   // only commit txn, without waiting txn publish
 }
 
 struct TCommitTxnResult {

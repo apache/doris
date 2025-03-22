@@ -226,10 +226,10 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     @Deprecated
-    public void commitTransaction(long dbId, List<Table> tableList,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
 
     /**
@@ -241,7 +241,7 @@ public class GlobalTransactionMgr implements Writable {
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
      * @note callers should get all tables' write locks before call this api
      */
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -253,6 +253,20 @@ public class GlobalTransactionMgr implements Writable {
         }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
+    }
+
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
     }
 
     private void commitTransaction2PC(long dbId, long transactionId)
@@ -282,7 +296,7 @@ public class GlobalTransactionMgr implements Writable {
                     + StringUtils.join(tableList, ",") + ")");
         }
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -313,7 +327,7 @@ public class GlobalTransactionMgr implements Writable {
         }
         stopWatch.stop();
         LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms."
-                + " data will be visable later.", transactionId, stopWatch.getTime());
+                + " data will be visible later.", transactionId, stopWatch.getTime());
     }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
