@@ -1657,6 +1657,10 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         _dag.insert({downstream_pipeline_id, {}});
     }
 
+    if (tnode.num_children <= 1) {
+        return Status::InternalError("Set operation node should have at least 2 children");
+    }
+
     for (int child_id = 0; child_id < tnode.num_children; child_id++) {
         PipelinePtr probe_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
