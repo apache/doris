@@ -23,6 +23,7 @@ import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
+import org.apache.doris.backup.RestoreBinlogInfo;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.AddPartitionRecord;
 import org.apache.doris.binlog.CreateTableRecord;
@@ -1726,7 +1727,13 @@ public class EditLog {
     }
 
     public void logRestoreJob(RestoreJob job) {
-        logEdit(OperationType.OP_RESTORE_JOB, job);
+        long logId = logEdit(OperationType.OP_RESTORE_JOB, job);
+        // write bin log only if restore job the finished.
+        RestoreBinlogInfo restoreBinlogInfo = job.getRestoreBinlogInfo();
+        if ((job.isFinished()) && (restoreBinlogInfo != null)) {
+            LOG.info("log restore info, logId:{}, infos: {}", logId, restoreBinlogInfo.toJson());
+            Env.getCurrentEnv().getBinlogManager().addRestoreInfo(restoreBinlogInfo, logId);
+        }
     }
 
     public void logUpdateUserProperty(UserPropertyInfo propertyInfo) {

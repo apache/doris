@@ -19,6 +19,7 @@ package org.apache.doris.binlog;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.IndexChangeJob;
+import org.apache.doris.backup.RestoreBinlogInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -354,6 +355,17 @@ public class BinlogManager {
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
+
+    public void addRestoreInfo(RestoreBinlogInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = info.getTableIdList();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RESTORE_INFO;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
 
     public void addTableRename(TableInfo info, long commitSeq) {
         long dbId = info.getDbId();
