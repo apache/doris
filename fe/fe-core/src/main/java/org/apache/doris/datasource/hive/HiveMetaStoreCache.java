@@ -54,6 +54,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
+import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -118,7 +119,8 @@ public class HiveMetaStoreCache {
             = new AtomicReference<>();
 
     public HiveMetaStoreCache(HMSExternalCatalog catalog,
-            ExecutorService refreshExecutor, ExecutorService fileListingExecutor) {
+                              ExecutorService refreshExecutor,
+                              ExecutorService fileListingExecutor) {
         this.catalog = catalog;
         this.refreshExecutor = refreshExecutor;
         this.fileListingExecutor = fileListingExecutor;
@@ -237,7 +239,7 @@ public class HiveMetaStoreCache {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(fileCacheGauge);
     }
 
-    private HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
+    public HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
         // partition name format: nation=cn/city=beijing,`listPartitionNames` returned string is the encoded string.
         List<String> partitionNames = catalog.getClient().listPartitionNames(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
@@ -291,7 +293,7 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private HivePartition loadPartition(PartitionCacheKey key) {
+    public HivePartition loadPartition(PartitionCacheKey key) {
         Partition partition = catalog.getClient().getPartition(key.dbName, key.tblName, key.values);
         StorageDescriptor sd = partition.getSd();
         if (LOG.isDebugEnabled()) {
@@ -389,7 +391,7 @@ public class HiveMetaStoreCache {
         return result;
     }
 
-    private FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
+    public FileCacheValue loadFiles(FileCacheKey key, DirectoryLister directoryLister, TableIf table) {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
@@ -461,7 +463,11 @@ public class HiveMetaStoreCache {
     }
 
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
-        return partitionValuesCache.get(key);
+        if (getEnableHiveMetastoreCache()) {
+            return partitionValuesCache.get(key);
+        } else {
+            return loadPartitionValues(key);
+        }
     }
 
     public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
@@ -494,7 +500,7 @@ public class HiveMetaStoreCache {
 
         List<FileCacheValue> fileLists;
         try {
-            if (withCache) {
+            if (withCache && getEnableHiveMetastoreCache()) {
                 fileLists = new ArrayList<>(fileCacheRef.get().getAll(keys).values());
             } else {
                 if (concurrent) {
@@ -527,7 +533,12 @@ public class HiveMetaStoreCache {
     }
 
     public HivePartition getHivePartition(String dbName, String name, List<String> partitionValues) {
-        return partitionCache.get(new PartitionCacheKey(dbName, name, partitionValues));
+        PartitionCacheKey partitionCacheKey = new PartitionCacheKey(dbName, name, partitionValues);
+        if (getEnableHiveMetastoreCache()) {
+            return partitionCache.get(partitionCacheKey);
+        } else {
+            return loadPartition(partitionCacheKey);
+        }
     }
 
     public List<HivePartition> getAllPartitionsWithCache(String dbName, String name,
@@ -548,7 +559,7 @@ public class HiveMetaStoreCache {
                 .collect(Collectors.toList());
 
         List<HivePartition> partitions;
-        if (withCache) {
+        if (withCache && getEnableHiveMetastoreCache()) {
             partitions = partitionCache.getAll(keys).values().stream().collect(Collectors.toList());
         } else {
             Map<PartitionCacheKey, HivePartition> map = loadPartitions(keys);
@@ -1070,5 +1081,13 @@ public class HiveMetaStoreCache {
         res.put("hive_file_cache",
                 ExternalMetaCacheMgr.getCacheStats(fileCacheRef.get().stats(), fileCacheRef.get().estimatedSize()));
         return res;
+    }
+
+    private boolean getEnableHiveMetastoreCache() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return true;
+        }
+        return connectContext.getSessionVariable().getEnableHiveMetastoreCache();
     }
 }
