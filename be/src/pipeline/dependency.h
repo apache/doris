@@ -805,11 +805,5 @@ public:
     }
 };
 
-class QueryGlobalDependency final : public Dependency {
-    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
-    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
-    ~QueryGlobalDependency() override = default;
-    bool is_blocked_by(PipelineTask* task) override;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

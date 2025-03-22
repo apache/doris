@@ -70,33 +70,24 @@ void Dependency::set_ready() {
     for (auto* task : local_block_task) {
         {
             std::unique_lock<std::mutex> lc(_task_lock);
-            DCHECK_EQ(task->_blocked_dep, this)
-                    << "dep : " << debug_string(0) << "task: " << debug_string();
-            task->_blocked_dep = nullptr;
-            THROW_IF_ERROR(task->_state_transition(PipelineTask::State::RUNNABLE));
+            THROW_IF_ERROR(task->make_runnable(this));
         }
         task->wake_up(this);
     }
 }
 
 bool Dependency::is_blocked_by(PipelineTask* task) {
+    if (task && task->wake_up_early()) {
+        return false;
+    }
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
-        DCHECK_EQ(task->_blocked_dep, nullptr) << "task: " << task->debug_string();
-        task->_blocked_dep = this;
         start_watcher();
-        THROW_IF_ERROR(task->_state_transition(PipelineTask::State::BLOCKED));
+        THROW_IF_ERROR(task->blocked(this));
     }
     return !ready;
-}
-
-bool QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
-    if (task && task->wake_up_early()) {
-        return false;
-    }
-    return Dependency::is_blocked_by(task);
 }
 
 std::string Dependency::debug_string(int indentation_level) {

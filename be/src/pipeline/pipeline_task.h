@@ -211,9 +211,20 @@ public:
 
     void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
 
+    Status make_runnable(Dependency* dependency) {
+        DCHECK_EQ(_blocked_dep, dependency)
+                << "dep : " << dependency->debug_string(0) << "task: " << debug_string();
+        _blocked_dep = nullptr;
+        return _state_transition(PipelineTask::State::RUNNABLE);
+    }
+    Status blocked(Dependency* dependency) {
+        DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
+        _blocked_dep = dependency;
+        return _state_transition(PipelineTask::State::BLOCKED);
+    }
+
 private:
     friend class RuntimeFilterDependency;
-    friend class Dependency;
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
     // Whether this task is blocked during execution (read dependency, write dependency)

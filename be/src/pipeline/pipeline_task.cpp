@@ -275,23 +275,25 @@ void PipelineTask::terminate() {
     if (!is_finalized()) {
         DCHECK(_wake_up_early || _fragment_context->is_canceled());
         for (auto* dep : _spill_dependencies) {
-            dep->set_always_ready();
+            dep->set_ready();
         }
 
         for (auto* dep : _filter_dependencies) {
-            dep->set_always_ready();
+            dep->set_ready();
         }
         for (auto& deps : _read_dependencies) {
             for (auto* dep : deps) {
-                dep->set_always_ready();
+                dep->set_ready();
             }
         }
         for (auto* dep : _write_dependencies) {
-            dep->set_always_ready();
+            dep->set_ready();
         }
         for (auto* dep : _finish_dependencies) {
-            dep->set_always_ready();
+            dep->set_ready();
         }
+        _execution_dep->set_ready();
+        _memory_sufficient_dependency->set_ready();
     }
 }
 
