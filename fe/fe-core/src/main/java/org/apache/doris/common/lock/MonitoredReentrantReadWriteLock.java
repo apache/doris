@@ -23,6 +23,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -35,9 +36,15 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
     // Monitored read and write lock instances
     private final ReadLock readLock = new ReadLock(this);
     private final WriteLock writeLock = new WriteLock(this);
+    public String lockType = null;
 
     // Constructor for creating a monitored lock with fairness option
-    public MonitoredReentrantReadWriteLock(boolean fair) {
+    public MonitoredReentrantReadWriteLock(boolean fair, String lockType)  {
+        super(fair);
+        this.lockType = lockType;
+    }
+
+    public MonitoredReentrantReadWriteLock(boolean fair)  {
         super(fair);
     }
 
@@ -49,7 +56,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     public class ReadLock extends ReentrantReadWriteLock.ReadLock {
         private static final long serialVersionUID = 1L;
-        private final AbstractMonitoredLock monitor = new AbstractMonitoredLock() {};
+        private final AbstractLockMonitor monitor = new AbstractLockMonitor() {};
 
         /**
          * Constructs a new ReadLock instance.
@@ -58,6 +65,24 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
          */
         protected ReadLock(ReentrantReadWriteLock lock) {
             super(lock);
+        }
+
+        @Override
+        public boolean tryLock(long timeout, TimeUnit unit) throws InterruptedException {
+            boolean res = super.tryLock(timeout, unit);
+            if (res) {
+                monitor.afterLock();
+            }
+            return res;
+        }
+
+        @Override
+        public boolean tryLock() {
+            boolean res = super.tryLock();
+            if (res) {
+                monitor.afterLock();
+            }
+            return res;
         }
 
         /**
@@ -76,7 +101,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
          */
         @Override
         public void unlock() {
-            monitor.afterUnlock();
+            monitor.afterUnlock(lockType);
             super.unlock();
         }
     }
@@ -86,7 +111,7 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
      */
     public class WriteLock extends ReentrantReadWriteLock.WriteLock {
         private static final long serialVersionUID = 1L;
-        private final AbstractMonitoredLock monitor = new AbstractMonitoredLock() {};
+        private final AbstractLockMonitor monitor = new AbstractLockMonitor() {};
 
         /**
          * Constructs a new WriteLock instance.
@@ -112,13 +137,31 @@ public class MonitoredReentrantReadWriteLock extends ReentrantReadWriteLock {
             }
         }
 
+        @Override
+        public boolean tryLock(long timeout, TimeUnit unit) throws InterruptedException {
+            boolean res = super.tryLock(timeout, unit);
+            if (res) {
+                monitor.afterLock();
+            }
+            return res;
+        }
+
+        @Override
+        public boolean tryLock() {
+            boolean res = super.tryLock();
+            if (res) {
+                monitor.afterLock();
+            }
+            return res;
+        }
+
         /**
          * Releases the write lock.
          * Records the time when the lock is released and logs the duration.
          */
         @Override
         public void unlock() {
-            monitor.afterUnlock();
+            monitor.afterUnlock(lockType);
             super.unlock();
         }
     }

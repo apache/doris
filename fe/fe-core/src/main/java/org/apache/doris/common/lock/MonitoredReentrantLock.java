@@ -28,7 +28,7 @@ public class MonitoredReentrantLock extends ReentrantLock {
     private static final long serialVersionUID = 1L;
 
     // Monitor for tracking lock acquisition and release
-    private final AbstractMonitoredLock lockMonitor = new AbstractMonitoredLock() {
+    private final AbstractLockMonitor lockMonitor = new AbstractLockMonitor() {
     };
 
     // Constructor for creating a monitored lock with fairness option

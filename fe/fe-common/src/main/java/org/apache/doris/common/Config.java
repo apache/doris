@@ -139,7 +139,7 @@ public class Config extends ConfigBase {
                     + "Close this option will no longer use file to record log."})
     public static boolean enable_file_logger = true;
 
-    @ConfField(mutable = false, masterOnly = false,
+    @ConfField(mutable = true, masterOnly = false,
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
