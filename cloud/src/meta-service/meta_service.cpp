@@ -27,6 +27,7 @@
 #include <google/protobuf/util/json_util.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>

@@ -161,6 +161,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
+
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 
@@ -184,6 +185,9 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_range_remove;
 extern bvar::LatencyRecorder g_bvar_txn_kv_get_read_version;
 extern bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version;
 extern bvar::LatencyRecorder g_bvar_txn_kv_batch_get;
+
+extern bvar::LatencyRecorder g_bvar_busynesss_reduced_counter;
+extern bvar::LatencyRecorder g_bvar_busynesss_disable_counter;
 
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
