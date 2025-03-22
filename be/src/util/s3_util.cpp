@@ -294,9 +294,11 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
 #endif
     }
 
+    aws_config.requestTimeoutMs = 30000;
     if (s3_conf.request_timeout_ms > 0) {
         aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
     }
+
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
