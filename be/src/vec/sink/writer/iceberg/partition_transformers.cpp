@@ -36,7 +36,17 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
 
     if (std::regex_match(transform, width_match, has_width)) {
         std::string name = width_match[1];
-        int parsed_width = std::stoi(width_match[2]);
+        int parsed_width = 0;
+
+        try {
+            parsed_width = std::stoi(width_match[2]);
+        } catch (const std::invalid_argument& e) {
+            LOG(WARNING) << "Invalid width format: " << width_match[2].str()
+                         << ",error: " << e.what();
+        } catch (const std::out_of_range& e) {
+            LOG(WARNING) << "Width value out of range: " << width_match[2].str()
+                         << ",error: " << e.what();
+        }
 
         if (name == "truncate") {
             switch (source_type.type) {

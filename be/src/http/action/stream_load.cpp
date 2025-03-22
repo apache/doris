@@ -333,6 +333,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid timeout format, {}", e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("Timeout value out of range, {}", e.what());
         }
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
@@ -629,7 +631,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
-        request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
+        try {
+            int skip_lines = std::stoi(http_req->header(HTTP_SKIP_LINES));
+            request.__set_skip_lines(skip_lines);
+        } catch (const std::invalid_argument& e) {
+            LOG(WARNING) << "Invalid HTTP_SKIP_LINES format: " << http_req->header(HTTP_SKIP_LINES)
+                         << ", using default (0), error: " << e.what();
+        } catch (const std::out_of_range& e) {
+            LOG(WARNING) << "HTTP_SKIP_LINES value out of range: "
+                         << http_req->header(HTTP_SKIP_LINES)
+                         << ", using default (0), error: " << e.what();
+        }
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
         if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
@@ -712,8 +724,16 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
-        int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
-        request.__set_stream_per_node(value);
+        try {
+            int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
+            request.__set_stream_per_node(value);
+        } catch (const std::invalid_argument&) {
+            LOG(WARNING) << "Invalid HTTP_LOAD_STREAM_PER_NODE value: "
+                         << http_req->header(HTTP_LOAD_STREAM_PER_NODE);
+        } catch (const std::out_of_range&) {
+            LOG(WARNING) << "HTTP_LOAD_STREAM_PER_NODE value out of range: "
+                         << http_req->header(HTTP_LOAD_STREAM_PER_NODE);
+        }
     }
     if (ctx->group_commit) {
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {

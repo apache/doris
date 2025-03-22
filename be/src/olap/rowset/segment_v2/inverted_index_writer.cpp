@@ -277,7 +277,16 @@ public:
         }
         auto ignore_above_value =
                 get_parser_ignore_above_value_from_properties(_index_meta->properties());
-        _ignore_above = std::stoi(ignore_above_value);
+        try {
+            _ignore_above = std::stoi(ignore_above_value);
+        } catch (const std::invalid_argument& e) {
+            LOG(WARNING) << "Invalid ignore_above_value format: " << ignore_above_value
+                         << ", using default, error: " << e.what();
+        } catch (const std::out_of_range& e) {
+            LOG(WARNING) << "ignore_above_value out of range: " << ignore_above_value
+                         << ", using default, error: " << e.what();
+        }
+
         return Status::OK();
     }
 

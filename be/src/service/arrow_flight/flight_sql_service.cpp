@@ -53,7 +53,15 @@ private:
         parse_id(fields[0], &queryid);
         TNetworkAddress result_addr;
         result_addr.hostname = fields[1];
-        result_addr.port = std::stoi(fields[2]);
+        try {
+            result_addr.port = std::stoi(fields[2]);
+        } catch (const std::invalid_argument& e) {
+            return arrow::Status::Invalid(
+                    fmt::format("Invalid port format: '{}', error: {}", fields[2], e.what()));
+        } catch (const std::out_of_range& e) {
+            return arrow::Status::Invalid(
+                    fmt::format("Port value out of range: '{}', error: {}", fields[2], e.what()));
+        }
         std::string sql = fields[3];
         std::shared_ptr<QueryStatement> statement =
                 std::make_shared<QueryStatement>(queryid, result_addr, sql);

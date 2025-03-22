@@ -1836,7 +1836,13 @@ int get_disk_info(const char* const (&argv)[N], int* percent) {
     // 73%
     // str save 73
     std::string str = rets[0].substr(rets[0].rfind('\n'), rets[0].rfind('%') - rets[0].rfind('\n'));
-    *percent = std::stoi(str);
+    try {
+        *percent = std::stoi(str);
+    } catch (const std::invalid_argument& e) {
+        LOG(WARNING) << "Invalid percent format: " << str << ",error: " << e.what();
+    } catch (const std::out_of_range& e) {
+        LOG(WARNING) << "Percent value out of range: " << str << ",error: " << e.what();
+    }
     return 0;
 }
 
