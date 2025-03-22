@@ -224,6 +224,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
+    @SerializedName("resbinlog")
+    private RestoreBinlogInfo restoreBinlogInfo = null; // only set in FinishedCase.
+
     private MarkedCountDownLatch<Long, Long> createReplicaTasksLatch = null;
 
     public RestoreJob() {
@@ -422,6 +425,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     @Override
     public boolean isFinished() {
         return state == RestoreJobState.FINISHED;
+    }
+
+    public RestoreBinlogInfo getRestoreBinlogInfo() {
+        return restoreBinlogInfo;
     }
 
     @Override
@@ -2097,6 +2104,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
 
+        restoreBinlogInfo = new RestoreBinlogInfo(dbId, db.getName());
         // replace the origin tables in atomic.
         if (isAtomicRestore) {
             Status st = atomicReplaceOlapTables(db, isReplay);
@@ -2113,6 +2121,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (tbl == null) {
                 continue;
             }
+            //just restore existing table, then version will change.
+            // so we need to write bin log for those tables also.
+            restoreBinlogInfo.addTableInfo(tbl.getId(), tbl.getName());
             OlapTable olapTbl = (OlapTable) tbl;
             if (!tbl.writeLockIfExist()) {
                 continue;
@@ -2158,6 +2169,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         if (!isReplay) {
+            restoredTbls.stream().forEach(tbl -> restoreBinlogInfo.addTableInfo(tbl.getId(), tbl.getName()));
             restoredPartitions.clear();
             restoredTbls.clear();
             restoredResources.clear();
@@ -2173,9 +2185,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             state = RestoreJobState.FINISHED;
 
             env.getEditLog().logRestoreJob(this);
-
             // Only send release snapshot tasks after the job is finished.
             releaseSnapshots(savedSnapshotInfos);
+            restoreBinlogInfo = null;
         }
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
