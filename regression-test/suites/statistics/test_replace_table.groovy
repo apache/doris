@@ -17,9 +17,9 @@
 
 suite("test_replace_table") {
 
-    sql """drop database if exists test_replace_table"""
-    sql """create database test_replace_table"""
-    sql """use test_replace_table"""
+    sql """drop database if exists test_replace_table_statistics"""
+    sql """create database test_replace_table_statistics"""
+    sql """use test_replace_table_statistics"""
     sql """set global force_sample_analyze=false"""
     sql """set global enable_auto_analyze=false"""
 
@@ -70,12 +70,19 @@ suite("test_replace_table") {
     result = sql """show column cached stats t2"""
     assertEquals(2, result.size())
 
+    def id1 = get_table_id("internal", "test_replace_table_statistics", "t1")
+    def id2 = get_table_id("internal", "test_replace_table_statistics", "t2")
+
     sql """ALTER TABLE t1 REPLACE WITH TABLE t2 PROPERTIES('swap' = 'false');"""
     result = sql """show column stats t1"""
     assertEquals(2, result.size())
     result = sql """show column cached stats t1"""
     assertEquals(2, result.size())
 
-    sql """drop database if exists test_replace_table"""
-}
+    result = sql """show table stats ${id1}"""
+    assertEquals(0, result.size())
+    result = sql """show table stats ${id2}"""
+    assertEquals(1, result.size())
 
+    sql """drop database if exists test_replace_table_statistics"""
+}
