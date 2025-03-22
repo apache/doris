@@ -58,7 +58,7 @@ public class AccessControllerManager {
     public AccessControllerManager(Auth auth) {
         this.auth = auth;
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            defaultAccessController = new RangerDorisAccessController("doris");
+            defaultAccessController = RangerDorisAccessController.getInstance("doris");
         } else {
             defaultAccessController = new InternalAccessController(auth);
         }
