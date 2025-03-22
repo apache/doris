@@ -306,6 +306,9 @@ private:
     // the same name but different capitalization.We refer to the behavior of hive, convert all column names
     // in the data to lowercase,and use the last one as the insertion value
 
+    bool _openx_json_ignore_malformed = false;
+    // hive : org.openx.data.jsonserde.JsonSerDe, `ignore.malformed.json` prop.
+
     DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _serde_options;
 };
