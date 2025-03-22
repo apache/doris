@@ -105,6 +105,15 @@ public:
     }
 
     template <typename DataType>
+    static ColumnWithTypeAndName create_const_column_with_name(typename DataType::FieldType value,
+                                                               size_t size) {
+        auto column = create_column<DataType>({value});
+        auto const_column = ColumnConst::create(column, size);
+        auto data_type = std::make_shared<DataType>();
+        return ColumnWithTypeAndName(std::move(const_column), data_type, "column");
+    }
+
+    template <typename DataType>
     static ColumnWithTypeAndName create_nullable_column_with_name(
             const std::vector<typename DataType::FieldType>& datas,
             const std::vector<typename NullMap::value_type>& null_map) {
