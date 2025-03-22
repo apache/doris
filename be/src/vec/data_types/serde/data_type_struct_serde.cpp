@@ -349,7 +349,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     bool begin = true;
     for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
