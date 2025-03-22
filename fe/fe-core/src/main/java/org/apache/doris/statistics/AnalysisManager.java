@@ -60,6 +60,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
@@ -1161,6 +1163,23 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
+        if (analysisTaskMap == null) {
+            throw new DdlException("Job not exists or already finished");
+        }
+        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
+        if (anyTask == null) {
+            return;
+        }
+        checkPriv(anyTask);
+        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
+            taskInfo.cancel();
+            logKilled(taskInfo.info);
+        }
+    }
+
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
         Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
         if (analysisTaskMap == null) {
@@ -1328,6 +1347,19 @@ public class AnalysisManager implements Writable {
                 analysisTaskInfoMap.remove(analysisInfo.taskId);
             }
         }
+    }
+
+    public void dropAnalyzeJob(DropAnalyzeJobCommand analyzeJobCommand) throws DdlException {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobCommand.getJobId());
+        if (jobInfo == null) {
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobCommand.getJobId()));
+        }
+        checkPriv(jobInfo);
+        long jobId = analyzeJobCommand.getJobId();
+        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
+        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
+        replayDeleteAnalysisJob(analyzeDeletionLog);
+        removeAll(findTasks(jobId));
     }
 
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {

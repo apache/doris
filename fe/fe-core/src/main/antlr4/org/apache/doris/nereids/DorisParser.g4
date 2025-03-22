@@ -745,12 +745,12 @@ supportedStatsStatement
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
+    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAnalyzeJob
     ;
 
 unsupportedStatsStatement
-    : DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
-    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
-    | SHOW TABLE STATS tableName=multipartIdentifier
+    : SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
     | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
