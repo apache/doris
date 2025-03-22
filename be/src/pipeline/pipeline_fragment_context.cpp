@@ -218,7 +218,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
 
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            task->clear_blocking_state();
+            task->terminate();
         }
     }
 }
