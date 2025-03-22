@@ -29,6 +29,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "util/runtime_profile.h"
 
 namespace google {
 #include "common/compile_check_begin.h"
@@ -40,7 +41,6 @@ class Closure;
 namespace doris {
 class RuntimeState;
 class RowDescriptor;
-class RuntimeProfile;
 class PTransmitDataParams;
 namespace pipeline {
 class ExchangeLocalState;
@@ -54,12 +54,10 @@ public:
     VDataStreamMgr();
     ~VDataStreamMgr();
 
-    std::shared_ptr<VDataStreamRecvr> create_recvr(RuntimeState* state,
-                                                   pipeline::ExchangeLocalState* parent,
-                                                   const RowDescriptor& row_desc,
-                                                   const TUniqueId& fragment_instance_id,
-                                                   PlanNodeId dest_node_id, int num_senders,
-                                                   RuntimeProfile* profile, bool is_merging);
+    std::shared_ptr<VDataStreamRecvr> create_recvr(
+            RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* memory_used_counter,
+            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+            RuntimeProfile* profile, bool is_merging, size_t data_queue_capacity);
 
     Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
                       std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true);

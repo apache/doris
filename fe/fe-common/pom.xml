@@ -154,6 +154,7 @@ under the License.
     </dependencies>
     <build>
         <finalName>doris-fe-common</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -40,6 +40,7 @@ suite("test_routine_load_eof","p0") {
             // Create kafka producer
             def producer = new KafkaProducer<>(props)
 
+            def count = 0
             while(true) {
                 Thread.sleep(1000)
                 for (String kafkaCsvTopic in kafkaCsvTpoics) {
@@ -51,6 +52,10 @@ suite("test_routine_load_eof","p0") {
                         producer.send(record)
                     }
                 }
+                if (count >= 120) {
+                    break
+                }
+                count++
             }
         }
 

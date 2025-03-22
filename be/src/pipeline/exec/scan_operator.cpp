@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -31,14 +30,15 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vcast_expr.h"
-#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtopn_pred.h"
 #include "vec/functions/in.h"
@@ -73,21 +73,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.is_serial_operator()));
-    // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
-                                   p.get_name() + "_FILTER_DEPENDENCY");
-
-    // 1: running at not pipeline mode will init profile.
-    // 2: the scan node should create scanner at pipeline mode will init profile.
-    // during pipeline mode with more instances, olap scan node maybe not new VScanner object,
-    // so the profile of VScanner and SegmentIterator infos are always empty, could not init those.
+    RETURN_IF_ERROR(_helper.init(state, profile(), p.is_serial_operator(), _filter_dependencies,
+                                 p.operator_id(), p.node_id(),
+                                 p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
-    // if you want to add some profile in scan node, even it have not new VScanner object
-    // could add here, not in the _init_profile() function
-    _prepare_rf_timer(_runtime_profile.get());
 
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
@@ -107,7 +97,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter(_conjuncts));
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -265,7 +255,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            bool _is_runtime_filter_predicate = _rf_vexpr_set.contains(conjunct_expr_root);
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -289,9 +278,18 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
-                            Defer mark_runtime_filter_flag {[&]() {
-                                value_range.mark_runtime_filter_predicate(
-                                        _is_runtime_filter_predicate);
+                            bool need_set_runtime_filter_id = value_range.is_whole_value_range() &&
+                                                              conjunct_expr_root->is_rf_wrapper();
+                            Defer set_runtime_filter_id {[&]() {
+                                // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
+                                // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
+                                // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
+                                if (need_set_runtime_filter_id) {
+                                    value_range.set_runtime_filter_id(
+                                            assert_cast<vectorized::VRuntimeFilterWrapper*>(
+                                                    conjunct_expr_root.get())
+                                                    ->filter_id());
+                                }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
@@ -376,10 +374,13 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
                                                         SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 1);
+        DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bloom_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
-                                                          expr->get_bloom_filter_func());
+            _filter_predicates.bloom_filters.emplace_back(
+                    slot->col_name(), expr->get_bloom_filter_func(),
+                    assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
+                            ->filter_id());
             *pdt = temp_pdt;
         }
     }
@@ -392,10 +393,13 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
                                                          SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 1);
+        DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bitmap_filters.emplace_back(slot->col_name(),
-                                                           expr->get_bitmap_filter_func());
+            _filter_predicates.bitmap_filters.emplace_back(
+                    slot->col_name(), expr->get_bitmap_filter_func(),
+                    assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
+                            ->filter_id());
             *pdt = temp_pdt;
         }
     }
@@ -496,9 +500,11 @@ bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VEx
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
-    // Variant slot cast could be eliminated
+    // only one level cast expr could push down for variant type
+    // check if expr is cast and it's children is slot
     if (slot->type().is_variant_type()) {
-        return true;
+        return expr->node_type() == TExprNodeType::CAST_EXPR &&
+               expr->children().at(0)->is_slot_ref();
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
@@ -580,7 +586,14 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
             } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
+                int runtime_filter_id = -1;
+                if (expr_ctx->root()->is_rf_wrapper()) {
+                    runtime_filter_id =
+                            assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
+                                    ->filter_id();
+                }
+                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func(),
+                                                           runtime_filter_id);
                 *pdt = PushDownType::ACCEPTABLE;
                 return Status::OK();
             }
@@ -965,7 +978,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
-    std::list<vectorized::VScannerSPtr> scanners;
+    std::list<vectorized::ScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
     for (auto it = scanners.begin(); it != scanners.end(); ++it) {
@@ -975,9 +988,6 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_always_ready();
     } else {
-        for (auto& scanner : scanners) {
-            scanner->set_query_statistics(_query_statistics.get());
-        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
@@ -988,9 +998,18 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    // If scan operator is serial operator(like topn), its real parallelism is 1.
+    // Otherwise, its real parallelism is query_parallel_instance_num.
+    // query_parallel_instance_num of olap table is usually equal to session var parallel_pipeline_task_num.
+    // for file scan operator, its real parallelism will be 1 if it is in batch mode.
+    // Related pr:
+    // https://github.com/apache/doris/pull/42460
+    // https://github.com/apache/doris/pull/44635
+    const int parallism_of_scan_operator =
+            p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.is_serial_operator(), p.is_file_scan_operator());
+            _scan_dependency, parallism_of_scan_operator);
     return Status::OK();
 }
 
@@ -1021,7 +1040,7 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) {
     if (!_conjuncts.empty()) {
-        std::unique_lock l(_rf_locks);
+        std::unique_lock l(_conjunct_lock);
         conjuncts.resize(_conjuncts.size());
         for (size_t i = 0; i != _conjuncts.size(); ++i) {
             RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));
@@ -1034,21 +1053,15 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
     _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
-    _total_throughput_counter =
-            profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
     //_runtime_profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
-    _scanner_profile.reset(new RuntimeProfile("VScanner"));
+    _scanner_profile.reset(new RuntimeProfile("Scanner"));
     profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
-    // time of transfer thread to wait for block from scan thread
-    _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
@@ -1056,10 +1069,11 @@ Status ScanLocalState<Derived>::_init_profile() {
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
-    _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
+    _max_scan_concurrency = ADD_COUNTER(_runtime_profile, "MaxScanConcurrency", TUnit::UNIT);
+    _min_scan_concurrency = ADD_COUNTER(_runtime_profile, "MinScanConcurrency", TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
@@ -1073,6 +1087,11 @@ Status ScanLocalState<Derived>::_init_profile() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
+    std::stringstream result;
+    std::copy(p.topn_filter_source_node_ids.begin(), p.topn_filter_source_node_ids.end(),
+              std::ostream_iterator<int>(result, ","));
+    _runtime_profile->add_info_string("TopNFilterSourceNodeIds", result.str());
+
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         vectorized::VExprSPtr topn_pred;
@@ -1141,8 +1160,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
-    OperatorX<LocalStateType>::_is_serial_operator =
-            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
@@ -1199,14 +1216,16 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         }
     }
 
+    _query_parallel_instance_num = state->query_parallel_instance_num();
+
     return Status::OK();
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
+Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::open(state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 
     const auto slots = _output_tuple_desc->slots();
     for (auto* slot : slots) {
@@ -1276,6 +1295,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
         return Status::OK();
     }
 
+    DCHECK(local_state._scanner_ctx != nullptr);
     RETURN_IF_ERROR(local_state._scanner_ctx->get_block_from_queue(state, block, eos, 0));
 
     local_state.reached_limit(block, eos);
@@ -1286,6 +1306,35 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     }
 
     return Status::OK();
+}
+
+template <typename LocalStateType>
+size_t ScanOperatorX<LocalStateType>::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    if (!local_state._opened || local_state._closed || !local_state._scanner_ctx) {
+        return config::doris_scanner_row_bytes;
+    }
+
+    if (local_state.low_memory_mode()) {
+        return local_state._scanner_ctx->low_memory_mode_scan_bytes_per_scanner() *
+               local_state._scanner_ctx->low_memory_mode_scanners();
+    } else {
+        const auto peak_usage = local_state._memory_used_counter->value();
+        const auto block_usage = local_state._scanner_ctx->block_memory_usage();
+        if (peak_usage > 0) {
+            // It is only a safty check, to avoid some counter not right.
+            if (peak_usage > block_usage) {
+                return peak_usage - block_usage;
+            } else {
+                return config::doris_scanner_row_bytes;
+            }
+        } else {
+            // If the scan operator is first time to run, then we think it will occupy doris_scanner_row_bytes.
+            // It maybe a little smaller than actual usage.
+            return config::doris_scanner_row_bytes;
+            // return local_state._scanner_ctx->max_bytes_in_queue();
+        }
+    }
 }
 
 template class ScanOperatorX<OlapScanLocalState>;

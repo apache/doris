@@ -321,34 +321,25 @@ public interface TableIf {
     }
 
     default void replayAddConstraint(Constraint constraint) {
-        // Since constraints are not indispensable, we only log when replay fails
-        try {
-            if (constraint instanceof UniqueConstraint) {
-                UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
-                this.addUniqueConstraint(constraint.getName(),
-                        ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()), true);
-            } else if (constraint instanceof PrimaryKeyConstraint) {
-                PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
-                this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
-                        ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()), true);
-            } else if (constraint instanceof ForeignKeyConstraint) {
-                ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
-                this.addForeignConstraint(foreignKey.getName(),
-                        ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
-                        foreignKey.getReferencedTable(),
-                        ImmutableList.copyOf(foreignKey.getReferencedColumnNames()), true);
-            }
-        } catch (Exception e) {
-            LOG.error(e.getMessage());
+        if (constraint instanceof UniqueConstraint) {
+            UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
+            this.addUniqueConstraint(constraint.getName(),
+                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()), true);
+        } else if (constraint instanceof PrimaryKeyConstraint) {
+            PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
+            this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
+                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()), true);
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+            this.addForeignConstraint(foreignKey.getName(),
+                    ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
+                    foreignKey.getReferencedTable(),
+                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()), true);
         }
     }
 
     default void replayDropConstraint(String name) {
-        try {
-            dropConstraint(name, true);
-        } catch (Exception e) {
-            LOG.error(e.getMessage());
-        }
+        dropConstraint(name, true);
     }
 
     default void dropConstraint(String name, boolean replay) {
@@ -529,4 +520,8 @@ public interface TableIf {
     boolean autoAnalyzeEnabled();
 
     TableIndexes getTableIndexes();
+
+    default boolean isTemporary() {
+        return false;
+    }
 }

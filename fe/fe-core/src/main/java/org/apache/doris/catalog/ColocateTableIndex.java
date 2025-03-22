@@ -176,7 +176,7 @@ public class ColocateTableIndex implements Writable {
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
     @SerializedName(value = "table2Group")
-    private Map<Long, GroupId> table2Group = Maps.newHashMap();
+    private Map<Long, GroupId> table2Group = Maps.newConcurrentMap();
     // group id -> group schema
     @SerializedName(value = "group2Schema")
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
@@ -385,6 +385,13 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public boolean isColocateTableNoLock(long tableId) {
+        return table2Group.containsKey(tableId);
+    }
+
     public boolean isColocateTable(long tableId) {
         readLock();
         try {
@@ -422,6 +429,14 @@ public class ColocateTableIndex implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public GroupId getGroupNoLock(long tableId) {
+        Preconditions.checkState(table2Group.containsKey(tableId));
+        return table2Group.get(tableId);
     }
 
     public GroupId getGroup(long tableId) {

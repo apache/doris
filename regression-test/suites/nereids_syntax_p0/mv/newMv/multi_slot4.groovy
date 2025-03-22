@@ -33,7 +33,13 @@ suite ("multi_slot4") {
         """
 
     sql "insert into multi_slot4 select 1,1,1,'a';"
+    sql "insert into multi_slot4 select 1,1,1,'a';"
+    sql "insert into multi_slot4 select 1,1,1,'a';"
     sql "insert into multi_slot4 select 2,2,2,'b';"
+    sql "insert into multi_slot4 select 2,2,2,'b';"
+    sql "insert into multi_slot4 select 2,2,2,'b';"
+    sql "insert into multi_slot4 select 3,-3,null,'c';"
+    sql "insert into multi_slot4 select 3,-3,null,'c';"
     sql "insert into multi_slot4 select 3,-3,null,'c';"
     sql "insert into multi_slot4 select 3,-3,null,'c';"
 
@@ -42,11 +48,15 @@ suite ("multi_slot4") {
     sleep(3000)
 
     sql "insert into multi_slot4 select -4,-4,-4,'d';"
+    sql "insert into multi_slot4 select -4,-4,-4,'d';"
+    sql "insert into multi_slot4 select -4,-4,-4,'d';"
 
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table multi_slot4 with sync;"
+    sql """alter table multi_slot4 modify column k1 set stats ('row_count'='13');"""
+
     sql """set enable_stats=false;"""
 
 
@@ -56,6 +66,5 @@ suite ("multi_slot4") {
     order_qt_select_mv "select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table multi_slot4 modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;", "k1p2ap3ps")
 }

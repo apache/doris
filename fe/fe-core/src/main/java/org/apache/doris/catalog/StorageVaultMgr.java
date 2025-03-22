@@ -126,10 +126,10 @@ public class StorageVaultMgr {
             rwLock.writeLock().lock();
             String cachedVaultId = vaultNameToVaultId.get(oldVaultName);
             vaultNameToVaultId.remove(oldVaultName);
-            Preconditions.checkArgument(!Strings.isNullOrEmpty(cachedVaultId), cachedVaultId,
-                    "Cached vault id is null or empty");
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(cachedVaultId),
+                    "Cached vault id %s is null or empty", cachedVaultId);
             Preconditions.checkArgument(cachedVaultId.equals(vaultId),
-                    "Cached vault id not equal to remote storage." + cachedVaultId + " - " + vaultId);
+                    "Cached vault id not equal to remote storage. %s vs %s", cachedVaultId, vaultId);
             vaultNameToVaultId.put(newVaultName, vaultId);
         } finally {
             rwLock.writeLock().unlock();

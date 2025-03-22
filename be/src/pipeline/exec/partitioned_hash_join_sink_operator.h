@@ -19,12 +19,16 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
 #include "pipeline/exec/spill_utils.h"
+#include "vec/core/block.h"
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
@@ -44,31 +48,34 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Status revoke_memory(RuntimeState* state);
+    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
     size_t revocable_mem_size(RuntimeState* state) const;
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+    void update_memory_usage();
+    MOCK_FUNCTION void update_profile_from_inner();
+
+    Dependency* finishdependency() override;
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    void _spill_to_disk(uint32_t partition_index,
-                        const vectorized::SpillStreamSPtr& spilling_stream);
+    Status _spill_to_disk(uint32_t partition_index,
+                          const vectorized::SpillStreamSPtr& spilling_stream);
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
 
-    Status _revoke_unpartitioned_block(RuntimeState* state);
+    Status _revoke_unpartitioned_block(RuntimeState* state,
+                                       const std::shared_ptr<SpillContext>& spill_context);
+
+    Status _finish_spilling();
+
+    Status _setup_internal_operator(RuntimeState* state);
 
     friend class PartitionedHashJoinSinkOperatorX;
 
-    std::atomic_int _spilling_streams_count {0};
-    std::atomic<bool> _spill_status_ok {true};
-    std::mutex _spill_lock;
-
     bool _child_eos {false};
-
-    Status _spill_status;
-    std::mutex _spill_status_lock;
 
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 
@@ -77,13 +84,16 @@ protected:
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
+    RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 };
 
 class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
-    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs, uint32_t partition_count);
+    PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                     const TPlanNode& tnode, const DescriptorTbl& descs,
+                                     uint32_t partition_count);
 
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -92,7 +102,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -100,7 +110,10 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state) override;
+    Status revoke_memory(RuntimeState* state,
+                         const std::shared_ptr<SpillContext>& spill_context) override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -131,8 +144,9 @@ public:
 
 private:
     friend class PartitionedHashJoinSinkLocalState;
-
-    Status _setup_internal_operator(RuntimeState* state);
+#ifdef BE_TEST
+    friend class PartitionedHashJoinSinkOperatorTest;
+#endif
 
     const TJoinDistributionType::type _join_distribution;
 

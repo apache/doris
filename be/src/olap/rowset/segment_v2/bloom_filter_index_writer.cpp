@@ -32,12 +32,12 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/decimalv2_value.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/types.h"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 namespace {
 
 template <typename CppType>
@@ -300,6 +300,17 @@ uint64_t NGramBloomFilterIndexWriterImpl::size() {
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
                                       const TypeInfo* type_info,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
+    DBUG_EXECUTE_IF("BloomFilterIndexWriter::create", {
+        auto fpp = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                "BloomFilterIndexWriter::create", "fpp", "");
+        if (!fpp.empty()) {
+            double fpp_value = std::stod(fpp);
+            if (std::abs(bf_options.fpp - fpp_value) > 1e-6) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("fpp {} is not a equal to {}", fpp,
+                                                                bf_options.fpp);
+            }
+        }
+    })
     FieldType type = type_info->type();
     switch (type) {
 #define M(TYPE)                                                                  \
@@ -369,5 +380,5 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

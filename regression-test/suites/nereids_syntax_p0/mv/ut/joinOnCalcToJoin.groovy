@@ -59,13 +59,14 @@ suite ("joinOnCalcToJoin") {
 
     sql "analyze table joinOnCalcToJoin with sync;"
     sql "analyze table joinOnCalcToJoin_1 with sync;"
+    sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
             ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 
     sql """set enable_stats=true;"""
-    sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
 
     mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
             ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])

@@ -17,13 +17,18 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/admin-manual/data-admin/restore.md", "p0,nonConcurrent") {
+suite("docs/admin-manual/data-admin/restore.md") {
+    if (isCloudMode()) {
+        logger.info("skip this case, because not supported in cloud mode")
+        return
+    }
     try {
+        def uuid = UUID.randomUUID().hashCode().abs()
         multi_sql """
-            CREATE DATABASE IF NOT EXISTS example_db1;
-            USE example_db1;
+            CREATE DATABASE IF NOT EXISTS example_db${uuid};
+            USE example_db${uuid};
             DROP TABLE IF EXISTS backup_tbl;
-            CREATE TABLE IF NOT EXISTS example_db1.backup_tbl(
+            CREATE TABLE IF NOT EXISTS example_db${uuid}.backup_tbl(
                 a INT
             ) PARTITION BY RANGE(a) (
                 PARTITION p1 VALUES LESS THAN (1),
@@ -38,33 +43,32 @@ suite("docs/admin-manual/data-admin/restore.md", "p0,nonConcurrent") {
             INSERT INTO backup_tbl2 SELECT * FROM backup_tbl;
         """
 
-        def uuid = UUID.randomUUID().hashCode().abs()
         def syncer = getSyncer()
-        syncer.createS3Repository("example_repo")
+        syncer.createS3Repository("example_repo${uuid}")
         sql """
-            BACKUP SNAPSHOT example_db1.snapshot_1${uuid}
-            TO example_repo
+            BACKUP SNAPSHOT example_db${uuid}.snapshot_1${uuid}
+            TO example_repo${uuid}
             ON (backup_tbl)
             PROPERTIES ("type" = "full");
         """
-        syncer.waitSnapshotFinish("example_db1")
+        syncer.waitSnapshotFinish("example_db${uuid}")
         sql """
-            BACKUP SNAPSHOT example_db1.snapshot_2${uuid}
-            TO example_repo
+            BACKUP SNAPSHOT example_db${uuid}.snapshot_2${uuid}
+            TO example_repo${uuid}
             ON (backup_tbl, backup_tbl2)
             PROPERTIES ("type" = "full");
         """
-        syncer.waitSnapshotFinish("example_db1")
+        syncer.waitSnapshotFinish("example_db${uuid}")
 
         multi_sql """
             truncate table backup_tbl;
             truncate table backup_tbl2;
         """
 
-        var timestamp = syncer.getSnapshotTimestamp("example_repo", "snapshot_1${uuid}")
+        var timestamp = syncer.getSnapshotTimestamp("example_repo${uuid}", "snapshot_1${uuid}")
         sql """
-            RESTORE SNAPSHOT example_db1.`snapshot_1${uuid}`
-            FROM `example_repo`
+            RESTORE SNAPSHOT example_db${uuid}.`snapshot_1${uuid}`
+            FROM `example_repo${uuid}`
             ON ( `backup_tbl` )
             PROPERTIES
             (
@@ -72,12 +76,12 @@ suite("docs/admin-manual/data-admin/restore.md", "p0,nonConcurrent") {
                 "replication_num" = "1"
             );
         """
-        syncer.waitAllRestoreFinish("example_db1")
+        syncer.waitAllRestoreFinish("example_db${uuid}")
 
-        var timestamp2 = syncer.getSnapshotTimestamp("example_repo", "snapshot_2${uuid}")
+        var timestamp2 = syncer.getSnapshotTimestamp("example_repo${uuid}", "snapshot_2${uuid}")
         sql """
-            RESTORE SNAPSHOT example_db1.`snapshot_2${uuid}`
-            FROM `example_repo`
+            RESTORE SNAPSHOT example_db${uuid}.`snapshot_2${uuid}`
+            FROM `example_repo${uuid}`
             ON
             (
                 `backup_tbl` PARTITION (`p1`, `p2`),
@@ -89,7 +93,7 @@ suite("docs/admin-manual/data-admin/restore.md", "p0,nonConcurrent") {
                 "replication_num" = "1"
             );
         """
-        syncer.waitAllRestoreFinish("example_db1")
+        syncer.waitAllRestoreFinish("example_db${uuid}")
 
         sql """SHOW RESTORE"""
 

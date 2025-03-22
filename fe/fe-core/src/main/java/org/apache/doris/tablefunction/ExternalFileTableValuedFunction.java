@@ -352,6 +352,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             for (int i = 0; i < tableColumns.size(); i++) {
                 Column column = new Column(tableColumns.get(i).getName(), tableColumns.get(i).getType(), true);
                 column.setUniqueId(tableColumns.get(i).getUniqueId());
+                column.setIsAllowNull(true);
                 fileColumns.add(column);
             }
             return fileColumns;

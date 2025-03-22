@@ -32,7 +32,6 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
-        <awssdk.version>2.20.131</awssdk.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <tencentcos.version>8.2.7</tencentcos.version>
     </properties>
@@ -156,6 +155,12 @@ under the License.
             <groupId>com.google.guava</groupId>
             <artifactId>guava-testlib</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/com.googlecode.java-ipv6/java-ipv6 -->
+        <dependency>
+            <groupId>com.googlecode.java-ipv6</groupId>
+            <artifactId>java-ipv6</artifactId>
+            <version>0.17</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
         <dependency>
@@ -496,10 +501,10 @@ under the License.
             <artifactId>s3</artifactId>
             <version>${awssdk.version}</version>
             <exclusions>
-                <exclusion>
+                <!--exclusion>
                     <groupId>software.amazon.awssdk</groupId>
                     <artifactId>apache-client</artifactId>
-                </exclusion>
+                </exclusion-->
             </exclusions>
         </dependency>
         <!-- tencent cloud sts -->
@@ -653,11 +658,6 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws-bundle</artifactId>
-            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.paimon</groupId>
@@ -934,8 +934,30 @@ under the License.
             <artifactId>azure-storage-blob-batch</artifactId>
             <version>${azure.sdk.batch.version}</version>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3tables</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.s3tables</groupId>
+            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
+            <version>${s3tables.catalog.version}</version>
+        </dependency>
+        <!-- AWS SDK Core -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sdk-core</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
     </dependencies>
     <repositories>
+        <!-- for hive-catalog-shade -->
+        <repository>
+            <id>central</id>
+            <name>central maven repo https</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+        </repository>
         <!-- for huawei obs sdk -->
         <repository>
             <id>huawei-obs-sdk</id>
@@ -944,6 +966,7 @@ under the License.
     </repositories>
     <build>
         <finalName>doris-fe</finalName>
+        <directory>${project.basedir}/target/</directory>
         <resources>
             <resource>
                 <directory>target/generated-sources</directory>

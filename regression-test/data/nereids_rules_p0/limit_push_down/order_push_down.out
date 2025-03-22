@@ -196,15 +196,15 @@ PhysicalResultSink
 
 -- !limit_sort_filter --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalOlapScan[t1]
 
 -- !limit_offset_sort_filter --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalOlapScan[t1]
 
@@ -276,15 +276,15 @@ PhysicalResultSink
 
 -- !limit_filter --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalOlapScan[t1]
 
 -- !limit_offset_filter --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
 ------filter((t1.id = 1))
 --------PhysicalOlapScan[t1]
 

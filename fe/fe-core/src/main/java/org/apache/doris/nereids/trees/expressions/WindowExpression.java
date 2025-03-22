@@ -174,7 +174,7 @@ public class WindowExpression extends Expression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(function, partitionKeys, orderKeys, windowFrame);
     }
 

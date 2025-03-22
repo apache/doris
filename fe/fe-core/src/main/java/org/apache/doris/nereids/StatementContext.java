@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -73,6 +74,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,7 +167,7 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
@@ -178,6 +180,8 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
     private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    // save insert into schema to avoid schema changed between two read locks
+    private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -200,7 +204,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -279,6 +283,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public List<Column> getInsertTargetSchema() {
+        return insertTargetSchema;
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
@@ -639,7 +647,7 @@ public class StatementContext implements Closeable {
         return formatOptions;
     }
 
-    public List<PlannerHook> getPlannerHooks() {
+    public Set<PlannerHook> getPlannerHooks() {
         return plannerHooks;
     }
 

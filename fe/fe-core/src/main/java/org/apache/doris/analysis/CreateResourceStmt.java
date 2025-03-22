@@ -26,8 +26,11 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -68,10 +71,21 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void analyzeResourceType() throws UserException {
-        String type = properties.get(TYPE);
-        if (type == null) {
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(TYPE)) {
+                type = property.getValue();
+            }
+        }
+        if (Strings.isNullOrEmpty(type)) {
             throw new AnalysisException("Resource type can't be null");
         }
+
+        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            resourceType = ResourceType.AZURE;
+            return;
+        }
+
         resourceType = ResourceType.fromString(type);
         if (resourceType == ResourceType.UNKNOWN) {
             throw new AnalysisException("Unsupported resource type: " + type);

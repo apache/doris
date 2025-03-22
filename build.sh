@@ -43,21 +43,22 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     [no option]            build all components
-     --fe                   build Frontend and Spark DPP application. Default ON.
-     --be                   build Backend. Default ON.
-     --meta-tool            build Backend meta tool. Default OFF.
-     --cloud                build Cloud. Default OFF.
-     --index-tool           build Backend inverted index tool. Default OFF.
-     --benchmark            build Google Benchmark. Default OFF.
-     --broker               build Broker. Default ON.
-     --spark-dpp            build Spark DPP application. Default ON.
-     --hive-udf             build Hive UDF library for Spark Load. Default ON.
-     --be-java-extensions   build Backend java extensions. Default ON.
-     --be-extension-ignore  build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
-     --clean                clean and build target
-     --output               specify the output directory
-     -j                     build Backend parallel
+     [no option]                build all components
+     --fe                       build Frontend and Spark DPP application. Default ON.
+     --be                       build Backend. Default ON.
+     --meta-tool                build Backend meta tool. Default OFF.
+     --file-cache-microbench    build Backend file cache microbench tool. Default OFF.
+     --cloud                    build Cloud. Default OFF.
+     --index-tool               build Backend inverted index tool. Default OFF.
+     --benchmark                build Google Benchmark. Default OFF.
+     --broker                   build Broker. Default ON.
+     --spark-dpp                build Spark DPP application. Default ON.
+     --hive-udf                 build Hive UDF library for Spark Load. Default ON.
+     --be-java-extensions       build Backend java extensions. Default ON.
+     --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
+     --clean                    clean and build target
+     --output                   specify the output directory
+     -j                         build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
@@ -70,6 +71,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --file-cache-microbench              build Backend file cache microbench tool
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --benchmark                          build Google Benchmark of Backend
@@ -131,6 +133,7 @@ if ! OPTS="$(getopt \
     -l 'cloud' \
     -l 'broker' \
     -l 'meta-tool' \
+    -l 'file-cache-microbench' \
     -l 'index-tool' \
     -l 'benchmark' \
     -l 'spark-dpp' \
@@ -154,6 +157,7 @@ BUILD_BE=0
 BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
+BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
 BUILD_SPARK_DPP=0
@@ -174,6 +178,7 @@ if [[ "$#" == 1 ]]; then
 
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
+    BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
     BUILD_BENCHMARK='OFF'
     BUILD_SPARK_DPP=1
@@ -205,6 +210,10 @@ else
             ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
+            shift
+            ;;
+        --file-cache-microbench)
+            BUILD_FILE_CACHE_MICROBENCH_TOOL='ON'
             shift
             ;;
         --index-tool)
@@ -274,6 +283,7 @@ else
         BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_META_TOOL='ON'
+        BUILD_FILE_CACHE_MICROBENCH_TOOL='ON'
         BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
@@ -285,8 +295,13 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
+# build thirdparty libraries if necessary. check last thirdparty lib installation
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    LAST_THIRDPARTY_LIB='libbrotlienc.a'
+else
+    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
+fi
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
@@ -458,7 +473,7 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
 fi
 
 if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='OFF'
+    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${BUILD_BENCHMARK}" ]]; then
@@ -489,33 +504,34 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
 fi
 
 echo "Get params:
-    BUILD_FE                    -- ${BUILD_FE}
-    BUILD_BE                    -- ${BUILD_BE}
-    BUILD_CLOUD                 -- ${BUILD_CLOUD}
-    BUILD_BROKER                -- ${BUILD_BROKER}
-    BUILD_META_TOOL             -- ${BUILD_META_TOOL}
-    BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
-    BUILD_BENCHMARK             -- ${BUILD_BENCHMARK}
-    BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
-    BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
-    BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
-    PARALLEL                    -- ${PARALLEL}
-    CLEAN                       -- ${CLEAN}
-    WITH_MYSQL                  -- ${WITH_MYSQL}
-    GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
-    USE_AVX2                    -- ${USE_AVX2}
-    USE_LIBCPP                  -- ${USE_LIBCPP}
-    USE_DWARF                   -- ${USE_DWARF}
-    USE_UNWIND                  -- ${USE_UNWIND}
-    STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
-    USE_JEMALLOC                -- ${USE_JEMALLOC}
-    USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
-    ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
-    ENABLE_CACHE_LOCK_DEBUG     -- ${ENABLE_CACHE_LOCK_DEBUG}
-    DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
-    DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
-    ENABLE_PCH                  -- ${ENABLE_PCH}
+    BUILD_FE                            -- ${BUILD_FE}
+    BUILD_BE                            -- ${BUILD_BE}
+    BUILD_CLOUD                         -- ${BUILD_CLOUD}
+    BUILD_BROKER                        -- ${BUILD_BROKER}
+    BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
+    BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
+    BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
+    BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
+    BUILD_SPARK_DPP                     -- ${BUILD_SPARK_DPP}
+    BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
+    BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
+    PARALLEL                            -- ${PARALLEL}
+    CLEAN                               -- ${CLEAN}
+    WITH_MYSQL                          -- ${WITH_MYSQL}
+    GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
+    USE_AVX2                            -- ${USE_AVX2}
+    USE_LIBCPP                          -- ${USE_LIBCPP}
+    USE_DWARF                           -- ${USE_DWARF}
+    USE_UNWIND                          -- ${USE_UNWIND}
+    STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
+    USE_MEM_TRACKER                     -- ${USE_MEM_TRACKER}
+    USE_JEMALLOC                        -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
+    ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
+    ENABLE_CACHE_LOCK_DEBUG             -- ${ENABLE_CACHE_LOCK_DEBUG}
+    DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
+    DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
+    ENABLE_PCH                          -- ${ENABLE_PCH}
 "
 
 # Clean and build generated code
@@ -605,6 +621,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
+        -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
@@ -752,7 +769,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
-    mkdir -p "${DORIS_OUTPUT}/fe/connectors"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
@@ -807,6 +828,10 @@ EOF
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
+    if [[ "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/file_cache_microbench" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
@@ -879,7 +904,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
-    mkdir -p "${DORIS_OUTPUT}/be/connectors"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

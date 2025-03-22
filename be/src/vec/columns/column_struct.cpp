@@ -124,6 +124,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
 }
 
 void ColumnStruct::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Tuple);
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
@@ -348,6 +349,16 @@ size_t ColumnStruct::allocated_bytes() const {
         res += column->allocated_bytes();
     }
     return res;
+}
+
+bool ColumnStruct::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
+    for (size_t i = 0; i < columns.size(); ++i) {
+        if (!columns[i]->has_enough_capacity(*src_concrete.columns[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

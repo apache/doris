@@ -44,6 +44,9 @@ static inline bool is_cloud_mode() {
 // separated by a comma, like "host:port,host:port,host:port", then BE will choose a server to connect in randomly.
 // In this mode, The config meta_service_connection_pooled is still useful, but the other two configs will be ignored.
 DECLARE_mString(meta_service_endpoint);
+// Whether check config::meta_service_endpoint is identical to the ms endpoint from FE master heartbeat
+// This may help in some cases that we intend to change the config only FE side or BE side
+DECLARE_mBool(enable_meta_service_endpoint_consistency_check);
 // Set the underlying connection type to pooled.
 DECLARE_Bool(meta_service_connection_pooled);
 DECLARE_mInt64(meta_service_connection_pool_size);
@@ -98,7 +101,7 @@ DECLARE_mBool(save_load_error_log_to_s3);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
-DECLARE_Int32(delete_bitmap_lock_expiration_seconds);
+DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);

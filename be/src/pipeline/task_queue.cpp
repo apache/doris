@@ -153,7 +153,6 @@ PipelineTask* MultiCoreTaskQueue::take(int core_id) {
                 << " _core_size: " << _core_size << " _next_core: " << _next_core.load();
         task = _prio_task_queues[core_id].try_take(false);
         if (task) {
-            task->set_core_id(core_id);
             break;
         }
         task = _steal_take(core_id);
@@ -162,7 +161,6 @@ PipelineTask* MultiCoreTaskQueue::take(int core_id) {
         }
         task = _prio_task_queues[core_id].take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
         if (task) {
-            task->set_core_id(core_id);
             break;
         }
     }
@@ -183,7 +181,6 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(int core_id) {
         DCHECK(next_id < _core_size);
         auto task = _prio_task_queues[next_id].try_take(true);
         if (task) {
-            task->set_core_id(next_id);
             return task;
         }
     }
@@ -191,7 +188,7 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(int core_id) {
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
-    int core_id = task->get_previous_core_id();
+    int core_id = task->get_core_id();
     if (core_id < 0) {
         core_id = _next_core.fetch_add(1) % _core_size;
     }
@@ -205,9 +202,12 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
 }
 
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
-    task->inc_runtime_ns(time_spent);
-    _prio_task_queues[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
-                                                                 time_spent);
+    // if the task not execute but exception early close, core_id == -1
+    // should not do update_statistics
+    if (auto core_id = task->get_core_id(); core_id >= 0) {
+        task->inc_runtime_ns(time_spent);
+        _prio_task_queues[core_id].inc_sub_queue_runtime(task->get_queue_level(), time_spent);
+    }
 }
 
 } // namespace doris::pipeline

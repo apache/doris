@@ -77,7 +77,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);
-    auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
+    auto* arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
@@ -86,7 +86,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                  null_builder->type()->name());
             }
         } else {
-            ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+            auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
             checkArrowStatus(
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
@@ -111,7 +111,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
         }
     } else if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, IPv6>) {
     } else {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+        auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
@@ -130,23 +130,20 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val = 0;
         if (!read_float_text_fast_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_same_v<T, uint8_t>) {
         // Note: here we should handle the bool type
         T val = 0;
         if (!try_read_bool_text(val, rb)) {
-            return Status::InvalidArgument("parse boolean fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else if constexpr (std::is_integral<T>::value) {
         T val = 0;
         if (!read_int_text_impl(val, rb)) {
-            return Status::InvalidArgument("parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+            return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
     } else {
@@ -186,7 +183,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -194,14 +191,14 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
 
 template <typename T>
 void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int start,
-                                                    int end, const cctz::time_zone& ctz) const {
-    int row_count = end - start;
+                                                    const arrow::Array* arrow_array, int64_t start,
+                                                    int64_t end, const cctz::time_zone& ctz) const {
+    auto row_count = end - start;
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
 
     // now uint8 for bool
     if constexpr (std::is_same_v<T, UInt8>) {
-        auto concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
         for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }
@@ -218,17 +215,20 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                 const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
                 const auto raw_data_len = concrete_array->value_length(offset_i);
 
-                Int128 val = 0;
-                ReadBuffer rb(raw_data, raw_data_len);
-                if (!read_int_text_impl(val, rb)) {
-                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                           "parse number fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
+                if (raw_data_len == 0) {
+                    col_data.emplace_back(Int128()); // Int128() is NULL
+                } else {
+                    Int128 val = 0;
+                    ReadBuffer rb(raw_data, raw_data_len);
+                    if (!read_int_text_impl(val, rb)) {
+                        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                               "parse number fail, string: '{}'",
+                                               std::string(rb.position(), rb.count()).c_str());
+                    }
+                    col_data.emplace_back(val);
                 }
-                col_data.emplace_back(val);
             } else {
-                // insert default value
-                col_data.emplace_back(Int128());
+                col_data.emplace_back(Int128()); // Int128() is NULL
             }
         }
         return;
@@ -241,7 +241,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 }
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -258,7 +258,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 
 template <typename T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                     int times) const {
+                                                                     uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
@@ -343,7 +343,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
     if constexpr (std::is_same_v<T, Int128>) { // largeint
-        orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+        auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
         INIT_MEMORY_FOR_ORC_WRITER()
 

@@ -55,7 +55,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -264,15 +264,11 @@ public:
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
-        std::stringstream ss;
-        ss << "close wait failed coz rpc error";
-        {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            if (!_cancel_msg.empty()) {
-                ss << ". " << _cancel_msg;
-            }
+        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        if (!_cancel_msg.empty()) {
+            return _cancel_msg;
         }
-        return ss.str();
+        return fmt::format("{} is cancelled", channel_info());
     }
 
     // two ways to stop channel:
@@ -683,8 +679,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.

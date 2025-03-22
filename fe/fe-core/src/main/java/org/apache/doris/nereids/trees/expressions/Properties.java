@@ -85,8 +85,8 @@ public class Properties extends Expression implements LeafExpression {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), keyValues);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), keyValues);
     }
 
     @Override

@@ -23,8 +23,6 @@
 #include <rapidjson/rapidjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -42,19 +40,13 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/simd_json_parser.h"
 
-namespace simdjson {
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -144,6 +136,10 @@ private:
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
     Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
@@ -230,10 +226,10 @@ private:
     bool _skip_first_line;
 
     std::string _line_delimiter;
-    int _line_delimiter_length;
+    size_t _line_delimiter_length;
 
-    int _next_row;
-    int _total_rows;
+    uint32_t _next_row;
+    size_t _total_rows;
 
     std::string _jsonpaths;
     std::string _json_root;
@@ -315,4 +311,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -377,24 +377,33 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Modify the catalog property and write the meta log.
      */
-    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
+    public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+                throw new DdlException("No catalog found with name: " + catalogName);
             }
             Map<String, String> oldProperties = catalog.getProperties();
-            if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
-                    .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
-                throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
+            if (newProperties.containsKey("type") && !catalog.getType()
+                    .equalsIgnoreCase(newProperties.get("type"))) {
+                throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
             }
-            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            CatalogLog log = new CatalogLog();
+            log.setCatalogId(catalog.getId());
+            log.setNewProps(newProperties);
             replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Modify the catalog property and write the meta log.
+     */
+    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
+        alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
     }
 
     /**
@@ -894,5 +903,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
+    }
+
+    public int getCatalogNum() {
+        return idToCatalog.size();
     }
 }

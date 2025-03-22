@@ -19,71 +19,73 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("test_load_stream_stub_close_wait_fault_injection", "nonConcurrent") {
-    sql """ set enable_memtable_on_sink_node=true """
-    sql """ DROP TABLE IF EXISTS `baseall` """
-    sql """ DROP TABLE IF EXISTS `test` """
-    sql """
-        CREATE TABLE IF NOT EXISTS `baseall` (
-            `k0` boolean null comment "",
-            `k1` tinyint(4) null comment "",
-            `k2` smallint(6) null comment "",
-            `k3` int(11) null comment "",
-            `k4` bigint(20) null comment "",
-            `k5` decimal(9, 3) null comment "",
-            `k6` char(5) null comment "",
-            `k10` date null comment "",
-            `k11` datetime null comment "",
-            `k7` varchar(20) null comment "",
-            `k8` double max null comment "",
-            `k9` float sum null comment "",
-            `k12` string replace null comment "",
-            `k13` largeint(40) replace null comment ""
-        ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
-        """
-    sql """
-        CREATE TABLE IF NOT EXISTS `test` (
-            `k0` boolean null comment "",
-            `k1` tinyint(4) null comment "",
-            `k2` smallint(6) null comment "",
-            `k3` int(11) null comment "",
-            `k4` bigint(20) null comment "",
-            `k5` decimal(9, 3) null comment "",
-            `k6` char(5) null comment "",
-            `k10` date null comment "",
-            `k11` datetime null comment "",
-            `k7` varchar(20) null comment "",
-            `k8` double max null comment "",
-            `k9` float sum null comment "",
-            `k12` string replace_if_not_null null comment "",
-            `k13` largeint(40) replace null comment ""
-        ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
-        """
+    if (!isCloudMode()) {
+        sql """ set enable_memtable_on_sink_node=true """
+        sql """ DROP TABLE IF EXISTS `baseall` """
+        sql """ DROP TABLE IF EXISTS `test` """
+        sql """
+            CREATE TABLE IF NOT EXISTS `baseall` (
+                `k0` boolean null comment "",
+                `k1` tinyint(4) null comment "",
+                `k2` smallint(6) null comment "",
+                `k3` int(11) null comment "",
+                `k4` bigint(20) null comment "",
+                `k5` decimal(9, 3) null comment "",
+                `k6` char(5) null comment "",
+                `k10` date null comment "",
+                `k11` datetime null comment "",
+                `k7` varchar(20) null comment "",
+                `k8` double max null comment "",
+                `k9` float sum null comment "",
+                `k12` string replace null comment "",
+                `k13` largeint(40) replace null comment ""
+            ) engine=olap
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+            """
+        sql """
+            CREATE TABLE IF NOT EXISTS `test` (
+                `k0` boolean null comment "",
+                `k1` tinyint(4) null comment "",
+                `k2` smallint(6) null comment "",
+                `k3` int(11) null comment "",
+                `k4` bigint(20) null comment "",
+                `k5` decimal(9, 3) null comment "",
+                `k6` char(5) null comment "",
+                `k10` date null comment "",
+                `k11` datetime null comment "",
+                `k7` varchar(20) null comment "",
+                `k8` double max null comment "",
+                `k9` float sum null comment "",
+                `k12` string replace_if_not_null null comment "",
+                `k13` largeint(40) replace null comment ""
+            ) engine=olap
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+            """
 
-    GetDebugPoint().clearDebugPointsForAllBEs()
-    streamLoad {
-        table "baseall"
-        db "regression_test_fault_injection_p0"
-        set 'column_separator', ','
-        file "baseall.txt"
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        streamLoad {
+            table "baseall"
+            db "regression_test_fault_injection_p0"
+            set 'column_separator', ','
+            file "baseall.txt"
+        }
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2.close.cancel")
+            GetDebugPoint().enableDebugPointForAllBEs("LoadStreamStub::close_wait.long_wait")
+            def res = sql "insert into test select * from baseall where k1 <= 3"
+            logger.info(res.toString())
+            assertTrue(false, "Expected Exception to be thrown")
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains("cancel"))
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("VTabletWriterV2.close.cancel")
+            GetDebugPoint().disableDebugPointForAllBEs("LoadStreamStub::close_wait.long_wait")
+        }
+
+        sql """ DROP TABLE IF EXISTS `baseall` """
+        sql """ DROP TABLE IF EXISTS `test` """
+        sql """ set enable_memtable_on_sink_node=false """
     }
-
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2.close.cancel")
-        GetDebugPoint().enableDebugPointForAllBEs("LoadStreamStub::close_wait.long_wait")
-        def res = sql "insert into test select * from baseall where k1 <= 3"
-        logger.info(res.toString())
-        assertTrue(false, "Expected Exception to be thrown")
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains("cancel"))
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VTabletWriterV2.close.cancel")
-        GetDebugPoint().disableDebugPointForAllBEs("LoadStreamStub::close_wait.long_wait")
-    }
-
-    sql """ DROP TABLE IF EXISTS `baseall` """
-    sql """ DROP TABLE IF EXISTS `test` """
-    sql """ set enable_memtable_on_sink_node=false """
 }

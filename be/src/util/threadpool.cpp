@@ -46,10 +46,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_execution_time_ns_avg_in_last_1000_times,
-                                   MetricUnit::NANOSECONDS);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(task_wait_worker_ns_avg_in_last_1000_times,
-                                   MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_time_ns_total,
+                                     MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_count_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_time_ns_total,
+                                     MetricUnit::NANOSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, MetricUnit::NOUNIT);
 using namespace ErrorCode;
 
 using std::string;
@@ -311,8 +313,10 @@ Status ThreadPool::init() {
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_threads);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_queue_size);
     INT_GAUGE_METRIC_REGISTER(_metric_entity, thread_pool_max_queue_size);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_execution_time_ns_avg_in_last_1000_times);
-    INT_GAUGE_METRIC_REGISTER(_metric_entity, task_wait_worker_ns_avg_in_last_1000_times);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_execution_count_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_time_ns_total);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_task_wait_worker_count_total);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, thread_pool_submit_failed);
 
     _metric_entity->register_hook("update", [this]() {
@@ -327,10 +331,6 @@ Status ThreadPool::init() {
         thread_pool_queue_size->set_value(get_queue_size());
         thread_pool_max_queue_size->set_value(get_max_queue_size());
         thread_pool_max_threads->set_value(max_threads());
-        task_execution_time_ns_avg_in_last_1000_times->set_value(
-                _task_execution_time_ns_statistic.mean());
-        task_wait_worker_ns_avg_in_last_1000_times->set_value(
-                _task_wait_worker_time_ns_statistic.mean());
     });
     return Status::OK();
 }
@@ -602,7 +602,9 @@ void ThreadPool::dispatch_thread() {
         DCHECK_EQ(ThreadPoolToken::State::RUNNING, token->state());
         DCHECK(!token->_entries.empty());
         Task task = std::move(token->_entries.front());
-        _task_wait_worker_time_ns_statistic.add(task.submit_time_wather.elapsed_time());
+        thread_pool_task_wait_worker_time_ns_total->increment(
+                task.submit_time_wather.elapsed_time());
+        thread_pool_task_wait_worker_count_total->increment(1);
         token->_entries.pop_front();
         token->_active_threads++;
         --_total_queued_tasks;
@@ -620,7 +622,9 @@ void ThreadPool::dispatch_thread() {
         // with this threadpool, and produce a deadlock.
         task.runnable.reset();
         l.lock();
-        _task_execution_time_ns_statistic.add(task_execution_time_watch.elapsed_time());
+        thread_pool_task_execution_time_ns_total->increment(
+                task_execution_time_watch.elapsed_time());
+        thread_pool_task_execution_count_total->increment(1);
         // Possible states:
         // 1. The token was shut down while we ran its task. Transition to QUIESCED.
         // 2. The token has no more queued tasks. Transition back to IDLE.

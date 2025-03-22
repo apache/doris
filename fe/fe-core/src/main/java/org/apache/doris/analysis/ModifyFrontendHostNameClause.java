@@ -22,6 +22,13 @@ public class ModifyFrontendHostNameClause extends ModifyNodeHostNameClause {
         super(hostPort, hostName);
     }
 
+    public ModifyFrontendHostNameClause(String hostPort, String hostName,
+            String host, int port) {
+        super(hostPort, hostName);
+        this.host = host;
+        this.port = port;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();

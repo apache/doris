@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
@@ -88,8 +89,9 @@ public:
         PrimitiveType type;
         int size;
         bool is_null;
-        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
+        /// Only set if type == TYPE_DECIMAL
         int precision = -1;
+        /// Only set if type == TYPE_DECIMAL or DATETIMEV2
         int scale = -1;
     };
     SchemaScanner(const std::vector<ColumnDesc>& columns,
@@ -97,7 +99,7 @@ public:
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
-    virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
+    virtual Status init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool);
     Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
@@ -141,6 +143,7 @@ protected:
     std::atomic<bool> _eos = false;
     std::atomic<bool> _opened = false;
     std::atomic<bool> _async_thread_running = false;
+    cctz::time_zone _timezone_obj;
 };
 
 } // namespace doris

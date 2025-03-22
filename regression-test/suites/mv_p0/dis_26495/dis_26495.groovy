@@ -30,6 +30,8 @@ suite ("dis_26495") {
 
     sql """alter table doris_test modify column agg_st_1 set stats ('row_count'='1');"""
 
+    sql """set enable_stats=false;"""
+
     streamLoad {
         table "doris_test"
         set 'column_separator', ','

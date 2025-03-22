@@ -1248,9 +1248,6 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
         while (val < val_end && check_space(*val)) {
             val++;
         }
-        if (val >= val_end) {
-            break;
-        }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
             const char* tmp = nullptr;
@@ -1635,7 +1632,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
 template <TimeUnit unit, bool need_check>
 bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -1825,7 +1822,7 @@ void VecDateTimeValue::unchecked_set_time(uint32_t year, uint32_t month, uint32_
 
 template <TimeUnit unit>
 bool VecDateTimeValue::datetime_trunc() {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
     switch (unit) {
@@ -2277,9 +2274,6 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         while (val < val_end && check_space(*val)) {
             val++;
         }
-        if (val >= val_end) {
-            break;
-        }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
             const char* tmp = nullptr;
@@ -2704,7 +2698,7 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
     // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
     // it will cause problem for null DataTypeDateV2 value in cast function,
     // e.g. cast(cast(null_date as char) as date)
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return 0;
     }
     char* start = buffer;
@@ -2824,40 +2818,6 @@ int date_day_offset_dict::daynr(int year, int month, int day) const {
 }
 
 template <typename T>
-uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
-    union DateV2UInt32Union {
-        DateV2Value<T> dt;
-        uint32_t ui32;
-        ~DateV2UInt32Union() {}
-    };
-    DateV2UInt32Union conv = {.ui32 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0)) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
-
-    return int_val;
-}
-
-template <typename T>
-uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
-    union DateTimeV2UInt64Union {
-        DateV2Value<T> dt;
-        uint64_t ui64;
-        ~DateTimeV2UInt64Union() {}
-    };
-    DateTimeV2UInt64Union conv = {.ui64 = int_val};
-    if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(), conv.dt.minute(),
-                   conv.dt.second(), conv.dt.microsecond())) {
-        return 0;
-    }
-    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(),
-                             conv.dt.minute(), conv.dt.second(), conv.dt.microsecond());
-
-    return int_val;
-}
-
-template <typename T>
 uint8_t DateV2Value<T>::week(uint8_t mode) const {
     uint16_t year = 0;
     return calc_week(this->daynr(), this->year(), this->month(), this->day(), mode, &year);
@@ -2938,7 +2898,7 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
 template <typename T>
 template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
-    if (!is_valid_date()) {
+    if (!is_valid_date()) [[unlikely]] {
         return false;
     }
 
@@ -3011,7 +2971,7 @@ template <typename T>
 template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
     }
@@ -3122,7 +3082,7 @@ template <typename T>
 template <TimeUnit unit>
 bool DateV2Value<T>::datetime_trunc() {
     if constexpr (is_datetime) {
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
@@ -3195,7 +3155,7 @@ bool DateV2Value<T>::datetime_trunc() {
             return false;
         }
     } else { // is_datev2
-        if (!is_valid_date()) {
+        if (!is_valid_date()) [[unlikely]] {
             return false;
         }
         switch (unit) {
@@ -3686,26 +3646,6 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
 }
 
 template <typename T>
-bool DateV2Value<T>::from_date(uint32_t value) {
-    DCHECK(!is_datetime);
-    if (value < MIN_DATE_V2 || value > MAX_DATE_V2) {
-        return false;
-    }
-
-    return set_date_uint32(value);
-}
-
-template <typename T>
-bool DateV2Value<T>::from_datetime(uint64_t value) {
-    DCHECK(is_datetime);
-    if (value < MIN_DATETIME_V2 || value > MAX_DATETIME_V2) {
-        return false;
-    }
-
-    return set_datetime_uint64(value);
-}
-
-template <typename T>
 int64_t DateV2Value<T>::standardize_timevalue(int64_t value) {
     if (value <= 0) {
         return 0;
@@ -3787,6 +3727,32 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
+}
+
+// An ISO week-numbering year (also called ISO year informally) has 52 or 53 full weeks. That is 364 or 371 days instead of the usual 365 or 366 days. These 53-week years occur on all years that have Thursday as 1 January and on leap years that start on Wednesday. The extra week is sometimes referred to as a leap week, although ISO 8601 does not use this term. https://en.wikipedia.org/wiki/ISO_week_date
+template <typename T>
+uint16_t DateV2Value<T>::year_of_week() const {
+    constexpr uint8_t THURSDAY = 3;
+
+    if (date_v2_value_.month_ == 1) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = 6 - THURSDAY;
+        if (date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is after Thursday and Thursday is in the previous year, return the previous year
+            return date_v2_value_.year_ -
+                   (weekday > THURSDAY && weekday - THURSDAY > date_v2_value_.day_ - 1);
+        }
+    } else if (date_v2_value_.month_ == 12) {
+        constexpr uint8_t MAX_DISTANCE_WITH_THURSDAY = THURSDAY - 0;
+        if (S_DAYS_IN_MONTH[12] - date_v2_value_.day_ <= MAX_DISTANCE_WITH_THURSDAY) {
+            auto weekday = calc_weekday(daynr(), false);
+            // if the current day is before Thursday and Thursday is in the next year, return the next year
+            return date_v2_value_.year_ +
+                   (weekday < THURSDAY &&
+                    (THURSDAY - weekday) > S_DAYS_IN_MONTH[12] - date_v2_value_.day_);
+        }
+    }
+    return date_v2_value_.year_;
 }
 
 template <typename T>

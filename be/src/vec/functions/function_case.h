@@ -174,16 +174,9 @@ public:
                         break;
                     }
                 } else {
-                    if constexpr (when_null) {
-                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
-                    } else {
-                        if (!then_idx_ptr[row_idx]) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
+                    if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
+                        then_idx_ptr[row_idx] = i;
+                        break;
                     }
                 }
             }

@@ -36,17 +36,19 @@ public class FeNameFormat {
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.-_]*$";
-    private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@0-9\\s/][.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:]{0,255}$";
+    private static final String COLUMN_NAME_REGEX = "^[.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:]{1,256}$";
 
-    private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9:\\p{L}]{1,128}$";
+    private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9:\\p{L}]{1," + Config.label_regex_length + "}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,63}$";
     private static final String UNICODE_UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,63}$";
     private static final String UNICODE_TABLE_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]*$";
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.-_\\p{L}]*$";
     private static final String UNICODE_COLUMN_NAME_REGEX
-            = "^[_a-zA-Z@0-9\\p{L}][.a-zA-Z0-9_+-/?@#$%^&*\\p{L}]{0,255}$";
+            = "^[.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:\\p{L}]{1,256}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
+
+    public static final String TEMPORARY_TABLE_SIGN = "_#TEMP#_";
 
     public static void checkCatalogName(String catalogName) throws AnalysisException {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName) && (Strings.isNullOrEmpty(catalogName)
@@ -70,6 +72,11 @@ public class FeNameFormat {
         if (tableName.length() > Config.table_name_length_limit) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_NAME_LENGTH_LIMIT, tableName,
                     tableName.length(), Config.table_name_length_limit);
+        }
+        // forbid table name contains sign of temporary table
+        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+            ErrorReport.reportAnalysisException("Incorrect table name, table name can't contains "
+                    + FeNameFormat.TEMPORARY_TABLE_SIGN);
         }
     }
 

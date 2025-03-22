@@ -74,7 +74,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             DistributeContext distributeContext) {
 
         ConnectContext context = statementContext.getConnectContext();
-        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel();
+        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(distributeContext);
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<DistributedPlanWorker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
             DistributedPlanWorker worker = entry.getKey();
@@ -103,8 +103,8 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         return instances;
     }
 
-    protected boolean useLocalShuffleToAddParallel() {
-        return fragment.useSerialSource(ConnectContext.get());
+    protected boolean useLocalShuffleToAddParallel(DistributeContext distributeContext) {
+        return fragment.useSerialSource(distributeContext.isLoadJob ? null : statementContext.getConnectContext());
     }
 
     protected void assignedDefaultJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
@@ -173,7 +173,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
             // if the scan node have limit and no conjuncts, only need 1 instance to save cpu and mem resource,
             // e.g. select * from tbl limit 10
-            ConnectContext connectContext = ConnectContext.get();
+            ConnectContext connectContext = statementContext.getConnectContext();
             if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
                 return 1;
             }
@@ -190,7 +190,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     protected List<AssignedJob> fillUpSingleEmptyInstance(DistributedPlanWorkerManager workerManager) {
         return ImmutableList.of(
                 assignWorkerAndDataSources(0,
-                        ConnectContext.get().nextInstanceId(),
+                        statementContext.getConnectContext().nextInstanceId(),
                         workerManager.randomAvailableWorker(),
                         DefaultScanSource.empty())
         );

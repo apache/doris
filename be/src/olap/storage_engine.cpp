@@ -103,6 +103,10 @@ BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
           _stop_background_threads_latch(1) {
     _memory_limitation_bytes_for_schema_change =
             static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
+    _tablet_max_delete_bitmap_score_metrics =
+            std::make_shared<bvar::Status<size_t>>("tablet_max", "delete_bitmap_score", 0);
+    _tablet_max_base_rowset_delete_bitmap_score_metrics = std::make_shared<bvar::Status<size_t>>(
+            "tablet_max_base_rowset", "delete_bitmap_score", 0);
 }
 
 BaseStorageEngine::~BaseStorageEngine() = default;
@@ -706,6 +710,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_async_publish_thread);
     THREAD_JOIN(_cold_data_compaction_producer_thread);
     THREAD_JOIN(_cooldown_tasks_producer_thread);
+    THREAD_JOIN(_check_delete_bitmap_score_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \

@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,13 +28,17 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/local_exchange/local_exchanger.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -83,6 +88,8 @@ struct LocalSinkStateInfo {
 class OperatorBase {
 public:
     explicit OperatorBase() : _child(nullptr), _is_closed(false) {}
+    explicit OperatorBase(bool is_serial_operator)
+            : _child(nullptr), _is_closed(false), _is_serial_operator(is_serial_operator) {}
     virtual ~OperatorBase() = default;
 
     virtual bool is_sink() const { return false; }
@@ -94,11 +101,14 @@ public:
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     [[nodiscard]] virtual std::string get_name() const = 0;
-    [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
+    [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
-        _child = std::move(child);
+        if (_child && child != nullptr) {
+            return Status::InternalError("Child is already set in node name={}", get_name());
+        }
+        _child = child;
         return Status::OK();
     }
 
@@ -109,7 +119,13 @@ public:
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
 
-    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    virtual Status revoke_memory(RuntimeState* state,
+                                 const std::shared_ptr<SpillContext>& spill_context) {
+        return Status::OK();
+    }
+
+    virtual void set_low_memory_mode(RuntimeState* state) {}
+
     [[nodiscard]] virtual bool require_data_distribution() const { return false; }
     OperatorPtr child() { return _child; }
     [[nodiscard]] bool followed_by_shuffled_operator() const {
@@ -183,7 +199,20 @@ public:
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
+    Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
+                        vectorized::Block* block, size_t column_to_keep);
+
+    int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
+
+    void reset_estimate_memory_usage() { _estimate_memory_usage = 0; }
+
+    bool low_memory_mode() {
+#ifdef BE_TEST
+        return false;
+#else
+        return _state->low_memory_mode();
+#endif
+    }
 
 protected:
     friend class OperatorXBase;
@@ -192,10 +221,9 @@ protected:
 
     ObjectPool* _pool = nullptr;
     int64_t _num_rows_returned {0};
+    int64_t _estimate_memory_usage {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -240,27 +268,9 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
-    void inc_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            state->get_query_ctx()->inc_running_big_mem_op_num();
-            _big_mem_op_num_added = true;
-        }
-    }
-
-    void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
-            state->get_query_ctx()->dec_running_big_mem_op_num();
-            _big_mem_op_num_deced = true;
-        }
-    }
-
 protected:
     Dependency* _dependency = nullptr;
     SharedStateArg* _shared_state = nullptr;
-
-private:
-    bool _big_mem_op_num_added = false;
-    bool _big_mem_op_num_deced = false;
 };
 
 template <typename SharedStateArg>
@@ -273,32 +283,138 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_recover_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", "Spill", 1);
-        _spill_read_data_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", "Spill", 1);
-        _spill_deserialize_time =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
-        _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
-                                                         TUnit::BYTES, "Spill", 1);
-        _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
-        _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+
+        init_spill_read_counters();
+
         return Status::OK();
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
-    RuntimeProfile::Counter* _spill_recover_time;
-    RuntimeProfile::Counter* _spill_read_data_time;
-    RuntimeProfile::Counter* _spill_deserialize_time;
-    RuntimeProfile::Counter* _spill_read_bytes;
-    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
-    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
-    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
+    void init_spill_write_counters() {
+        _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
+
+        _spill_write_wait_in_queue_task_count = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT, 1);
+        _spill_writing_task_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteTaskCount", TUnit::UNIT, 1);
+        _spill_write_wait_in_queue_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTaskWaitInQueueTime", 1);
+
+        _spill_write_file_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteFileTime", 1);
+
+        _spill_write_serialize_block_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteSerializeBlockTime", 1);
+        _spill_write_block_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+        _spill_write_block_data_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
+        _spill_write_file_total_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileBytes", TUnit::BYTES, 1);
+        _spill_write_rows_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
+        _spill_file_total_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+    }
+
+    void init_spill_read_counters() {
+        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
+
+        // Spill read counters
+        _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
+
+        _spill_read_wait_in_queue_task_count = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillReadTaskWaitInQueueCount", TUnit::UNIT, 1);
+        _spill_reading_task_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadTaskCount", TUnit::UNIT, 1);
+        _spill_read_wait_in_queue_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadTaskWaitInQueueTime", 1);
+
+        _spill_read_file_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadFileTime", 1);
+        _spill_read_derialize_block_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDerializeBlockTime", 1);
+
+        _spill_read_block_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadBlockCount", TUnit::UNIT, 1);
+        _spill_read_block_data_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadBlockBytes", TUnit::BYTES, 1);
+        _spill_read_file_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileBytes", TUnit::BYTES, 1);
+        _spill_read_rows_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadRows", TUnit::UNIT, 1);
+        _spill_read_file_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileCount", TUnit::UNIT, 1);
+
+        _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
+        _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
+    }
+
+    // These two counters are shared to spill source operators as the initial value
+    // Initialize values of counters 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'
+    // from spill sink operators' "SpillWriteFileTotalCount" and "SpillWriteFileBytes"
+    void copy_shared_spill_profile() {
+        if (_copy_shared_spill_profile) {
+            _copy_shared_spill_profile = false;
+            const auto* spill_shared_state = (const BasicSpillSharedState*)Base::_shared_state;
+            COUNTER_UPDATE(_spill_file_current_size,
+                           spill_shared_state->_spill_write_file_total_size->value());
+            COUNTER_UPDATE(_spill_file_current_count,
+                           spill_shared_state->_spill_file_total_count->value());
+            Base::_shared_state->update_spill_stream_profiles(Base::profile());
+        }
+    }
+
+    // Total time of spill, including spill task scheduling time,
+    // serialize block time, write disk file time,
+    // and read disk file time, deserialize block time etc.
+    RuntimeProfile::Counter* _spill_total_timer = nullptr;
+
+    // Spill write counters
+    // Total time of spill write, including serialize block time, write disk file,
+    // and wait in queue time, etc.
+    RuntimeProfile::Counter* _spill_write_timer = nullptr;
+
+    RuntimeProfile::Counter* _spill_write_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_writing_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_write_wait_in_queue_timer = nullptr;
+
+    // Total time of writing file
+    RuntimeProfile::Counter* _spill_write_file_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_serialize_block_timer = nullptr;
+    // Original count of spilled Blocks
+    // One Big Block maybe split into multiple small Blocks when actually written to disk file.
+    RuntimeProfile::Counter* _spill_write_block_count = nullptr;
+    // Total bytes of spill data in Block format(in memory format)
+    RuntimeProfile::Counter* _spill_write_block_data_size = nullptr;
+    // Total bytes of spill data written to disk file(after serialized)
+    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
+    RuntimeProfile::Counter* _spill_write_rows_count = nullptr;
+    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
+    RuntimeProfile::Counter* _spill_file_current_count = nullptr;
+    // Spilled file total size
+    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
+    // Current spilled file size
+    RuntimeProfile::Counter* _spill_file_current_size = nullptr;
+
+    // Spill read counters
+    // Total time of recovring spilled data, including read file time, deserialize time, etc.
+    RuntimeProfile::Counter* _spill_recover_time = nullptr;
+
+    RuntimeProfile::Counter* _spill_read_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_reading_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_read_wait_in_queue_timer = nullptr;
+
+    RuntimeProfile::Counter* _spill_read_file_time = nullptr;
+    RuntimeProfile::Counter* _spill_read_derialize_block_timer = nullptr;
+    RuntimeProfile::Counter* _spill_read_block_count = nullptr;
+    // Total bytes of read data in Block format(in memory format)
+    RuntimeProfile::Counter* _spill_read_block_data_size = nullptr;
+    // Total bytes of spill data read from disk file
+    RuntimeProfile::Counter* _spill_read_file_size = nullptr;
+    RuntimeProfile::Counter* _spill_read_rows_count = nullptr;
+    RuntimeProfile::Counter* _spill_read_file_count = nullptr;
+
+    bool _copy_shared_spill_profile = true;
 };
 
 class DataSinkOperatorXBase;
@@ -345,12 +461,13 @@ public:
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
+
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
+    bool low_memory_mode() { return _state->low_memory_mode(); }
 
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
@@ -375,8 +492,6 @@ protected:
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
-
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -401,39 +516,28 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
 
-    void inc_running_big_mem_op_num(RuntimeState* state) {
-        if (!_big_mem_op_num_added) {
-            state->get_query_ctx()->inc_running_big_mem_op_num();
-            _big_mem_op_num_added = true;
-        }
-    }
-
-    void dec_running_big_mem_op_num(RuntimeState* state) {
-        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
-            state->get_query_ctx()->dec_running_big_mem_op_num();
-            _big_mem_op_num_deced = true;
-        }
-    }
-
 protected:
     Dependency* _dependency = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
-
-private:
-    bool _big_mem_op_num_added = false;
-    bool _big_mem_op_num_deced = false;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
-
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id({dest_id}) {}
+    DataSinkOperatorXBase(const int operator_id, const TPlanNode& tnode, const int dest_id)
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
+              _operator_id(operator_id),
+              _node_id(tnode.node_id),
+              _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
-            : OperatorBase(), _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+            : _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+
+#ifdef BE_TEST
+    DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
+#endif
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -447,7 +551,7 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -460,6 +564,12 @@ public:
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
+
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
+        return state->minimum_operator_memory_required_bytes();
+    }
+
+    [[nodiscard]] bool is_spillable() const { return _spillable; }
 
     template <class TARGET>
     TARGET& cast() {
@@ -501,8 +611,6 @@ public:
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
-    void set_dests_id(const std::vector<int>& dest_id) { _dests_id = dest_id; }
-
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int node_id() const { return _node_id; }
@@ -523,24 +631,24 @@ protected:
     const int _operator_id;
     const int _node_id;
     int _nereids_id = -1;
+    bool _spillable = false;
     std::vector<int> _dests_id;
     std::string _name;
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 template <typename LocalStateType>
 class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
-    DataSinkOperatorX(int operator_id, const int node_id)
-            : DataSinkOperatorXBase(operator_id, node_id) {}
-
     DataSinkOperatorX(const int id, const int node_id, const int source_id)
             : DataSinkOperatorXBase(id, node_id, source_id) {}
+    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int source_id)
+            : DataSinkOperatorXBase(id, tnode, source_id) {}
 
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
+#ifdef BE_TEST
+    DataSinkOperatorX() = default;
+#endif
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
@@ -562,42 +670,98 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
-
-        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
-        _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", "Spill", 1);
-        _spill_serialize_block_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
-        _spill_write_disk_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
-        _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
-                                                        TUnit::BYTES, "Spill", 1);
-        _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
-                                                          TUnit::UNIT, "Spill", 1);
-        _spill_wait_in_queue_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWaitInQueueTime", "Spill", 1);
-        _spill_write_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteWaitIOTime", "Spill", 1);
-        _spill_read_wait_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadWaitIOTime", "Spill", 1);
+        init_spill_counters();
         return Status::OK();
     }
 
-    RuntimeProfile::Counter* _spill_counters = nullptr;
-    RuntimeProfile::Counter* _spill_timer = nullptr;
-    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
-    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
-    RuntimeProfile::Counter* _spill_data_size = nullptr;
-    RuntimeProfile::Counter* _spill_block_count = nullptr;
-    RuntimeProfile::Counter* _spill_wait_in_queue_timer = nullptr;
-    RuntimeProfile::Counter* _spill_write_wait_io_timer = nullptr;
-    RuntimeProfile::Counter* _spill_read_wait_io_timer = nullptr;
+    void init_spill_counters() {
+        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
+
+        _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
+
+        _spill_write_wait_in_queue_task_count = ADD_COUNTER_WITH_LEVEL(
+                Base::profile(), "SpillWriteTaskWaitInQueueCount", TUnit::UNIT, 1);
+        _spill_writing_task_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteTaskCount", TUnit::UNIT, 1);
+        _spill_write_wait_in_queue_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTaskWaitInQueueTime", 1);
+
+        _spill_write_file_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteFileTime", 1);
+
+        _spill_write_serialize_block_timer =
+                ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteSerializeBlockTime", 1);
+        _spill_write_block_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
+        _spill_write_block_data_size =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
+        _spill_write_rows_count =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
+
+        _spill_max_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
+        _spill_min_rows_of_partition =
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
+    }
+
+    std::vector<Dependency*> dependencies() const override {
+        auto dependencies = Base::dependencies();
+        return dependencies;
+    }
+
+    void update_max_min_rows_counter() {
+        int64_t max_rows = 0;
+        int64_t min_rows = std::numeric_limits<int64_t>::max();
+
+        for (auto rows : _rows_in_partitions) {
+            if (rows > max_rows) {
+                max_rows = rows;
+            }
+            if (rows < min_rows) {
+                min_rows = rows;
+            }
+        }
+
+        COUNTER_SET(_spill_max_rows_of_partition, max_rows);
+        COUNTER_SET(_spill_min_rows_of_partition, min_rows);
+    }
+
+    std::vector<int64_t> _rows_in_partitions;
+
+    // Total time of spill, including spill task scheduling time,
+    // serialize block time, write disk file time,
+    // and read disk file time, deserialize block time etc.
+    RuntimeProfile::Counter* _spill_total_timer = nullptr;
+
+    // Spill write counters
+    // Total time of spill write, including serialize block time, write disk file,
+    // and wait in queue time, etc.
+    RuntimeProfile::Counter* _spill_write_timer = nullptr;
+
+    RuntimeProfile::Counter* _spill_write_wait_in_queue_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_writing_task_count = nullptr;
+    RuntimeProfile::Counter* _spill_write_wait_in_queue_timer = nullptr;
+
+    // Total time of writing file
+    RuntimeProfile::Counter* _spill_write_file_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_serialize_block_timer = nullptr;
+    // Original count of spilled Blocks
+    // One Big Block maybe split into multiple small Blocks when actually written to disk file.
+    RuntimeProfile::Counter* _spill_write_block_count = nullptr;
+    // Total bytes of spill data in Block format(in memory format)
+    RuntimeProfile::Counter* _spill_write_block_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_write_rows_count = nullptr;
+    // Spilled file total size
+    RuntimeProfile::Counter* _spill_file_total_size = nullptr;
+
+    RuntimeProfile::Counter* _spill_max_rows_of_partition = nullptr;
+    RuntimeProfile::Counter* _spill_min_rows_of_partition = nullptr;
 };
 
 class OperatorXBase : public OperatorBase {
 public:
     OperatorXBase(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                   const DescriptorTbl& descs)
-            : OperatorBase(),
+            : OperatorBase(tnode.__isset.is_serial_operator && tnode.is_serial_operator),
               _operator_id(operator_id),
               _node_id(tnode.node_id),
               _type(tnode.node_type),
@@ -608,8 +772,6 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-        }
-        if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor = std::make_unique<RowDescriptor>(
                     descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
@@ -630,6 +792,10 @@ public:
               _node_id(node_id),
               _pool(pool),
               _limit(-1) {}
+
+#ifdef BE_TEST
+    OperatorXBase() : _operator_id(-1), _node_id(0), _limit(-1) {};
+#endif
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
@@ -643,7 +809,9 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
 
-    Status open(RuntimeState* state) override;
+    // Tablets should be hold before open phase.
+    [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
+    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
@@ -668,6 +836,15 @@ public:
         } else {
             return _intermediate_output_row_descriptor.back();
         }
+    }
+
+    size_t revocable_mem_size(RuntimeState* state) const override {
+        return (_child and !is_source()) ? _child->revocable_mem_size(state) : 0;
+    }
+
+    // If this method is not overwrite by child, its default value is 1MB
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state) {
+        return state->minimum_operator_memory_required_bytes();
     }
 
     virtual std::string debug_string(int indentation_level = 0) const;
@@ -724,11 +901,13 @@ public:
     // To keep compatibility with older FE
     void set_serial_operator() { _is_serial_operator = true; }
 
+    virtual void reset_reserve_mem_size(RuntimeState* state) {}
+
 protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    friend class VScanner;
+    friend class Scanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     int _nereids_id = -1;
@@ -755,6 +934,7 @@ protected:
     int64_t _limit; // -1: no limit
 
     uint32_t _debug_point_count = 0;
+    std::atomic_uint32_t _bytes_per_row = 0;
 
     std::string _op_name;
     int _parallel_tasks = 0;
@@ -772,12 +952,40 @@ public:
             : OperatorXBase(pool, tnode, operator_id, descs) {}
     OperatorX(ObjectPool* pool, int node_id, int operator_id)
             : OperatorXBase(pool, node_id, operator_id) {};
+
+#ifdef BE_TEST
+    OperatorX() = default;
+#endif
+
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
+    }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        auto estimated_size = local_state.estimate_memory_usage();
+        if (estimated_size < state->minimum_operator_memory_required_bytes()) {
+            estimated_size = state->minimum_operator_memory_required_bytes();
+        }
+        if (!is_source() && _child) {
+            auto child_reserve_size = _child->get_reserve_mem_size(state);
+            estimated_size +=
+                    std::max(state->minimum_operator_memory_required_bytes(), child_reserve_size);
+        }
+        return estimated_size;
+    }
+
+    void reset_reserve_mem_size(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state.reset_estimate_memory_usage();
+
+        if (!is_source() && _child) {
+            _child->reset_reserve_mem_size(state);
+        }
     }
 };
 
@@ -790,6 +998,11 @@ public:
     StreamingOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+
+#ifdef BE_TEST
+    StreamingOperatorX() = default;
+#endif
+
     virtual ~StreamingOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -811,6 +1024,9 @@ public:
     StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                       const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+#ifdef BE_TEST
+    StatefulOperatorX() = default;
+#endif
     virtual ~StatefulOperatorX() = default;
 
     using OperatorX<LocalStateType>::get_local_state;

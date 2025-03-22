@@ -320,6 +320,51 @@ update_conf_from_configmap()
     add_fqdn_config
 }
 
+mount_kerberos_config()
+{
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
+        fi
+    done
+
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
+
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
+}
+
 # resolve password for root
 resolve_password_from_secret()
 {
@@ -393,6 +438,7 @@ if [[ "x$fe_addrs" == "x" ]]; then
 fi
 
 update_conf_from_configmap
+mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then

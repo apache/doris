@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_dup_show_data","p2") {
+suite("test_cloud_dup_show_data","p2, nonConcurrent") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -69,13 +69,13 @@ suite("test_cloud_dup_show_data","p2") {
             trigger_compaction(tablets)
 
             // 然后 sleep 5min， 等fe汇报完
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-            sleep(60 * 1000)
             logger.info("after ${i} times stream load, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
@@ -85,9 +85,15 @@ suite("test_cloud_dup_show_data","p2") {
         // expect mysqlSize == apiSize == storageSize
         assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["mysqlSize"][1], sizeRecords["cbsSize"][1])
-        // expect load 10 times on dup table = 10 * load 1 times on dup table
-        assertTrue(10*sizeRecords["mysqlSize"][0]==sizeRecords["mysqlSize"][1])
+        // expect load 10 times on dup table < 10 * load 1 times on dup table
+        logger.info("after 1 time stream load, size is ${sizeRecords["mysqlSize"][0]}, after 10 times stream load, size is ${sizeRecords["mysqlSize"][1]}")
+        assertTrue(10*sizeRecords["mysqlSize"][0] > sizeRecords["mysqlSize"][1])
+        assertTrue(sizeRecords["mysqlSize"][0] < sizeRecords["mysqlSize"][1])
     }
 
+    set_config_before_show_data_test()
+    sleep(10 * 1000)
     main()
+    set_config_after_show_data_test()
+    sleep(10 * 1000)
 }

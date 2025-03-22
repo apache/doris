@@ -53,7 +53,7 @@ suite("test_add_key_partial_update", "nonConcurrent") {
         Thread.sleep(1000)
         test {
             sql "delete from ${table1} where k1<=3;"
-            exception "Unable to do partial update on shadow index's tablet"
+            exception "Can't do partial update when table is doing schema change."
         }
 
         waitForSchemaChangeDone {
