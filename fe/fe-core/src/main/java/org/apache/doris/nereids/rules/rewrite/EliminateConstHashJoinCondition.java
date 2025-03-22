@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,8 +44,6 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> ConnectContext.get() != null &&
-                    ConnectContext.get().getSessionVariable().enableEliminateConstJoinCondition)
                 .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
                 .whenNot(join -> join.isMarkJoin())
                 .then(EliminateConstHashJoinCondition::eliminateConstHashJoinCondition)

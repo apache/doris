@@ -422,9 +422,9 @@ public class StatementContext implements Closeable {
     }
 
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
-//        if (this.disableRules != null) {
-//            return this.disableRules;
-//        }
+        if (this.disableRules != null) {
+            return this.disableRules;
+        }
         this.disableRules = sessionVariable.getDisableNereidsRules();
         return this.disableRules;
     }

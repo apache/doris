@@ -1649,9 +1649,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
 
-    @VariableMgr.VarAttr(name = "enable_eliminate_const_join_condition")
-    public boolean enableEliminateConstJoinCondition=true;
-
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
