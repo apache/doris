@@ -64,7 +64,10 @@ statementBase
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
+<<<<<<< HEAD
     | supportedOtherStatement           #supportedOtherStatementAlias
+=======
+>>>>>>> c3e07ca121 ([Enhancement] (nereids)implement showColumnStatsCommand in nereids)
     | supportedStatsStatement           #supportedStatsStatementAlias
     | unsupportedStatement              #unsupported
     ;
@@ -731,6 +734,8 @@ supportedStatsStatement
         (WHERE (stateKey=identifier) EQ (stateValue=STRING_LITERAL))?           #showQueuedAnalyzeJobs
     | SHOW COLUMN HISTOGRAM tableName=multipartIdentifier
         columnList=identifierList                                               #showColumnHistogramStats
+    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+        columnList=identifierList? partitionSpec?                               #showColumnStats
     | ANALYZE DATABASE name=multipartIdentifier
         (WITH analyzeProperties)* propertyClause?                               #analyzeDatabase
     | ANALYZE TABLE name=multipartIdentifier partitionSpec?
@@ -753,8 +758,6 @@ unsupportedStatsStatement
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
-        columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
 
