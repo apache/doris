@@ -100,10 +100,15 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
-          _exchange_sink_num(sender_ins_ids.size()) {
+          _exchange_sink_num(sender_ins_ids.size()),
+          _send_multi_blocks(state->query_options().__isset.exchange_multi_blocks_byte_size &&
+                             state->query_options().exchange_multi_blocks_byte_size > 0) {
     for (auto sender_ins_id : sender_ins_ids) {
         _queue_deps.emplace(sender_ins_id, nullptr);
         _parents.emplace(sender_ins_id, nullptr);
+    }
+    if (_send_multi_blocks) {
+        _send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
     }
 }
 
@@ -126,9 +131,12 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     }
     _instance_to_package_queue_mutex[low_id] = std::make_unique<std::mutex>();
     _instance_to_seq[low_id] = 0;
-    _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
-    _instance_to_broadcast_package_queue[low_id] =
-            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>();
+    _instance_to_package_queue[low_id] =
+            std::unordered_map<vectorized::Channel*,
+                               std::queue<TransmitInfo, std::list<TransmitInfo>>>();
+    _instance_to_broadcast_package_queue[low_id] = std::unordered_map<
+            vectorized::Channel*,
+            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>();
     _queue_capacity =
             config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
     PUniqueId finst_id;
@@ -172,7 +180,7 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
             COUNTER_UPDATE(request.channel->_parent->memory_used_counter(),
                            request.block->ByteSizeLong());
         }
-        _instance_to_package_queue[ins_id].emplace(std::move(request));
+        _instance_to_package_queue[ins_id][request.channel].emplace(std::move(request));
         _total_queue_size++;
         if (_total_queue_size > _queue_capacity) {
             for (auto& [_, dep] : _queue_deps) {
@@ -211,7 +219,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
                     request.block_holder->get_block()->be_exec_version()));
         }
-        _instance_to_broadcast_package_queue[ins_id].emplace(request);
+        _instance_to_broadcast_package_queue[ins_id][request.channel].emplace(request);
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id));
@@ -223,9 +231,23 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
 Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
 
-    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
-    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
-            _instance_to_broadcast_package_queue[id];
+    auto& q_map = _instance_to_package_queue[id];
+    std::queue<TransmitInfo, std::list<TransmitInfo>>* q_ptr = nullptr;
+    for (auto& [_, lists] : q_map) {
+        if (!lists.empty()) {
+            q_ptr = &lists;
+            break;
+        }
+    }
+
+    auto& broadcast_q_map = _instance_to_broadcast_package_queue[id];
+    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>* broadcast_q_ptr = nullptr;
+    for (auto& [_, lists] : broadcast_q_map) {
+        if (!lists.empty()) {
+            broadcast_q_ptr = &lists;
+            break;
+        }
+    }
 
     if (_is_failed) {
         _turn_off_channel(id, lock);
@@ -235,22 +257,56 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         return Status::OK();
     }
 
-    if (!q.empty()) {
+    auto mem_byte = 0;
+    if (q_ptr && !q_ptr->empty()) {
+        auto& q = *q_ptr;
+
+        std::vector<TransmitInfo> requests(_send_multi_blocks ? q.size() : 1);
+        for (int i = 0; i < requests.size(); i++) {
+            requests[i] = std::move(q.front());
+            q.pop();
+
+            if (requests[i].block) {
+                // make sure rpc byte size under the _send_multi_blocks_bytes_size
+                mem_byte += requests[i].block->ByteSizeLong();
+                if (_send_multi_blocks && mem_byte > _send_multi_blocks_byte_size) {
+                    requests.resize(i + 1);
+                    break;
+                }
+            }
+        }
+
         // If we have data to shuffle which is not broadcasted
-        auto& request = q.front();
+        auto& request = requests[0];
         auto& brpc_request = _instance_to_request[id];
-        brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
-        if (request.block && !request.block->column_metas().empty()) {
-            brpc_request->set_allocated_block(request.block.get());
-        }
-        if (!request.exec_status.ok()) {
-            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
-        }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
 
+        if (_send_multi_blocks) {
+            for (auto& req : requests) {
+                if (req.block && !req.block->column_metas().empty()) {
+                    auto add_block = brpc_request->add_blocks();
+                    add_block->Swap(req.block.get());
+                }
+
+                if (!req.exec_status.ok()) {
+                    req.exec_status.to_protobuf(brpc_request->mutable_exec_status());
+                    break;
+                }
+            }
+        } else {
+            if (request.block && !request.block->column_metas().empty()) {
+                brpc_request->set_allocated_block(request.block.get());
+            }
+            if (!request.exec_status.ok()) {
+                request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
+            }
+        }
+
+        _instance_to_seq[id] += requests.size();
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
+        brpc_request->set_eos(requests.back().eos);
+        auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
@@ -314,31 +370,72 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                  std::move(send_remote_block_closure));
             }
         }
-        if (request.block) {
-            COUNTER_UPDATE(request.channel->_parent->memory_used_counter(),
-                           -request.block->ByteSizeLong());
+
+        if (!_send_multi_blocks && request.block) {
             static_cast<void>(brpc_request->release_block());
+        } else {
+            brpc_request->clear_blocks();
         }
-        q.pop();
-        _total_queue_size--;
+        if (mem_byte) {
+            COUNTER_UPDATE(request.channel->_parent->memory_used_counter(), -mem_byte);
+        }
+        DCHECK_GE(_total_queue_size, requests.size());
+        _total_queue_size -= (int)requests.size();
         if (_total_queue_size <= _queue_capacity) {
             for (auto& [_, dep] : _queue_deps) {
                 dep->set_ready();
             }
         }
-    } else if (!broadcast_q.empty()) {
+    } else if (broadcast_q_ptr && !broadcast_q_ptr->empty()) {
+        auto& broadcast_q = *broadcast_q_ptr;
         // If we have data to shuffle which is broadcasted
-        auto& request = broadcast_q.front();
+        std::vector<BroadcastTransmitInfo> requests(_send_multi_blocks ? broadcast_q.size() : 1);
+        for (int i = 0; i < requests.size(); i++) {
+            requests[i] = broadcast_q.front();
+            broadcast_q.pop();
+
+            if (requests[i].block_holder->get_block()) {
+                // make sure rpc byte size under the _send_multi_blocks_bytes_size
+                mem_byte += requests[i].block_holder->get_block()->ByteSizeLong();
+                if (_send_multi_blocks && mem_byte > _send_multi_blocks_byte_size) {
+                    requests.resize(i + 1);
+                    break;
+                }
+            }
+        }
+
+        auto& request = requests[0];
         auto& brpc_request = _instance_to_request[id];
-        brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
-        if (request.block_holder->get_block() &&
-            !request.block_holder->get_block()->column_metas().empty()) {
-            brpc_request->set_allocated_block(request.block_holder->get_block());
+
+        if (_send_multi_blocks) {
+            for (int i = 0; i < requests.size(); i++) {
+                auto& req = requests[i];
+                if (auto block = req.block_holder->get_block();
+                    block && !block->column_metas().empty()) {
+                    auto add_block = brpc_request->add_blocks();
+                    for (int j = 0; j < block->column_metas_size(); ++j) {
+                        add_block->add_column_metas()->CopyFrom(block->column_metas(j));
+                    }
+                    add_block->set_be_exec_version(block->be_exec_version());
+                    add_block->set_compressed(block->compressed());
+                    add_block->set_compression_type(block->compression_type());
+                    add_block->set_uncompressed_size(block->uncompressed_size());
+                    add_block->set_allocated_column_values(
+                            const_cast<std::string*>(&block->column_values()));
+                }
+            }
+        } else {
+            if (request.block_holder->get_block() &&
+                !request.block_holder->get_block()->column_metas().empty()) {
+                brpc_request->set_allocated_block(request.block_holder->get_block());
+            }
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
+        _instance_to_seq[id] += requests.size();
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
+        brpc_request->set_eos(requests.back().eos);
+        auto send_callback = request.channel->get_send_callback(id, requests.back().eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
@@ -403,10 +500,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                  std::move(send_remote_block_closure));
             }
         }
-        if (request.block_holder->get_block()) {
+        if (!_send_multi_blocks && request.block_holder->get_block()) {
             static_cast<void>(brpc_request->release_block());
+        } else {
+            for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
+                static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
+            }
+            brpc_request->clear_blocks();
         }
-        broadcast_q.pop();
     } else {
         _rpc_channel_is_idle[id] = true;
     }
@@ -448,27 +549,27 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     // and the rpc_channel should be turned off immediately.
     Defer turn_off([&]() { _turn_off_channel(id, lock); });
 
-    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
-            _instance_to_broadcast_package_queue[id];
-    for (; !broadcast_q.empty(); broadcast_q.pop()) {
-        if (broadcast_q.front().block_holder->get_block()) {
-            COUNTER_UPDATE(broadcast_q.front().channel->_parent->memory_used_counter(),
-                           -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
+    auto& broadcast_q_map = _instance_to_broadcast_package_queue[id];
+    for (auto& [_, broadcast_q] : broadcast_q_map) {
+        for (; !broadcast_q.empty(); broadcast_q.pop()) {
+            if (broadcast_q.front().block_holder->get_block()) {
+                COUNTER_UPDATE(broadcast_q.front().channel->_parent->memory_used_counter(),
+                               -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
+            }
         }
     }
-    {
-        std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> empty;
-        swap(empty, broadcast_q);
-    }
+    broadcast_q_map.clear();
 
-    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
-    for (; !q.empty(); q.pop()) {
-        // Must update _total_queue_size here, otherwise if _total_queue_size > _queue_capacity at EOF,
-        // ExchangeSinkQueueDependency will be blocked and pipeline will be deadlocked
-        _total_queue_size--;
-        if (q.front().block) {
-            COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
-                           -q.front().block->ByteSizeLong());
+    auto& q_map = _instance_to_package_queue[id];
+    for (auto& [_, q] : q_map) {
+        for (; !q.empty(); q.pop()) {
+            // Must update _total_queue_size here, otherwise if _total_queue_size > _queue_capacity at EOF,
+            // ExchangeSinkQueueDependency will be blocked and pipeline will be deadlocked
+            _total_queue_size--;
+            if (q.front().block) {
+                COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
+                               -q.front().block->ByteSizeLong());
+            }
         }
     }
 
@@ -479,10 +580,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
         }
     }
 
-    {
-        std::queue<TransmitInfo, std::list<TransmitInfo>> empty;
-        swap(empty, q);
-    }
+    q_map.clear();
 }
 
 // The unused parameter `with_lock` is to ensure that the function is called when the lock is held.
@@ -596,8 +694,11 @@ std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
     fmt::memory_buffer debug_string_buffer;
     for (auto& [id, m] : _instance_to_package_queue_mutex) {
         std::unique_lock<std::mutex> lock(*m);
-        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id,
-                       _instance_to_package_queue[id].size());
+        auto queue_size = 0;
+        for (auto& [_, list] : _instance_to_package_queue) {
+            queue_size += list.size();
+        }
+        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id, queue_size);
     }
     return fmt::to_string(debug_string_buffer);
 }
