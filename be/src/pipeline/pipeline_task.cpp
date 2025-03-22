@@ -53,11 +53,6 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-#define ASSIGN_BLOCKING_STATUS(dep) \
-    if (dep->is_blocked_by(this)) { \
-        return true;                \
-    }
-
 PipelineTask::PipelineTask(
         PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
         PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
@@ -230,32 +225,44 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    ASSIGN_BLOCKING_STATUS(_execution_dep);
+    if (_execution_dep->is_blocked_by(this)) {
+        return true;
+    }
 
-    for (auto* op_dep : _filter_dependencies) {
-        ASSIGN_BLOCKING_STATUS(op_dep);
+    for (auto* dep : _filter_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
     }
     return false;
 }
 
 bool PipelineTask::_is_pending_finish() {
-    for (auto* fin_dep : _finish_dependencies) {
-        ASSIGN_BLOCKING_STATUS(fin_dep);
+    for (auto* dep : _finish_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
     }
     return false;
 }
 
 bool PipelineTask::_is_blocked() {
-    for (auto* spill_dependency : _spill_dependencies) {
-        ASSIGN_BLOCKING_STATUS(spill_dependency);
+    for (auto* dep : _spill_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
     }
-    ASSIGN_BLOCKING_STATUS(_memory_sufficient_dependency);
+    if (_memory_sufficient_dependency->is_blocked_by(this)) {
+        return true;
+    }
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
-                ASSIGN_BLOCKING_STATUS(dep);
+                if (dep->is_blocked_by(this)) {
+                    return true;
+                }
             }
             // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
             if (!_operators[i]->need_more_input_data(_state)) {
@@ -263,8 +270,10 @@ bool PipelineTask::_is_blocked() {
             }
         }
     }
-    for (auto* op_dep : _write_dependencies) {
-        ASSIGN_BLOCKING_STATUS(op_dep);
+    for (auto* dep : _write_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
     }
     return false;
 }
@@ -275,22 +284,22 @@ void PipelineTask::terminate() {
     if (!is_finalized()) {
         DCHECK(_wake_up_early || _fragment_context->is_canceled());
         for (auto* dep : _spill_dependencies) {
-            dep->set_ready();
+            dep->set_always_ready();
         }
 
         for (auto* dep : _filter_dependencies) {
-            dep->set_ready();
+            dep->set_always_ready();
         }
         for (auto& deps : _read_dependencies) {
             for (auto* dep : deps) {
-                dep->set_ready();
+                dep->set_always_ready();
             }
         }
         for (auto* dep : _write_dependencies) {
-            dep->set_ready();
+            dep->set_always_ready();
         }
         for (auto* dep : _finish_dependencies) {
-            dep->set_ready();
+            dep->set_always_ready();
         }
         _execution_dep->set_ready();
         _memory_sufficient_dependency->set_ready();
@@ -711,9 +720,12 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-void PipelineTask::wake_up(Dependency* dep) {
+Status PipelineTask::wake_up(Dependency* dep) {
     // call by dependency
-    static_cast<void>(get_task_queue()->push_back(this));
+    DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
+    _blocked_dep = nullptr;
+    RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
+    return get_task_queue()->push_back(this);
 }
 
 QueryContext* PipelineTask::query_context() {

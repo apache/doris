@@ -68,11 +68,8 @@ void Dependency::set_ready() {
         local_block_task.swap(_blocked_task);
     }
     for (auto* task : local_block_task) {
-        {
-            std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(task->make_runnable(this));
-        }
-        task->wake_up(this);
+        std::unique_lock<std::mutex> lc(_task_lock);
+        THROW_IF_ERROR(task->wake_up(this));
     }
 }
 
