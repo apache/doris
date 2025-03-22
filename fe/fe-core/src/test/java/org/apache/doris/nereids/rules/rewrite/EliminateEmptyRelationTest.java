@@ -76,7 +76,7 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
                 .applyTopDown(new EliminateEmptyRelation());
         Plan plan = checker.getPlan();
         System.out.println(plan.treeString());
-        /**
+        /*
          * LogicalProject[16] ( distinct=false, projects=[name#10003 AS `name`#10003, id#10002 AS `id`#10002] )
          * +--LogicalOlapScan ( qualified=db.t1, indexName=<index_not_selected>, selectedIndexId=-1, preAgg=UNSET, operativeCol=[] )
          */
