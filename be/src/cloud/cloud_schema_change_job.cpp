@@ -444,6 +444,10 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
                 {start_calc_delete_bitmap_version, max_version}, &incremental_rowsets));
         DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
                         DBUG_BLOCK);
+        {
+            std::unique_lock wlock(tmp_tablet->get_header_lock());
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+        }
         for (auto rowset : incremental_rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
