@@ -65,7 +65,7 @@ public class OBSProperties extends AbstractObjectStorageProperties {
         config.putAll(generateAWSS3Properties(obsEndpoint, getRegion(), obsAccessKey, obsSecretKey));
     }
 
-    private String getRegion() {
+    public String getRegion() {
         if (Strings.isNullOrEmpty(this.region) && obsEndpoint.contains("myhuaweicloud.com")) {
             Pattern obsPattern = Pattern.compile("obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com");
             Matcher matcher = obsPattern.matcher(obsEndpoint);
@@ -74,5 +74,17 @@ public class OBSProperties extends AbstractObjectStorageProperties {
             }
         }
         return this.region;
+    }
+
+    public String getEndpoint() {
+        return obsEndpoint;
+    }
+
+    public String getAccessKey() {
+        return obsAccessKey;
+    }
+
+    public String getSecretKey() {
+        return obsSecretKey;
     }
 }

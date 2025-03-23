@@ -22,6 +22,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -102,10 +104,11 @@ public class S3FileSystemTest {
                     return mockedClient;
                 }
             };
-            S3ObjStorage mockedStorage = new S3ObjStorage(properties);
+            S3Properties s3Properties = (S3Properties) StorageProperties.createStorageProperties(properties);
+            S3ObjStorage mockedStorage = new S3ObjStorage(s3Properties);
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
-            fileSystem = new S3FileSystem(mockedStorage);
+            fileSystem = new S3FileSystem(s3Properties);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
                 public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {

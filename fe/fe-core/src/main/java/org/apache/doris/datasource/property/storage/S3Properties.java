@@ -177,4 +177,24 @@ public class S3Properties extends AbstractObjectStorageProperties {
         toNativeS3Configuration(config);
         return config;
     }
+
+    @Override
+    public String getEndpoint() {
+        return s3Endpoint;
+    }
+
+    @Override
+    public String getRegion() {
+        return s3Region;
+    }
+
+    @Override
+    public String getAccessKey() {
+        return s3AccessKey;
+    }
+
+    @Override
+    public String getSecretKey() {
+        return s3SecretKey;
+    }
 }

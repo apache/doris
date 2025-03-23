@@ -69,6 +69,11 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
     @ConnectorProperty(names = {"usePathStyle", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected boolean usePathStyle = false;
+    @ConnectorProperty(names = {"forceParsingByStandUrl"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected boolean forceParsingByStandUrl = false;
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.

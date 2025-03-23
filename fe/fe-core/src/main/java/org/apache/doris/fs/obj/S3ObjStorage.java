@@ -23,8 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AbstractObjectStorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -68,11 +67,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     protected Map<String, String> properties;
 
+    protected AbstractObjectStorageProperties s3Properties;
+
     private boolean isUsePathStyle = false;
 
     private boolean forceParsingByStandardUri = false;
 
-    public S3ObjStorage(Map<String, String> properties) {
+    public S3ObjStorage(AbstractObjectStorageProperties properties) {
         this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         setProperties(properties);
     }
@@ -81,49 +82,28 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return properties;
     }
 
-    protected void setProperties(Map<String, String> properties) {
-        this.properties.putAll(properties);
-        try {
-            S3Properties.requiredS3Properties(this.properties);
-        } catch (DdlException e) {
-            throw new IllegalArgumentException(e);
-        }
-        // Virtual hosted-style is recommended in the s3 protocol.
-        // The path-style has been abandoned, but for some unexplainable reasons,
-        // the s3 client will determine whether the endpiont starts with `s3`
-        // when generating a virtual hosted-sytle request.
-        // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
-        // but the endpoints of many cloud service providers for object storage do not start with s3,
-        // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-style,
-        // and some of them(ceph) may only support
-        // path-style, so we need to do some additional conversion.
-        isUsePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
-                .equalsIgnoreCase("true");
-        forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
-                "false").equalsIgnoreCase("true");
-
-        String endpoint = this.properties.get(S3Properties.ENDPOINT);
-        String region = this.properties.get(S3Properties.REGION);
-
-        this.properties.put(S3Properties.REGION, PropertyConverter.checkRegion(endpoint, region, S3Properties.REGION));
+    protected void setProperties(AbstractObjectStorageProperties properties) {
+        this.s3Properties = properties;
+        isUsePathStyle =  s3Properties.isUsePathStyle();
+        forceParsingByStandardUri = s3Properties.isForceParsingByStandUrl();
     }
 
     @Override
     public S3Client getClient() throws UserException {
         if (client == null) {
-            String endpointStr = properties.get(S3Properties.ENDPOINT);
+            String endpointStr = s3Properties.getEndpoint();
             if (!endpointStr.contains("://")) {
                 endpointStr = "http://" + endpointStr;
             }
             URI endpoint = URI.create(endpointStr);
             CloudCredential credential = new CloudCredential();
-            credential.setAccessKey(properties.get(S3Properties.ACCESS_KEY));
-            credential.setSecretKey(properties.get(S3Properties.SECRET_KEY));
-            if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
+            credential.setAccessKey(s3Properties.getAccessKey());
+            credential.setSecretKey(s3Properties.getSecretKey());
+
+            /* if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
                 credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
-            }
-            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential, isUsePathStyle);
+            }*/
+            client = S3Util.buildS3Client(endpoint, s3Properties.getRegion(), credential, isUsePathStyle);
         }
         return client;
     }

@@ -48,4 +48,12 @@ public interface ObjectStorageProperties {
      *               to the object storage system.
      */
     void toNativeS3Configuration(Map<String, String> config);
+
+    String getEndpoint();
+
+    String getRegion();
+
+    String getAccessKey();
+
+    String getSecretKey();
 }

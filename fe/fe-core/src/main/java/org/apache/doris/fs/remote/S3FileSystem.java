@@ -49,7 +49,7 @@ public class S3FileSystem extends ObjFileSystem {
     public S3FileSystem(AbstractObjectStorageProperties s3Properties) {
 
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
-                new S3ObjStorage(s3Properties.getOrigProps()));
+                new S3ObjStorage(s3Properties));
         this.s3Properties = s3Properties;
         this.storageProperties = s3Properties;
         initFsProperties();
@@ -63,7 +63,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     private void initFsProperties() {
-        this.properties.putAll(((S3ObjStorage) objStorage).getProperties());
+        this.properties.putAll(storageProperties.getOrigProps());
     }
 
     @Override
