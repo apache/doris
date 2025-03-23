@@ -284,6 +284,8 @@ public class CreateRoutineLoadInfo {
         ImportDeleteOnStmt importDeleteOnStmt = null;
 
         if (loadPropertyMap != null) {
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+            Table table = db.getTableOrAnalysisException(tableName);
             for (LoadProperty loadProperty : loadPropertyMap.values()) {
                 loadProperty.validate();
                 if (loadProperty instanceof LoadSeparator) {
@@ -297,7 +299,7 @@ public class CreateRoutineLoadInfo {
                     List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
                         if (columnDesc.getExpression() != null) {
-                            Expr expr = PlanUtils.translateToLegacyExpr(columnDesc.getExpression(), ctx);
+                            Expr expr = PlanUtils.translateToLegacyExpr(columnDesc.getExpression(), table, ctx);
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
                         } else {
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
@@ -308,21 +310,23 @@ public class CreateRoutineLoadInfo {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(), ctx);
+                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
+                            table, ctx);
                     importWhereStmt = new ImportWhereStmt(expr, false);
                 } else if (loadProperty instanceof LoadPrecedingFilterClause) {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
                     Expr expr = PlanUtils
-                            .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), ctx);
+                            .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), table,
+                                    ctx);
                     precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
                     partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
                     Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
-                            ctx);
+                            table, ctx);
                     importDeleteOnStmt = new ImportDeleteOnStmt(expr);
                 } else if (loadProperty instanceof LoadSequenceClause) {
                     importSequenceStmt = new ImportSequenceStmt(

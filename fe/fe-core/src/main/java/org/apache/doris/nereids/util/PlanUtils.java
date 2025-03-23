@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -46,7 +47,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -54,6 +56,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -363,12 +366,12 @@ public class PlanUtils {
     /**
      * translate to legacy expr, which do not need complex expression and table columns
      */
-    public static Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) {
+    public static Expr translateToLegacyExpr(Expression expression, TableIf table, ConnectContext ctx) {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
-        ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(cascadesContext);
+        ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(table, cascadesContext);
         expression = analyzer.analyze(expression);
 
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
@@ -377,13 +380,19 @@ public class PlanUtils {
     }
 
     private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {
-        public CustomExpressionAnalyzer(CascadesContext cascadesContext) {
+        private Map<String, DataType> columnTypes = new CaseInsensitiveMap();
+
+        public CustomExpressionAnalyzer(TableIf table, CascadesContext cascadesContext) {
             super(null, new Scope(ImmutableList.of()), cascadesContext, false, false);
+            for (Column column : table.getFullSchema()) {
+                columnTypes.put(column.getName(), DataType.fromCatalogType(column.getType()));
+            }
         }
 
         @Override
         public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
-            return new SlotReference(unboundSlot.getName(), NullType.INSTANCE);
+            DataType dataType = columnTypes.getOrDefault(unboundSlot.getName(), VarcharType.MAX_VARCHAR_TYPE);
+            return new SlotReference(unboundSlot.getName(), dataType);
         }
     }
 
