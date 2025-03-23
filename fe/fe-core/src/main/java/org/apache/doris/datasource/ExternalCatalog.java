@@ -166,7 +166,7 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
-    protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = 16;
+    protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
