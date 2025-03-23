@@ -1868,6 +1868,7 @@ build_jindofs() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        jindofs
         odbc
         openssl
         libevent
@@ -1936,7 +1937,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         dragonbox
         brotli
         icu
-        jindofs
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
