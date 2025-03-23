@@ -179,9 +179,6 @@ public class ShowTableStatsCommand extends ShowCommand {
 
     private ShowResultSet handleShowTableStatsCommand(ConnectContext ctx) throws AnalysisException {
         ShowResultSet resultSet;
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tableNameInfo.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
-        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
         // Handle use table id to show table stats. Mainly for online debug.
         if (useTableId) {
             TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
@@ -192,6 +189,9 @@ public class ShowTableStatsCommand extends ShowCommand {
             }
             return resultSet;
         }
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tableNameInfo.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
         resultSet = constructResultSet(tableStats, table);
         return resultSet;
