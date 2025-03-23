@@ -285,7 +285,7 @@ public class CreateRoutineLoadInfo {
 
         if (loadPropertyMap != null) {
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-            Table table = db.getTableOrAnalysisException(tableName);
+            Table table = Strings.isNullOrEmpty(tableName) ? null : db.getTableOrAnalysisException(tableName);
             for (LoadProperty loadProperty : loadPropertyMap.values()) {
                 loadProperty.validate();
                 if (loadProperty instanceof LoadSeparator) {
