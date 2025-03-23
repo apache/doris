@@ -697,3 +697,6 @@ TESTING	AGAIN
 
 -- !aggregate_limit_contain_null --
 16	\N
+
+-- !aggregate35 --
+12.25	32.625	43.75	54.999999999999986	77.49999999999994	\N
