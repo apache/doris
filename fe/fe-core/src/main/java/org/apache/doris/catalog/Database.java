@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -39,6 +40,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -52,6 +54,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -1032,12 +1035,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
         }
 
+        checkStorageVault(properties);
         replayUpdateDbProperties(properties);
         return true;
     }
 
     public BinlogConfig getBinlogConfig() {
         return binlogConfig;
+    }
+
+    public void checkStorageVault(Map<String, String> properties) throws DdlException {
+        Env env = Env.getCurrentEnv();
+        if (!Config.isCloudMode() || !((CloudEnv) env).getEnableStorageVault()) {
+            return;
+        }
+
+        Map<String, String> propertiesCheck = new HashMap<>(properties);
+        String storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(propertiesCheck);
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            return;
+        }
+
+        String storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
     }
 
     public String toJson() {

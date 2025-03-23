@@ -5276,9 +5276,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     public LogicalPlan visitCreateRole(CreateRoleContext ctx) {
+        String roleName = stripQuotes(ctx.name.getText());
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
-        return new CreateRoleCommand(ctx.EXISTS() != null, ctx.name.getText(), comment);
+        return new CreateRoleCommand(ctx.EXISTS() != null, roleName, comment);
     }
 
     @Override
@@ -5468,7 +5469,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropRole(DropRoleContext ctx) {
-        return new DropRoleCommand(ctx.name.getText(), ctx.EXISTS() != null);
+        String roleName = stripQuotes(ctx.name.getText());
+        return new DropRoleCommand(roleName, ctx.EXISTS() != null);
     }
 
     @Override

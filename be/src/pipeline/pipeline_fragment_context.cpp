@@ -102,11 +102,11 @@
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
@@ -218,7 +218,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
 
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            task->terminate();
+            task->clear_blocking_state();
         }
     }
 }
