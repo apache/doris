@@ -3767,4 +3767,26 @@ public class StmtExecutor {
     public String getPrepareStmtName() {
         return this.prepareStmtName;
     }
+
+    /*
+     * Only return the converted statement
+     */
+    public void handleShowConvertedStmt() throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("ConvertedStatement", ScalarType.STRING))
+                .build();
+        if (context.getConnectType() == ConnectType.MYSQL) {
+            sendMetaData(metaData);
+            // Send result set.
+            serializer.reset();
+            serializer.writeLenEncodedString(originStmt.originStmt);
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+            context.getFlightSqlChannel()
+                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData,
+                            originStmt.originStmt);
+            context.setReturnResultFromLocal(true);
+        }
+        context.getState().setEof();
+    }
 }
