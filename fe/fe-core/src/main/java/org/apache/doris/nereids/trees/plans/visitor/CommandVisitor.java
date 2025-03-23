@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -814,6 +815,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitUseCommand(UseCommand useCommand, C context) {
         return visitCommand(useCommand, context);
+    }
+
+    default R visitLockTablesCommand(LockTablesCommand lockTablesCommand, C context) {
+        return visitCommand(lockTablesCommand, context);
     }
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
