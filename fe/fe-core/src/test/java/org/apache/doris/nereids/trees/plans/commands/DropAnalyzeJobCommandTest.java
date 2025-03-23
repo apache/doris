@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -32,32 +29,19 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class DropAnalyzeJobCommandTest {
-    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     @Mocked
     private Env env;
-    @Mocked
-    private InternalCatalog catalog;
     @Mocked
     private AccessControllerManager accessControllerManager;
     @Mocked
     private ConnectContext connectContext;
-    private Database db;
 
     private void runBefore() throws Exception {
-        db = CatalogMocker.mockDb();
         new Expectations() {
             {
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
-
-                env.getCatalogMgr().getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
 
                 env.getAccessManager();
                 minTimes = 0;
