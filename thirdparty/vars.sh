@@ -611,6 +611,7 @@ export TP_ARCHIVES=(
     'AZURE'
     'DRAGONBOX'
     'ICU'
+    'JINDOFS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
