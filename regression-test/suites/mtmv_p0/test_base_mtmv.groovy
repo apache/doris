@@ -167,6 +167,19 @@ suite("test_base_mtmv","mtmv") {
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
 
+    qt_desc_mv_1 "desc ${mvName}"
+
+    sql """ DROP MATERIALIZED VIEW ${mvName}"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}(event_Day,Id,UserName)
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS 
+        ${querySql};
+    """
+    qt_desc_mv_2 "desc ${mvName}"
+
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${newTableName}`"""
     sql """ DROP MATERIALIZED VIEW ${mvName}"""

@@ -19,7 +19,6 @@
 
 #include <re2/re2.h>
 
-#include "runtime/runtime_state.h"
 #include "transactional_hive_common.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -41,12 +40,7 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
                                                  RuntimeProfile* profile, RuntimeState* state,
                                                  const TFileScanRangeParams& params,
                                                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader)),
-          _profile(profile),
-          _state(state),
-          _params(params),
-          _range(range),
-          _io_ctx(io_ctx) {
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(_profile, transactional_hive_profile);
     _transactional_orc_profile.num_delete_files =
@@ -69,12 +63,12 @@ Status TransactionalHiveReader::init_reader(
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
     Status status = orc_reader->init_reader(
-            &_col_names, colname_to_value_range, conjuncts, true, tuple_descriptor, row_descriptor,
-            not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+            &_col_names, {}, colname_to_value_range, conjuncts, true, tuple_descriptor,
+            row_descriptor, not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     return status;
 }
 
-Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
         DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);
@@ -87,14 +81,7 @@ Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, 
     return res;
 }
 
-Status TransactionalHiveReader::get_columns(
-        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-        std::unordered_set<std::string>* missing_cols) {
-    return _file_format_reader->get_columns(name_to_type, missing_cols);
-}
-
-Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
-                                                 io::IOContext* io_ctx) {
+Status TransactionalHiveReader::init_row_filters() {
     std::string data_file_path = _range.path;
     // the path in _range is remove the namenode prefix,
     // and the file_path in delete file is full path, so we should add it back.
@@ -128,7 +115,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
 
     SCOPED_TIMER(_transactional_orc_profile.delete_files_read_time);
     for (const auto& delete_delta :
-         range.table_format_params.transactional_hive_params.delete_deltas) {
+         _range.table_format_params.transactional_hive_params.delete_deltas) {
         const std::string file_name = file_path.filename().string();
 
         //need opt.
@@ -156,9 +143,9 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
                                 _state->timezone(), _io_ctx, false);
 
-        RETURN_IF_ERROR(
-                delete_reader.init_reader(&TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
-                                          nullptr, {}, false, nullptr, nullptr, nullptr, nullptr));
+        RETURN_IF_ERROR(delete_reader.init_reader(
+                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE, {}, nullptr, {}, false,
+                nullptr, nullptr, nullptr, nullptr));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;

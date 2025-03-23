@@ -86,8 +86,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
+Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
     DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     return Status::OK();
 }

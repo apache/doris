@@ -770,8 +770,8 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::open(state));
+Status AggSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::prepare(state));
 
     RETURN_IF_ERROR(_init_probe_expr_ctx(state));
 

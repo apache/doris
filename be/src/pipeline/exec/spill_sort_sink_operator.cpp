@@ -116,9 +116,9 @@ Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return _sort_sink_operator->init(tnode, state);
 }
 
-Status SpillSortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::open(state));
-    return _sort_sink_operator->open(state);
+Status SpillSortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::prepare(state));
+    return _sort_sink_operator->prepare(state);
 }
 
 size_t SpillSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {

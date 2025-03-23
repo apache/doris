@@ -370,7 +370,9 @@ public:
         return (value + (factor - 1)) & ~(factor - 1);
     }
 
-    static inline int64_t RoundDownToPowerOf2(int64_t value, int64_t factor) {
+    template <typename T>
+    static inline T RoundDownToPowerOf2(T value, T factor) {
+        static_assert(std::is_integral<T>::value, "T must be an integral type");
         DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return value & ~(factor - 1);
     }

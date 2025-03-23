@@ -94,8 +94,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::open(state));
+Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
@@ -151,8 +151,9 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
             local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
+            std::unique_lock<std::mutex> lc(local_state._shared_state->prepared_finish_lock);
+            sorter->set_prepared_finish();
             // iff one sorter have data, then could set source ready to read
-            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
             local_state._dependency->set_ready_to_read();
         }
 

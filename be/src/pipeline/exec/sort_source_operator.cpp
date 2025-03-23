@@ -29,27 +29,7 @@ SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs),
-          _merge_by_exchange(tnode.sort_node.merge_by_exchange),
-          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0) {}
-
-Status SortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(Base::init(tnode, state));
-    RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
-    _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
-    _nulls_first = tnode.sort_node.sort_info.nulls_first;
-    return Status::OK();
-}
-
-Status SortSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
-    // spill sort _child may be nullptr.
-    if (_child) {
-        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
-        RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-    }
-    return Status::OK();
-}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);

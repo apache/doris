@@ -45,8 +45,8 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
 

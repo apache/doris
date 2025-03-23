@@ -235,9 +235,9 @@ Status SpillSortSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* stat
     return _sort_source_operator->init(tnode, state);
 }
 
-Status SpillSortSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::open(state));
-    return _sort_source_operator->open(state);
+Status SpillSortSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+    return _sort_source_operator->prepare(state);
 }
 
 Status SpillSortSourceOperatorX::close(RuntimeState* state) {

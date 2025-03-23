@@ -352,7 +352,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         // signature, adding 10 billion to `getNextId`. We are confident that the old signature
                         // generated will not exceed this number.
                         PushTask pushTask = new PushTask(null,
-                                replica.getBackendId(), targetDb.getId(), targetTbl.getId(),
+                                backendId, targetDb.getId(), targetTbl.getId(),
                                 partition.getId(), indexId,
                                 tabletId, replicaId, schemaHash,
                                 -1, "", -1, 0,
@@ -672,7 +672,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     }
                 } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     // this is an un-partitioned table, use table name as partition name
-                    partitionNames.add(olapTable.getName());
+                    partitionNames.add(olapTable.getDisplayName());
                 } else {
                     throw new UserException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                 }

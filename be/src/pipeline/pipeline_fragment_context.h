@@ -85,7 +85,6 @@ public:
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
-    // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
     Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
@@ -95,8 +94,6 @@ public:
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
     void cancel(const Status reason);
-
-    // TODO: Support pipeline runtime filter
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -120,20 +117,6 @@ public:
     [[nodiscard]] size_t get_revocable_size(bool* has_running_task) const;
 
     [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
-
-    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = _fragment_instance_ids[i];
-        }
-    }
-
-    void instance_ids(std::vector<string>& ins_ids) const {
-        ins_ids.resize(_fragment_instance_ids.size());
-        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
-            ins_ids[i] = print_id(_fragment_instance_ids[i]);
-        }
-    }
 
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
@@ -235,7 +218,12 @@ private:
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
 
-    // profile reporting-related
+    // This callback is used to notify the FE of the status of the fragment.
+    // For example:
+    // 1. when the fragment is cancelled, it will be called.
+    // 2. when the fragment is finished, it will be called. especially, when the fragment is
+    // a insert into select statement, it should notfiy FE every fragment's status.
+    // And also, this callback is called periodly to notify FE the load process.
     report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;

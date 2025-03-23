@@ -493,23 +493,28 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status HashJoinProbeOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::open(state));
+Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
-    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
+    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags,
+                                       bool init_finalize_flag = false) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
+                if (init_finalize_flag && output_slot_flags.back() &&
+                    slot_desc->type().is_variant_type()) {
+                    _need_finalize_variant_column = true;
+                }
             }
         }
     };
-    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags);
+    init_output_slots_flags(_child->row_desc().tuple_descriptors(), _left_output_slot_flags, true);
     init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
                             _right_output_slot_flags);
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node

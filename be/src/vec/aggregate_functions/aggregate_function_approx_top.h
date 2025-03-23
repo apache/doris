@@ -22,6 +22,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class AggregateFunctionApproxTop {
 public:
@@ -31,7 +32,7 @@ public:
     static int32_t is_valid_const_columns(const std::vector<bool>& is_const_columns) {
         int32_t true_count = 0;
         bool found_false_after_true = false;
-        for (int32_t i = is_const_columns.size() - 1; i >= 0; --i) {
+        for (int64_t i = is_const_columns.size() - 1; i >= 0; --i) {
             if (is_const_columns[i]) {
                 true_count++;
                 if (found_false_after_true) {
@@ -106,4 +107,5 @@ protected:
     mutable uint64_t _reserved = 30;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

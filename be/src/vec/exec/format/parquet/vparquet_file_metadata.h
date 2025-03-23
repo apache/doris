@@ -24,7 +24,7 @@
 #include "schema_desc.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FileMetaData {
 public:
     FileMetaData(tparquet::FileMetaData& metadata);
@@ -41,5 +41,6 @@ private:
     tparquet::FileMetaData _metadata;
     FieldDescriptor _schema;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

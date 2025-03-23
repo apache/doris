@@ -41,6 +41,7 @@
 #include "pipeline/exec/iceberg_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/local_merge_sort_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
@@ -208,7 +209,7 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     return Status::OK();
 }
 
-Status OperatorXBase::open(RuntimeState* state) {
+Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
@@ -231,7 +232,7 @@ Status OperatorXBase::open(RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::VExpr::open(projections, state));
     }
     if (_child && !is_source()) {
-        RETURN_IF_ERROR(_child->open(state));
+        RETURN_IF_ERROR(_child->prepare(state));
     }
     return Status::OK();
 }
@@ -719,6 +720,7 @@ DECLARE_OPERATOR(EsScanLocalState)
 DECLARE_OPERATOR(AnalyticLocalState)
 DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)
+DECLARE_OPERATOR(LocalMergeSortLocalState)
 DECLARE_OPERATOR(AggLocalState)
 DECLARE_OPERATOR(PartitionedAggLocalState)
 DECLARE_OPERATOR(TableFunctionLocalState)

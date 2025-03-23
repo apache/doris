@@ -21,6 +21,7 @@
 
 #include <atomic>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -51,7 +52,7 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     void update_memory_usage();
-    void update_profile_from_inner();
+    MOCK_FUNCTION void update_profile_from_inner();
 
     Dependency* finishdependency() override;
 
@@ -101,7 +102,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -143,6 +144,9 @@ public:
 
 private:
     friend class PartitionedHashJoinSinkLocalState;
+#ifdef BE_TEST
+    friend class PartitionedHashJoinSinkOperatorTest;
+#endif
 
     const TJoinDistributionType::type _join_distribution;
 

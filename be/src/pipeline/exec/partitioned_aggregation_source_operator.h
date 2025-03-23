@@ -30,7 +30,8 @@ namespace pipeline {
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 
-class PartitionedAggLocalState final : public PipelineXSpillLocalState<PartitionedAggSharedState> {
+class PartitionedAggLocalState MOCK_REMOVE(final)
+        : public PipelineXSpillLocalState<PartitionedAggSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(PartitionedAggLocalState);
     using Base = PipelineXSpillLocalState<PartitionedAggSharedState>;
@@ -74,7 +75,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 

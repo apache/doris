@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/dependency.h"
@@ -36,7 +37,7 @@ namespace pipeline {
 
 class PartitionedHashJoinProbeOperatorX;
 
-class PartitionedHashJoinProbeLocalState final
+class PartitionedHashJoinProbeLocalState MOCK_REMOVE(final)
         : public PipelineXSpillLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinProbeOperatorX;
@@ -65,7 +66,9 @@ public:
 
     std::string debug_string(int indentation_level = 0) const override;
 
-    void update_profile_from_inner();
+    MOCK_FUNCTION void update_profile_from_inner();
+
+    void init_counters();
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -118,7 +121,7 @@ public:
     PartitionedHashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                       const DescriptorTbl& descs, uint32_t partition_count);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
                                    bool* eos) override;

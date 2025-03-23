@@ -188,7 +188,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
                        -(inner_sink_state->_hash_table_memory_usage->value() +
                          inner_sink_state->_build_arena_memory_usage->value()));
     }
-    auto row_desc = p._child->row_desc();
+    const auto& row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
     int64_t block_old_mem = 0;
@@ -197,7 +197,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         block_old_mem = build_block.allocated_bytes();
         // If spilling was triggered, constructing runtime filters is meaningless,
         // therefore, all runtime filters are temporarily disabled.
-        RETURN_IF_ERROR(inner_sink_state->disable_runtime_filters(
+        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(
                 _shared_state->inner_runtime_state.get()));
     }
 
@@ -510,12 +510,12 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::open(state));
+Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
     RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
-    return _inner_sink_operator->open(state);
+    return _inner_sink_operator->prepare(state);
 }
 
 Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState* state) {
@@ -565,13 +565,10 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
     if (sink_local_state) {
         auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(sink_local_state);
         auto* inner_profile = inner_sink_state->profile();
-        UPDATE_COUNTER_FROM_INNER("PublishRuntimeFilterTime");
-        UPDATE_COUNTER_FROM_INNER("BuildRuntimeFilterTime");
         UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
         UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
         UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
         UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-        UPDATE_COUNTER_FROM_INNER("RuntimeFilterInitTime");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
         UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");

@@ -21,12 +21,14 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -74,13 +76,18 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
     _base_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.base_tablet_id));
 
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        LOG(WARNING) << "Failed to obtain schema change lock. base_tablet="
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        LOG(WARNING) << "Failed to obtain schema change lock, there might be inverted index being "
+                        "built on base_tablet="
                      << request.base_tablet_id;
-        return Status::Error<TRY_LOCK_FAILED>("Failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built on base_tablet=",
+                request.base_tablet_id);
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
     RETURN_IF_ERROR(_base_tablet->sync_rowsets(request.alter_version));
@@ -416,13 +423,6 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     const auto& stats = finish_resp.stats();
     {
         std::unique_lock wlock(_new_tablet->get_header_lock());
-        // new_tablet's state MUST be `TABLET_NOTREADY`, because we won't sync a new tablet in schema change job
-        DCHECK(_new_tablet->tablet_state() == TABLET_NOTREADY);
-        if (_new_tablet->tablet_state() != TABLET_NOTREADY) [[unlikely]] {
-            LOG(ERROR) << "invalid tablet state, tablet_id=" << _new_tablet->tablet_id();
-            return Status::InternalError("invalid tablet state, tablet_id={}",
-                                         _new_tablet->tablet_id());
-        }
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
         _new_tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
@@ -440,6 +440,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
             .tag("out_rowset_size", _output_rowsets.size())
             .tag("start_calc_delete_bitmap_version", start_calc_delete_bitmap_version)
             .tag("alter_version", alter_version);
+    RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
+    Defer defer {[&]() {
+        static_cast<void>(_cloud_storage_engine.unregister_compaction_stop_token(_new_tablet));
+    }};
+
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     std::shared_ptr<CloudTablet> tmp_tablet =
@@ -459,6 +464,12 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     if (max_version >= start_calc_delete_bitmap_version) {
         RETURN_IF_ERROR(tmp_tablet->capture_consistent_rowsets_unlocked(
                 {start_calc_delete_bitmap_version, max_version}, &incremental_rowsets));
+        DBUG_EXECUTE_IF("CloudSchemaChangeJob::_process_delete_bitmap.after.capture_without_lock",
+                        DBUG_BLOCK);
+        {
+            std::unique_lock wlock(tmp_tablet->get_header_lock());
+            tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+        }
         for (auto rowset : incremental_rowsets) {
             RETURN_IF_ERROR(CloudTablet::update_delete_bitmap_without_lock(tmp_tablet, rowset));
         }
@@ -508,6 +519,18 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 
     _new_tablet->tablet_meta()->delete_bitmap() = delete_bitmap;
     return Status::OK();
+}
+
+void CloudSchemaChangeJob::clean_up_on_failed() {
+    for (const auto& output_rs : _output_rowsets) {
+        if (output_rs.use_count() > 2) {
+            LOG(WARNING) << "Rowset " << output_rs->rowset_id().to_string() << " has "
+                         << output_rs.use_count()
+                         << " references. File Cache won't be recycled when query is using it.";
+            return;
+        }
+        output_rs->clear_cache();
+    }
 }
 
 } // namespace doris

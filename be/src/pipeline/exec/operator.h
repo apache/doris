@@ -101,7 +101,7 @@ public:
     [[nodiscard]] virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     [[nodiscard]] virtual std::string get_name() const = 0;
-    [[nodiscard]] virtual Status open(RuntimeState* state) = 0;
+    [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
@@ -284,7 +284,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
 
-        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
         init_spill_read_counters();
 
         return Status::OK();
@@ -317,6 +316,8 @@ public:
     }
 
     void init_spill_read_counters() {
+        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
+
         // Spill read counters
         _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
 
@@ -550,7 +551,7 @@ public:
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
-    Status open(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override { return Status::OK(); }
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -669,7 +670,11 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
+        init_spill_counters();
+        return Status::OK();
+    }
 
+    void init_spill_counters() {
         _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
 
         _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
@@ -696,7 +701,6 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
         _spill_min_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
-        return Status::OK();
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -807,7 +811,7 @@ public:
 
     // Tablets should be hold before open phase.
     [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
@@ -903,7 +907,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    friend class VScanner;
+    friend class Scanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     int _nereids_id = -1;
@@ -1020,6 +1024,9 @@ public:
     StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                       const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+#ifdef BE_TEST
+    StatefulOperatorX() = default;
+#endif
     virtual ~StatefulOperatorX() = default;
 
     using OperatorX<LocalStateType>::get_local_state;

@@ -414,6 +414,10 @@ under the License.
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>3.18.1</version>
         </dependency>
-
+        <dependency>
+            <groupId>org.openjdk.jmc</groupId>
+            <artifactId>flightrecorder</artifactId>
+            <version>9.0.0</version>
+        </dependency>
     </dependencies>
 </project>

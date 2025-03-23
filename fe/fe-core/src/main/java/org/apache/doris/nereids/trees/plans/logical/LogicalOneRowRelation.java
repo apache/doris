@@ -88,6 +88,10 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
         throw new RuntimeException("should not call LogicalOneRowRelation's withRelationId method");
     }
 
+    public LogicalOneRowRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
+        return new LogicalOneRowRelation(relationId, projects);
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return projects.stream()

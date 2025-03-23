@@ -18,11 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.ModifyBackendHostNameClause;
-import org.apache.doris.analysis.ModifyFrontendHostNameClause;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -72,6 +68,10 @@ public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
         return port;
     }
 
+    public ModifyOpType getModifyOpType() {
+        return modifyOpType;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws AnalysisException {
         HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
@@ -90,16 +90,6 @@ public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown hostname:  " + e.getMessage());
         }
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() throws UserException {
-        if (modifyOpType.equals(ModifyOpType.Frontend)) {
-            return new ModifyFrontendHostNameClause(hostPort, newHost, host, port);
-        } else if (modifyOpType.equals(ModifyOpType.Backend)) {
-            return new ModifyBackendHostNameClause(hostPort, newHost, host, port);
-        }
-        throw new UserException("Unknown modify op type:  " + modifyOpType);
     }
 
     @Override

@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
@@ -43,7 +44,7 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState final
+class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
@@ -124,12 +125,13 @@ private:
     RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
+class HashJoinProbeOperatorX MOCK_REMOVE(final)
+        : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
@@ -157,6 +159,8 @@ public:
                _join_distribution != TJoinDistributionType::NONE;
     }
 
+    bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
@@ -179,6 +183,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    bool _need_finalize_variant_column = false;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
 };

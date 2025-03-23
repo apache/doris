@@ -113,6 +113,11 @@ public:
     IntCounter* load_rows = nullptr;
     IntCounter* load_bytes = nullptr;
 
+    IntCounter* routine_load_get_msg_latency = nullptr;
+    IntCounter* routine_load_get_msg_count = nullptr;
+    IntCounter* routine_load_consume_bytes = nullptr;
+    IntCounter* routine_load_consume_rows = nullptr;
+
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
 
@@ -225,6 +230,11 @@ public:
     IntCounter* scanner_ctx_cnt = nullptr;
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
+
+    IntGauge* runtime_filter_consumer_num = nullptr;
+    IntGauge* runtime_filter_consumer_ready_num = nullptr;
+    IntCounter* runtime_filter_consumer_wait_ready_ms = nullptr;
+    IntGauge* runtime_filter_consumer_timeout_num = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

@@ -63,12 +63,15 @@ public:
     static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
 
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
-        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}, "
-                    "you can set batch_size a number smaller than {} to avoid this error. rows:{}",
-                    total_length, element_number, element_number, rows);
+        if constexpr (std::is_same_v<T, UInt32>) {
+            if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+                throw Exception(
+                        ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                        "string column length is too large: total_length={}, element_number={}, "
+                        "you can set batch_size a number smaller than {} to avoid this error. "
+                        "rows:{}",
+                        total_length, element_number, element_number, rows);
+            }
         }
     }
 
@@ -111,6 +114,8 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
+    void sanity_check_simple() const;
+
     std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -129,11 +134,13 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
+        sanity_check_simple();
         return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
+        sanity_check_simple();
         if (res.get_type() == Field::Types::JSONB) {
             // Handle JsonbField
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
@@ -144,6 +151,7 @@ public:
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());
+        sanity_check_simple();
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
@@ -154,6 +162,10 @@ public:
             const auto& real_field = vectorized::get<const JsonbField&>(x);
             s = StringRef(real_field.get_value(), real_field.get_size());
         } else {
+            DCHECK_EQ(x.get_type(), Field::Types::String);
+            // If `x.get_type()` is not String, such as UInt64, may get the error
+            // `string column length is too large: total_length=13744632839234567870`
+            // because `<String>(x).size() = 13744632839234567870`
             s.data = vectorized::get<const String&>(x).data();
             s.size = vectorized::get<const String&>(x).size();
         }
@@ -166,6 +178,7 @@ public:
         chars.resize(new_size);
         memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
+        sanity_check_simple();
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
@@ -192,6 +205,7 @@ public:
                                                      size_to_append);
             offsets.push_back(new_size);
         }
+        sanity_check_simple();
     }
 
     void insert_data(const char* pos, size_t length) override {
@@ -204,6 +218,7 @@ public:
             memcpy(chars.data() + old_size, pos, length);
         }
         offsets.push_back(new_size);
+        sanity_check_simple();
     }
 
     void insert_data_without_reserve(const char* pos, size_t length) {
@@ -216,6 +231,7 @@ public:
             memcpy(chars.data() + old_size, pos, length);
         }
         offsets.push_back_without_reserve(new_size);
+        sanity_check_simple();
     }
 
     /// Before insert strings, the caller should calculate the total size of strings,
@@ -223,6 +239,7 @@ public:
     void insert_many_strings_without_reserve(const StringRef* strings, size_t num) {
         Char* data = chars.data();
         size_t offset = chars.size();
+        data += offset;
         size_t length = 0;
 
         const char* ptr = strings[0].data;
@@ -249,6 +266,7 @@ public:
         }
         check_chars_length(offset, offsets.size());
         chars.resize(offset);
+        sanity_check_simple();
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
@@ -274,6 +292,7 @@ public:
             offsets_ptr[i] = tail_offset + offsets_[i + 1] - begin_offset;
         }
         DCHECK(chars.size() == offsets.back());
+        sanity_check_simple();
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
@@ -296,6 +315,7 @@ public:
             }
             offsets.push_back(offset);
         }
+        sanity_check_simple();
     }
 
     template <size_t copy_length>
@@ -320,6 +340,7 @@ public:
             offsets.push_back(offset);
         }
         chars.resize(old_size + new_size);
+        sanity_check_simple();
     }
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
@@ -337,6 +358,7 @@ public:
         } else {
             insert_many_strings(strings, num);
         }
+        sanity_check_simple();
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
@@ -367,12 +389,14 @@ public:
             memcpy(chars.data() + old_size, src.data, src.size);
             old_size += src.size;
         }
+        sanity_check_simple();
     }
 
     void pop_back(size_t n) override {
         size_t nested_n = offsets.back() - offset_at(offsets.size() - n);
         chars.resize(chars.size() - nested_n);
         offsets.resize_assume_reserved(offsets.size() - n);
+        sanity_check_simple();
     }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
@@ -489,6 +513,7 @@ public:
 
     void insert_many_defaults(size_t length) override {
         offsets.resize_fill(offsets.size() + length, static_cast<T>(chars.size()));
+        sanity_check_simple();
     }
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -527,7 +552,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Method replace_column_data is not supported for ColumnString");
-        __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

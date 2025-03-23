@@ -106,9 +106,9 @@ Status PartitionedAggSourceOperatorX::init(const TPlanNode& tnode, RuntimeState*
     return _agg_source_operator->init(tnode, state);
 }
 
-Status PartitionedAggSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorXBase::open(state));
-    return _agg_source_operator->open(state);
+Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+    return _agg_source_operator->prepare(state);
 }
 
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {

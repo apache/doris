@@ -351,10 +351,10 @@ void MemTrackerLimiter::make_all_tasks_tracker_profile(RuntimeProfile* profile) 
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
             if (tracker != nullptr) {
-                // BufferControlBlock will continue to exist for 5 minutes after the query ends, even if the
+                // ResultBlockBufferBase will continue to exist for 5 minutes after the query ends, even if the
                 // result buffer is empty, and will not be shown in the profile. of course, this code is tricky.
                 if (tracker->consumption() == 0 &&
-                    tracker->label().starts_with("BufferControlBlock")) {
+                    tracker->label().starts_with("ResultBlockBuffer")) {
                     continue;
                 }
                 tracker->make_profile(types_profile[tracker->type()]);
