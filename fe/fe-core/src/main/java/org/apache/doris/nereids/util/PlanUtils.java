@@ -384,8 +384,10 @@ public class PlanUtils {
 
         public CustomExpressionAnalyzer(TableIf table, CascadesContext cascadesContext) {
             super(null, new Scope(ImmutableList.of()), cascadesContext, false, false);
-            for (Column column : table.getFullSchema()) {
-                columnTypes.put(column.getName(), DataType.fromCatalogType(column.getType()));
+            if (table != null) {
+                for (Column column : table.getFullSchema()) {
+                    columnTypes.put(column.getName(), DataType.fromCatalogType(column.getType()));
+                }
             }
         }
 
