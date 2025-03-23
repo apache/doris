@@ -1868,6 +1868,7 @@ build_jindofs() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        jindofs
         odbc
         openssl
         libevent
