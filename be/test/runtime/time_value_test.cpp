@@ -95,12 +95,22 @@ TEST(TimeValueTest, try_parse_time_from_number) {
         EXPECT_TRUE(result);
         EXPECT_EQ(x, -3723000000);
     }
+    {
+        int64_t from_other = -106630;
+        bool result = TimeValue::try_parse_time(from_other, x);
+        EXPECT_FALSE(result);
+    }
 
     {
         int128_t from_other = -10203;
         bool result = TimeValue::try_parse_time(from_other, x);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, -3723000000);
+    }
+    {
+        int128_t from_other = -106630;
+        bool result = TimeValue::try_parse_time(from_other, x);
+        EXPECT_FALSE(result);
     }
 }
 
@@ -128,6 +138,12 @@ TEST(TimeValueTest, try_parse_time_from_string) {
         bool result = TimeValue::try_parse_time(s, len, x);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, -3723000000);
+    }
+    {
+        char s[] = "1abab0203";
+        size_t len = std::strlen(s);
+        bool result = TimeValue::try_parse_time(s, len, x);
+        EXPECT_FALSE(result);
     }
     {
         char s[] = "01:66:03";

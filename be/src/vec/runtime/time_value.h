@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <string>
 
 #include "runtime/define_primitive_type.h"
@@ -81,6 +82,12 @@ public:
 
     static TimeType from_second(int64_t sec) {
         return static_cast<TimeType>(sec * ONE_SECOND_MICROSECONDS);
+    }
+
+    static TimeType make_time_with_negative(bool negative, int64_t hour, int64_t minute,
+                                            int64_t second, int64_t microsecond = 0) {
+        return (negative ? -1 : 1) *
+               TimeValue::make_time(std::abs(hour), std::abs(minute), std::abs(second));
     }
 
     // Cast from string
@@ -172,20 +179,17 @@ public:
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        if (hour < 0) {
-            hour = -hour;
-            // cast('-1:02:03' as time); --> -01:02:03
-            x = -TimeValue::make_time(hour, minute, second);
-        } else {
-            x = TimeValue::make_time(hour, minute, second);
-        }
+        x = TimeValue::make_time_with_negative(hour < 0, hour, minute, second);
         return true;
     }
     // Cast from number
-    template <typename T, typename S>
     //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
-    static bool try_parse_time(T from_other, S& x) {
-        int64_t from = (int64_t)from_other;
+    // Cast from number
+    template <typename T>
+    //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
+    static bool try_parse_time(T from_other, double& x) {
+        bool negative = from_other < 0;
+        int64_t from = std::abs((int64_t)from_other);
         int64 seconds = int64(from / 100);
         int64 hour = 0, minute = 0, second = 0;
         second = int64(from - 100 * seconds);
@@ -196,23 +200,7 @@ public:
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = TimeValue::make_time(hour, minute, second);
-        return true;
-    }
-    template <typename S>
-    static bool try_parse_time(__int128 from_128, S& x) {
-        int64_t from = from_128 % (int64)(1000000000000);
-        int64 seconds = from / 100;
-        int64 hour = 0, minute = 0, second = 0;
-        second = from - 100 * seconds;
-        from /= 100;
-        seconds = from / 100;
-        minute = from - 100 * seconds;
-        hour = seconds;
-        if (minute >= 60 || second >= 60) {
-            return false;
-        }
-        x = TimeValue::make_time(hour, minute, second);
+        x = TimeValue::make_time_with_negative(negative, hour, minute, second);
         return true;
     }
 };
