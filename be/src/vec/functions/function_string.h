@@ -222,7 +222,12 @@ private:
         PMR::vector<size_t> index {&pool};
 
         if constexpr (is_const) {
-            if ((!is_for_zero && start[0] == 0) || len[0] <= 0) {
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            int start_value = start[0];
+            if constexpr (is_for_zero) {
+                start_value = start_value == 0 ? 1 : start_value;
+            }
+            if (start_value == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -237,17 +242,17 @@ private:
             int len_value = is_const ? len[0] : len[i];
             // Unsigned numbers cannot be used here because start_value can be negative.
             int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
-            // return empty string if start > src.length
-            // Here, start_value is compared against the length of the character.
-            if (start_value > char_len || str_size == 0 || (!is_for_zero && start_value == 0) ||
-                len_value <= 0) {
-                StringOP::push_empty_string(i, res_chars, res_offsets);
-                continue;
-            }
 
             // Handle Hive compatibility mode - treat start=0 as start=1
-            if (is_for_zero && start_value == 0) {
-                start_value = 1;
+            if constexpr (is_for_zero) {
+                start_value = start_value == 0 ? 1 : start_value;
+            }
+
+            // return empty string if start > src.length
+            // Here, start_value is compared against the length of the character.
+            if (start_value > char_len || str_size == 0 || start_value == 0 || len_value <= 0) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
 
             size_t byte_pos = 0;
@@ -295,7 +300,13 @@ private:
         res_offsets.resize(size);
 
         if constexpr (is_const) {
-            if ((!is_for_zero && start[0] == 0) || len[0] <= 0) {
+            int start_value = start[0];
+            // Handle Hive compatibility mode - treat start=0 as start=1
+            if constexpr (is_for_zero) {
+                start_value = start_value == 0 ? 1 : start_value;
+            }
+
+            if (start_value == 0 || len[0] <= 0) {
                 for (size_t i = 0; i < size; ++i) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 }
@@ -314,8 +325,8 @@ private:
             int len_value = is_const ? len[0] : len[i];
 
             // Handle Hive compatibility mode - treat start=0 as start=1
-            if (is_for_zero && start_value == 0) {
-                start_value = 1;
+            if constexpr (is_for_zero) {
+                start_value = start_value == 0 ? 1 : start_value;
             }
 
             if (start_value > str_size || start_value < -str_size || str_size == 0 ||
