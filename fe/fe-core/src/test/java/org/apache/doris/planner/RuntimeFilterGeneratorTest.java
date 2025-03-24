@@ -46,7 +46,6 @@ import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
 
 import java.util.ArrayList;
@@ -222,7 +221,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false), "");
     }
 
-	@Disabled
+    @Disabled
     public void testGenerateRuntimeFiltersModeException() {
         clearRuntimeFilterState();
         new Expectations() {
