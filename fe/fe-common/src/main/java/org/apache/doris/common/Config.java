@@ -1386,8 +1386,16 @@ public class Config extends ConfigBase {
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
+        "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
+
+    /**
+     * Set the maximum data size that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
+        "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+    public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
      * Used to limit element num of InPredicate in delete statement.

@@ -79,8 +79,12 @@ public abstract class Cache {
             return false;
         }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
-            LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
+            LOG.debug("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
                     Config.cache_result_max_row_count);
+            return false;
+        } else if (rowBatchBuilder.getDataSize() > Config.cache_result_max_data_size) {
+            LOG.debug("can not be cached. rowbatch data size {} is more than {}", rowBatchBuilder.getDataSize(),
+                    Config.cache_result_max_data_size);
             return false;
         } else {
             return true;
