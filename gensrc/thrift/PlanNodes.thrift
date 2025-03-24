@@ -479,12 +479,12 @@ struct TFileRangeDesc {
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
     13: optional TFileFormatType format_type;
+    14: optional i32 split_id
 }
 
 struct TSplitSource {
     1: optional i64 split_source_id
     2: optional i32 num_splits
-    3: optional i32 split_id
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.

@@ -391,9 +391,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
                         AssignmentSplitInfoIf assignmentSplitInfo;
                         if (sessionVariable.enableProfile()) {
                             assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
+                            int id = splitId;
                             tScanRangeLocations.getScanRange().getExtScanRange()
-                                    .getFileScanRange().getSplitSource().setSplitId(splitId);
-                            assignmentSplitInfo.setSplitId(splitId);
+                                    .getFileScanRange().getRanges().forEach(range -> range.setSplitId(id));
+                            assignmentSplitInfo.setSplitId(id);
                             splitId++;
                         } else {
                             assignmentSplitInfo = AssignmentEmptySplitInfo.create(tScanRangeLocations);
