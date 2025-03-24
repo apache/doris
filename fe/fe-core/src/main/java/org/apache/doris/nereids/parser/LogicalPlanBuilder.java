@@ -6312,14 +6312,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties);
     }
 
-    public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
-        long jobId = Long.parseLong(ctx.jobId.getText());
-        return new KillAnalyzeJobCommand(jobId);
-    }
-
+    @Override
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
+    }
+
+    @Override
+    public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        return new KillAnalyzeJobCommand(jobId);
     }
 }
 
