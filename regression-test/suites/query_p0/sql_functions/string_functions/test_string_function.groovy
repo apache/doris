@@ -223,62 +223,73 @@ suite("test_string_function", "arrow_flight_sql") {
     order by id;
     """
 
-    qt_sql "select substring('abc1', 2);"
-    qt_sql "select substring('abc1', -2);"
-    qt_sql "select substring('abc1', 5);"
-    qt_sql "select substring('abc1def', 2, 2);"
-    qt_sql "select substring('abcdef',3,-1);"
-    qt_sql "select substring('abcdef',-3,-1);"
-    qt_sql "select substring('abcdef',10,1);"
-    sql """ set debug_skip_fold_constant = true;"""
-    qt_substring_utf8_sql "select substring('中文测试',5);"
-    qt_substring_utf8_sql "select substring('中文测试',4);"
-    qt_substring_utf8_sql "select substring('中文测试',2,2);"
-    qt_substring_utf8_sql "select substring('中文测试',-1,2);"
-    sql """ set debug_skip_fold_constant = false;"""
-    qt_substring_utf8_sql "select substring('中文测试',5);"
-    qt_substring_utf8_sql "select substring('中文测试',4);"
-    qt_substring_utf8_sql "select substring('中文测试',2,2);"
-    qt_substring_utf8_sql "select substring('中文测试',-1,2);"
+    def test_substring = { Boolean is_for_zero ->
 
-    sql """ drop table if exists test_string_function; """
-    sql """ create table test_string_function (
-        k1 varchar(16),
-        v1 int
-    ) distributed by hash (k1) buckets 1
-    properties ("replication_num"="1");
-    """
-    sql """ insert into test_string_function values
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1),
-        ("aaaaaaaa", 1)
-    """
-    // bug fix
-    qt_sql_substring1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+        String function_name = is_for_zero ? "substring_for_zero" : "substring";
 
-    qt_sql "select substr('a',3,1);"
-    qt_sql "select substr('a',2,1);"
-    qt_sql "select substr('a',1,1);"
-    qt_sql "select substr('a',0,1);"
-    qt_sql "select substr('a',-1,1);"
-    qt_sql "select substr('a',-2,1);"
-    qt_sql "select substr('a',-3,1);"
-    qt_sql "select substr('abcdef',3,-1);"
-    qt_sql "select substr('abcdef',-3,-1);"
+        qt_sql "select ${function_name}('abc1', 2);"
+        qt_sql "select ${function_name}('abc1', -2);"
+        qt_sql "select ${function_name}('abc1', 5);"
+        qt_sql "select ${function_name}('abc1def', 2, 2);"
+        qt_sql "select ${function_name}('abcdef',3,-1);"
+        qt_sql "select ${function_name}('abcdef',-3,-1);"
+        qt_sql "select ${function_name}('abcdef',10,1);"
+        sql """ set debug_skip_fold_constant = true;"""
+        qt_substring_utf8_sql "select ${function_name}('中文测试',5);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',4);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',2,2);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',-1,2);"
+        sql """ set debug_skip_fold_constant = false;"""
+        qt_substring_utf8_sql "select ${function_name}('中文测试',5);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',4);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',2,2);"
+        qt_substring_utf8_sql "select ${function_name}('中文测试',-1,2);"
+
+        sql """ drop table if exists test_string_function; """
+        sql """ create table test_string_function (
+            k1 varchar(16),
+            v1 int
+        ) distributed by hash (k1) buckets 1
+        properties ("replication_num"="1");
+        """
+        sql """ insert into test_string_function values
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1),
+            ("aaaaaaaa", 1)
+        """
+        // bug fix
+        qt_sql_substring1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/ ${function_name}(k1, cast(null as int), cast(null as int)) from test_string_function; """
+
+        qt_sql "select ${function_name}('a',3,1);"
+        qt_sql "select ${function_name}('a',2,1);"
+        qt_sql "select ${function_name}('a',1,1);"
+        qt_sql "select ${function_name}('a',0,1);"
+        qt_sql "select ${function_name}('a',-1,1);"
+        qt_sql "select ${function_name}('a',-2,1);"
+        qt_sql "select ${function_name}('a',-3,1);"
+        qt_sql "select ${function_name}('abcdef',3,-1);"
+        qt_sql "select ${function_name}('abcdef',-3,-1);"
+        qt_sql "select ${function_name}('abcdef', null, 1);"
+        qt_sql "select ${function_name}('abcdef', 10, null);"
+        qt_sql "select ${function_name}('abcdef', null, null);"
+    }
+
+    test_substring(false)
+    test_substring(true)
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
