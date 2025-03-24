@@ -344,6 +344,7 @@ import org.apache.doris.nereids.DorisParser.ShowClustersContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
 import org.apache.doris.nereids.DorisParser.ShowColumnHistogramStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowColumnsContext;
+import org.apache.doris.nereids.DorisParser.ShowColumnStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
@@ -730,6 +731,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -5588,6 +5590,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("Wild where should contain like or where " + ctx.getText());
         }
+    }
+
+    @Override
+    public LogicalPlan visitShowColumnStats(ShowColumnStatsContext ctx) {
+        List<String> tableNameParts = visitMultipartIdentifier(ctx.tableName);
+        List<String> colNames = ctx.columnList == null ? ImmutableList.of() : visitIdentifierList(ctx.columnList);
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        PartitionNamesInfo partitionNames;
+        if (partitionSpec.second == null) {
+            partitionNames = new PartitionNamesInfo(true); //isStar = true
+        } else {
+            partitionNames = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+        }
+        boolean isCached = ctx.CACHED() != null;
+
+        return new ShowColumnStatsCommand(new TableNameInfo(tableNameParts), colNames, partitionNames, isCached);
     }
 
     @Override
