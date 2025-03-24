@@ -193,10 +193,22 @@ public:
         return _sparse_column_reader->init(opts);
     }
 
+    // When performing compaction, multiple columns are extracted from the sparse columns,
+    // and the sparse columns only need to be read once.
+    // So we need to cache the sparse column and reuse it.
+    // The cache is only used when the compaction reader is used.
+    bool has_sparse_column_cache() const {
+        return _read_opts && _read_opts->sparse_column_cache[_col.parent_unique_id()] &&
+               ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type);
+    }
+
     // Standard seek implementations
     Status seek_to_first() override { return _sparse_column_reader->seek_to_first(); }
 
     Status seek_to_ordinal(ordinal_t ord) override {
+        if (has_sparse_column_cache()) {
+            return Status::OK();
+        }
         return _sparse_column_reader->seek_to_ordinal(ord);
     }
 
@@ -209,14 +221,14 @@ public:
     Status _process_batch(ReadMethod&& read_method, size_t nrows,
                           vectorized::MutableColumnPtr& dst) {
         // Cache check and population logic
-        if (_read_opts && _read_opts->sparse_column_cache[_col.parent_unique_id()] &&
-            ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type)) {
+        if (has_sparse_column_cache()) {
             _sparse_column =
                     _read_opts->sparse_column_cache[_col.parent_unique_id()]->assume_mutable();
         } else {
             _sparse_column->clear();
             RETURN_IF_ERROR(read_method());
 
+            // cache the sparse column
             if (_read_opts) {
                 _read_opts->sparse_column_cache[_col.parent_unique_id()] =
                         _sparse_column->get_ptr();
