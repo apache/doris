@@ -100,6 +100,8 @@ public class SplitSource {
                                 int splitId = splitAssignment.getSplitId();
                                 // TODO mmc 往scanRangeLocation里面设置splitid
 //                                scanRangeLocation.setSplit_id(splitId);
+                                scanRangeLocation.getScanRange().getExtScanRange()
+                                        .getFileScanRange().getSplitSource().setSplitId(splitId);
                                 assignmentSplitInfo.setSplitId(splitId);
                                 // TODO mmc  splitProfileInfo这个好像不需要？
 //                                splitProfileInfo.offer(assignmentSplitInfo.getSplitProfileInfo());
