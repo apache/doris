@@ -115,11 +115,6 @@ TEST(StringOPTest, testPushValueStringReservedAndAllowOverflowNullable) {
     std::vector<std::string> original_test_strings = {"", "normal_string", "unused"};
     auto col_nullable = ColumnHelper::create_nullable_column<DataTypeString>(
             std::vector<std::string>(original_test_strings), {true, false, false});
-    auto* column_nullable = dynamic_cast<const ColumnNullable*>(col_nullable.get());
-    auto& nested_column = const_cast<ColumnString&>(
-            static_cast<const ColumnString&>(column_nullable->get_nested_column()));
-    auto& chars = nested_column.get_chars();
-    auto& offsets = nested_column.get_offsets();
 
     auto rhs_col_nullable = ColumnHelper::create_nullable_column<DataTypeString>(
             {"", "", ""}, {true, false, false});
