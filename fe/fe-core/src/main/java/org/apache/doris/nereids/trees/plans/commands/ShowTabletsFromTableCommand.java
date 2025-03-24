@@ -39,12 +39,9 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
@@ -148,7 +145,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                 @Override
                 public Boolean visit(Expression expr, Void context) {
                     for (Expression child : expr.children()) {
-                        if(!child.accept(this, context)) {
+                        if (!child.accept(this, context)) {
                             return false;
                         }
                     }
