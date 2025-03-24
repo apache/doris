@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
