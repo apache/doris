@@ -352,12 +352,9 @@ public class ShowTableStatsCommand extends ShowCommand {
         return visitor.visitShowTableStatsCommand(this, context);
     }
 
+    @Override
     public RedirectStatus toRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 
     @Override
