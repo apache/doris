@@ -1381,7 +1381,7 @@ DEFINE_String(test_s3_prefix, "prefix");
 #endif
 // clang-format on
 
-DEFINE_mBool(enable_root_path_of_hdfs_resource, "false");
+DEFINE_Bool(enable_root_path_of_hdfs_resource, "false");
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;

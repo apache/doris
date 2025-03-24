@@ -1439,7 +1439,7 @@ DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 // Because the root_path for the HDFS resource was previously passed an empty string,
 // which was incorrect, this configuration has been added to ensure compatibility
 // and guarantee that the root_path works as expected.
-DECLARE_mBool(enable_root_path_of_hdfs_resource);
+DECLARE_Bool(enable_root_path_of_hdfs_resource);
 
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
