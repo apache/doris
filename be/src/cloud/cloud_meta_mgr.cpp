@@ -413,8 +413,8 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
 
-static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
-                                  const SchemaCloudDictionary& dict) {
+Status fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
+                             const SchemaCloudDictionary& dict) {
     std::unordered_map<int32_t, ColumnPB*> unique_id_map;
     //init map
     for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
@@ -423,6 +423,9 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // column info
     for (int i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
+        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const ColumnPB& dict_val = dict.column_dict().at(dict_key);
         ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
         to_add = dict_val;
@@ -432,6 +435,9 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // index info
     for (int i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
+        if (dict.index_dict().find(dict_key) == dict.index_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const doris::TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
         *out->mutable_tablet_schema()->add_index() = dict_val;
         VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
@@ -440,10 +446,14 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // sparse column info
     for (int i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
+        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const ColumnPB& dict_val = dict.column_dict().at(dict_key);
         *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
         VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
     }
+    return Status::OK();
 }
 
 } // namespace
@@ -648,7 +658,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     // Otherwise, use the schema dictionary from the response (if available).
                     meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
                     if (resp.has_schema_dict()) {
-                        fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb, resp.schema_dict());
+                        RETURN_IF_ERROR(fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb,
+                                                              resp.schema_dict()));
                     }
                 }
                 auto rs_meta = std::make_shared<RowsetMeta>();
