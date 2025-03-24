@@ -384,7 +384,6 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
             RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
             // get subcolumns in sparse path set which will be merged into sparse column
             RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
-            std::cout << "tested compaction sparse merge reader" << std::endl;
             return Status::OK();
         }
         if (existed_in_sparse_column || exceeded_sparse_column_limit) {
@@ -396,7 +395,6 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
                     relative_path.get_path(), std::unique_ptr<ColumnIterator>(inner_iter),
                     // need to modify sparse_column_cache, so use const_cast here
                     const_cast<StorageReadOptions*>(opts), target_col);
-            std::cout << "tested compaction sparse extract reader" << std::endl;
             return Status::OK();
         }
         if (target_col.is_nested_subcolumn()) {
@@ -404,7 +402,6 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
             RETURN_IF_ERROR(_new_default_iter_with_same_nested(iterator, target_col));
             return Status::OK();
         }
-        std::cout << "tested compaction default iterator" << std::endl;
         std::unique_ptr<ColumnIterator> it;
         RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &it));
         *iterator = it.release();
@@ -414,10 +411,8 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
         // root path, use VariantRootColumnIterator
         *iterator = *iterator =
                 new VariantRootColumnIterator(new FileColumnIterator(node->data.reader.get()));
-        std::cout << "tested compaction variant root reader" << std::endl;
         return Status::OK();
     }
-    std::cout << "tested compaction leaf reader" << std::endl;
     RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
     return Status::OK();
 }
@@ -478,7 +473,6 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
         *iterator = new SparseColumnExtractReader(relative_path.get_path(),
                                                   std::unique_ptr<ColumnIterator>(inner_iter),
                                                   nullptr, target_col);
-        std::cout << "tested sparse extract reader" << std::endl;
         return Status::OK();
     }
 
@@ -488,20 +482,16 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
             const auto* node = _subcolumn_readers->find_leaf(relative_path);
-            std::cout << "tested leaf reader" << std::endl;
             RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
         } else {
-            std::cout << "tested root reader" << std::endl;
             RETURN_IF_ERROR(_create_hierarchical_reader(iterator, relative_path, node, root));
         }
     } else {
         if (exceeded_sparse_column_limit) {
-            std::cout << "tested exceed limit reader" << std::endl;
             return _create_hierarchical_reader(iterator, relative_path, nullptr, root);
         }
         // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
         std::unique_ptr<ColumnIterator> iter;
-        std::cout << "tested default iterator" << std::endl;
         RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &iter));
         *iterator = iter.release();
     }

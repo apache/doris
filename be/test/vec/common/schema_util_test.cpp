@@ -34,14 +34,14 @@ public:
     virtual ~SchemaUtilTest() = default;
 };
 
-static void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
-                             const std::string& index_name, int32_t col_unique_id,
-                             const std::string& column_type, const std::string& column_name,
-                             const IndexType& index_type) {
+void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
+                      const std::string& index_name, int32_t col_unique_id,
+                      const std::string& column_type, const std::string& column_name,
+                      const IndexType& index_type) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
     column_pb->set_type(column_type);
-    column_pb->set_is_nullable(false);
+    column_pb->set_is_nullable(true);
     column_pb->set_is_bf_column(true);
     tablet_index->set_index_id(index_id);
     tablet_index->set_index_name(index_name);
@@ -49,9 +49,8 @@ static void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, i
     tablet_index->add_col_unique_id(col_unique_id);
 }
 
-static void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type,
-                                int32_t col_unique_id, std::string_view path,
-                                std::vector<TabletColumn>* subcolumns) {
+void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t col_unique_id,
+                         std::string_view path, std::vector<TabletColumn>* subcolumns) {
     TabletColumn subcol;
     subcol.set_type(type);
     subcol.set_is_nullable(true);
@@ -60,9 +59,36 @@ static void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type,
     vectorized::PathInData col_path(path);
     subcol.set_path_info(col_path);
     subcol.set_name(col_path.get_path());
+
+    if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        TabletColumn array_item_col;
+        // double not support inverted index
+        array_item_col.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
+        array_item_col.set_is_nullable(true);
+        array_item_col.set_unique_id(-1);
+        array_item_col.set_parent_unique_id(col_unique_id);
+
+        subcol.add_sub_column(array_item_col);
+    }
+
     schema->append_column(subcol);
     subcolumns->emplace_back(std::move(subcol));
 }
+
+// void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type,
+//                                 int32_t col_unique_id, std::string_view path,
+//                                 std::vector<TabletColumn>* subcolumns) {
+//     TabletColumn subcol;
+//     subcol.set_type(type);
+//     subcol.set_is_nullable(true);
+//     subcol.set_unique_id(-1);
+//     subcol.set_parent_unique_id(col_unique_id);
+//     vectorized::PathInData col_path(path);
+//     subcol.set_path_info(col_path);
+//     subcol.set_name(col_path.get_path());
+//     schema->append_column(subcol);
+//     subcolumns->emplace_back(std::move(subcol));
+// }
 
 TEST_F(SchemaUtilTest, inherit_column_attributes) {
     TabletSchemaPB schema_pb;
@@ -183,7 +209,8 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     column_map->clear();
     const auto& key_value_counts3 = construct_column_map_with_random_values(
             column_map, VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE, 5, "key2_");
-    schema_util::calculate_variant_stats(*column_map, &stats, 0, VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+    schema_util::calculate_variant_stats(*column_map, &stats, 0,
+                                         VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
     EXPECT_EQ(VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE,
               stats.sparse_column_non_null_size_size());
 

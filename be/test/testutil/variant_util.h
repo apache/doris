@@ -87,8 +87,8 @@ public:
                 std::string key = "key" + std::to_string(current_path);
                 if (std::rand() % 2 == 0) {
                     json_str += "\"" + key + "\":{";
-                    json_str += "\"nested" + std::to_string(current_path) +
-                                "\":" + std::to_string(88);
+                    json_str +=
+                            "\"nested" + std::to_string(current_path) + "\":" + std::to_string(88);
                     json_str += "},";
                     all_path_stats[key + ".nested" + std::to_string(current_path)] += 1;
                 } else {

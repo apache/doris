@@ -630,9 +630,11 @@ Status VariantSubcolumnWriter::init() {
 }
 
 Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(*ptr);
+    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(column->column_data);
     auto* dst_ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
-    dst_ptr->insert_range_from(src, 0, num_rows);
+    // TODO: if direct write we could avoid copy
+    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
 }
 

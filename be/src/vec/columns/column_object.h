@@ -204,6 +204,8 @@ public:
 
         bool is_empty_nested(size_t row) const;
 
+        void resize(size_t n);
+
     private:
         class LeastCommonType {
         public:

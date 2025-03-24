@@ -640,6 +640,17 @@ bool ColumnObject::Subcolumn::is_finalized() const {
            (data.empty() || (data.size() == 1));
 }
 
+void ColumnObject::Subcolumn::resize(size_t n) {
+    if (n == num_rows) {
+        return;
+    }
+    if (n > num_rows) {
+        insert_many_defaults(n - num_rows);
+    } else {
+        pop_back(num_rows - n);
+    }
+}
+
 template <typename Func>
 MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     if (!is_finalized()) {
