@@ -18,16 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -37,19 +31,14 @@ import org.apache.doris.qe.StmtExecutor;
  * base class for all drop commands
  */
 public class CancelJobTaskCommand extends CancelCommand implements ForwardWithSync {
-    private static final String jobNameKey = "jobName";
-
-    private static final String taskIdKey = "taskId";
-
     private String jobName;
 
     private Long taskId;
 
-    private Expression expr;
-
-    public CancelJobTaskCommand(Expression expr) {
+    public CancelJobTaskCommand(String jobName, Long taskId) {
         super(PlanType.CANCEL_JOB_COMMAND);
-        this.expr = expr;
+        this.jobName = jobName;
+        this.taskId = taskId;
     }
 
     @Override
@@ -59,34 +48,10 @@ public class CancelJobTaskCommand extends CancelCommand implements ForwardWithSy
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate();
-        doRun(ctx);
-    }
-
-    private void validate() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        if (!(expr instanceof And)) {
-            throw new AnalysisException("Only allow compound predicate with operator AND");
-        }
-        if (!(expr.child(0).child(0) instanceof UnboundSlot)
-                && jobNameKey.equals(((UnboundSlot) expr.child(0).child(0)).getName())) {
-            throw new AnalysisException("Current not support " + ((UnboundSlot) expr.child(0).child(0)).getName());
-        }
-
-        if (!(expr.child(0).child(1) instanceof StringLikeLiteral)) {
-            throw new AnalysisException("JobName value must is string");
-        }
-        this.jobName = ((StringLikeLiteral) expr.child(0).child(1)).getStringValue();
-        String taskIdInput = ((StringLikeLiteral) expr.child(1).child(0)).getStringValue();
-        if (!taskIdKey.equalsIgnoreCase(taskIdInput)) {
-            throw new AnalysisException("Current not support " + taskIdInput);
-        }
-        if (!(expr.child(1).child(1) instanceof LargeIntLiteral)) {
-            throw new AnalysisException("task id  value must is large int");
-        }
-        this.taskId = ((LargeIntLiteral) expr.child(1).child(1)).getLongValue();
+        doRun(ctx);
     }
 
     public void doRun(ConnectContext ctx) throws Exception {
