@@ -640,8 +640,7 @@ bool CloudStorageEngine::_check_cumu_should_delay_submission(
             config::min_threads_for_cumu_delay_strategy) {
             // Determine if this is a small task based on configured thresholds
             is_small_task =
-                    (compaction->get_input_rowsets_bytes() <=
-                             config::cumu_delay_strategy_size &&
+                    (compaction->get_input_rowsets_bytes() <= config::cumu_delay_strategy_size &&
                      compaction->get_input_num_rows() <= config::cumu_delay_strategy_row_num);
 
             // Case 1: Multiple threads available => accept all tasks
