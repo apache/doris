@@ -197,38 +197,33 @@ public class AnalysisManager implements Writable {
 
     public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
             throws AnalysisException {
-        db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        try {
-            List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
-            for (TableIf table : tbls) {
-                if (table instanceof View) {
-                    continue;
-                }
-                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
-                // columnNames null means to add all visible columns.
-                // Will get all the visible columns in analyzeTblStmt.check()
-                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        null, db.getId(), table);
-                try {
-                    analyzeTblStmt.check();
-                } catch (AnalysisException analysisException) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            analysisException.getMessage(), analysisException);
-                }
-                analyzeStmts.add(analyzeTblStmt);
+        List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
+        for (TableIf table : tbls) {
+            if (table instanceof View) {
+                continue;
             }
-            for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                try {
-                    analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
-                } catch (DdlException e) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            e.getMessage(), e);
-                }
+            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
+            // columnNames null means to add all visible columns.
+            // Will get all the visible columns in analyzeTblStmt.check()
+            AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
+                    null, db.getId(), table);
+            try {
+                analyzeTblStmt.check();
+            } catch (AnalysisException analysisException) {
+                LOG.warn("Failed to build analyze job: {}",
+                        analysisException.getMessage(), analysisException);
             }
-        } finally {
-            db.readUnlock();
+            analyzeStmts.add(analyzeTblStmt);
+        }
+        for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
+            try {
+                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
+            } catch (DdlException e) {
+                LOG.warn("Failed to build analyze job: {}",
+                        e.getMessage(), e);
+            }
         }
         return analysisInfos;
     }
