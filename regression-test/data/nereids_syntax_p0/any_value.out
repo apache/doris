@@ -5,3 +5,15 @@
 -- !sql_min --
 00:00:00
 
+-- !sql_any1 --
+\N	\N	\N	\N	\N	\N	\N	\N
+
+-- !sql_any2 --
+
+-- !sql_any3 --
+[1, 2, 3]	[4, 5, 6]	["a", "b", "c"]	["d", "e", "f"]	{"s_id":1, "s_name":"a", "s_address":"b"}	{"s_id":2, "s_name":"c", "s_address":"d"}	{"a":1, "b":2}	{"c":3, "d":4}
+
+-- !sql_any4 --
+[1, 2, 3]	[4, 5, 6]	["a", "b", "c"]	["d", "e", "f"]	{"s_id":1, "s_name":"a", "s_address":"b"}	{"s_id":2, "s_name":"c", "s_address":"d"}	{"a":1, "b":2}	{"c":3, "d":4}
+[4, 5, 6]	[7, 8, 9]	["d", "e", "f"]	["g", "h", "i"]	{"s_id":3, "s_name":"e", "s_address":"f"}	{"s_id":4, "s_name":"g", "s_address":"h"}	{"e":5, "f":6}	{"g":7, "h":8}
+
