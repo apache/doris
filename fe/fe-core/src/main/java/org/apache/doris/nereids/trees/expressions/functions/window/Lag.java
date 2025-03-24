@@ -68,6 +68,11 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
         return child(1);
     }
 
+    public Expression getDefaultValue() {
+        Preconditions.checkArgument(children.size() == 3);
+        return child(2);
+    }
+
     @Override
     public boolean nullable() {
         if (children.size() == 3 && child(2).nullable()) {
