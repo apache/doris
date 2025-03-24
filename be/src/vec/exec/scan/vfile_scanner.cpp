@@ -649,8 +649,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                    "src value is {}",
                                                    slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
+                                }));
                     } else if (!slot_desc->is_nullable()) {
                         filter_map[i] = false;
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
