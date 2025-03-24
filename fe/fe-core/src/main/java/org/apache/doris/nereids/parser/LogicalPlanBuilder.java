@@ -1823,11 +1823,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (labelParts.size() == 2) {
             labelDbName = labelParts.get(0);
             labelName = labelParts.get(1);
-        } else if (labelParts.size() == 3) {
-            labelDbName = labelParts.get(1);
-            labelName = labelParts.get(2);
         } else {
-            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+            throw new AnalysisException("labelParts in load should be [db.]label");
         }
         LabelNameInfo jobLabelInfo = new LabelNameInfo(labelDbName, labelName);
         String tableName = null;
