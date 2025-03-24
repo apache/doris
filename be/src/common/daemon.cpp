@@ -565,7 +565,7 @@ void Daemon::cache_adjust_capacity_thread() {
             LOG(INFO) << fmt::format(
                     "[MemoryGC] adjust cache capacity end, adjust_weighted {} has not been "
                     "modified.",
-                    PrettyPrinter::print(adjust_weighted, TUnit::BYTES));
+                    adjust_weighted);
             continue;
         }
         std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
