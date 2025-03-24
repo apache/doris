@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.check;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,7 +42,7 @@ public class CheckLambdaArg implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(Lambda.class).then(CheckLambdaArg::check)
+                matchesTopType(Lambda.class).then(CheckLambdaArg::check).toRule(ExpressionRuleType.CHECK_LAMBDA_ARG)
         );
     }
 
