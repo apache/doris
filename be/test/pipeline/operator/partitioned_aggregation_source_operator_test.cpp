@@ -300,7 +300,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -309,7 +309,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -345,7 +345,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+        while (local_state->_spill_dependency->is_blocked_by()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         rows += block.rows();
@@ -413,7 +413,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -422,7 +422,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -459,7 +459,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+        while (local_state->_spill_dependency->is_blocked_by()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         block.clear_column_data();
