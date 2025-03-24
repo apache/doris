@@ -137,7 +137,7 @@ public class TabletInvertedIndex {
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
                              Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
-                             ListMultimap<Long, Long> transactionsToClear,
+                             SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
                              List<CooldownConf> cooldownConfToPush,
@@ -322,7 +322,7 @@ public class TabletInvertedIndex {
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
             TabletMeta tabletMeta, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
-            ListMultimap<Long, Long> transactionsToClear) {
+            SetMultimap<Long, Long> transactionsToClear) {
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         long partitionId = tabletMeta.getPartitionId();
         for (Long transactionId : transactionIds) {
