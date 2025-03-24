@@ -664,8 +664,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                    "nullable",
                                                    slot_desc->col_name());
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
+                                }));
                     }
                 }
             }
