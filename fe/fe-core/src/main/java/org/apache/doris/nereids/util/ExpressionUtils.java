@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -904,7 +905,8 @@ public class ExpressionUtils {
         }
         if (expression instanceof InPredicate) {
             InPredicate predicate = ((InPredicate) expression);
-            if (!predicate.getCompareExpr().isSlot()) {
+            if (!predicate.getCompareExpr().isSlot()
+                    || predicate.getOptions().size() > Config.max_distribution_pruner_recursion_depth) {
                 return Optional.empty();
             }
             return Optional.ofNullable(predicate.optionsAreLiterals() ? expression : null);
