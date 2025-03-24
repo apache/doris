@@ -640,9 +640,9 @@ bool CloudStorageEngine::_check_cumu_should_delay_submission(
             config::min_threads_for_cumu_delay_strategy) {
             // Determine if this is a small task based on configured thresholds
             is_small_task =
-                    (compaction->get_input_rowsets_total_size() <=
+                    (compaction->get_input_rowsets_bytes() <=
                              config::cumu_delay_strategy_size &&
-                     compaction->get_input_row_num() <= config::cumu_delay_strategy_row_num);
+                     compaction->get_input_num_rows() <= config::cumu_delay_strategy_row_num);
 
             // Case 1: Multiple threads available => accept all tasks
             if (_cumu_compaction_thread_pool->max_threads() -
@@ -670,8 +670,8 @@ bool CloudStorageEngine::_check_cumu_should_delay_submission(
                     "failed to do CumulativeCompaction, cumu thread pool is intensive, delay "
                     "big task.")
                     .tag("tablet_id", tablet->tablet_id())
-                    .tag("input_rows", compaction->get_input_row_num())
-                    .tag("input_rowsets_total_size", compaction->get_input_rowsets_total_size())
+                    .tag("input_rows", compaction->get_input_num_rows())
+                    .tag("input_rowsets_total_size", compaction->get_input_rowsets_bytes())
                     .tag("config::cumu_delay_strategy_size", config::cumu_delay_strategy_size)
                     .tag("config::cumu_delay_strategy_row_num", config::cumu_delay_strategy_row_num)
                     .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)

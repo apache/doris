@@ -37,8 +37,8 @@ public:
 
     void do_lease();
 
-    int64_t get_input_rowsets_total_size() const { return _input_rowsets_total_size; }
-    int64_t get_input_row_num() const { return _input_row_num; }
+    int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
+    int64_t get_input_num_rows() const { return _input_row_num; }
 
 private:
     Status pick_rowsets_to_compact();
