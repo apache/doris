@@ -48,6 +48,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
