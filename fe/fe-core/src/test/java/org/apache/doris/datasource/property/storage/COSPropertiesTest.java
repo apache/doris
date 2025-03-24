@@ -50,16 +50,28 @@ public class COSPropertiesTest {
         origProps.put("cos.access_key", "myCOSAccessKey");
         origProps.put("cos.secret_key", "myCOSSecretKey");
         origProps.put("cos.region", "us-west-1");
-        origProps.put("cos.max_connections", "100");
-        origProps.put("cos.request_timeout", "3000");
-        origProps.put("cos.connection_timeout", "1000");
-        origProps.put("cos.use_path_style", "true");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
+        origProps.put("use_path_style", "true");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
+        origProps.put("test_non_storage_param", "6000");
+
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
         Configuration config = cosProperties.getHadoopConfiguration();
+        Map<String, String> cosConfig = cosProperties.getOrigProps();
+        Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
+
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_COS_SUPPORT)) {
+                Assertions.assertEquals(v, cosConfig.get(k));
+            }
+        });
 
         // Validate the configuration
         Assertions.assertEquals("https://cos.example.com", config.get("fs.cos.endpoint"));
+        Assertions.assertEquals("myCOSAccessKey", config.get("fs.cosn.userinfo.secretId"));
+        Assertions.assertEquals("myCOSSecretKey", config.get("fs.cosn.userinfo.secretKey"));
         Assertions.assertEquals("myCOSAccessKey", config.get("fs.cosn.userinfo.secretId"));
         Assertions.assertEquals("myCOSSecretKey", config.get("fs.cosn.userinfo.secretKey"));
         origProps = new HashMap<>();
@@ -78,18 +90,37 @@ public class COSPropertiesTest {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.access_key", "myCOSAccessKey");
         origProps.put("cos.secret_key", "myCOSSecretKey");
+        origProps.put("test_non_storage_param", "6000");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         //origProps.put("cos.region", "ap-beijing");
 
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
         Map<String, String> s3Props = new HashMap<>();
         cosProperties.toNativeS3Configuration(s3Props);
+        Map<String, String> cosConfig = cosProperties.getOrigProps();
+        Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
 
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_COS_SUPPORT)) {
+                Assertions.assertEquals(v, cosConfig.get(k));
+            }
+        });
         // Validate the S3 properties
         Assertions.assertEquals("cos.ap-beijing.myqcloud.com", s3Props.get("AWS_ENDPOINT"));
         Assertions.assertEquals("ap-beijing", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myCOSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myCOSSecretKey", s3Props.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+        Assertions.assertEquals("false", s3Props.get("use_path_style"));
+        origProps.put("use_path_style", "true");
+        cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
+        cosProperties.toNativeS3Configuration(s3Props);
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
         // Add any additional assertions for other properties if needed
     }
 

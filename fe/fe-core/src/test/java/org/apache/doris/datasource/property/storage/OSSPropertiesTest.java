@@ -63,8 +63,22 @@ public class OSSPropertiesTest {
         origProps.put("oss.secret_key", "myOSSSecretKey");
         origProps.put("oss.endpoint", "oss-cn-beijing-internal.aliyuncs.com");
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
+        origProps.put("use_path_style", "true");
+        origProps.put("test_non_storage_param", "6000");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
         Map<String, String> s3Props = new HashMap<>();
+
+        Map<String, String> ossConfig = ossProperties.getOrigProps();
+        Assertions.assertTrue(!ossConfig.containsKey("test_non_storage_param"));
+
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_OSS_SUPPORT)) {
+                Assertions.assertEquals(v, ossConfig.get(k));
+            }
+        });
 
 
         ossProperties.toNativeS3Configuration(s3Props);
@@ -72,6 +86,15 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("cn-beijing-internal", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myOSSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myOSSSecretKey", s3Props.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        origProps.remove("use_path_style");
+        ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
+        s3Props = new HashMap<>();
+        ossProperties.toNativeS3Configuration(s3Props);
+        Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
 

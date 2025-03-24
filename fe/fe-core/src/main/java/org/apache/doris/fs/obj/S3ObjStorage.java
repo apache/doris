@@ -84,8 +84,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     protected void setProperties(AbstractObjectStorageProperties properties) {
         this.s3Properties = properties;
-        isUsePathStyle =  s3Properties.isUsePathStyle();
-        forceParsingByStandardUri = s3Properties.isForceParsingByStandardUrl();
+        isUsePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
+        forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
     }
 
     @Override

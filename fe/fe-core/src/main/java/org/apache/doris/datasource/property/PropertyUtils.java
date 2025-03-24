@@ -27,15 +27,19 @@ public class PropertyUtils {
     // Get all fields of a class with annotation @ConnectorProperty
     public static List<Field> getConnectorProperties(Class<?> clazz) {
         List<Field> fields = Lists.newArrayList();
-        for (Field field : clazz.getDeclaredFields()) {
-            field.setAccessible(true);
-            if (field.isAnnotationPresent(ConnectorProperty.class)) {
-                // Get annotation of the field
-                ConnectorProperty connectorProperty = field.getAnnotation(ConnectorProperty.class);
-                if (connectorProperty.supported()) {
-                    fields.add(field);
+        Class<?> currentClass = clazz;
+
+        while (currentClass != null) {
+            for (Field field : currentClass.getDeclaredFields()) {
+                field.setAccessible(true);
+                if (field.isAnnotationPresent(ConnectorProperty.class)) {
+                    ConnectorProperty connectorProperty = field.getAnnotation(ConnectorProperty.class);
+                    if (connectorProperty.supported()) {
+                        fields.add(field);
+                    }
                 }
             }
+            currentClass = currentClass.getSuperclass();
         }
         return fields;
     }

@@ -147,7 +147,7 @@ public class S3Properties extends AbstractObjectStorageProperties {
         catalogProps.put("s3.access-key-id", s3AccessKey);
         catalogProps.put("s3.secret-access-key", s3SecretKey);
         catalogProps.put("client.region", s3Region);
-        catalogProps.put("s3.path-style-access", Boolean.toString(usePathStyle));
+        catalogProps.put("s3.path-style-access", usePathStyle);
     }
 
     @Override

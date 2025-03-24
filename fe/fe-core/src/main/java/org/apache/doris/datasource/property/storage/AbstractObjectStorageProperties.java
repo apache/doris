@@ -42,15 +42,16 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      */
     @Getter
     @ConnectorProperty(names = {"connection.maximum"}, required = false, description = "Maximum number of connections.")
-    protected int maxConnections = 100;
+    protected String maxConnections = "100";
 
     /**
      * The timeout (in milliseconds) for requests made to the object storage system.
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"connection.request.timeout"}, required = false, description = "Request timeout in seconds.")
-    protected int requestTimeoutS = 10000;
+    @ConnectorProperty(names = {"connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
 
     /**
      * The timeout (in milliseconds) for establishing a connection to the object storage system.
@@ -58,7 +59,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      */
     @Getter
     @ConnectorProperty(names = {"connection.timeout"}, required = false, description = "Connection timeout in seconds.")
-    protected int connectionTimeoutS = 10000;
+    protected String connectionTimeoutS = "10000";
 
     /**
      * Flag indicating whether to use path-style URLs for the object storage system.
@@ -68,12 +69,12 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
     @Getter
     @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
-    protected boolean usePathStyle = false;
+    protected String usePathStyle = "false";
     @ConnectorProperty(names = {"force_parsing_by_standard_uri"}, required = false,
             description = "Whether to use path style URL for the storage.")
     @Setter
     @Getter
-    protected boolean forceParsingByStandardUrl = false;
+    protected String forceParsingByStandardUrl = "false";
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
@@ -129,7 +130,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
                                                           String accessKey, String secretKey) {
         return generateAWSS3Properties(endpoint, region, accessKey, secretKey,
                 String.valueOf(getMaxConnections()), String.valueOf(getRequestTimeoutS()),
-                String.valueOf(getConnectionTimeoutS()), String.valueOf(isUsePathStyle()));
+                String.valueOf(getConnectionTimeoutS()), usePathStyle);
     }
 
     @Override

@@ -74,17 +74,42 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
+        origProps.put("use_path_style", "true");
+        origProps.put("s3.connection.maximum", "88");
+        origProps.put("s3.connection.timeout", "6000");
+        origProps.put("test_non_storage_param", "6000");
+
 
         S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
         Map<String, String> s3Props = new HashMap<>();
         s3Properties.toNativeS3Configuration(s3Props);
+        Map<String, String> s3Config = s3Properties.getOrigProps();
+        Assertions.assertTrue(!s3Config.containsKey("test_non_storage_param"));
+
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_S3_SUPPORT)) {
+                Assertions.assertEquals(v, s3Config.get(k));
+            }
+        });
+
 
         // Validate the S3 properties
         Assertions.assertEquals("https://cos.example.com", s3Props.get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-1", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myS3AccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myS3SecretKey", s3Props.get("AWS_SECRET_KEY"));
-        // Add any additional assertions for other properties if needed
+        Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("6000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        origProps.remove("use_path_style");
+        origProps.remove("s3.connection.maximum");
+        origProps.remove("s3.connection.timeout");
+        s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
+        s3Props = new HashMap<>();
+        s3Properties.toNativeS3Configuration(s3Props);
+        Assertions.assertEquals("false", s3Props.get("use_path_style"));
+        Assertions.assertEquals("50", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
     }
 
     /**
@@ -115,8 +140,15 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", secretKey);
         origProps.put("s3.region", "ap-northeast-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
+        origProps.put("use_path_style", "true");
+        origProps.put("s3.connection.maximum", "88");
+        origProps.put("s3.connection.timeout", "6000");
+        origProps.put("test_non_storage_param", "6000");
         S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
         Configuration configuration = s3Properties.getHadoopConfiguration();
+        Assertions.assertEquals("88", configuration.get("fs.s3a.connection.maximum"));
+        Assertions.assertEquals("6000", configuration.get("fs.s3a.connection.timeout"));
+        Assertions.assertEquals("6000", configuration.get("fs.s3a.request.timeout"));
         FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
         FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
         for (FileStatus status : fileStatuses) {
