@@ -62,7 +62,7 @@ decltype(&bshuf_decompress_lz4) g_bshuf_decompress_lz4;
 // This avoids an expensive 'cpuid' call in the hot path, and also avoids
 // the cost of a 'std::once' call.
 __attribute__((constructor)) void SelectBitshuffleFunctions() {
-#if (defined(__i386) || defined(__x86_64__))
+#if ((defined(__i386) || defined(__x86_64__))) && !defined(__APPLE__)
     if (CPU().has_avx2()) {
         g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx2;
         g_bshuf_compress_lz4 = bshuf_compress_lz4_avx2;
