@@ -35,6 +35,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
@@ -537,18 +538,130 @@ struct AggregateFunctionMinData : Data {
     static const char* name() { return "min"; }
 };
 
+struct AggregateFunctionAnyBase {
+    constexpr static bool IS_ANY = true;
+    static const char* name() { return "any"; }
+};
+
 template <typename Data>
-struct AggregateFunctionAnyData : Data {
+struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
-    constexpr static bool IS_ANY = true;
+
+    void change_if_better(const IColumn& column, size_t row_num, Arena*) {
+        this->change_first_time(column, row_num, nullptr);
+    }
+
+    void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
+};
+
+struct SingleValueDataComplexType : AggregateFunctionAnyBase {
+    constexpr static bool IsFixedLength = false;
+    using Self = SingleValueDataComplexType;
+
+    SingleValueDataComplexType() = default;
+
+    SingleValueDataComplexType(const DataTypes& argument_types) {
+        DataTypePtr column_type = argument_types[0];
+        column_data = column_type->create_column();
+        serde = column_type->get_serde();
+    }
+
+    bool has() const { return has_value; }
+
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, nullptr);
+        }
+    }
+
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, nullptr);
+        }
+    }
+
+    void change(const IColumn& column, size_t row_num, Arena*) { change_impl(column, row_num); }
+
+    void change(const Self& to, Arena*) { change_impl(*to.column_data, 0); }
+
+    void change_impl(const IColumn& column, size_t row_num) {
+        column_data->insert_from(column, row_num);
+        has_value = true;
+    }
+
+    void insert_result_into(IColumn& to) const {
+        if (has()) {
+            to.insert_from(*column_data, 0);
+        } else {
+            to.insert_default();
+        }
+    }
+
+    void reset() {
+        column_data->clear();
+        has_value = false;
+    }
+
+    void write(BufferWritable& buf) const {
+        write_binary(has(), buf);
+        if (!has()) {
+            return;
+        }
+        const size_t size = column_data->size();
+        write_binary(size, buf);
+        DataTypeSerDe::FormatOptions opt;
+        auto tmp_str = ColumnString::create();
+        VectorBufferWriter tmp_buf(*tmp_str.get());
+
+        for (size_t i = 0; i < size; i++) {
+            tmp_str->clear();
+            Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt);
+            if (!st.ok()) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "any_value failed to serialize data for " +
+                                               column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
+            tmp_buf.commit();
+            write_string_binary(tmp_str->get_data_at(0), buf);
+        }
+    }
+
+    void read(BufferReadable& buf, Arena*) {
+        read_binary(has_value, buf);
+        if (!has()) {
+            return;
+        }
+        size_t size = 0;
+        read_binary(size, buf);
+        column_data->clear();
+        column_data->reserve(size);
+
+        StringRef s;
+        DataTypeSerDe::FormatOptions opt;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            Slice slice(s.data, s.size);
+            Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt);
+            if (!st.ok()) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "any_value failed to deserialize data for " +
+                                               column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
+        }
+    }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         this->change_first_time(column, row_num, nullptr);
     }
     void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
 
-    static const char* name() { return "any"; }
+private:
+    bool has_value = false;
+    MutableColumnPtr column_data;
+    DataTypeSerDeSPtr serde;
 };
 
 template <typename Data>
@@ -557,6 +670,7 @@ class AggregateFunctionsSingleValue final
 private:
     DataTypePtr& type;
     using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
+    using IAggregateFunction::argument_types;
 
 public:
     AggregateFunctionsSingleValue(const DataTypes& arguments)
@@ -570,6 +684,14 @@ public:
                                        "because the values of that data type are not comparable",
                                        type->get_name(), get_name());
             }
+        }
+    }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {
+            new (place) Data(argument_types);
+        } else {
+            new (place) Data();
         }
     }
 
@@ -734,6 +856,11 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr = {});
+
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
+        const String& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr = {});
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"
