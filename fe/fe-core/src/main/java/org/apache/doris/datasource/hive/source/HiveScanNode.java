@@ -414,10 +414,15 @@ public class HiveScanNode extends FileQueryScanNode {
                     || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
-                if (hmsTable.canReadHiveJsonInOneColumn()) {
+                if (!ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()) {
+                    type = TFileFormatType.FORMAT_JSON;
+                } else if (ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()
+                        && hmsTable.firstColumnIsString()) {
                     type = TFileFormatType.FORMAT_CSV_PLAIN;
                 } else {
-                    type = TFileFormatType.FORMAT_JSON;
+                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
+                            + "table " + hmsTable.getName()
+                            + " is not a string column.");
                 }
             } else {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -488,16 +493,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
         } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
-            if (hmsTable.canReadHiveJsonInOneColumn()) {
-                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-                textParams.setLineDelimiter("\n");
-                textParams.setColumnSeparator("\n");
-                //First, perform row splitting according to `\n`. When performing column splitting,
-                // since there is no `\n`, only one column of data will be generated.
-                fileAttributes.setTextParams(textParams);
-                fileAttributes.setHeaderType("");
-
-            } else {
+            if (!ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()) {
                 TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
                 textParams.setColumnSeparator("\t");
                 textParams.setLineDelimiter("\n");
@@ -513,6 +509,19 @@ public class HiveScanNode extends FileQueryScanNode {
 
                 fileAttributes.setOpenxJsonIgnoreMalformed(
                         Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
+            } else if (ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()
+                    && hmsTable.firstColumnIsString()) {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                textParams.setLineDelimiter("\n");
+                textParams.setColumnSeparator("\n");
+                //First, perform row splitting according to `\n`. When performing column splitting,
+                // since there is no `\n`, only one column of data will be generated.
+                fileAttributes.setTextParams(textParams);
+                fileAttributes.setHeaderType("");
+            } else {
+                throw new UserException("You set read_hive_json_in_one_column = true, but the first column of table "
+                        + hmsTable.getName()
+                        + " is not a string column.");
             }
         } else {
             throw new UserException(

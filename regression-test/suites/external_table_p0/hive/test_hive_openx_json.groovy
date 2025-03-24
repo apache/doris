@@ -26,6 +26,7 @@ suite("test_hive_openx_json",  "p0,external,hive,external_docker,external_docker
 
     for (String hivePrefix : ["hive3"]) {
         try {
+            sql """set enable_fallback_to_original_planner=false"""
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_hive_openx_json"
@@ -72,7 +73,7 @@ suite("test_hive_openx_json",  "p0,external,hive,external_docker,external_docker
                 sql  """ select * from scalar_to_array_tb """;
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("DATA_QUALITY_ERROR"))
+                assertTrue(e.getMessage().contains("is not a string column."))
             }
 
 
