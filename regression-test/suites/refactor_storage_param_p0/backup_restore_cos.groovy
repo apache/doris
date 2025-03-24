@@ -85,6 +85,21 @@ suite("refactor_storage_backup_restore_cos") {
         );
         """
     }
+    // Invalid export path https:// please use valid 's3://' path.
+    shouldFail {
+        objectStorageHttpsFilePathPrefix = objectStorageFilePathPrefix.replaceAll("^s3://", "https://");
+        sql """
+        CREATE REPOSITORY  ${objectStorageRepoName}_https_prefix
+        WITH S3
+        ON LOCATION "https://${objectStorageHttpsFilePathPrefix}"
+                PROPERTIES (
+            "s3.endpoint" = "${objectStorageEndpoint}",
+            "s3.region" = "${objectStorageRegion}",
+            "s3.access_key" = "${objectAccessKey}",
+            "s3.secret_key" = "${objectSecretKey}"
+        );
+        """
+    }
     shouldFail {
         sql """
             CREATE REPOSITORY  ${objectStorageRepoName}
