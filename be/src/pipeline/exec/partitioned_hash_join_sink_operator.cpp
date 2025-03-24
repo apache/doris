@@ -332,7 +332,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
     VLOG_DEBUG << fmt::format("Query:{}, hash join sink:{}, task:{}, revoke_memory, eos:{}",
                               print_id(state->query_id()), _parent->node_id(), state->task_id(),
                               _child_eos);
-    CHECK_EQ(_spill_dependency->is_blocked_by(), false);
+    CHECK_EQ(_spill_dependency->is_blocked_by(), nullptr);
 
     if (!_shared_state->need_to_spill) {
         profile()->add_info_string("Spilled", "true");
