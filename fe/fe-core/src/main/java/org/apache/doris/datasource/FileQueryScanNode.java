@@ -40,6 +40,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -274,9 +275,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
+        StmtExecutor executor = ConnectContext.get().getExecutor();
         long start = System.currentTimeMillis();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
+        if (executor != null) {
+            executor.getSummaryProfile().setGetSplitsStartTime();
         }
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
@@ -328,8 +330,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys,
                     sessionVariable);
             splitAssignment.init();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            if (executor != null) {
+                executor.getSummaryProfile().setGetSplitsFinishTime();
             }
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
@@ -369,19 +371,39 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            if (executor != null) {
+                executor.getSummaryProfile().setGetSplitsFinishTime();
             }
             selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
+            int splitId = 0;
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
+                    TScanRangeLocations tScanRangeLocations =
+                            splitToScanRange(backend, locationProperties, split, pathPartitionKeys);
+                    scanRangeLocations.add(tScanRangeLocations);
                     totalFileSize += split.getLength();
+                    if (sessionVariable.showSplitProfileInfo() && executor != null) {
+                        AssignmentSplitInfoIf assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
+                        int id = splitId;
+                        tScanRangeLocations.getScanRange().getExtScanRange()
+                                .getFileScanRange().getRanges().forEach(range -> range.setSplitId(id));
+                        assignmentSplitInfo.setSplitId(id);
+                        splitId++;
+
+                        executor.getSummaryProfile()
+                                .setSplitProfileInfo(
+                                    backend,
+                                    assignmentSplitInfo.getSplitProfileInfo());
+                        executor.getSummaryProfile()
+                                .setSplitWeightProfileInfoMap(
+                                    backend,
+                                    assignmentSplitInfo.getSplitWeight());
+                    }
                 }
                 scanBackendIds.add(backend.getId());
             }
@@ -389,8 +411,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
+        if (executor != null) {
+            executor.getSummaryProfile().setCreateScanRangeFinishTime();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",

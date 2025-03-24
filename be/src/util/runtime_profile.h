@@ -278,6 +278,39 @@ public:
         DerivedCounterFunction _counter_fn;
     };
 
+    using ConditionCounterFunction = std::function<bool(int64_t, int64_t)>;
+
+    class ConditionCounter : public Counter {
+    public:
+        ConditionCounter(TUnit::type type, 
+                         const ConditionCounterFunction& condition_func,
+                         int64_t condition = 0,
+                         int64_t value = 0, 
+                         int64_t level = 2)
+            : Counter(type, value, level), 
+              _condition(condition),
+              _value(value),
+              _condition_func(condition_func) {}
+
+        virtual Counter* clone() const override {
+            return new ConditionCounter(type(), _condition_func, _condition, value(), level());
+        }
+
+        virtual int64_t value() const override { return _value; }
+
+        void conditional_update(int64_t c, int64_t v) {
+            if (_condition_func(_condition, c)) {
+                _value = v;
+                _condition = c;
+            }
+        }
+
+    private:
+        int64_t _condition;
+        int64_t _value;
+        ConditionCounterFunction _condition_func;
+    };
+
     // NonZeroCounter will not be converted to Thrift if the value is 0.
     class NonZeroCounter : public Counter {
     public:
@@ -391,6 +424,10 @@ public:
     DerivedCounter* add_derived_counter(const std::string& name, TUnit::type type,
                                         const DerivedCounterFunction& counter_fn,
                                         const std::string& parent_counter_name);
+
+    ConditionCounter* add_conditition_counter(const std::string& name, TUnit::type type,
+                                              const ConditionCounterFunction& counter_fn,
+                                              const std::string& parent_counter_name);
 
     // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.

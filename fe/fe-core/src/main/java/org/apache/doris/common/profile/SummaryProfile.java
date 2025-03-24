@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -124,9 +125,9 @@ public class SummaryProfile {
     public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
-    public static final String BATCH_MODE_SPLITS_ASSIGNMENT = "Batch Mode Splits Assignment";
-    public static final String BATCH_MODE_SPLITS_ASSIGNMENT_WEIGHT = "Weight";
-    public static final String BATCH_MODE_SPLITS_ASSIGNMENT_SPLIT_INFO = "Split Info";
+    public static final String SPLITS_ASSIGNMENT = "Splits Assignment";
+    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Weight";
+    public static final String SPLITS_ASSIGNMENT_SPLIT_INFO = "Split Info";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -185,7 +186,11 @@ public class SummaryProfile {
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
-            BATCH_MODE_SPLITS_ASSIGNMENT
+            NEREIDS_BE_FOLD_CONST_TIME,
+            NEREIDS_GARBAGE_COLLECT_TIME,
+            SPLITS_ASSIGNMENT,
+            SPLITS_ASSIGNMENT_WEIGHT,
+            SPLITS_ASSIGNMENT_SPLIT_INFO
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -221,8 +226,8 @@ public class SummaryProfile {
             .put(HMS_ADD_PARTITION_CNT, 2)
             .put(HMS_UPDATE_PARTITION_TIME, 1)
             .put(HMS_UPDATE_PARTITION_CNT, 2)
-            .put(BATCH_MODE_SPLITS_ASSIGNMENT_WEIGHT, 1)
-            .put(BATCH_MODE_SPLITS_ASSIGNMENT_SPLIT_INFO, 1)
+            .put(SPLITS_ASSIGNMENT_WEIGHT, 1)
+            .put(SPLITS_ASSIGNMENT_SPLIT_INFO, 1)
             .build();
 
     @SerializedName(value = "summaryProfile")
@@ -412,11 +417,11 @@ public class SummaryProfile {
 
     public void queryFinished() {
         executionSummaryProfile.addInfoString(
-                BATCH_MODE_SPLITS_ASSIGNMENT_WEIGHT,
-                new Gson().toJson(splitWeightProfileInfoMap));
+                SPLITS_ASSIGNMENT_WEIGHT,
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitWeightProfileInfoMap));
         executionSummaryProfile.addInfoString(
-                BATCH_MODE_SPLITS_ASSIGNMENT_SPLIT_INFO,
-                new Gson().toJson(splitProfileInfoMap));
+                SPLITS_ASSIGNMENT_SPLIT_INFO,
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitProfileInfoMap));
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
@@ -973,11 +978,11 @@ public class SummaryProfile {
     }
 
     public void setSplitWeightProfileInfoMap(Backend backend, Long weight) {
-        splitWeightProfileInfoMap.merge(backend.getHost(), weight, Long::sum);
+        splitWeightProfileInfoMap.merge(backend.getAddress(), weight, Long::sum);
     }
 
     public void setSplitProfileInfo(Backend backend, String splitProfileInfo) {
-        List<String> infos = splitProfileInfoMap.computeIfAbsent(backend.getHost(), k -> new ArrayList<>());
+        List<String> infos = splitProfileInfoMap.computeIfAbsent(backend.getAddress(), k -> new ArrayList<>());
         infos.add(splitProfileInfo);
     }
 }
