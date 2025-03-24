@@ -324,8 +324,8 @@ suite("eliminate_empty") {
     // union(A, empty) => A
     sql """
         set disable_nereids_rules='';
-        drop table dwd_bill_fact_bill_standard_info;
-        drop table ods_bill_fact_bill_jingdong_coupon;
+        drop table  if exists dwd_bill_fact_bill_standard_info;
+        drop table  if exists ods_bill_fact_bill_jingdong_coupon;
         CREATE TABLE `dwd_bill_fact_bill_standard_info` (
         `tenant_id` bigint NULL,
         `event_day` date NULL,
