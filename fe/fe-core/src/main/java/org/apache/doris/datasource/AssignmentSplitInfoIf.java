@@ -17,7 +17,12 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.thrift.TScanRangeLocations;
+
 public interface AssignmentSplitInfoIf {
+
+    TScanRangeLocations getScanRangeLocation();
+
     default String getSplitProfileInfo() {
         return "";
     }

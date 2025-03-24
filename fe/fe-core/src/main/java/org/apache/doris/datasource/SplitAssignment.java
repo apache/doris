@@ -167,11 +167,11 @@ public class SplitAssignment {
         }
     }
 
-    public BlockingQueue<Collection<AssignmentEmptySplitInfo>> getAssignedSplits(Backend backend) throws UserException {
+    public BlockingQueue<Collection<AssignmentSplitInfoIf>> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<AssignmentEmptySplitInfo>> splits = assignment.computeIfAbsent(backend,
+        BlockingQueue<Collection<AssignmentSplitInfoIf>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;

@@ -83,14 +83,14 @@ public class SplitSource {
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
         long startTime = System.currentTimeMillis();
         while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
-            BlockingQueue<Collection<AssignmentEmptySplitInfo>> splits = splitAssignment.getAssignedSplits(backend);
+            BlockingQueue<Collection<AssignmentSplitInfoIf>> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
             while (scanRanges.size() < maxBatchSize) {
                 try {
-                    Collection<AssignmentEmptySplitInfo> splitCollection =
+                    Collection<AssignmentSplitInfoIf> splitCollection =
                             splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
                     if (splitCollection != null) {
                         splitCollection.forEach(assignmentSplitInfo -> {
