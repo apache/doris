@@ -218,7 +218,6 @@ public:
                 }
             }
             // batch_size of array nested data every time inorder to avoid memory overflow
-            MutableColumns columns = lambda_block.mutate_columns();
             int batch_size = runtime_state->batch_size();
             while (columns[gap]->size() < batch_size) {
                 RETURN_IF_CANCELLED(runtime_state);
