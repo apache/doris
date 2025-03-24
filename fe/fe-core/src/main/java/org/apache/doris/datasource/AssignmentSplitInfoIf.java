@@ -19,18 +19,17 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.thrift.TScanRangeLocations;
 
-public class EmptySplitProfileInfo extends SplitProfileInfo {
-    public EmptySplitProfileInfo(long weight) {
-        super(weight);
+public interface AssignmentSplitInfoIf {
+
+    TScanRangeLocations getScanRangeLocation();
+
+    default String getSplitProfileInfo() {
+        return "";
     }
 
-    @Override
-    String getSplitInfo() {
-        return "(empty)";
-    }
+    default void setSplitId(int splitId) { }
 
-    public static AssignmentSplitInfo<EmptySplitProfileInfo> create(
-            long weight, TScanRangeLocations scanRangeLocations) {
-        return new AssignmentSplitInfo<>(new EmptySplitProfileInfo(weight), scanRangeLocations);
+    default long getSplitWeight() {
+        return -1;
     }
 }

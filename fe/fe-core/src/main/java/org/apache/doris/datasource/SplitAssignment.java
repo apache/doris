@@ -49,7 +49,7 @@ public class SplitAssignment {
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
-    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<AssignmentSplitInfo>>> assignment
+    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<AssignmentSplitInfoIf>>> assignment
             = new ConcurrentHashMap<>();
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
@@ -102,20 +102,22 @@ public class SplitAssignment {
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
             Collection<Split> splits = batch.get(backend);
-            List<AssignmentSplitInfo> assignmentSplitInfos = new ArrayList<>(splits.size());
+            List<AssignmentSplitInfoIf> assignmentSplitInfoIfs = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 TScanRangeLocations scanRange = splitToScanRange.getScanRange(
                         backend, locationProperties, split, pathPartitionKeys);
-                AssignmentSplitInfo assignmentSplitInfo;
-                // TODO mmc 判断是否使能了profile
-                if (sv.enableProfile()) {
-                    assignmentSplitInfo = split.toAssignmentSplitInfo(scanRange);
+                AssignmentSplitInfoIf assignmentEmptySplitInfo;
+                if (sv.showSplitProfileInfo()) {
+                    assignmentEmptySplitInfo = split.toAssignmentSplitInfo(scanRange);
                 } else {
-                    assignmentSplitInfo = new AssignmentSplitInfo(scanRange);
+                    assignmentEmptySplitInfo = AssignmentEmptySplitInfo.create(scanRange);
                 }
-                assignmentSplitInfos.add(assignmentSplitInfo);
+                assignmentSplitInfoIfs.add(assignmentEmptySplitInfo);
             }
-            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(assignmentSplitInfos)) {
+            if (!assignment.computeIfAbsent(
+                    backend,
+                    be -> new LinkedBlockingQueue<>())
+                    .offer(assignmentSplitInfoIfs)) {
                 throw new UserException("Failed to offer batch split");
             }
         }
@@ -164,11 +166,11 @@ public class SplitAssignment {
         }
     }
 
-    public BlockingQueue<Collection<AssignmentSplitInfo>> getAssignedSplits(Backend backend) throws UserException {
+    public BlockingQueue<Collection<AssignmentSplitInfoIf>> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<AssignmentSplitInfo>> splits = assignment.computeIfAbsent(backend,
+        BlockingQueue<Collection<AssignmentSplitInfoIf>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;

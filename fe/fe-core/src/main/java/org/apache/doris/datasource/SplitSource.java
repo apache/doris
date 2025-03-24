@@ -57,6 +57,7 @@ public class SplitSource {
     private final long maxWaitTime;
     private final Queue<String> splitProfileInfo = new ConcurrentLinkedQueue<>();
     SessionVariable sv;
+    StmtExecutor executor;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime,
                        SessionVariable sessionVariable) {
@@ -67,6 +68,9 @@ public class SplitSource {
         this.isLastBatch = new AtomicBoolean(false);
         this.sv = sessionVariable;
         splitAssignment.registerSource(uniqueId);
+        if (ConnectContext.get() != null) {
+            executor = ConnectContext.get().getExecutor();
+        }
     }
 
     public long getUniqueId() {
@@ -83,36 +87,31 @@ public class SplitSource {
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
         long startTime = System.currentTimeMillis();
         while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
-            BlockingQueue<Collection<AssignmentSplitInfo>> splits = splitAssignment.getAssignedSplits(backend);
+            BlockingQueue<Collection<AssignmentSplitInfoIf>> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
             while (scanRanges.size() < maxBatchSize) {
                 try {
-                    Collection<AssignmentSplitInfo> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
+                    Collection<AssignmentSplitInfoIf> splitCollection =
+                            splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
                     if (splitCollection != null) {
                         splitCollection.forEach(assignmentSplitInfo -> {
                             TScanRangeLocations scanRangeLocation = assignmentSplitInfo.getScanRangeLocation();
-                            // TODO mmc 如果有profile，就设置id
-                            if (sv.enableProfile()) {
+                            if (sv.showSplitProfileInfo() && executor != null) {
                                 int splitId = splitAssignment.getSplitId();
-                                // TODO mmc 往scanRangeLocation里面设置splitid
-//                                scanRangeLocation.setSplit_id(splitId);
+                                scanRangeLocation.getScanRange().getExtScanRange()
+                                        .getFileScanRange().getRanges().forEach(range -> range.setSplitId(splitId));
                                 assignmentSplitInfo.setSplitId(splitId);
-                                // TODO mmc  splitProfileInfo这个好像不需要？
-//                                splitProfileInfo.offer(assignmentSplitInfo.getSplitProfileInfo());
-                                StmtExecutor executor = ConnectContext.get().getExecutor();
-                                if (executor != null) {
-                                    executor.getSummaryProfile()
-                                            .setSplitProfileInfo(
-                                                    backend,
-                                                    assignmentSplitInfo.getSplitProfileInfo());
-                                    executor.getSummaryProfile()
-                                            .setSplitWeightProfileInfoMap(
-                                                    backend,
-                                                    assignmentSplitInfo.getSplitWeight());
-                                }
+                                executor.getSummaryProfile()
+                                        .setSplitProfileInfo(
+                                                backend,
+                                                assignmentSplitInfo.getSplitProfileInfo());
+                                executor.getSummaryProfile()
+                                        .setSplitWeightProfileInfoMap(
+                                                backend,
+                                                assignmentSplitInfo.getSplitWeight());
                             }
                             scanRanges.add(scanRangeLocation);
                         });

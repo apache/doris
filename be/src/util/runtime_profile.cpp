@@ -473,6 +473,26 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
     child_counters->insert(name);
 }
 
+RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
+        const std::string& name,
+        TUnit::type type,
+        const ConditionCounterFunction& counter_fn,
+        const std::string& parent_counter_name) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (_counter_map.find(name) != _counter_map.end()) {
+        DCHECK(dynamic_cast<ConditionCounter*>(_counter_map[name]));
+        return static_cast<ConditionCounter*>(_counter_map[name]);
+    }
+
+    ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
 RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 

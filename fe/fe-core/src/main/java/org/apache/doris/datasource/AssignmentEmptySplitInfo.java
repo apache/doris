@@ -21,29 +21,15 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import lombok.Getter;
 
-public class AssignmentSplitInfo<T extends SplitProfileInfo> {
+public class AssignmentEmptySplitInfo implements AssignmentSplitInfoIf {
     @Getter
     private final TScanRangeLocations scanRangeLocation;
-    private T info;
 
-    public AssignmentSplitInfo(T info, TScanRangeLocations scanRangeLocation) {
-        this.info = info;
+    public AssignmentEmptySplitInfo(TScanRangeLocations scanRangeLocation) {
         this.scanRangeLocation = scanRangeLocation;
     }
 
-    public AssignmentSplitInfo(TScanRangeLocations scanRangeLocation) {
-        this.scanRangeLocation = scanRangeLocation;
-    }
-
-    public void setSplitId(int splitId) {
-        info.setSplitId(splitId);
-    }
-
-    public String getSplitProfileInfo() {
-        return info.getProfileInfo();
-    }
-
-    public long getSplitWeight() {
-        return info.getWeight();
+    public static AssignmentEmptySplitInfo create(TScanRangeLocations scanRangeLocation) {
+        return new AssignmentEmptySplitInfo(scanRangeLocation);
     }
 }

@@ -308,7 +308,6 @@ public class Profile {
                 // Duration ls less than autoProfileDuration, remove it from memory.
                 long durationThreshold = executionProfiles.isEmpty()
                                     ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
-                // TODO mmc 这里是整个query结束，然后去更新split？
                 if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
                     ProfileManager.getInstance().removeProfile(this.getId());
                     if (LOG.isDebugEnabled()) {
