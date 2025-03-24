@@ -453,6 +453,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
@@ -2183,6 +2184,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUnhex(Unhex unhex, C context) {
         return visitScalarFunction(unhex, context);
+    }
+
+    default R visitUnhexNull(UnhexNull unhexNull, C context) {
+        return visitScalarFunction(unhexNull, context);
     }
 
     default R visitUnixTimestamp(UnixTimestamp unixTimestamp, C context) {
