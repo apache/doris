@@ -31,51 +31,47 @@ class CompactionPermitLimiterTest : public testing::Test {};
 
 TEST(CompactionPermitLimiterTest, UsageCorrectness) {
     CompactionPermitLimiter limiter;
-    
+
     // Initial usage should be 0
     EXPECT_EQ(0, limiter.usage());
-    
+
     // Test single request
     limiter.request(10);
     EXPECT_EQ(10, limiter.usage());
-    
+
     // Test release
     limiter.release(5);
     EXPECT_EQ(5, limiter.usage());
-    
+
     // Release all
     limiter.release(5);
     EXPECT_EQ(0, limiter.usage());
-    
+
     // Test multiple concurrent requests
     const int num_threads = 10;
     const int permits_per_thread = 100;
     std::vector<std::thread> threads;
-    
+
     for (int i = 0; i < num_threads; i++) {
-        threads.emplace_back([&limiter]() {
-            limiter.request(permits_per_thread);
-        });
+        threads.emplace_back([&limiter]() { limiter.request(permits_per_thread); });
     }
-    
+
     for (auto& t : threads) {
         t.join();
     }
-    
+
     EXPECT_EQ(num_threads * permits_per_thread, limiter.usage());
-    
+
     // Test multiple concurrent releases
     threads.clear();
     for (int i = 0; i < num_threads; i++) {
-        threads.emplace_back([&limiter]() {
-            limiter.release(permits_per_thread);
-        });
+        threads.emplace_back([&limiter]() { limiter.release(permits_per_thread); });
     }
-    
+
     for (auto& t : threads) {
         t.join();
     }
-    
+
     EXPECT_EQ(0, limiter.usage());
 }
 
