@@ -261,12 +261,12 @@ public abstract class Literal extends Expression implements LeafExpression {
                 return new CharLiteral(desc, ((CharType) targetType).getLen());
             }
         } else if (targetType.isVarcharType()) {
-            if (this.dataType.isDoubleType()) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
                 return new VarcharLiteral(desc.replaceAll("\\.0+$", ""), ((VarcharType) targetType).getLen());
             }
             return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
         } else if (targetType instanceof StringType) {
-            if (this.dataType.isDoubleType()) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
                 return new StringLiteral(desc.replaceAll("\\.0+$", ""));
             }
             return new StringLiteral(desc);
