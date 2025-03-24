@@ -21,14 +21,11 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <memory>
-#include <ostream>
 
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -388,10 +385,8 @@ public:
         _data_value.set_value(columns[0], pos);
     }
 
-    void set_default_value(const IColumn* column, size_t pos) {
-        // eg: lead(column, 10, default_value), column size maybe 3 rows
-        // offset value 10 is from second argument, pos: 11 is calculated as frame_end
-        pos = pos - _offset_value;
+    void set_value_from_default(const IColumn* column, size_t pos) {
+        DCHECK_GE(pos, 0);
         if (is_column_nullable(*column)) {
             const auto* nullable_column =
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
@@ -405,13 +400,15 @@ public:
         }
     }
 
-    void offset_value(const IColumn* column) {
+    void set_offset_value(const IColumn* column) {
         if (!_is_inited) {
             const auto* column_number = assert_cast<const ColumnInt64*>(column);
             _offset_value = column_number->get_data()[0];
             _is_inited = true;
         }
     }
+
+    int64_t get_offset_value() const { return _offset_value; }
 
 private:
     BaseValue<ColVecType, arg_is_nullable> _data_value;
@@ -424,8 +421,11 @@ struct WindowFunctionLeadImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         if (frame_end > partition_end) { //output default value, win end is under partition
-            this->offset_value(columns[1]);
-            this->set_default_value(columns[2], frame_end - 1);
+            this->set_offset_value(columns[1]);
+            // eg: lead(column, 10, default_value), column size maybe 3 rows
+            // offset value 10 is from second argument, pos: 11 is calculated as frame_end
+            auto pos = frame_end - 1 - this->get_offset_value();
+            this->set_value_from_default(columns[2], pos);
             return;
         }
         this->set_value(columns, frame_end - 1);
@@ -440,8 +440,9 @@ struct WindowFunctionLagImpl : Data {
                                 int64_t frame_end, const IColumn** columns) {
         // window start is beyond partition
         if (partition_start >= frame_end) { //[unbound preceding(0), offset preceding(-123)]
-            this->offset_value(columns[1]);
-            this->set_default_value(columns[2], frame_end - 1);
+            this->set_offset_value(columns[1]);
+            auto pos = frame_end - 1 + this->get_offset_value();
+            this->set_value_from_default(columns[2], pos);
             return;
         }
         this->set_value(columns, frame_end - 1);
