@@ -147,7 +147,6 @@ public interface NereidsLoadTaskInfo {
     class NereidsImportColumnDescs {
 
         public List<NereidsImportColumnDesc> descs = Lists.newArrayList();
-        public boolean isColumnDescsRewrited = false;
 
         /**
          * getFileColNames
