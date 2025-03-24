@@ -687,6 +687,11 @@ struct ConvertImplStringToJsonbAsJsonbString {
         ColumnString* dst_str = assert_cast<ColumnString*>(dst.get());
         const auto* from_string = assert_cast<const ColumnString*>(&col_from);
         JsonbWriter writer;
+        if (from_string->size() < input_rows_count) {
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument of conversion function",
+                    col_from.get_name());
+        }
         for (size_t i = 0; i < input_rows_count; i++) {
             auto str_ref = from_string->get_data_at(i);
             writer.reset();

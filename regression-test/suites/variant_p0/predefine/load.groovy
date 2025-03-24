@@ -245,4 +245,47 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """insert into test_predefine3 values (1, '{"auto_type" : 12345}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1.0}')"""
     qt_sql """desc test_predefine3"""
+
+    // test array
+    sql """
+    CREATE TABLE `region_insert` (
+      `k` bigint NULL,
+      `var` variant<c_acctbal:text,c_address:text,c_comment:text,c_custkey:text,c_mktsegment:text,c_name:text,c_nationkey:text,c_phone:text,p_brand:float,p_comment:text,p_container:text,p_mfgr:text,p_name:text,p_partkey:text,p_retailprice:text,p_size:text,p_type:text,r_comment:text,r_name:text,r_regionkey:text,ps_availqty:text,ps_comment:text,ps_none:text,ps_partkey:text,ps_suppkey:text,ps_supplycost:text,s_acctbal:text,s_address:text,s_comment:text,s_name:text,s_nationkey:text,s_phone:text,s_suppkey:text,l_comment:text,l_commitdate:text,l_discount:text,l_extendedprice:text,l_linenumber:text,l_linestatus:text,l_orderkey:text,l_partkey:text,l_quantity:text,l_receiptdate:text,l_returnflag:text,l_shipdate:text,l_shipinstruct:text,l_shipmode:text,l_suppkey:text,l_tax:text,n_comment:text,n_name:text,n_nationkey:text,n_regionkey:text,key_1:text,key_10:text,key_100:text,key_11:text,key_12:text,key_13:text,key_14:text,key_15:text,key_17:text,key_18:text,key_2:text,key_20:text,key_21:text,key_22:text,key_23:text,key_24:text,key_25:text,key_27:text,key_28:text,key_29:text,key_3:text,key_31:text,key_32:text,key_33:text,key_34:text,key_35:text,key_36:text,key_38:text,key_39:text,key_41:text,key_43:text,key_45:text,key_46:text,key_47:text,key_48:text,o_clerk:text,o_comment:text,o_custkey:text,o_orderdate:text,o_orderkey:text,o_orderpriority:text,o_orderstatus:text,o_shippriority:text,o_totalprice:text,key_80:array<boolean>> NULL,
+      `OfvZr` variant NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS 5
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "is_being_synced" = "false",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "inverted_index_storage_format" = "V2",
+    "light_schema_change" = "true",
+    "store_row_column" = "true",
+    "row_store_page_size" = "16384",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "group_commit_interval_ms" = "10000",
+    "group_commit_data_bytes" = "134217728"
+    );
+    """
+    sql """
+        insert into region_insert (k,var,OfvZr) values(1550,'{"key_48":"2024-12-17 20:27:12","key_11":"2024-12-17 20:27:12","key_53":"2024-12-17 20:27:12","key_30":"2024-12-17 20:27:12","key_3":"2024-12-17 20:27:12","key_93":"1HYdNTPvNA","key_40":true,"key_61":"N5LU74i0Nb","key_55":"2024-12-17 20:27:12","key_45":"mMj4f8k8gH","key_58":"2024-12-17 20:27:12","key_71":true,"key_51":"2024-12-17 20:27:12","key_79":"2024-12-17 20:27:12","key_7":"8QJFB23Rug","key_75":31,"key_50":"2024-12-17 20:27:12","key_24":86,"key_33":98,"key_69":16,"key_57":86,"key_86":"2024-12-17 20:27:12","key_99":24,"key_66":"oTZgDxKvcc","key_18":false,"key_49":"2024-12-17 20:27:12","key_2":false,"key_64":"h3DxAvBG8D","key_87":87,"key_37":42,"key_29":"wb29lruo8E","key_96":88,"key_9":83,"key_52":6,"key_97":"X7y409riGJ","key_72":false,"key_26":"2024-12-17 20:27:12","key_12":66,"key_88":false,"key_32":false,"key_6":true,"key_80":false,"key_89":"2024-12-17 20:27:12","key_1":false,"key_35":"2024-12-17 20:27:12","key_23":70,"key_95":23,"key_76":false,"key_92":true,"key_47":"zYM9IJXSxk","key_22":"2024-12-17 20:27:12","key_38":"P9arsVnb3q","key_56":"LU4SdelM46","key_28":24,"key_4":"GKXCKn1Kf9","key_83":29,"key_20":90,"key_43":"VA8xyYskJ1","key_81":22,"key_16":"2024-12-17 20:27:12","key_82":true,"key_84":"2024-12-17 20:27:12"}','{"key_87":"900oLqWX9Q","key_32":63,"key_79":true,"key_42":3,"key_98":20,"key_35":false,"key_19":"2024-12-17 20:27:12","key_89":"NO0TLqKAvS","key_77":"2024-12-17 20:27:12","key_34":false,"key_43":false,"key_30":true,"key_21":"2024-12-17 20:27:12","key_3":"oDDa0SZ7Bs","key_72":"2024-12-17 20:27:12","key_67":38,"key_82":"2024-12-17 20:27:12","key_37":"VWLDmiZbMr","key_16":true,"key_58":"42Mju9EbAS","key_94":false,"key_50":"cqv3qYmYuJ","key_28":28,"key_78":43,"key_2":"omTAZB0CxT","key_75":"4tAlWmcvnY","key_40":50,"key_33":"2024-12-17 20:27:12","key_70":"2024-12-17 20:27:12","key_25":"2024-12-17 20:27:12","key_54":false,"key_11":"2024-12-17 20:27:12","key_5":"ritjh4q9pJ","key_51":"DzQGqKQ95I","key_73":false,"key_10":"bPI94fvfL4","key_26":"AF5DtNU5Dj","key_80":66,"key_9":69,"key_83":false,"key_59":48,"key_24":"2024-12-17 20:27:12","key_84":36,"key_17":true,"key_44":18,"key_97":"JBw2ZZhDtF","key_74":15,"key_96":true,"key_62":"2024-12-17 20:27:12","key_65":"6iWPCv8FDR","key_53":"2024-12-17 20:27:12","key_95":false,"key_56":"3zyjHDYMJG","key_60":false,"key_23":"2024-12-17 20:27:12","key_8":"zbNpgWWYWS","key_81":"2024-12-17 20:27:12"}')
+    """
+    // test bf with bool
+    sql """
+        CREATE TABLE `test_bf_with_bool` (
+      `k` bigint NULL,
+      `var` variant<c_bool:boolean>
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS 5
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "bloom_filter_columns" = "var"
+    );
+    """
 }

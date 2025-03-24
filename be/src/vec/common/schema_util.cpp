@@ -190,8 +190,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_string_as_jsonb_string(true);
     ctx->set_jsonb_string_as_string(true);
     tmp_block.insert({nullptr, type, arg.name});
-    RETURN_IF_ERROR(
-            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
+    if (!function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size())) {
+        LOG_EVERY_N(WARNING, 100) << fmt::format("cast from {} to {}", arg.type->get_name(),
+                                                 type->get_name());
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
+        return Status::OK();
+    }
     *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
