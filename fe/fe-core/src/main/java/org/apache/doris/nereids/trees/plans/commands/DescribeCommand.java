@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
@@ -83,6 +84,7 @@ public class DescribeCommand extends ShowCommand {
     private TableNameInfo dbTableName;
     private boolean isAllTables = false;
     private boolean isOlapTable = false;
+    private boolean isEsTable = false;
 
     private PartitionNamesInfo partitionNames;
 
@@ -140,6 +142,15 @@ public class DescribeCommand extends ShowCommand {
         return builder.build();
     }
 
+    private static ShowResultSetMetaData getElasticsearchMetaData() {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        builder.addColumn(new Column("Hosts", ScalarType.createVarchar(100)));
+        builder.addColumn(new Column("User", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("Password", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("Index", ScalarType.createVarchar(100)));
+        return builder.build();
+    }
+
     /**
      * initEmptyRow
      */
@@ -164,6 +175,8 @@ public class DescribeCommand extends ShowCommand {
         } else {
             if (isOlapTable) {
                 return getAllMetaData();
+            } else if (isEsTable) {
+                return getElasticsearchMetaData();
             } else {
                 return getMysqlMetaData();
             }
@@ -402,6 +415,15 @@ public class DescribeCommand extends ShowCommand {
                             mysqlTable.getMysqlDatabaseName(),
                             mysqlTable.getMysqlTableName(),
                             mysqlTable.getCharset());
+                    rows.add(row);
+                } else if (table.getType() == TableIf.TableType.ELASTICSEARCH) {
+                    isOlapTable = false;
+                    isEsTable = true;
+                    EsTable esTable = (EsTable) table;
+                    List<String> row = Arrays.asList(esTable.getHosts(),
+                            esTable.getUserName(),
+                            "", // password
+                            esTable.getIndexName());
                     rows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());
