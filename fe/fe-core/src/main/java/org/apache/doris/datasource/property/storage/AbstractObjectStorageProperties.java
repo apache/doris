@@ -41,7 +41,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"maxConnections"}, required = false, description = "Maximum number of connections.")
+    @ConnectorProperty(names = {"connection.maximum"}, required = false, description = "Maximum number of connections.")
     protected int maxConnections = 100;
 
     /**
@@ -49,7 +49,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"requestTimeoutS"}, required = false, description = "Request timeout in seconds.")
+    @ConnectorProperty(names = {"connection.request.timeout"}, required = false, description = "Request timeout in seconds.")
     protected int requestTimeoutS = 10000;
 
     /**
@@ -57,7 +57,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      * This value is optional and can be configured by the user.
      */
     @Getter
-    @ConnectorProperty(names = {"connectionTimeoutS"}, required = false, description = "Connection timeout in seconds.")
+    @ConnectorProperty(names = {"connection.timeout"}, required = false, description = "Connection timeout in seconds.")
     protected int connectionTimeoutS = 10000;
 
     /**
@@ -66,10 +66,10 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      */
     @Setter
     @Getter
-    @ConnectorProperty(names = {"usePathStyle", "s3.path-style-access"}, required = false,
+    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
     protected boolean usePathStyle = false;
-    @ConnectorProperty(names = {"forceParsingByStandUrl"}, required = false,
+    @ConnectorProperty(names = {"force_parsing_by_standard_uri"}, required = false,
             description = "Whether to use path style URL for the storage.")
     @Setter
     @Getter
