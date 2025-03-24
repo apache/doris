@@ -388,6 +388,11 @@ TEST(function_string_test, function_string_substr_for_zero_test) {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Int32};
 
         DataSet data_set = {
+                {{std::string("AbCdEfg"), std::int32_t(0), std::int32_t(1)}, std::string("A")},
+                {{std::string("AbCdEfg"), std::int32_t(0), std::int32_t(5)}, std::string("AbCdE")},
+                {{std::string("AbCdEfg"), std::int32_t(0), std::int32_t(-1)}, std::string("")},
+                {{std::string("AbCdEfg"), std::int32_t(0), std::int32_t(100)},
+                 std::string("AbCdEfg")},
                 {{std::string("AbCdEfg"), std::int32_t(1), std::int32_t(1)}, std::string("A")},
                 {{std::string("AbCdEfg"), std::int32_t(1), std::int32_t(5)}, std::string("AbCdE")},
                 {{std::string("AbCdEfg"), std::int32_t(1), std::int32_t(-1)}, std::string("")},
@@ -696,6 +701,7 @@ TEST(function_string_test, function_string_substr_for_zero_test) {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
         DataSet data_set = {
+                {{std::string("ABC"), std::int32_t(0)}, std::string("ABC")},
                 {{std::string("ABC"), std::int32_t(123)}, std::string("")},
                 {{std::string("ABC"), std::int32_t(321)}, std::string("")},
                 {{std::string("ABC"), std::int32_t(1)}, std::string("ABC")},
