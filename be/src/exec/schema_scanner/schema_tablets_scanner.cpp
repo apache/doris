@@ -245,21 +245,21 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // IS_USED
     {
-        std::vector<char> srcs(fill_tablets_num);
+        std::vector<int8_t> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = static_cast<char>(tablet->is_used());
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+            srcs[i - fill_idx_begin] = tablet->is_used();
+            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
     }
     // IS_ALTER_FAILED
     {
-        std::vector<char> srcs(fill_tablets_num);
+        std::vector<int8_t> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = static_cast<char>(tablet->is_alter_failed());
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+            srcs[i - fill_idx_begin] = tablet->is_alter_failed();
+            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
     }
