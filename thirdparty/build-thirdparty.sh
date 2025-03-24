@@ -1879,7 +1879,7 @@ build_pugixml() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
-    cp -r "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src"/* "${TP_INSTALL_DIR}/include/"
+    cp -r "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/*.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
