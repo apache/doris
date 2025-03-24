@@ -112,7 +112,6 @@ TEST(StringOPTest, testPushValueStringNullable) {
 }
 
 TEST(StringOPTest, testPushValueStringReservedAndAllowOverflowNullable) {
-
     std::vector<std::string> original_test_strings = {"", "normal_string", "unused"};
     auto col_nullable = ColumnHelper::create_nullable_column<DataTypeString>(
             std::vector<std::string>(original_test_strings), {true, false, false});
@@ -135,7 +134,6 @@ TEST(StringOPTest, testPushValueStringReservedAndAllowOverflowNullable) {
         if (col_nullable->is_null_at(i)) {
             StringOP::push_null_string(i, rhs_chars, rhs_offsets, rhs_null_map);
         } else {
-
             rhs_chars.reserve(rhs_chars.size() + original_test_strings[i].size());
             StringOP::push_value_string_reserved_and_allow_overflow(original_test_strings[i], i,
                                                                     rhs_chars, rhs_offsets);
@@ -151,10 +149,9 @@ TEST(StringOPTest, testPushValueStringReservedAndAllowOverflowNullable) {
         } else {
             ASSERT_EQ(row_length, original_test_strings[i].size())
                     << "Row " << i << " length mismatch.";
-            std::string actual(reinterpret_cast<const char*>(rhs_chars.data() + (i == 0 ? 0 : rhs_offsets[i - 1])),
+            std::string actual(reinterpret_cast<const char*>(rhs_chars.data() + rhs_offsets[i - 1]),
                                row_length);
-            ASSERT_EQ(actual, original_test_strings[i])
-                    << "Row " << i << " content mismatch.";
+            ASSERT_EQ(actual, original_test_strings[i]) << "Row " << i << " content mismatch.";
         }
     }
 }
