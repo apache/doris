@@ -57,21 +57,43 @@ TEST(TimeValueTest, to_string) {
 }
 
 TEST(TimeValueTest, hour) {
-    TimeValue::TimeType time = 3723000000;
-    int result = TimeValue::hour(time);
-    EXPECT_EQ(result, 1);
+    {
+        TimeValue::TimeType time = 3723000000;
+        int result = TimeValue::hour(time);
+        EXPECT_EQ(result, 1);
+    }
+
+    {
+        TimeValue::TimeType time = -3723000000;
+        int result = TimeValue::hour(time);
+        EXPECT_EQ(result, 1);
+    }
 }
 
 TEST(TimeValueTest, minute) {
-    TimeValue::TimeType time = 3723000000;
-    int result = TimeValue::minute(time);
-    EXPECT_EQ(result, 2);
+    {
+        TimeValue::TimeType time = 3723000000;
+        int result = TimeValue::minute(time);
+        EXPECT_EQ(result, 2);
+    }
+    {
+        TimeValue::TimeType time = -3723000000;
+        int result = TimeValue::minute(time);
+        EXPECT_EQ(result, 2);
+    }
 }
 
 TEST(TimeValueTest, second) {
-    TimeValue::TimeType time = 3723000000;
-    int result = TimeValue::second(time);
-    EXPECT_EQ(result, 3);
+    {
+        TimeValue::TimeType time = 3723000000;
+        int result = TimeValue::second(time);
+        EXPECT_EQ(result, 3);
+    }
+    {
+        TimeValue::TimeType time = -3723000000;
+        int result = TimeValue::second(time);
+        EXPECT_EQ(result, 3);
+    }
 }
 
 TEST(TimeValueTest, from_second) {

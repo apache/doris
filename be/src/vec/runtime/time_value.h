@@ -41,33 +41,24 @@ public:
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
 
-    // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
-    // the time value between '-838:59:59' and '838:59:59'
-    /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
-    static int64_t check_over_max_time(double time) {
-        const static int64_t max_time = 3020399LL * 1000 * 1000;
-        // cast(-4562632 as time)
-        // -456:26:32
-        // hour(cast(-4562632 as time))
-        // 456
-        // second(cast(-4562632 as time))
-        // 32
-        if (time > max_time || time < -max_time) {
-            return max_time;
-        }
-        return static_cast<int64_t>(time);
-    }
-
+    // 根据小时/分钟/秒/微秒构造时间，不考虑符号
+    /// TODO: 可能我们需要保证这个函数都是输入正数
     static TimeType make_time(int64_t hour, int64_t minute, int64_t second,
                               int64_t microsecond = 0) {
-        int64_t value = hour * ONE_HOUR_MICROSECONDS + minute * ONE_MINUTE_MICROSECONDS +
-                        second * ONE_SECOND_MICROSECONDS + microsecond;
+        int64_t value = (hour * ONE_HOUR_MICROSECONDS) + (minute * ONE_MINUTE_MICROSECONDS) +
+                        (second * ONE_SECOND_MICROSECONDS) + microsecond;
         return static_cast<TimeType>(value);
     }
 
     static std::string to_string(TimeType time, int scale) {
         return timev2_to_buffer_from_double(time, scale);
     }
+
+    // 返回时间的小时/分钟/秒 部分，不考虑符号
+    /*
+        select cast(-121314 as time); -> -12:13:14
+        select hour(cast(-121314 as time)),minute(cast(-121314 as time)),second(cast(-121314 as time)); -> 12	13	14 
+    */
     static int32_t hour(TimeType time) {
         return static_cast<int32_t>(check_over_max_time(time) / ONE_HOUR_MICROSECONDS);
     }
@@ -80,26 +71,22 @@ public:
         return (check_over_max_time(time) / ONE_SECOND_MICROSECONDS) % ONE_MINUTE_SECONDS;
     }
 
+    // 根据秒数构造时间
     static TimeType from_second(int64_t sec) {
         return static_cast<TimeType>(sec * ONE_SECOND_MICROSECONDS);
-    }
-
-    static TimeType make_time_with_negative(bool negative, int64_t hour, int64_t minute,
-                                            int64_t second, int64_t microsecond = 0) {
-        return (negative ? -1 : 1) *
-               TimeValue::make_time(std::abs(hour), std::abs(minute), std::abs(second));
     }
 
     // Cast from string
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
-
-    constexpr static std::string_view date_time_format = "%Y-%m-%d %H:%i:%s";
     template <typename T>
     static bool try_parse_time(char* s, size_t len, T& x) {
         if (try_as_time(s, len, x)) {
             return true;
         } else {
+            // https://dbfiddle.uk/-A2s8r-2
+            // 例如这样的2013-01-01 01:02:03，我们有可以解析为datetime
+            constexpr static std::string_view date_time_format = "%Y-%m-%d %H:%i:%s";
             if (DateV2Value<doris::DateTimeV2ValueType> dv {};
                 dv.from_date_format_str(date_time_format.data(), date_time_format.size(), s, len)) {
                 // can be parse as a datetime
@@ -202,6 +189,30 @@ public:
         }
         x = TimeValue::make_time_with_negative(negative, hour, minute, second);
         return true;
+    }
+
+private:
+    // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+    // the time value between '-838:59:59' and '838:59:59'
+    /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
+    static int64_t check_over_max_time(double time) {
+        const static int64_t max_time = 3020399LL * 1000 * 1000;
+        // cast(-4562632 as time)
+        // -456:26:32
+        // hour(cast(-4562632 as time))
+        // 456
+        // second(cast(-4562632 as time))
+        // 32
+        if (time > max_time || time < -max_time) {
+            return max_time;
+        }
+        return std::abs(static_cast<int64_t>(time));
+    }
+
+    static TimeType make_time_with_negative(bool negative, int64_t hour, int64_t minute,
+                                            int64_t second, int64_t microsecond = 0) {
+        return (negative ? -1 : 1) *
+               TimeValue::make_time(std::abs(hour), std::abs(minute), std::abs(second));
     }
 };
 
