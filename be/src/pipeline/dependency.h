@@ -107,7 +107,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual bool is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read() {

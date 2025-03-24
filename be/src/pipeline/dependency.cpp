@@ -73,9 +73,9 @@ void Dependency::set_ready() {
     }
 }
 
-bool Dependency::is_blocked_by(PipelineTask* task) {
+Dependency* Dependency::is_blocked_by(PipelineTask* task) {
     if (task && task->wake_up_early()) {
-        return false;
+        return nullptr;
     }
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
@@ -84,7 +84,7 @@ bool Dependency::is_blocked_by(PipelineTask* task) {
         start_watcher();
         THROW_IF_ERROR(task->blocked(this));
     }
-    return !ready;
+    return ready ? nullptr : this;
 }
 
 std::string Dependency::debug_string(int indentation_level) {
