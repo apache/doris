@@ -1723,5 +1723,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select split_by_string('a😁a😁a', '')")
     testFoldConst("select character_length('a😁a😁a')")
     testFoldConst("select replace_empty('a😁a😁a', '', '2')")
+
+    // bug_fix
+    testFoldConst("select concat(substr('2025-03-20',1,4)-1,'-01-01')")
+    testFoldConst("select cast(2025.00 as string)")
 }
 
