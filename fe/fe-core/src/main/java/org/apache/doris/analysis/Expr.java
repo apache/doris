@@ -1013,7 +1013,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         msg.output_scale = getOutputScale();
-        msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
+        if (nullableFromNereids.isPresent()) {
+            if (nullableFromNereids.get() != isNullable()) {
+                msg.setIsNullable(nullableFromNereids.get());
+            }
+        }
+        msg.setIsNullable(isNullable());
         visitor.visit(this, msg);
         container.addToNodes(msg);
         for (Expr child : children) {
