@@ -303,15 +303,21 @@ public class TabletInvertedIndex {
         cooldownTablets.forEach(p -> handleCooldownConf(p.first, p.second, cooldownConfToPush, cooldownConfToUpdate));
 
         long end = System.currentTimeMillis();
+        long toClearTransactionsNum = transactionsToClear.keySet().size();
+        long toClearTransactionsPartitions = transactionsToClear.values().size();
+        long toPublishTransactionsNum = transactionsToPublish.values().stream()
+                                        .mapToLong(m -> m.keySet().size()).sum();
+        long toPublishTransactionsPartitions = transactionsToPublish.values().stream()
+                                               .mapToLong(m -> m.values().size()).sum();
         LOG.info("finished to do tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. sync: {}."
                         + " metaDel: {}. foundInMeta: {}. migration: {}. backend partition num: {}, backend need "
-                        + "update: {}. found invalid transactions {}. found republish "
-                        + "transactions {}. tabletToUpdate: {}. need recovery: {}. cost: {} ms",
+                        + "update: {}. found invalid transactions {}(partitions: {}). found republish "
+                        + "transactions {}(partitions: {}). tabletToUpdate: {}. need recovery: {}. cost: {} ms",
                 backendId, feTabletNum, backendTablets.size(), tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
-                backendPartitionsVersion.size(), partitionVersionSyncMap.size(),
-                transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
-                tabletRecoveryMap.size(), (end - start));
+                backendPartitionsVersion.size(), partitionVersionSyncMap.size(), toClearTransactionsNum,
+                toClearTransactionsPartitions, toPublishTransactionsNum, toPublishTransactionsPartitions,
+                tabletToUpdate.size(), tabletRecoveryMap.size(), (end - start));
     }
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
