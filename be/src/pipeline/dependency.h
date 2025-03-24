@@ -107,7 +107,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read() {
@@ -267,12 +267,13 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
+    RuntimeFilterDependency(int id, int node_id, std::string name,
+                            RuntimeFilterConsumer* runtime_filter)
             : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
-    const IRuntimeFilter* _runtime_filter = nullptr;
+    const RuntimeFilterConsumer* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -646,6 +647,7 @@ public:
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    std::mutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {
@@ -805,11 +807,5 @@ public:
     }
 };
 
-class QueryGlobalDependency final : public Dependency {
-    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
-    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
-    ~QueryGlobalDependency() override = default;
-    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -88,17 +88,6 @@ public:
     }
 
     template <typename DataType>
-    static Block create_block(const std::vector<typename DataType::FieldType>& data1,
-                              const std::vector<typename DataType::FieldType>& data2) {
-        auto column1 = create_column<DataType>(data1);
-        auto column2 = create_column<DataType>(data2);
-        auto data_type = std::make_shared<DataType>();
-        Block block({ColumnWithTypeAndName(column1, data_type, "column1"),
-                     ColumnWithTypeAndName(column2, data_type, "column2")});
-        return block;
-    }
-
-    template <typename DataType>
     static Block create_nullable_block(const std::vector<typename DataType::FieldType>& data,
                                        const std::vector<typename NullMap::value_type>& null_map) {
         auto column = create_nullable_column<DataType>(data, null_map);
