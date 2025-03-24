@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.AssignmentSplitInfo;
+import org.apache.doris.datasource.AssignmentSplitInfoIf;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.PaimonSplitProfileInfo;
 import org.apache.doris.datasource.SplitCreator;
@@ -130,7 +130,7 @@ public class PaimonSplit extends FileSplit {
     }
 
     @Override
-    public AssignmentSplitInfo<PaimonSplitProfileInfo> toAssignmentSplitInfo(TScanRangeLocations scanRangeLocations) {
+    public AssignmentSplitInfoIf toAssignmentSplitInfo(TScanRangeLocations scanRangeLocations) {
         return PaimonSplitProfileInfo.create(this, scanRangeLocations);
     }
 }

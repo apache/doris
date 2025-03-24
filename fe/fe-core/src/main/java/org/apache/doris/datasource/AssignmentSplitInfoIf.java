@@ -17,33 +17,14 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.thrift.TScanRangeLocations;
-
-import lombok.Getter;
-
-public class AssignmentSplitInfo<T extends SplitProfileInfo> {
-    @Getter
-    private final TScanRangeLocations scanRangeLocation;
-    private T info;
-
-    public AssignmentSplitInfo(T info, TScanRangeLocations scanRangeLocation) {
-        this.info = info;
-        this.scanRangeLocation = scanRangeLocation;
+public interface AssignmentSplitInfoIf {
+    default String getSplitProfileInfo() {
+        return "";
     }
 
-    public AssignmentSplitInfo(TScanRangeLocations scanRangeLocation) {
-        this.scanRangeLocation = scanRangeLocation;
-    }
+    default void setSplitId(int splitId) { }
 
-    public void setSplitId(int splitId) {
-        info.setSplitId(splitId);
-    }
-
-    public String getSplitProfileInfo() {
-        return info.getProfileInfo();
-    }
-
-    public long getSplitWeight() {
-        return info.getWeight();
+    default long getSplitWeight() {
+        return -1;
     }
 }

@@ -19,18 +19,17 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.thrift.TScanRangeLocations;
 
-public class EmptySplitProfileInfo extends SplitProfileInfo {
-    public EmptySplitProfileInfo(long weight) {
-        super(weight);
+import lombok.Getter;
+
+public class AssignmentEmptySplitInfo implements AssignmentSplitInfoIf {
+    @Getter
+    private final TScanRangeLocations scanRangeLocation;
+
+    public AssignmentEmptySplitInfo(TScanRangeLocations scanRangeLocation) {
+        this.scanRangeLocation = scanRangeLocation;
     }
 
-    @Override
-    String getSplitInfo() {
-        return "(empty)";
-    }
-
-    public static AssignmentSplitInfo<EmptySplitProfileInfo> create(
-            long weight, TScanRangeLocations scanRangeLocations) {
-        return new AssignmentSplitInfo<>(new EmptySplitProfileInfo(weight), scanRangeLocations);
+    public static AssignmentEmptySplitInfo create(TScanRangeLocations scanRangeLocation) {
+        return new AssignmentEmptySplitInfo(scanRangeLocation);
     }
 }

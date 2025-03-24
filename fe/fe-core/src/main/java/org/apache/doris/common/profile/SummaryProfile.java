@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -418,10 +419,10 @@ public class SummaryProfile {
     public void queryFinished() {
         executionSummaryProfile.addInfoString(
                 SPLITS_ASSIGNMENT_WEIGHT,
-                new Gson().toJson(splitWeightProfileInfoMap));
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitWeightProfileInfoMap));
         executionSummaryProfile.addInfoString(
                 SPLITS_ASSIGNMENT_SPLIT_INFO,
-                new Gson().toJson(splitProfileInfoMap));
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitProfileInfoMap));
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {

@@ -27,7 +27,7 @@ import org.apache.paimon.table.source.Split;
 import java.util.List;
 
 public class PaimonSplitProfileInfo extends SplitProfileInfo {
-    private PaimonSplit paimonSplit;
+    private final PaimonSplit paimonSplit;
 
     public PaimonSplitProfileInfo(long weight, PaimonSplit paimonSplit) {
         super(weight);
@@ -46,7 +46,8 @@ public class PaimonSplitProfileInfo extends SplitProfileInfo {
                     .append(",")
                     .append(paimonSplit.getLength())
                     .append(",")
-                    .append(paimonSplit.getFileLength());
+                    .append(paimonSplit.getFileLength())
+                    .append("}");
         } else {
             if (split instanceof DataSplit) {
                 List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
@@ -69,9 +70,9 @@ public class PaimonSplitProfileInfo extends SplitProfileInfo {
         return sb.toString();
     }
 
-    public static AssignmentSplitInfo<PaimonSplitProfileInfo> create(
+    public static AssignmentWithSplitInfo<PaimonSplitProfileInfo> create(
             PaimonSplit paimonSplit, TScanRangeLocations scanRangeLocations) {
-        return new AssignmentSplitInfo<>(new PaimonSplitProfileInfo(
+        return new AssignmentWithSplitInfo<>(new PaimonSplitProfileInfo(
                 paimonSplit.getSplitWeight().getRawValue(), paimonSplit), scanRangeLocations);
     }
 }

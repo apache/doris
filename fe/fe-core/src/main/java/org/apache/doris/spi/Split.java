@@ -17,9 +17,8 @@
 
 package org.apache.doris.spi;
 
-import org.apache.doris.datasource.AssignmentSplitInfo;
-import org.apache.doris.datasource.EmptySplitProfileInfo;
-import org.apache.doris.datasource.SplitProfileInfo;
+import org.apache.doris.datasource.AssignmentEmptySplitInfo;
+import org.apache.doris.datasource.AssignmentSplitInfoIf;
 import org.apache.doris.datasource.SplitWeight;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -58,8 +57,7 @@ public interface Split {
 
     void setTargetSplitSize(Long targetSplitSize);
 
-    default AssignmentSplitInfo<? extends SplitProfileInfo> toAssignmentSplitInfo(
-            TScanRangeLocations scanRangeLocations) {
-        return EmptySplitProfileInfo.create(getSplitWeight().getRawValue(), scanRangeLocations);
+    default AssignmentSplitInfoIf toAssignmentSplitInfo(TScanRangeLocations scanRangeLocations) {
+        return AssignmentEmptySplitInfo.create(scanRangeLocations);
     }
 }
