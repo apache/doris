@@ -46,11 +46,12 @@ public:
     ~BoolPlainDecoder() override = default;
 
     // Set the data to be decoded
-    void set_data(Slice* data) override {
+    Status set_data(Slice* data) override {
         bool_values_.Reset((const uint8_t*)data->data, data->size);
         num_unpacked_values_ = 0;
         unpacked_value_idx_ = 0;
         _offset = 0;
+        return Status::OK();
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,

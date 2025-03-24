@@ -47,10 +47,6 @@ public:
 
     ~DeltaDecoder() override = default;
 
-    Status skip_values(size_t num_values) override {
-        return _type_converted_decoder->skip_values(num_values);
-    }
-
     template <bool has_filter>
     Status decode_byte_array(const std::vector<Slice>& decoded_vals, MutableColumnPtr& doris_column,
                              DataTypePtr& data_type, ColumnSelectVector& select_vector) {
@@ -125,9 +121,10 @@ public:
     }
 
 protected:
-    void init_values_converter() {
-        _type_converted_decoder->set_data(_data);
+    Status init_values_converter() {
+        RETURN_IF_ERROR(_type_converted_decoder->set_data(_data));
         _type_converted_decoder->set_type_length(_type_length);
+        return Status::OK();
     }
     // Convert decoded value to doris type value.
     std::unique_ptr<Decoder> _type_converted_decoder;
@@ -148,6 +145,13 @@ public:
 
     DeltaBitPackDecoder() : DeltaDecoder(new FixLengthPlainDecoder()) {}
     ~DeltaBitPackDecoder() override = default;
+
+    Status skip_values(size_t num_values) override {
+        _values.resize(num_values);
+        uint32_t num_valid_values;
+        return _get_internal(_values.data(), cast_set<int32_t>(num_values), &num_valid_values);
+    }
+
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
@@ -160,7 +164,7 @@ public:
         _type_length = sizeof(T);
         _data->size = _values.size() * _type_length;
         // set decoded value with fix plain decoder
-        init_values_converter();
+        RETURN_IF_ERROR(init_values_converter());
         return _type_converted_decoder->decode_values(doris_column, data_type, select_vector,
                                                       is_dict_filter);
     }
@@ -174,27 +178,21 @@ public:
         return _total_values_remaining;
     }
 
-    void set_data(Slice* slice) override {
+    Status set_data(Slice* slice) override {
         _bit_reader.reset(
                 new BitReader((const uint8_t*)slice->data, cast_set<uint32_t>(slice->size)));
-        Status st = _init_header();
-        if (!st.ok()) {
-            throw Exception(Status::FatalError("Fail to init delta encoding header for {}",
-                                               st.to_string()));
-        }
+        RETURN_IF_ERROR(_init_header());
         _data = slice;
         _offset = 0;
+        return Status::OK();
     }
 
     // Set BitReader which is already initialized by DeltaLengthByteArrayDecoder or
     // DeltaByteArrayDecoder
-    void set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
+    Status set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
         _bit_reader = std::move(bit_reader);
-        Status st = _init_header();
-        if (!st.ok()) {
-            throw Exception(Status::FatalError("Fail to init delta encoding header for {}",
-                                               st.to_string()));
-        }
+        RETURN_IF_ERROR(_init_header());
+        return Status::OK();
     }
 
 private:
@@ -270,25 +268,27 @@ public:
         return _get_internal(buffer, num_values, out_num_values);
     }
 
-    void set_data(Slice* slice) override {
+    Status set_data(Slice* slice) override {
         if (slice->size == 0) {
-            return;
+            return Status::OK();
         }
         _bit_reader = std::make_shared<BitReader>((const uint8_t*)slice->data, slice->size);
         _data = slice;
         _offset = 0;
-        _decode_lengths();
+        RETURN_IF_ERROR(_decode_lengths());
+        return Status::OK();
     }
 
-    void set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
+    Status set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
         _bit_reader = std::move(bit_reader);
-        _decode_lengths();
+        RETURN_IF_ERROR(_decode_lengths());
+        return Status::OK();
     }
 
 private:
     // Decode all the encoded lengths. The decoder_ will be at the start of the encoded data
     // after that.
-    void _decode_lengths();
+    Status _decode_lengths();
     Status _get_internal(Slice* buffer, int max_values, int* out_num_values);
 
     std::vector<Slice> _values;
@@ -339,30 +339,29 @@ public:
         }
     }
 
-    void set_data(Slice* slice) override {
+    Status set_data(Slice* slice) override {
         _bit_reader = std::make_shared<BitReader>((const uint8_t*)slice->data, slice->size);
-        _prefix_len_decoder.set_bit_reader(_bit_reader);
+        RETURN_IF_ERROR(_prefix_len_decoder.set_bit_reader(_bit_reader));
 
         // get the number of encoded prefix lengths
-        uint32_t num_prefix = _prefix_len_decoder.valid_values_count();
+        int num_prefix = _prefix_len_decoder.valid_values_count();
         // call _prefix_len_decoder.Decode to decode all the prefix lengths.
         // all the prefix lengths are buffered in _buffered_prefix_length.
         _buffered_prefix_length.resize(num_prefix);
         uint32_t ret;
-        Status st = _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret);
-        if (!st.ok()) {
-            throw Exception(Status::FatalError("Fail to decode delta prefix, status: {}", st));
-        }
+        RETURN_IF_ERROR(
+                _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret));
         DCHECK_EQ(ret, num_prefix);
         _prefix_len_offset = 0;
         _num_valid_values = num_prefix;
 
         // at this time, the decoder_ will be at the start of the encoded suffix data.
-        _suffix_decoder.set_bit_reader(_bit_reader);
+        RETURN_IF_ERROR(_suffix_decoder.set_bit_reader(_bit_reader));
 
         // TODO: read corrupted files written with bug(PARQUET-246). _last_value should be set
         // to _last_value_in_previous_page when decoding a new page(except the first page)
         _last_value = "";
+        return Status::OK();
     }
 
     Status decode(Slice* buffer, int num_values, int* out_num_values) {
@@ -523,121 +522,6 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
     return Status::OK();
 }
 
-void DeltaLengthByteArrayDecoder::_decode_lengths() {
-    _len_decoder.set_bit_reader(_bit_reader);
-    // get the number of encoded lengths
-    int num_length = _len_decoder.valid_values_count();
-    _buffered_length.resize(num_length);
-
-    // decode all the lengths. all the lengths are buffered in buffered_length_.
-    uint32_t ret;
-    Status st = _len_decoder.decode(_buffered_length.data(), num_length, &ret);
-    if (!st.ok()) {
-        throw Exception(Status::FatalError("Fail to decode delta length, status: {}", st));
-    }
-    DCHECK_EQ(ret, num_length);
-    _length_idx = 0;
-    _num_valid_values = num_length;
-}
-
-Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
-                                                  int* out_num_values) {
-    // Decode up to `max_values` strings into an internal buffer
-    // and reference them into `buffer`.
-    max_values = std::min(max_values, _num_valid_values);
-    if (max_values == 0) {
-        *out_num_values = 0;
-        return Status::OK();
-    }
-
-    int32_t data_size = 0;
-    const int32_t* length_ptr = _buffered_length.data() + _length_idx;
-    for (int i = 0; i < max_values; ++i) {
-        int32_t len = length_ptr[i];
-        if (PREDICT_FALSE(len < 0)) {
-            return Status::InvalidArgument("Negative string delta length");
-        }
-        buffer[i].size = len;
-        if (common::add_overflow(data_size, len, data_size)) {
-            return Status::InvalidArgument("Excess expansion in DELTA_(LENGTH_)BYTE_ARRAY");
-        }
-    }
-    _length_idx += max_values;
-
-    _buffered_data.resize(data_size);
-    char* data_ptr = _buffered_data.data();
-    for (int j = 0; j < data_size; j++) {
-        if (!_bit_reader->GetValue(8, data_ptr + j)) {
-            return Status::IOError("Get length bytes EOF");
-        }
-    }
-
-    for (int i = 0; i < max_values; ++i) {
-        buffer[i].data = data_ptr;
-        data_ptr += buffer[i].size;
-    }
-    // this->num_values_ -= max_values;
-    _num_valid_values -= max_values;
-    *out_num_values = max_values;
-    return Status::OK();
-}
-
-Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* out_num_values) {
-    // Decode up to `max_values` strings into an internal buffer
-    // and reference them into `buffer`.
-    max_values = std::min(max_values, _num_valid_values);
-    if (max_values == 0) {
-        *out_num_values = max_values;
-        return Status::OK();
-    }
-
-    int suffix_read;
-    RETURN_IF_ERROR(_suffix_decoder.decode(buffer, max_values, &suffix_read));
-    if (PREDICT_FALSE(suffix_read != max_values)) {
-        return Status::IOError("Read {}, expecting {} from suffix decoder",
-                               std::to_string(suffix_read), std::to_string(max_values));
-    }
-
-    int64_t data_size = 0;
-    const int32_t* prefix_len_ptr = _buffered_prefix_length.data() + _prefix_len_offset;
-    for (int i = 0; i < max_values; ++i) {
-        if (PREDICT_FALSE(prefix_len_ptr[i] < 0)) {
-            return Status::InvalidArgument("negative prefix length in DELTA_BYTE_ARRAY");
-        }
-        if (PREDICT_FALSE(common::add_overflow(data_size, static_cast<int64_t>(prefix_len_ptr[i]),
-                                               data_size) ||
-                          common::add_overflow(data_size, static_cast<int64_t>(buffer[i].size),
-                                               data_size))) {
-            return Status::InvalidArgument("excess expansion in DELTA_BYTE_ARRAY");
-        }
-    }
-    _buffered_data.resize(data_size);
-
-    std::string_view prefix {_last_value};
-
-    char* data_ptr = _buffered_data.data();
-    for (int i = 0; i < max_values; ++i) {
-        if (PREDICT_FALSE(static_cast<size_t>(prefix_len_ptr[i]) > prefix.length())) {
-            return Status::InvalidArgument("prefix length too large in DELTA_BYTE_ARRAY");
-        }
-        memcpy(data_ptr, prefix.data(), prefix_len_ptr[i]);
-        // buffer[i] currently points to the string suffix
-        memcpy(data_ptr + prefix_len_ptr[i], buffer[i].data, buffer[i].size);
-        buffer[i].data = data_ptr;
-        buffer[i].size += prefix_len_ptr[i];
-        data_ptr += buffer[i].size;
-        prefix = std::string_view {buffer[i].data, buffer[i].size};
-    }
-    _prefix_len_offset += max_values;
-    _num_valid_values -= max_values;
-    _last_value = std::string {prefix};
-
-    if (_num_valid_values == 0) {
-        _last_value_in_previous_page = _last_value;
-    }
-    *out_num_values = max_values;
-    return Status::OK();
-}
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
