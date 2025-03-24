@@ -125,7 +125,7 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
-            skipCheckingAcidVersionFile = ConnectContext.get().getSessionVariable().skipCheckingAcidVersionFile;
+            skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
     }
 
@@ -414,9 +414,9 @@ public class HiveScanNode extends FileQueryScanNode {
                     || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
-                if (!ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()) {
+                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
                     type = TFileFormatType.FORMAT_JSON;
-                } else if (ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()
+                } else if (sessionVariable.isReadHiveJsonInOneColumn()
                         && hmsTable.firstColumnIsString()) {
                     type = TFileFormatType.FORMAT_CSV_PLAIN;
                 } else {
@@ -460,7 +460,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
             fileAttributes.setEnableTextValidateUtf8(
-                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+                    sessionVariable.enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set set properties of OpenCSVSerde
@@ -478,7 +478,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
             fileAttributes.setEnableTextValidateUtf8(
-                    ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+                    sessionVariable.enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setColumnSeparator("\t");
@@ -493,7 +493,7 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
         } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
-            if (!ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()) {
+            if (!sessionVariable.isReadHiveJsonInOneColumn()) {
                 TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
                 textParams.setColumnSeparator("\t");
                 textParams.setLineDelimiter("\n");
@@ -509,7 +509,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
                 fileAttributes.setOpenxJsonIgnoreMalformed(
                         Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
-            } else if (ConnectContext.get().getSessionVariable().isReadHiveJsonInOneColumn()
+            } else if (sessionVariable.isReadHiveJsonInOneColumn()
                     && hmsTable.firstColumnIsString()) {
                 TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
                 textParams.setLineDelimiter("\n");
