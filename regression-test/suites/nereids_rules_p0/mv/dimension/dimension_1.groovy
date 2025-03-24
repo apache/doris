@@ -22,7 +22,6 @@ suite("partition_mv_rewrite_dimension_1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
-    sql "set enable_eliminate_const_join_condition=false;"
 
     sql """
     drop table if exists orders_1
