@@ -341,6 +341,8 @@ supportedShowStatement
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
+    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
+        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     ;
 
 supportedLoadStatement
@@ -399,8 +401,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
-        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
