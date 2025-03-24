@@ -73,7 +73,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
             description = "Whether to use path style URL for the storage.")
     @Setter
     @Getter
-    protected boolean forceParsingByStandUrl = false;
+    protected boolean forceParsingByStandardUrl = false;
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
