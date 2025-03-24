@@ -909,11 +909,19 @@ struct FunctionJsonExtractImpl {
                 null_map[row] = 1;
                 result_column.insert_default();
             } else {
-                // write value as string
-                buf.Clear();
-                writer.Reset(buf);
-                value.Accept(writer);
-                result_column.insert_data(buf.GetString(), buf.GetSize());
+                // Check if the value is a string
+                if (value.IsString()) {
+                    // Get the string value without quotes
+                    const char* str_ptr = value.GetString();
+                    size_t len = value.GetStringLength();
+                    result_column.insert_data(str_ptr, len); // Insert without quotes
+                } else {
+                    // Write value as string for other types
+                    buf.Clear();
+                    writer.Reset(buf);
+                    value.Accept(writer);
+                    result_column.insert_data(buf.GetString(), buf.GetSize());
+                }
             }
         };
         if (data_columns.size() == 2) {

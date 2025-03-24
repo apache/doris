@@ -1442,6 +1442,9 @@ visible_functions = {
         [['round_bankers', 'round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
 
         [['sign'], 'TINYINT', ['DOUBLE'], ''],
+        [['sign_float'], 'DECIMAL32', ['DECIMAL32'], ''],
+        [['sign_float'], 'DECIMAL32', ['DECIMAL64'], ''],
+        [['sign_float'], 'DECIMAL32', ['DECIMAL128'], ''],
         [['sin'], 'DOUBLE', ['DOUBLE'], ''],  
         [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'], ''],
         
@@ -1454,7 +1457,9 @@ visible_functions = {
         [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
         
         [['unhex'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
-        [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
+        [['unhex'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT'],
+        [['unhex_null'], 'VARCHAR', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['unhex_null'], 'STRING', ['STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
     # Conditional Functions
