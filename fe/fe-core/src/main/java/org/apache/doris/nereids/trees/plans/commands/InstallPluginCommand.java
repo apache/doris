@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -84,5 +85,16 @@ public class InstallPluginCommand extends Command implements ForwardWithSync {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSTALL PLUGIN FROM ").append("\"" + source + "\"");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append("\nPROPERTIES (");
+            sb.append(new PrintableMap<String, String>(properties, " = ", true, true, true));
+            sb.append(")");
+        }
+        return sb.toString();
+    }
 }
 
