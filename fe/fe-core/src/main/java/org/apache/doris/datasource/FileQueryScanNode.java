@@ -379,6 +379,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 return;
             }
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
+            int splitId = 0;
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
@@ -390,6 +391,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                         AssignmentSplitInfo<? extends SplitProfileInfo> assignmentSplitInfo;
                         if (sessionVariable.enableProfile()) {
                             assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
+                            assignmentSplitInfo.setSplitId(splitId++);
                         } else {
                             assignmentSplitInfo = new AssignmentSplitInfo<>(tScanRangeLocations);
                         }
