@@ -661,6 +661,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
@@ -6227,6 +6228,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException(e.getDetailMessage());
         }
         return new DescribeCommand(tableValuedFunctionRef);
+    }
+
+    @Override
+    public LogicalPlan visitShowTableStats(DorisParser.ShowTableStatsContext ctx) {
+        if (ctx.tableId != null) {
+            return new ShowTableStatsCommand(Long.parseLong(ctx.tableId.getText()));
+        } else {
+            TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+            PartitionNamesInfo partitionNamesInfo = null;
+            if (ctx.partitionSpec() != null) {
+                Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+                partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
+            }
+
+            List<String> columnNames = new ArrayList<>();
+            if (ctx.columnList != null) {
+                columnNames.addAll(visitIdentifierList(ctx.columnList));
+            }
+            return new ShowTableStatsCommand(tableNameInfo, columnNames, partitionNamesInfo);
+        }
     }
 
     @Override
