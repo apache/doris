@@ -1304,7 +1304,7 @@ void StorageEngine::do_remove_unused_remote_files() {
             }
             cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
         }
-        auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
+        auto [cooldown_term, cooldown_replica_id] = t->cooldown_conf();
         if (cooldown_replica_id != t->replica_id()) {
             return;
         }
@@ -1476,6 +1476,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                         if (!cold_compaction_lock.owns_lock()) {
                             LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
                                          << t->tablet_id();
+                        }
+                        if (t->get_cumulative_compaction_policy() == nullptr ||
+                            t->get_cumulative_compaction_policy()->name() !=
+                                    t->tablet_meta()->compaction_policy()) {
+                            t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
+                                    t->tablet_meta()->compaction_policy()));
                         }
                         auto st = compaction->compact();
                         {

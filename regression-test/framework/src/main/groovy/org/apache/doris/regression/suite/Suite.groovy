@@ -17,6 +17,12 @@
 
 package org.apache.doris.regression.suite
 
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -84,6 +90,8 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+
+    private AmazonS3 s3Client = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -905,6 +913,16 @@ class Suite implements GroovyInterceptable {
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
+    }
+
+    synchronized AmazonS3 getS3Client() {
+        if (s3Client == null) {
+            def credentials = new BasicAWSCredentials(getS3AK(), getS3SK())
+            def endpointConfiguration = new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region())
+            s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+        }
+        return s3Client
     }
 
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
@@ -2284,7 +2302,7 @@ class Suite implements GroovyInterceptable {
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
             sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
-            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
+            sshExec("root", be_ip, "mkdir -p ${udf_file_dir}", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }

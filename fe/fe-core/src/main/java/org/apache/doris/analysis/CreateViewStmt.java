@@ -96,7 +96,7 @@ public class CreateViewStmt extends BaseViewStmt {
             Analyzer viewAnalyzer = new Analyzer(analyzer);
             viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
-            checkQueryAuth();
+            checkQueryAuth(viewAnalyzer);
             createColumnAndViewDefs(viewAnalyzer);
         } finally {
             // must reset this flag, otherwise, all following query statement in this connection

@@ -495,6 +495,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // if mv can not offer any partition for query, query rewrite bail out
             return null;
         }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("calcInvalidPartitions mv name is %s,\n mvValidBaseTablePartitionNameSet is %s,\n "
+                            + "mvValidHasDataRelatedBaseTableNameSet is %s,\n"
+                            + "queryUsedBaseTablePartitionNameSet is %s,\n "
+                            + "partitionMapping is %s \n, sql hash is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    mvValidBaseTablePartitionNameSet,
+                    mvValidHasDataRelatedBaseTableNameSet,
+                    queryUsedBaseTablePartitionNameSet,
+                    partitionMapping, cascadesContext.getConnectContext().getSqlHash()));
+        }
         // Check when mv partition relates base table partition data change or delete partition
         Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();
         List<Object> mvOlapScanList = rewrittenPlan.collectToList(node ->

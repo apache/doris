@@ -31,7 +31,9 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
 import org.apache.doris.httpv2.util.streamresponse.StreamResponseInf;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -221,7 +223,7 @@ public class StatementSubmitter {
 
         private StatementBase analyzeStmt(String stmtStr) throws Exception {
             SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtStr)));
-            try {
+            try (AutoCloseConnectContext a = StatisticsUtil.buildConnectContext(false)) {
                 return SqlParserUtils.getFirstStmt(parser);
             } catch (AnalysisException e) {
                 String errorMessage = parser.getErrorMsg(stmtStr);

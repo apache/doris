@@ -122,6 +122,7 @@ struct StringOP {
 
     static void push_value_string(const std::string_view& string_value, int index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
+        DCHECK(string_value.data() != nullptr);
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
         chars.insert(string_value.data(), string_value.data() + string_value.size());
@@ -3170,6 +3171,9 @@ public:
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;
                 }
+            } else if (parse_res.empty()) {
+                StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
 
             StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
@@ -3905,7 +3909,8 @@ struct SubReplaceImpl {
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
                     if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                                StringRef {data_column->get_chars().data(),
+                                           data_column->get_chars().size()})) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,

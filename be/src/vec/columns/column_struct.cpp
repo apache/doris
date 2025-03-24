@@ -134,6 +134,7 @@ bool ColumnStruct::is_default_at(size_t n) const {
 }
 
 void ColumnStruct::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Tuple);
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {

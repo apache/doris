@@ -1450,6 +1450,8 @@ struct TGetBinlogLagResult {
     5: optional i64 last_commit_seq
     6: optional i64 first_binlog_timestamp
     7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
@@ -1483,7 +1485,6 @@ struct TCreatePartitionRequest {
     3: optional i64 table_id
     // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
-    5: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1491,7 +1492,6 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
-    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1500,7 +1500,6 @@ struct TReplacePartitionRequest {
     2: optional i64 db_id
     3: optional i64 table_id
     4: optional list<i64> partition_ids // partition to replace.
-    5: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1508,7 +1507,6 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
-    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
@@ -1598,9 +1596,12 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
-    4: optional list<i64> dropped_partitions
-    5: optional list<i64> dropped_tables
-    6: optional list<i64> dropped_indexes
+    4: optional list<i64> dropped_partitions    // DEPRECATED
+    5: optional list<i64> dropped_tables        // DEPRECATED
+    6: optional list<i64> dropped_indexes       // DEPRECATED
+    7: optional map<i64, i64> dropped_partition_map     // id -> commit seq
+    8: optional map<i64, i64> dropped_table_map         // id -> commit seq
+    9: optional map<i64, i64> dropped_index_map         // id -> commit seq
 }
 
 struct TGetMetaResult {

@@ -138,6 +138,9 @@ public abstract class ExternalCatalog
     @SerializedName(value = "comment")
     private String comment;
 
+    // <db name, table name> to tableAutoAnalyzePolicy
+    @SerializedName(value = "taap")
+    protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -927,6 +930,9 @@ public abstract class ExternalCatalog
         this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
+        if (tableAutoAnalyzePolicy == null) {
+            tableAutoAnalyzePolicy = Maps.newHashMap();
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -1117,5 +1123,14 @@ public abstract class ExternalCatalog
     @Override
     public int hashCode() {
         return Objects.hashCode(name);
+    }
+
+    public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
+        Pair<String, String> key = Pair.of(dbName, tableName);
+        if (policy == null) {
+            tableAutoAnalyzePolicy.remove(key);
+        } else {
+            tableAutoAnalyzePolicy.put(key, policy);
+        }
     }
 }

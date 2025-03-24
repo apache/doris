@@ -1051,7 +1051,12 @@ TEST(function_string_test, function_parse_url_test) {
                  {std::string("9090")}},
                 {{std::string("http://www.baidu.com/a/b/c?a=b"), std::string("PORT")}, {Null()}},
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("QUERY")},
-                 {std::string("q=1")}}};
+                 {std::string("q=1")}},
+                {{std::string(
+                          "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
+                  std::string("HosT")},
+                 std::string("www.facebook.com")},
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }

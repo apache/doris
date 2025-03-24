@@ -73,6 +73,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -167,7 +168,7 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
@@ -204,7 +205,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -624,7 +625,7 @@ public class StatementContext implements Closeable {
         return formatOptions;
     }
 
-    public List<PlannerHook> getPlannerHooks() {
+    public Set<PlannerHook> getPlannerHooks() {
         return plannerHooks;
     }
 

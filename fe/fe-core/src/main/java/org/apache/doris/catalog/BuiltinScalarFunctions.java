@@ -156,7 +156,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -401,8 +400,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -614,7 +611,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),
             scalar(DigitalMasking.class, "digital_masking"),
-            scalar(Dlog1.class, "dlog1"),
             scalar(Dlog10.class, "dlog10"),
             scalar(Domain.class, "domain"),
             scalar(DomainWithoutWww.class, "domain_without_www"),
@@ -740,11 +736,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),
             scalar(Least.class, "least"),
-            scalar(Left.class, "left"),
+            scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
             scalar(Crc32.class, "crc32"),
             scalar(Like.class, "like"),
-            scalar(Ln.class, "ln"),
+            scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
@@ -822,7 +818,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Replace.class, "replace"),
             scalar(ReplaceEmpty.class, "replace_empty"),
             scalar(Reverse.class, "reverse"),
-            scalar(Right.class, "right"),
+            scalar(Right.class, "right", "strright"),
             scalar(Round.class, "round"),
             scalar(RoundBankers.class, "round_bankers"),
             scalar(Rpad.class, "rpad"),
@@ -882,8 +878,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StY.class, "st_y"),
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
-            scalar(StrLeft.class, "strleft"),
-            scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),

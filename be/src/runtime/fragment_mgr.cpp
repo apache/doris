@@ -856,6 +856,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                         current_connect_fe_addr = params.coord;
                     }
 
+                    // This may be a first fragment request of the query.
+                    // Create the query fragments context.
+                    query_ctx = QueryContext::create_shared(
+                            query_id, params.fragment_num_on_host, _exec_env, params.query_options,
+                            params.coord, pipeline, params.is_nereids, current_connect_fe_addr,
+                            query_source);
                     VLOG(10) << "query_id: " << print_id(query_id)
                              << ", coord_addr: " << params.coord
                              << ", total fragment num on current host: "
@@ -864,13 +870,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                              << ", query type: " << params.query_options.query_type
                              << ", report audit fe:" << current_connect_fe_addr << ", limit: "
                              << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
-
-                    // This may be a first fragment request of the query.
-                    // Create the query fragments context.
-                    query_ctx = QueryContext::create_shared(
-                            query_id, params.fragment_num_on_host, _exec_env, params.query_options,
-                            params.coord, pipeline, params.is_nereids, current_connect_fe_addr,
-                            query_source);
                     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
                     RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                                           &(query_ctx->desc_tbl)));
