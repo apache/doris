@@ -71,7 +71,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -94,6 +93,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // But for part of splits which have no position/equality delete files, we can still do count push down opt.
     // And for split level count push down opt, the flag is set in each split.
     private boolean tableLevelPushDownCount = false;
+    private long countFromSnapshot;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private long targetSplitSize;
     private ConcurrentHashMap.KeySetView<Object, Boolean> partitionPathSet;
@@ -312,41 +312,39 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<Split> splits = new ArrayList<>();
 
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
-            fileScanTasks.forEach(taskGrp ->  {
-                Split split = createIcebergSplit(taskGrp);
-                splits.add(split);
-            });
+            if (tableLevelPushDownCount) {
+                int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
+                        ? 1 : sessionVariable.getParallelExecInstanceNum() * numBackends;
+                for (FileScanTask next : fileScanTasks) {
+                    splits.add(createIcebergSplit(next));
+                    if (splits.size() >= needSplitCnt) {
+                        break;
+                    }
+                }
+                setPushDownCount(countFromSnapshot);
+                assignCountToSplits(splits, countFromSnapshot);
+                return splits;
+            } else {
+                fileScanTasks.forEach(taskGrp -> splits.add(createIcebergSplit(taskGrp)));
+            }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
-            // we can create a special empty split and skip the plan process
-            if (splits.isEmpty()) {
-                return splits;
-            }
-            long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot >= 0) {
-                tableLevelPushDownCount = true;
-                List<Split> pushDownCountSplits;
-                if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
-                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
-                } else {
-                    pushDownCountSplits = Collections.singletonList(splits.get(0));
-                }
-                setPushDownCount(countFromSnapshot);
-                assignCountToSplits(pushDownCountSplits, countFromSnapshot);
-                return pushDownCountSplits;
-            }
-        }
         selectedPartitionNum = partitionPathSet.size();
         return splits;
     }
 
     @Override
     public boolean isBatchMode() {
+        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
+        if (aggOp.equals(TPushAggOp.COUNT)) {
+            countFromSnapshot = getCountFromSnapshot();
+            if (countFromSnapshot >= 0) {
+                tableLevelPushDownCount = true;
+                return false;
+            }
+        }
         // TODO Use a better judgment method to decide whether to use batch mode.
         return sessionVariable.getNumPartitionsInBatchMode() > 1024;
     }
