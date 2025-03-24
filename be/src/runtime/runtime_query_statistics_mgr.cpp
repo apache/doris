@@ -65,6 +65,8 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         return Status::RpcError("Client rpc client failed");
     }
 
+    VLOG_DEBUG << "Sending profile";
+
     try {
         try {
             rpc_client->reportExecStatus(res, req);
@@ -117,7 +119,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
         int32_t fragment_id = entry.first;
         const std::vector<std::shared_ptr<TRuntimeProfileTree>>& fragment_profile = entry.second;
         std::vector<TDetailedReportParams> detailed_params;
-
+        bool is_first = true;
         for (auto pipeline_profile : fragment_profile) {
             if (pipeline_profile == nullptr) {
                 auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
@@ -129,6 +131,9 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
 
             TDetailedReportParams tmp;
             THRIFT_MOVE_VALUES(tmp, profile, *pipeline_profile);
+            // First profile is fragment level
+            tmp.__set_is_fragment_level(is_first);
+            is_first = false;
             // tmp.fragment_instance_id is not needed for pipeline x
             detailed_params.push_back(std::move(tmp));
         }
@@ -269,13 +274,13 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
 void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
     decltype(_profile_map) profile_copy;
     decltype(_load_channel_profile_map) load_channel_profile_copy;
-
+    VLOG_DEBUG << "Beging reporting profile";
     {
         std::lock_guard<std::shared_mutex> lg(_query_profile_map_lock);
         _profile_map.swap(profile_copy);
         _load_channel_profile_map.swap(load_channel_profile_copy);
     }
-
+    VLOG_DEBUG << "After swap profile map";
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;

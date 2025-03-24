@@ -392,57 +392,18 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
 
     DCHECK(req.runtime_state != nullptr);
 
     if (req.runtime_state->query_type() == TQueryType::LOAD) {
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-    }
-    params.__isset.detailed_report = true;
-    DCHECK(!req.runtime_states.empty());
-    const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-    if (enable_profile) {
-        params.__isset.profile = true;
-        params.__isset.loadChannelProfile = false;
-        for (auto* rs : req.runtime_states) {
-            DCHECK(req.load_channel_profile);
-            TDetailedReportParams detailed_param;
-            rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-            // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-            req.load_channel_profile->update(detailed_param.loadChannelProfile);
-        }
-        req.load_channel_profile->to_thrift(&params.loadChannelProfile);
     } else {
-        params.__isset.profile = false;
-    }
-
-    if (enable_profile) {
-        DCHECK(req.profile != nullptr);
-        TDetailedReportParams detailed_param;
-        detailed_param.__isset.fragment_instance_id = false;
-        detailed_param.__isset.profile = true;
-        detailed_param.__isset.loadChannelProfile = false;
-        detailed_param.__set_is_fragment_level(true);
-        req.profile->to_thrift(&detailed_param.profile);
-        params.detailed_report.push_back(detailed_param);
-        for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-            TDetailedReportParams detailed_param;
-            detailed_param.__isset.fragment_instance_id = false;
-            detailed_param.__isset.profile = true;
-            detailed_param.__isset.loadChannelProfile = false;
-            pipeline_profile->to_thrift(&detailed_param.profile);
-            params.detailed_report.push_back(std::move(detailed_param));
-        }
-    }
-    if (!req.runtime_state->output_files().empty()) {
-        params.__isset.delta_urls = true;
-        for (auto& it : req.runtime_state->output_files()) {
-            params.delta_urls.push_back(to_http_path(it));
-        }
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            for (auto& it : rs->output_files()) {
+        DCHECK(!req.runtime_states.empty());
+        if (!req.runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
             }
         }

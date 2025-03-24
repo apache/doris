@@ -50,8 +50,6 @@ class PipelineFragmentContext;
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
