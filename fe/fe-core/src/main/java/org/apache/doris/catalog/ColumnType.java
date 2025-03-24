@@ -196,7 +196,9 @@ public abstract class ColumnType {
     // return true if the checkType and other are both char-type otherwise return false,
     // which used in checkSupportSchemaChangeForComplexType
     private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
-        if (checkType.isStringType() && other.isStringType()) {
+        if (Type.VARCHAR.equals(checkType) && Type.VARCHAR.equals(other)) {
+            // currently nested type only support light schema change, for string types,
+            // only varchar can do light schema change
             checkForTypeLengthChange(checkType, other);
             return true;
         } else {
