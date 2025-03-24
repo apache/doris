@@ -504,6 +504,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
+            //todo Storage-related parameter validation should not be placed here.
+            // This section should focus solely on business logic.
             checkS3Param();
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;

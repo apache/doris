@@ -19,6 +19,8 @@ package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
@@ -56,7 +58,7 @@ class S3ObjStorageTest {
         properties.put("s3.access_key", ak);
         properties.put("s3.secret_key", sk);
         properties.put("s3.region", region);
-        S3ObjStorage storage = new S3ObjStorage(properties);
+        S3ObjStorage storage = new S3ObjStorage(null);
 
         String baseUrl = "s3://" + bucket + "/" + prefix + "/";
         String content = "mocked";
@@ -109,7 +111,8 @@ class S3ObjStorageTest {
         properties.put("s3.endpoint", "s3.e.c");
         properties.put("s3.access_key", "abc");
         properties.put("s3.secret_key", "123");
-        S3ObjStorage storage = new S3ObjStorage(properties);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createStorageProperties(properties);
+        S3ObjStorage storage = new S3ObjStorage(s3Properties);
         Field client = storage.getClass().getDeclaredField("client");
         client.setAccessible(true);
         MockedS3Client mockedClient = new MockedS3Client();
@@ -145,10 +148,11 @@ class S3ObjStorageTest {
             RemoteObject remoteObject = objectList.get(i);
             Assertions.assertEquals("key" + i, remoteObject.getRelativePath());
         }
+        properties.put("use_path_style", "false");
+        properties.put("s3.endpoint", "oss.a.c");
+        S3Properties newS3Properties = (S3Properties) StorageProperties.createStorageProperties(properties);
 
-        storage.properties.put("use_path_style", "false");
-        storage.properties.put("s3.endpoint", "oss.a.c");
-        storage.setProperties(storage.properties);
+        storage.setProperties(newS3Properties);
         RemoteObjects remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
         List<RemoteObject> list = remoteObjectsVBucket.getObjectList();
         for (int i = 0; i < list.size(); i++) {
@@ -156,8 +160,8 @@ class S3ObjStorageTest {
             Assertions.assertTrue(remoteObject.getRelativePath().startsWith("key" + i));
         }
 
-        storage.properties.put("use_path_style", "true");
-        storage.setProperties(storage.properties);
+        properties.put("use_path_style", "true");
+        storage.setProperties((S3Properties) StorageProperties.createStorageProperties(properties));
         remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
         list = remoteObjectsVBucket.getObjectList();
         for (int i = 0; i < list.size(); i++) {

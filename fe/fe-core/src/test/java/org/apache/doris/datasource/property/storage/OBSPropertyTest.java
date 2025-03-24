@@ -67,16 +67,36 @@ public class OBSPropertyTest {
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
+        origProps.put("use_path_style", "true");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
         OBSProperties obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
         Map<String, String> s3Props = new HashMap<>();
+        Map<String, String> obsConfig = obsProperties.getOrigProps();
+        Assertions.assertTrue(!obsConfig.containsKey("test_non_storage_param"));
 
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_OBS_SUPPORT)) {
+                Assertions.assertEquals(v, obsConfig.get(k));
+            }
+        });
 
         obsProperties.toNativeS3Configuration(s3Props);
         Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", s3Props.get("AWS_ENDPOINT"));
         Assertions.assertEquals("cn-north-4", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myOBSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myOBSSecretKey", s3Props.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        origProps.remove("use_path_style");
+        obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
+        s3Props = new HashMap<>();
+        obsProperties.toNativeS3Configuration(s3Props);
+        Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
     private static String obsAccessKey = "";

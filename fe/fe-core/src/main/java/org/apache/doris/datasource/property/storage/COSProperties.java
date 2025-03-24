@@ -71,7 +71,7 @@ public class COSProperties extends AbstractObjectStorageProperties {
         config.putAll(generateAWSS3Properties(cosEndpoint, getRegion(), cosAccessKey, cosSecretKey));
     }
 
-    private String getRegion() {
+    public String getRegion() {
         if (Strings.isNullOrEmpty(this.cosRegion)) {
             if (cosEndpoint.contains("myqcloud.com")) {
                 Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
@@ -82,5 +82,20 @@ public class COSProperties extends AbstractObjectStorageProperties {
             }
         }
         return this.cosRegion;
+    }
+
+    @Override
+    public String getEndpoint() {
+        return cosEndpoint;
+    }
+
+    @Override
+    public String getAccessKey() {
+        return cosAccessKey;
+    }
+
+    @Override
+    public String getSecretKey() {
+        return cosSecretKey;
     }
 }

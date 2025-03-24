@@ -147,7 +147,7 @@ public class S3Properties extends AbstractObjectStorageProperties {
         catalogProps.put("s3.access-key-id", s3AccessKey);
         catalogProps.put("s3.secret-access-key", s3SecretKey);
         catalogProps.put("client.region", s3Region);
-        catalogProps.put("s3.path-style-access", Boolean.toString(usePathStyle));
+        catalogProps.put("s3.path-style-access", usePathStyle);
     }
 
     @Override
@@ -176,5 +176,25 @@ public class S3Properties extends AbstractObjectStorageProperties {
         Map<String, String> config = new HashMap<>();
         toNativeS3Configuration(config);
         return config;
+    }
+
+    @Override
+    public String getEndpoint() {
+        return s3Endpoint;
+    }
+
+    @Override
+    public String getRegion() {
+        return s3Region;
+    }
+
+    @Override
+    public String getAccessKey() {
+        return s3AccessKey;
+    }
+
+    @Override
+    public String getSecretKey() {
+        return s3SecretKey;
     }
 }

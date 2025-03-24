@@ -51,6 +51,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     public Configuration getHadoopConfiguration() {
         Configuration conf = new Configuration(false);
         conf.set("fs.oss.endpoint", endpoint);
+        conf.set("fs.oss.region", getRegion());
         conf.set("fs.oss.accessKeyId", accessKey);
         conf.set("fs.oss.accessKeySecret", secretKey);
         conf.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
@@ -62,7 +63,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
         config.putAll(generateAWSS3Properties(endpoint, getRegion(), accessKey, secretKey));
     }
 
-    private String getRegion() {
+    public String getRegion() {
         // Return the region if it is already set
         if (!Strings.isNullOrEmpty(this.region)) {
             return region;
@@ -91,5 +92,18 @@ public class OSSProperties extends AbstractObjectStorageProperties {
         return this.region;
     }
 
+    @Override
+    public String getEndpoint() {
+        return endpoint;
+    }
 
+    @Override
+    public String getAccessKey() {
+        return accessKey;
+    }
+
+    @Override
+    public String getSecretKey() {
+        return secretKey;
+    }
 }
