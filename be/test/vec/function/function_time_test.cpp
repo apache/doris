@@ -1831,4 +1831,41 @@ TEST(VTimestampFunctionsTest, year_of_week_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, next_day_test) {
+    std::string func_name = "next_day";
+    {
+        InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::String};
+        DataSet data_set = {{{std::string("2020-01-01"), std::string("MON")},
+                             str_to_date_v2("2020-01-06", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("MONDAY")},
+                             str_to_date_v2("2020-01-06", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("TUE")},
+                             str_to_date_v2("2020-01-07", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("TUESDAY")},
+                             str_to_date_v2("2020-01-07", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("WED")},
+                             str_to_date_v2("2020-01-08", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("WEDNESDAY")},
+                             str_to_date_v2("2020-01-08", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("THU")},
+                             str_to_date_v2("2020-01-02", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("THURSDAY")},
+                             str_to_date_v2("2020-01-02", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("FRI")},
+                             str_to_date_v2("2020-01-03", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("FRIDAY")},
+                             str_to_date_v2("2020-01-03", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("SAT")},
+                             str_to_date_v2("2020-01-04", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("SATURDAY")},
+                             str_to_date_v2("2020-01-04", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("SUN")},
+                             str_to_date_v2("2020-01-05", "%Y-%m-%d")},
+                            {{std::string("2020-01-01"), std::string("SUNDAY")},
+                             str_to_date_v2("2020-01-05", "%Y-%m-%d")},
+                            {{std::string(""), std::string("MON")}, Null()},
+                            {{Null(), std::string("MON")}, Null()}};
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+    }
+}
 } // namespace doris::vectorized
