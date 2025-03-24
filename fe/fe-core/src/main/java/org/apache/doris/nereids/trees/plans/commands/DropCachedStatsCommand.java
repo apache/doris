@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Objects;
+
 /**
  * Manually drop cached statistics for table and its mv.
  * <p>
@@ -47,6 +49,7 @@ public class DropCachedStatsCommand extends DropCommand {
 
     public DropCachedStatsCommand(TableNameInfo tableNameInfo) {
         super(PlanType.DROP_CACHED_STATS_COMMAND);
+        Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
         this.tableNameInfo = tableNameInfo;
     }
 
@@ -56,10 +59,15 @@ public class DropCachedStatsCommand extends DropCommand {
         ctx.getEnv().getAnalysisManager().dropCachedStats(catalogId, dbId, tblId);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
-        if (tableNameInfo == null) {
-            throw new UserException("Should specify a valid table name.");
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                + " in your FE conf file");
         }
+
         tableNameInfo.analyze(ctx);
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
@@ -71,7 +79,7 @@ public class DropCachedStatsCommand extends DropCommand {
         dbId = db.getId();
         catalogId = catalog.getId();
         // check permission
-        checkAnalyzePriv(catalogName, db.getFullName(), table.getName());
+        checkAnalyzePriv(catalogName, dbName, tblName);
     }
 
     private void checkAnalyzePriv(String catalogName, String dbName, String tblName) throws AnalysisException {
