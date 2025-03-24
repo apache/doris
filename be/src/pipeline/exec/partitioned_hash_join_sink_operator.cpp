@@ -596,7 +596,7 @@ static bool is_revocable_mem_high_watermark(RuntimeState* state, size_t revocabl
 Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
-    CHECK_EQ(local_state._spill_dependency->is_blocked_by(), false);
+    CHECK_EQ(local_state._spill_dependency->is_blocked_by(), nullptr);
     SCOPED_TIMER(local_state.exec_time_counter());
 
     local_state._child_eos = eos;
