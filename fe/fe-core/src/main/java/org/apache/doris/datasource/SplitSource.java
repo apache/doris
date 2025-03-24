@@ -18,6 +18,9 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -26,7 +29,9 @@ import com.google.common.collect.Lists;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -50,13 +55,17 @@ public class SplitSource {
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
     private final long maxWaitTime;
+    private final Queue<String> splitProfileInfo = new ConcurrentLinkedQueue<>();
+    SessionVariable sv;
 
-    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
+    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime,
+                       SessionVariable sessionVariable) {
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
         this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
+        this.sv = sessionVariable;
         splitAssignment.registerSource(uniqueId);
     }
 
@@ -74,16 +83,39 @@ public class SplitSource {
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
         long startTime = System.currentTimeMillis();
         while (scanRanges.size() < maxBatchSize && System.currentTimeMillis() - startTime < maxWaitTime) {
-            BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
+            BlockingQueue<Collection<AssignmentSplitInfo>> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
                 isLastBatch.set(true);
                 break;
             }
             while (scanRanges.size() < maxBatchSize) {
                 try {
-                    Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
+                    Collection<AssignmentSplitInfo> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
                     if (splitCollection != null) {
-                        scanRanges.addAll(splitCollection);
+                        splitCollection.forEach(assignmentSplitInfo -> {
+                            TScanRangeLocations scanRangeLocation = assignmentSplitInfo.getScanRangeLocation();
+                            // TODO mmc 如果有profile，就设置id
+                            if (sv.enableProfile()) {
+                                int splitId = splitAssignment.getSplitId();
+                                // TODO mmc 往scanRangeLocation里面设置splitid
+//                                scanRangeLocation.setSplit_id(splitId);
+                                assignmentSplitInfo.setSplitId(splitId);
+                                // TODO mmc  splitProfileInfo这个好像不需要？
+//                                splitProfileInfo.offer(assignmentSplitInfo.getSplitProfileInfo());
+                                StmtExecutor executor = ConnectContext.get().getExecutor();
+                                if (executor != null) {
+                                    executor.getSummaryProfile()
+                                            .setSplitProfileInfo(
+                                                    backend,
+                                                    assignmentSplitInfo.getSplitProfileInfo());
+                                    executor.getSummaryProfile()
+                                            .setSplitWeightProfileInfoMap(
+                                                    backend,
+                                                    assignmentSplitInfo.getSplitWeight());
+                                }
+                            }
+                            scanRanges.add(scanRangeLocation);
+                        });
                     }
                     if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
                         return scanRanges;
@@ -102,5 +134,9 @@ public class SplitSource {
             throw new UserException("Timeout. Max wait time(ms): " + maxWaitTime);
         }
         return scanRanges;
+    }
+
+    public Queue<String> getSplitProfileInfo() {
+        return splitProfileInfo;
     }
 }
