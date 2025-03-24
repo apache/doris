@@ -178,7 +178,7 @@ public:
         uint32_t result_column_id = 3;
 
         SubstringUtil<>::substring_execute(temp_block, temp_arguments, result_column_id,
-                                         temp_block.rows());
+                                           temp_block.rows());
         if (is_nullable) {
             auto res_column = ColumnNullable::create(
                     temp_block.get_by_position(result_column_id).column, null_map_column_ptr);
