@@ -204,7 +204,9 @@ public class PaimonJniScanner extends JniScanner {
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
+                        long l = System.currentTimeMillis();
                         appendData(i, columnValue);
+                        appendDataTime += System.currentTimeMillis() - l;
                     }
                     rows++;
                     if (rows >= batchSize) {
