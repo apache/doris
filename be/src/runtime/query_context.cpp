@@ -126,9 +126,10 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _execution_dependency = pipeline::QueryGlobalDependency::create_unique("ExecutionDependency");
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::QueryGlobalDependency::create_unique("MemorySufficientDependency", true);
+            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
