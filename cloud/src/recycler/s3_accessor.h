@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <aws/core/Aws.h>
 #include <bvar/latency_recorder.h>
 
 #include <array>
 #include <cstdint>
 #include <memory>
 
+#include "cpp/aws_common.h"
 #include "recycler/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
@@ -70,6 +72,10 @@ struct S3Conf {
     std::string bucket;
     std::string prefix;
     bool use_virtual_addressing {true};
+
+    CredProviderType cred_provider_type = CredProviderType::Default;
+    std::string role_arn;
+    std::string external_id;
 
     enum Provider : uint8_t {
         S3,
@@ -124,6 +130,9 @@ protected:
     int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);
 
     virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
+
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3Conf& s3_conf);
 
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;
