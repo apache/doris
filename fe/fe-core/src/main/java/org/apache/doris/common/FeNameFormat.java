@@ -33,11 +33,11 @@ public class FeNameFormat {
     // if modify the matching length of a regular expression,
     // please modify error msg when FeNameFormat.checkCommonName throw exception in CreateRoutineLoadStmt
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
+    private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.\\-_]*$";
     private static final String REPOSITORY_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]{0,255}$";
     private static final String COLUMN_NAME_REGEX = "^[.a-zA-Z0-9_+\\-/?@#$%^&*\"\\s,:]{1,256}$";
-    private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
 
     private static final String UNICODE_LABEL_REGEX = "^[\\-_A-Za-z0-9:\\p{L}]{1," + Config.label_regex_length + "}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
