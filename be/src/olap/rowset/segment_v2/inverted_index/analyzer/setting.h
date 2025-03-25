@@ -17,31 +17,12 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include <unordered_map>
+#include <variant>
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
+using Object = std::variant<int32_t, std::string, std::vector<std::string>>;
+using Settings = std::unordered_map<std::string, Object>;
 
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
-public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
-
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
-
-    void cut();
-
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
-};
-
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
