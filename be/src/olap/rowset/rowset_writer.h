@@ -109,7 +109,7 @@ public:
         std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 _context.segment_path(segment_id))};
         bool can_use_ram_dir = _context.compaction_type == ReaderType::READER_BASE_COMPACTION &&
-                               !config::inverted_index_ram_dir_enable_when_compaction;
+                               config::inverted_index_ram_dir_enable_when_compaction;
         *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
