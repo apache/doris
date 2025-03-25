@@ -20,11 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -32,34 +32,32 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'days_add'.
- * next_day(expr, dayOfWeek)
- * - expr: A DATE expression.
- * - dayOfWeek: A STRING expression identifying a day of the week.
- * Returns the first DATE that is later than expr and has the same day of the
- * week as dayOfWeek.
- * dayOfWeek must be one of the following (case insensitive):
- * 'SU', 'SUN', 'SUNDAY'
- * 'MO', 'MON', 'MONDAY'
- * 'TU', 'TUE', 'TUESDAY'
- * 'WE', 'WED', 'WEDNESDAY'
- * 'TH', 'THU', 'THURSDAY'
- * 'FR', 'FRI', 'FRIDAY'
- * 'SA', 'SAT', 'SATURDAY'
+ * ScalarFunction 'xpath_string'.
  */
-public class NextDay extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, StringType.INSTANCE));
+public class XpathString extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
-    public NextDay(Expression arg0, Expression arg1) {
-        super("next_day", arg0, arg1);
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(StringType.INSTANCE)
+                    .args(StringType.INSTANCE, StringType.INSTANCE)
+    );
+
+    /**
+     * constructor with 2 arguments.
+     */
+    public XpathString(Expression arg0, Expression arg1) {
+        super("xpath_string", arg0, arg1);
     }
 
+    /**
+     * withChildren.
+     */
     @Override
-    public NextDay withChildren(List<Expression> children) {
+    public XpathString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NextDay(children.get(0), children.get(1));
+        return new XpathString(children.get(0), children.get(1));
     }
 
     @Override
@@ -69,6 +67,6 @@ public class NextDay extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNextDay(this, context);
+        return visitor.visitXpathString(this, context);
     }
 }

@@ -1044,38 +1044,13 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<typename FunctionImpl::ReturnType>());
+        return make_nullable(std::make_shared<DataTypeDateV2>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        // TODO: const optimize
-        return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
-    }
-};
-
-static int day_of_week(const StringRef& weekday) {
-    static const std::unordered_map<std::string, int> weekday_map = {
-            {"SU", 1}, {"SUN", 1}, {"SUNDAY", 1},   {"MO", 2}, {"MON", 2}, {"MONDAY", 2},
-            {"TU", 3}, {"TUE", 3}, {"TUESDAY", 3},  {"WE", 4}, {"WED", 4}, {"WEDNESDAY", 4},
-            {"TH", 5}, {"THU", 5}, {"THURSDAY", 5}, {"FR", 6}, {"FRI", 6}, {"FRIDAY", 6},
-            {"SA", 7}, {"SAT", 7}, {"SATURDAY", 7},
-    };
-    auto weekday_upper = weekday.to_string();
-    std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(), ::toupper);
-    auto it = weekday_map.find(weekday_upper);
-    if (it == weekday_map.end()) {
-        return 0;
-    }
-    return it->second;
-}
-
-struct DateNextDayImpl {
-    using ReturnType = DataTypeDateV2;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count) {
         CHECK_EQ(arguments.size(), 2);
-        auto res = ColumnVector<UInt32>::create();
+        auto res = ColumnDateV2::create();
         const auto* date_col =
                 assert_cast<const ColumnDateV2*>(block.get_by_position(arguments[0]).column.get());
         const auto* week_col =
@@ -1098,35 +1073,23 @@ struct DateNextDayImpl {
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
-};
 
-struct DateTimeNextDayImpl {
-    using ReturnType = DataTypeDateTimeV2;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count) {
-        CHECK_EQ(arguments.size(), 2);
-        auto res = ColumnVector<UInt64>::create();
-        const auto* date_col = assert_cast<const ColumnDateTimeV2*>(
-                block.get_by_position(arguments[0]).column.get());
-        const auto* week_col =
-                assert_cast<const ColumnString*>(block.get_by_position(arguments[1]).column.get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            auto date = date_col->get_element(i);
-            auto week = week_col->get_data_at(i);
-            auto week_day = day_of_week(week);
-            if (week_day == 0) {
-                return Status::InvalidArgument("Invalid weekday: {}", week);
-            } else {
-                auto dtv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(date);
-                auto days_to_add = (week_day - dtv.day_of_week() + 7) % 7;
-                days_to_add = days_to_add == 0 ? 7 : days_to_add;
-                dtv.date_add_interval<TimeUnit::DAY>(
-                        TimeInterval(TimeUnit::DAY, days_to_add, false));
-                res->insert_value(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv));
-            }
+private:
+    static int day_of_week(const StringRef& weekday) {
+        static const std::unordered_map<std::string, int> weekday_map = {
+                {"SU", 1}, {"SUN", 1}, {"SUNDAY", 1},   {"MO", 2}, {"MON", 2}, {"MONDAY", 2},
+                {"TU", 3}, {"TUE", 3}, {"TUESDAY", 3},  {"WE", 4}, {"WED", 4}, {"WEDNESDAY", 4},
+                {"TH", 5}, {"THU", 5}, {"THURSDAY", 5}, {"FR", 6}, {"FRI", 6}, {"FRIDAY", 6},
+                {"SA", 7}, {"SAT", 7}, {"SATURDAY", 7},
+        };
+        auto weekday_upper = weekday.to_string();
+        std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
+                       ::toupper);
+        auto it = weekday_map.find(weekday_upper);
+        if (it == weekday_map.end()) {
+            return 0;
         }
-        block.replace_by_position(result, std::move(res));
-        return Status::OK();
+        return it->second;
     }
 };
 
