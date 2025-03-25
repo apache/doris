@@ -199,7 +199,7 @@ public abstract class ColumnType {
     private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
         if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
                 && other.getPrimitiveType() == PrimitiveType.VARCHAR) {
-            // currently nested type only support light schema change, for string types,
+            // currently nested types only support light schema change, for string types,
             // only varchar can do light schema change
             checkForTypeLengthChange(checkType, other);
             return true;
