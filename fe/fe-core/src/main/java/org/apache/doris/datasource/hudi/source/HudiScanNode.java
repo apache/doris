@@ -29,14 +29,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
-import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -210,10 +206,7 @@ public class HudiScanNode extends HiveScanNode {
             queryInstant = snapshotInstant.get().getTimestamp();
         }
 
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(table.getCatalog());
-        SchemaCacheKey key = new HudiSchemaCacheKey(table.getDbName(), table.getName(), Long.parseLong(queryInstant));
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
-        HudiSchemaCacheValue hudiSchemaCacheValue = (HudiSchemaCacheValue) schemaCacheValue.get();
+        HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
         columnNames = hudiSchemaCacheValue.getSchema().stream().map(Column::getName).collect(Collectors.toList());
         columnTypes = hudiSchemaCacheValue.getColTypes();
 
@@ -221,7 +214,7 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        if (HudiUtils.getSchemaCacheValue(hmsTable).isEnableSchemaEvolution()) {
+        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
             params.setHistorySchemaInfo(new ConcurrentHashMap<>());
         }
     }
@@ -276,7 +269,7 @@ public class HudiScanNode extends HiveScanNode {
             // fileDesc.setNestedFields(hudiSplit.getNestedFields());
             fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
         } else {
-            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable);
+            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable, queryInstant);
             if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
                 long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
                         new File(hudiSplit.getPath().get()).getName()));
