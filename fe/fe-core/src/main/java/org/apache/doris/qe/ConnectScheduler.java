@@ -208,4 +208,8 @@ public class ConnectScheduler {
     public Map<String, AtomicInteger> getUserConnectionMap() {
         return connByUser;
     }
+
+    public int getMaxConnections() {
+        return maxConnections;
+    }
 }
