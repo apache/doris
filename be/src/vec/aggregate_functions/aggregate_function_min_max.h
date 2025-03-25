@@ -337,6 +337,8 @@ private:
 
 public:
     ~SingleValueDataString() = default;
+    SingleValueDataString() = default;
+    SingleValueDataString(const DataTypes& argument_types) {}
 
     constexpr static bool IsFixedLength = false;
 
@@ -489,8 +491,6 @@ struct AggregateFunctionMaxData : public Data {
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
 
-    AggregateFunctionMaxData() { reset(); }
-
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
             this->change_if(column, row_num, false);
@@ -516,8 +516,6 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
-
-    AggregateFunctionMinData() { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
@@ -688,11 +686,7 @@ public:
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {
-            new (place) Data(argument_types);
-        } else {
-            new (place) Data();
-        }
+        new (place) Data(argument_types);
     }
 
     String get_name() const override { return Data::name(); }
