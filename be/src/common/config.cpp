@@ -1469,6 +1469,8 @@ DEFINE_mBool(enable_mow_verbose_log, "false");
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
+DEFINE_Bool(enable_root_path_of_hdfs_resource, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
