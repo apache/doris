@@ -74,4 +74,9 @@ suite("test_type_length_change", "p0") {
     sql """  INSERT INTO ${tableName} VALUES(4, "abcde", "abcde") """
     qt_master_sql """ SELECT * FROM ${tableName} ORDER BY k"""
     qt_master_sql """ DESC ${tableName} """
+
+    test {
+        sql """ ALTER TABLE ${tableName} MODIFY COLUMN c1 CHAR(10) """
+        exception "Can not change VARCHAR to CHAR"
+    }
 }
