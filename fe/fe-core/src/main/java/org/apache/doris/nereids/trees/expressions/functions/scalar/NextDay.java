@@ -32,7 +32,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'days_add'.
+ * ScalarFunction 'next_day'.
  * next_day(expr, dayOfWeek)
  * - expr: A DATE expression.
  * - dayOfWeek: A STRING expression identifying a day of the week.
