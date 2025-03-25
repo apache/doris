@@ -666,8 +666,7 @@ struct UnixTimeStampDateImpl {
                         ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                 DCHECK(valid);
 
-                auto& [sec, ms] = timestamp;
-                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 auto ms_str = std::to_string(ms).substr(0, scale);
                 if (ms_str.empty()) {
                     ms_str = "0";
