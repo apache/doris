@@ -373,7 +373,7 @@ static int create_snapshot_tablet(TxnKv* txn_kv, int64_t tablet_id, bool is_rest
     std::string key;
     std::string val;
 
-    SnapshotTabletKeyInfo key_info{instance_id, tablet_id};
+    SnapshotTabletKeyInfo key_info {instance_id, tablet_id};
     snapshot_tablet_key(key_info, &key);
 
     SnapshotPB snapshot;
@@ -1536,8 +1536,10 @@ TEST(RecyclerTest, recycle_snapshots) {
         ASSERT_EQ(create_tablet(txn_kv.get(), table_id, i, partition_id, tablet_id), 0);
         create_snapshot_tablet(txn_kv.get(), tablet_id, false);
         for (int j = 0; j < 5; ++j) {
-            ASSERT_EQ(create_snapshot_rowset(true, txn_kv.get(), accessor.get(), "recycle_snapshots",
-                                             tablet_id, j, 5, schemas[j % 5].index_size()), 0);
+            ASSERT_EQ(
+                    create_snapshot_rowset(true, txn_kv.get(), accessor.get(), "recycle_snapshots",
+                                           tablet_id, j, 5, schemas[j % 5].index_size()),
+                    0);
         }
     }
 

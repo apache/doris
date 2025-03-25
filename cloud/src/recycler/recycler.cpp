@@ -2295,8 +2295,7 @@ int InstanceRecycler::recycle_snapshots() {
         int64_t tablet_id = snapshot_pb.tablet_id();
         bool is_restore = snapshot_pb.is_restore();
         LOG(INFO) << "begin to recycle expired snapshot, instance_id=" << instance_id_
-                  << " tablet_id=" << snapshot_pb.tablet_id()
-                  << " is_restore=" << is_restore;
+                  << " tablet_id=" << snapshot_pb.tablet_id() << " is_restore=" << is_restore;
 
         std::string snapshot_rs_key0 = snapshot_rowset_key({instance_id_, tablet_id, 0});
         std::string snapshot_rs_key1 = snapshot_rowset_key({instance_id_, tablet_id + 1, 0});
@@ -2335,7 +2334,8 @@ int InstanceRecycler::recycle_snapshots() {
             txn.reset();
             err = txn_kv_->create_txn(&txn);
             if (err != TxnErrorCode::TXN_OK) {
-                LOG_WARNING("failed to recycle snapshot").tag("err", err)
+                LOG_WARNING("failed to recycle snapshot")
+                        .tag("err", err)
                         .tag("tablet id", tablet_id)
                         .tag("instance_id", instance_id_)
                         .tag("reason", "failed to create txn");
@@ -2347,7 +2347,8 @@ int InstanceRecycler::recycle_snapshots() {
 
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
-                LOG_WARNING("failed to recycle snapshot rowset kv").tag("err", err)
+                LOG_WARNING("failed to recycle snapshot rowset kv")
+                        .tag("err", err)
                         .tag("tablet id", tablet_id)
                         .tag("instance_id", instance_id_)
                         .tag("reason", "failed to commit txn");

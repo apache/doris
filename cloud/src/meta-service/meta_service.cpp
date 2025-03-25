@@ -999,8 +999,7 @@ void scan_snapshot_rowset(
         }
         while (it->has_next()) {
             auto [k, v] = it->next();
-            LOG(INFO) << "range_get snapshot_rs_key=" << hex(k)
-                      << " tablet_id=" << tablet_id;
+            LOG(INFO) << "range_get snapshot_rs_key=" << hex(k) << " tablet_id=" << tablet_id;
             snapshot_rs_metas->emplace_back();
             if (!snapshot_rs_metas->back().second.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
