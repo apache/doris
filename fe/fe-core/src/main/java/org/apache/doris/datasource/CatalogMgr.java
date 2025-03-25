@@ -158,7 +158,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
             if (catalog.getType().equals(InitCatalogLog.Type.ES.name().toLowerCase(Locale.ROOT))) {
-                Env.getCurrentEnv().getEsNodeDiscovery().deRegisterCatalog(catalog.getId());
+                Env.getCurrentEnv().getEsNodeDiscovery().deregisterCatalog(catalog.getId());
             }
         }
         return catalog;
