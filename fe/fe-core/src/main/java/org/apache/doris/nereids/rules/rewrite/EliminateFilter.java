@@ -117,14 +117,15 @@ public class EliminateFilter implements RewriteRuleFactory {
         return replaceNullToFalse(expression);
     }
 
-    // only replace null which its ancestors are all and/or/not
+    // only replace null which its ancestors are all and/or
+    // NOTICE: NOT's type is boolean too, if replace null to false in NOT, will got NOT(NULL) = NOT(FALSE) = TRUE,
+    // but it is wrong,  NOT(NULL) = NULL. For a filter, only the AND / OR, can keep NULL as FALSE.
     private Expression replaceNullToFalse(Expression expression) {
         if (expression.isNullLiteral()) {
             return BooleanLiteral.FALSE;
         }
 
-        // only replace null which its ancestors are all and/or/not
-        if (expression instanceof CompoundPredicate || expression instanceof Not) {
+        if (expression instanceof CompoundPredicate) {
             ImmutableList.Builder<Expression> builder = ImmutableList.builderWithExpectedSize(
                     expression.children().size());
             expression.children().forEach(e -> builder.add(replaceNullToFalse(e)));
