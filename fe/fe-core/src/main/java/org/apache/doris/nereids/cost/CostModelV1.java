@@ -71,6 +71,8 @@ import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -80,7 +82,8 @@ import java.util.Optional;
 import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
-    static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+    private static final Logger LOG = LogManager.getLogger(CostModelV1.class);
+    private static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
     private final int parallelInstance;
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
@@ -480,16 +483,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             if (context.getSessionVariable() != null
                     && context.getSessionVariable().isEnableHboOptimization()
                     && context.getSessionVariable().isEnableHboInfoCollection()) {
-                PlanNodeAndHash planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
-                RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(planNodeAndHash);
-                PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
-                        context.getStatementContext().getConnectContext());
-                if (matchedPlanStatistics != null) {
-                    int builderSkewRatio = matchedPlanStatistics.getJoinBuilderSkewRatio();
-                    int probeSkewRatio = matchedPlanStatistics.getJoinProbeSkewRatio();
-                    int hboSkewRatioThreshold = context.getSessionVariable().getHboSkewRatioThreshold();
-                    if (builderSkewRatio >= hboSkewRatioThreshold || probeSkewRatio >= hboSkewRatioThreshold) {
-                        probeShortcutFactor = probeShortcutFactor * 0.1;
+                PlanNodeAndHash planNodeAndHash = null;
+                try {
+                    planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                } catch (IllegalStateException e) {
+                    LOG.warn("failed to get plan node hash", e);
+                }
+                if (planNodeAndHash != null) {
+                    RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(
+                            planNodeAndHash);
+                    PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
+                            context.getStatementContext().getConnectContext());
+                    if (matchedPlanStatistics != null) {
+                        int builderSkewRatio = matchedPlanStatistics.getJoinBuilderSkewRatio();
+                        int probeSkewRatio = matchedPlanStatistics.getJoinProbeSkewRatio();
+                        int hboSkewRatioThreshold = context.getSessionVariable().getHboSkewRatioThreshold();
+                        if (builderSkewRatio >= hboSkewRatioThreshold || probeSkewRatio >= hboSkewRatioThreshold) {
+                            probeShortcutFactor = probeShortcutFactor * 0.1;
+                        }
                     }
                 }
             }
