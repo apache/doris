@@ -753,7 +753,7 @@ supportedStatsStatement
     ;
 
 unsupportedStatsStatement
-    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;
