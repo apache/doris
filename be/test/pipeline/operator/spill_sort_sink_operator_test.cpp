@@ -326,6 +326,69 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
     ASSERT_TRUE(source_dependency->is_blocked_by(nullptr) == nullptr);
 }
 
+TEST_F(SpillSortSinkOperatorTest, SinkWithSpillWeakupEarly) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    ASSERT_TRUE(source_operator != nullptr);
+    ASSERT_TRUE(sink_operator != nullptr);
+
+    auto tnode = _helper.create_test_plan_node();
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    shared_state->create_source_dependency(sink_operator->operator_id(), sink_operator->node_id(),
+                                           "SpillSortSinkOperatorTest");
+
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = _helper.runtime_profile.get(),
+                             .sender_id = 0,
+                             .shared_state = shared_state.get(),
+                             .le_state_map = {},
+                             .tsink = {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+
+    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+
+    st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+
+    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+
+    _helper.runtime_state->get_task()->set_wake_up_early();
+
+    vectorized::Block empty_block;
+    st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    ASSERT_TRUE(sink_local_state->_spill_dependency->is_blocked_by(nullptr) == nullptr);
+}
+
 TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     ASSERT_TRUE(source_operator != nullptr);

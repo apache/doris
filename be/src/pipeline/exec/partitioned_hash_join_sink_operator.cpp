@@ -600,6 +600,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
 
     const auto rows = in_block->rows();
 
+    const auto wake_up_early = state->get_task()->wake_up_early();
     const auto need_to_spill = local_state._shared_state->need_to_spill;
     size_t revocable_size = 0;
     int64_t query_mem_limit = 0;
@@ -617,6 +618,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     if (rows == 0) {
         if (eos) {
             if (need_to_spill) {
+                if (wake_up_early) {
+                    return Status::OK();
+                }
                 return revoke_memory(state, nullptr);
             } else {
                 DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::sink_eos", {
@@ -661,6 +665,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
 
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (need_to_spill) {
+        if (wake_up_early) {
+            return Status::OK();
+        }
+
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
         if (eos) {
             return revoke_memory(state, nullptr);
