@@ -319,7 +319,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                         StringLiteral.of("MON"));
         rewritten = executor.rewrite(nextDay, context);
         Assertions.assertEquals(new DateV2Literal("2020-06-01"), rewritten);
-}
+    }
 
     @Test
     void testFoldString() {

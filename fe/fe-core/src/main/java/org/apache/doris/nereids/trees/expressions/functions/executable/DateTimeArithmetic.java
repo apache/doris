@@ -35,6 +35,33 @@ import java.util.HashMap;
  * years/quarters/months/week/days/hours/minutes/seconds_add/sub, datediff
  */
 public class DateTimeArithmetic {
+
+    private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
+
+    static {
+        DAY_OF_WEEK.put("SU", 1);
+        DAY_OF_WEEK.put("SUN", 1);
+        DAY_OF_WEEK.put("SUNDAY", 1);
+        DAY_OF_WEEK.put("MO", 2);
+        DAY_OF_WEEK.put("MON", 2);
+        DAY_OF_WEEK.put("MONDAY", 2);
+        DAY_OF_WEEK.put("TU", 3);
+        DAY_OF_WEEK.put("TUE", 3);
+        DAY_OF_WEEK.put("TUESDAY", 3);
+        DAY_OF_WEEK.put("WE", 4);
+        DAY_OF_WEEK.put("WED", 4);
+        DAY_OF_WEEK.put("WEDNESDAY", 4);
+        DAY_OF_WEEK.put("TH", 5);
+        DAY_OF_WEEK.put("THU", 5);
+        DAY_OF_WEEK.put("THURSDAY", 5);
+        DAY_OF_WEEK.put("FR", 6);
+        DAY_OF_WEEK.put("FRI", 6);
+        DAY_OF_WEEK.put("FRIDAY", 6);
+        DAY_OF_WEEK.put("SA", 7);
+        DAY_OF_WEEK.put("SAT", 7);
+        DAY_OF_WEEK.put("SATURDAY", 7);
+    }
+
     /**
      * datetime arithmetic function date-add.
      */
@@ -493,32 +520,6 @@ public class DateTimeArithmetic {
         return new IntegerLiteral((int) date.getDay());
     }
 
-    private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
-
-    static {
-        DAY_OF_WEEK.put("SU", 1);
-        DAY_OF_WEEK.put("SUN", 1);
-        DAY_OF_WEEK.put("SUNDAY", 1);
-        DAY_OF_WEEK.put("MO", 2);
-        DAY_OF_WEEK.put("MON", 2);
-        DAY_OF_WEEK.put("MONDAY", 2);
-        DAY_OF_WEEK.put("TU", 3);
-        DAY_OF_WEEK.put("TUE", 3);
-        DAY_OF_WEEK.put("TUESDAY", 3);
-        DAY_OF_WEEK.put("WE", 4);
-        DAY_OF_WEEK.put("WED", 4);
-        DAY_OF_WEEK.put("WEDNESDAY", 4);
-        DAY_OF_WEEK.put("TH", 5);
-        DAY_OF_WEEK.put("THU", 5);
-        DAY_OF_WEEK.put("THURSDAY", 5);
-        DAY_OF_WEEK.put("FR", 6);
-        DAY_OF_WEEK.put("FRI", 6);
-        DAY_OF_WEEK.put("FRIDAY", 6);
-        DAY_OF_WEEK.put("SA", 7);
-        DAY_OF_WEEK.put("SAT", 7);
-        DAY_OF_WEEK.put("SATURDAY", 7);
-    }
-
     private static int getDayOfWeek(String day) {
         Integer dayOfWeek = DAY_OF_WEEK.get(day.toLowerCase());
         if (dayOfWeek == null) {
@@ -527,6 +528,10 @@ public class DateTimeArithmetic {
         return dayOfWeek;
     }
 
+    /**
+     * Returns the first DATE that is later than expr and has the same day of the
+     * week as dayOfWeek.
+     */
     @ExecFunction(name = "next_day")
     public static Expression nextDay(DateV2Literal date, StringLiteral day) {
         int dayOfWeek = getDayOfWeek(day.getValue());
