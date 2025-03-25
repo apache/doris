@@ -593,12 +593,20 @@ public class NereidsPlanner extends Planner {
         }
 
         splitFragments(physicalPlan);
-        doDistribute(canUseNereidsDistributePlanner);
+        doDistribute(canUseNereidsDistributePlanner, explainLevel);
     }
 
-    protected void doDistribute(boolean canUseNereidsDistributePlanner) {
+    protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
         if (!canUseNereidsDistributePlanner) {
             return;
+        }
+        switch (explainLevel) {
+            case NONE:
+            case ALL_PLAN:
+            case DISTRIBUTED_PLAN: break;
+            default: {
+                return;
+            }
         }
 
         boolean notNeedBackend = false;
