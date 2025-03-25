@@ -251,10 +251,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     }
 
     // get format of this put
-    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
-        iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
-        return Status::NotSupported("compress data of JSON format is not supported.");
-    }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
     if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
@@ -429,6 +425,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         if (ctx->is_chunked_transfer) {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
+            pipe->set_is_chunked_transfer(true);
         } else {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
@@ -858,7 +855,12 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
                            iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
     auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
-    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
+    auto update_mode =
+            !req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
+            (iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FIXED_COLUMNS") ||
+             iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FLEXIBLE_COLUMNS"));
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit &&
+        !update_mode) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
             return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }

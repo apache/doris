@@ -632,7 +632,8 @@ public class InsertUtils {
     private static void checkGeneratedColumnForInsertIntoSelect(TableIf table,
             UnboundLogicalSink<? extends Plan> unboundLogicalSink, Optional<InsertCommandContext> insertCtx) {
         // should not check delete stmt, because deletestmt can transform to insert delete sign
-        if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.DELETE) {
+        if (unboundLogicalSink.getDMLCommandType() == DMLCommandType.DELETE
+                || unboundLogicalSink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT) {
             return;
         }
         // This is for the insert overwrite values(),()

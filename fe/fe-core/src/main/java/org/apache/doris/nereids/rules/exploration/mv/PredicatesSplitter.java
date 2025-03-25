@@ -86,7 +86,7 @@ public class PredicatesSplitter {
         @Override
         public Void visitInPredicate(InPredicate inPredicate, Void context) {
             if (containOnlyColumnRef(inPredicate.getCompareExpr(), true)
-                    && (ExpressionUtils.isAllLiteral(inPredicate.getOptions()))) {
+                    && (inPredicate.optionsAreLiterals())) {
                 rangePredicates.put(inPredicate, ExpressionInfo.EMPTY);
             } else {
                 residualPredicates.put(inPredicate, ExpressionInfo.EMPTY);

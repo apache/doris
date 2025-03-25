@@ -52,7 +52,7 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
                                         TReportExecStatusResult& res) {
     Status client_status;
     FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(), coor_addr,
-                                         &client_status);
+                                         config::thrift_rpc_timeout_ms, &client_status);
     if (!client_status.ok()) {
         LOG_WARNING(
                 "Could not get client rpc client of {} when reporting profiles, reason is {}, "
@@ -342,19 +342,10 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
         std::lock_guard<std::shared_mutex> write_lock(_resource_contexts_map_lock);
         int64_t current_time = MonotonicMillis();
         int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
-        for (auto& [query_id, resource_ctx] : _resource_contexts_map) {
-            if (resource_ctx->task_controller()->query_type() == TQueryType::EXTERNAL) {
-                continue;
-            }
-            if (fe_qs_map.find(resource_ctx->task_controller()->fe_addr()) == fe_qs_map.end()) {
-                std::map<std::string, TQueryStatistics> tmp_map;
-                fe_qs_map[resource_ctx->task_controller()->fe_addr()] = std::move(tmp_map);
-            }
 
-            TQueryStatistics ret_t_qs;
-            resource_ctx->to_thrift_query_statistics(&ret_t_qs);
-            fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] = ret_t_qs;
-
+        for (auto iter = _resource_contexts_map.begin(); iter != _resource_contexts_map.end();) {
+            std::string query_id = iter->first;
+            auto resource_ctx = iter->second;
             bool is_query_finished = resource_ctx->task_controller()->is_finished();
             bool is_timeout_after_finish = false;
             if (is_query_finished) {
@@ -362,7 +353,28 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                         (current_time - resource_ctx->task_controller()->finish_time()) >
                         conf_qs_timeout;
             }
-            qs_status[query_id] = std::make_pair(is_query_finished, is_timeout_after_finish);
+
+            // external query not need to report to FE, so we can remove it directly.
+            if (resource_ctx->task_controller()->query_type() == TQueryType::EXTERNAL &&
+                is_query_finished) {
+                iter = _resource_contexts_map.erase(iter);
+            } else {
+                if (resource_ctx->task_controller()->query_type() != TQueryType::EXTERNAL) {
+                    if (fe_qs_map.find(resource_ctx->task_controller()->fe_addr()) ==
+                        fe_qs_map.end()) {
+                        std::map<std::string, TQueryStatistics> tmp_map;
+                        fe_qs_map[resource_ctx->task_controller()->fe_addr()] = std::move(tmp_map);
+                    }
+
+                    TQueryStatistics ret_t_qs;
+                    resource_ctx->to_thrift_query_statistics(&ret_t_qs);
+                    fe_qs_map.at(resource_ctx->task_controller()->fe_addr())[query_id] = ret_t_qs;
+                    qs_status[query_id] =
+                            std::make_pair(is_query_finished, is_timeout_after_finish);
+                }
+
+                iter++;
+            }
         }
     }
 
@@ -373,7 +385,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
         // 2.1 get client
         Status coord_status;
         FrontendServiceConnection coord(ExecEnv::GetInstance()->frontend_client_cache(), addr,
-                                        &coord_status);
+                                        config::thrift_rpc_timeout_ms, &coord_status);
         std::string add_str = PrintThriftNetworkAddress(addr);
         if (!coord_status.ok()) {
             std::stringstream ss;
@@ -393,37 +405,36 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
 
         TReportExecStatusResult res;
         Status rpc_status;
+
         try {
-            coord->reportExecStatus(res, params);
-            rpc_result[addr] = true;
-        } catch (apache::thrift::TApplicationException& e) {
-            LOG(WARNING) << "[report_query_statistics]fe " << add_str
-                         << " throw exception when report statistics, reason:" << e.what()
-                         << " , you can see fe log for details.";
-        } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "[report_query_statistics]report workload runtime statistics to "
-                         << add_str << " failed,  reason: " << e.what();
-            rpc_status = coord.reopen();
-            if (!rpc_status.ok()) {
-                LOG(WARNING) << "[report_query_statistics]reopen thrift client failed when report "
-                                "workload runtime statistics to"
-                             << add_str;
-            } else {
-                try {
+            try {
+                coord->reportExecStatus(res, params);
+                rpc_result[addr] = true;
+            } catch (apache::thrift::transport::TTransportException& e) {
+                LOG_WARNING(
+                        "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
+                        add_str, e.what());
+                rpc_status = coord.reopen(config::thrift_rpc_timeout_ms);
+                if (!rpc_status.ok()) {
+                    LOG_WARNING(
+                            "[report_query_statistics]reopen thrift client failed when report "
+                            "workload runtime statistics to {}, reason: {}",
+                            add_str, rpc_status.to_string());
+                } else {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
-                } catch (apache::thrift::transport::TTransportException& e2) {
-                    LOG(WARNING)
-                            << "[report_query_statistics]retry report workload runtime stats to "
-                            << add_str << " failed,  reason: " << e2.what();
-                } catch (std::exception& e) {
-                    LOG_WARNING(
-                            "[report_query_statistics]unknow exception when report workload "
-                            "runtime statistics to {}, "
-                            "reason:{}. ",
-                            add_str, e.what());
                 }
             }
+        } catch (apache::thrift::TApplicationException& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]fe {} throw exception when report statistics, "
+                    "reason:{}, you can see fe log for details.",
+                    add_str, e.what());
+        } catch (apache::thrift::transport::TTransportException& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]report workload runtime statistics to {} failed,  "
+                    "reason: {}",
+                    add_str, e.what());
         } catch (std::exception& e) {
             LOG_WARNING(
                     "[report_query_statistics]unknown exception when report workload runtime "
@@ -464,25 +475,29 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_string_value(
                 1, resource_ctx->task_controller()->fe_addr().hostname, block);
-        SchemaScannerHelper::insert_string_value(2, query_id, block);
+        auto wg = resource_ctx->workload_group();
+        SchemaScannerHelper::insert_int64_value(2, wg ? wg->id() : -1, block);
+        SchemaScannerHelper::insert_string_value(3, query_id, block);
 
         int64_t task_time =
                 resource_ctx->task_controller()->is_finished()
                         ? resource_ctx->task_controller()->finish_time() -
                                   resource_ctx->task_controller()->start_time()
                         : MonotonicMillis() - resource_ctx->task_controller()->start_time();
-        SchemaScannerHelper::insert_int64_value(3, task_time, block);
-        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
-        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
-        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
-        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
-        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
-        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
-        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
+        SchemaScannerHelper::insert_int64_value(4, task_time, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(11, tqs.shuffle_send_rows, block);
 
         std::stringstream ss;
         ss << resource_ctx->task_controller()->query_type();
-        SchemaScannerHelper::insert_string_value(11, ss.str(), block);
+        SchemaScannerHelper::insert_string_value(12, ss.str(), block);
+        SchemaScannerHelper::insert_int64_value(13, tqs.spill_write_bytes_to_local_storage, block);
+        SchemaScannerHelper::insert_int64_value(14, tqs.spill_read_bytes_from_local_storage, block);
     }
 }
 

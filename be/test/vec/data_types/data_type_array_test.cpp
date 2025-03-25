@@ -154,8 +154,8 @@ protected:
         BaseInputTypeSet array_map_char_double = {TypeIndex::Array, TypeIndex::Map,
                                                   TypeIndex::String, TypeIndex::Float64};
         // test_array_map<datetime,decimal<76,56>>.csv
-        BaseInputTypeSet array_map_datetime_decimal = {TypeIndex::Array, TypeIndex::Map,
-                                                       TypeIndex::DateTime, TypeIndex::Decimal256};
+        BaseInputTypeSet array_map_datetime_decimal = {
+                TypeIndex::Array, TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
         // test_array_map<ipv4,ipv6>.csv
         BaseInputTypeSet array_map_ipv4_ipv6 = {TypeIndex::Array, TypeIndex::Map, TypeIndex::IPv4,
                                                 TypeIndex::IPv6};
@@ -493,43 +493,13 @@ TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
 }
 
 TEST_F(DataTypeArrayTest, SerdeArrowTest) {
-    // todo. fix decimal256 serde
     MutableColumns array_cols;
-    for (int i = 0; i < 17; i++) {
-        array_cols.push_back(array_columns[i]->get_ptr());
-    }
-    for (int i = 18; i < 35; i++) {
-        array_cols.push_back(array_columns[i]->get_ptr());
-    }
-    array_cols.push_back(array_columns[36]->get_ptr());
     DataTypes types;
-    for (int i = 0; i < 17; i++) {
+    for (int i = 0; i < array_descs.size(); i++) {
+        array_cols.push_back(array_columns[i]->get_ptr());
         types.push_back(array_types[i]);
     }
-    for (int i = 18; i < 35; i++) {
-        types.push_back(array_types[i]);
-    }
-    types.push_back(array_types[36]);
-    DataTypeSerDeSPtrs serde;
-    for (int i = 0; i < 17; i++) {
-        serde.push_back(serdes[i]);
-    }
-    for (int i = 18; i < 35; i++) {
-        serde.push_back(serdes[i]);
-    }
-    serde.push_back(serdes[36]);
-    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, serde, types);
-    {
-        for (int i = 38; i < 41; ++i) {
-            MutableColumns error_cols;
-            error_cols.push_back(array_columns[i]->get_ptr());
-            DataTypeSerDeSPtrs serde1;
-            serde1.push_back(serdes[i]);
-            DataTypes typ;
-            typ.push_back(array_types[i]);
-            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, serde1, typ));
-        }
-    }
+    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, types);
 }
 
 //================== datatype for array ut test ==================

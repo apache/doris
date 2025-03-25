@@ -29,7 +29,7 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
@@ -54,7 +54,7 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+------------------------------------filter((time_dim.t_time <= 77621) and (time_dim.t_time >= 48821))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
 --------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))

@@ -289,11 +289,11 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 
 -- !limit_project_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------filter((t1.id > 100))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_join_filter --
 PhysicalResultSink
@@ -312,11 +312,11 @@ PhysicalResultSink
 ------PhysicalOlapScan[t1]
 
 -- !limit_subquery_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------filter((t1.id > 100))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_subquery_join --
 PhysicalResultSink
@@ -530,11 +530,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !limit_project_filter --
-PhysicalDeferMaterializeResultSink
---PhysicalDeferMaterializeTopN
-----PhysicalDeferMaterializeTopN
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------filter((t1.id > 100))
---------PhysicalDeferMaterializeOlapScan[t1]
+--------PhysicalOlapScan[t1]
 
 -- !limit_join_filter --
 PhysicalResultSink

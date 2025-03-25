@@ -85,4 +85,19 @@ public class JavaUdafBuilder extends UdfBuilder {
                         .collect(Collectors.toList()))
         );
     }
+
+    @Override
+    public String parameterDisplayString() {
+        StringBuilder string = new StringBuilder("(");
+        for (int i = 0; i < udaf.getArgumentsTypes().size(); ++i) {
+            if (i > 0) {
+                string.append(", ");
+            }
+            string.append(udaf.getArgumentsTypes().get(i));
+            if (isVarArgs && i + 1 == udaf.getArgumentsTypes().size()) {
+                string.append("...");
+            }
+        }
+        return string.append(")").toString();
+    }
 }

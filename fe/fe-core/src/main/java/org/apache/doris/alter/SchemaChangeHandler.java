@@ -85,6 +85,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -629,7 +630,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     // TODO:the case where columnPos is not empty has not been considered
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
-                        ColumnType.checkSupportSchemaChangeForCharType(col.getType(), modColumn.getType());
+                        ColumnType.checkForTypeLengthChange(col.getType(), modColumn.getType());
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (columnPos == null && col.getDataType().isComplexType()
@@ -2182,6 +2183,12 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    @Override
+    public void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+                               OlapTable olapTable) throws UserException {
+        // TODO: convert alterClauses to alterSystemCommands for schema change
+    }
+
 
     private void enableLightSchemaChange(Database db, OlapTable olapTable) throws DdlException {
         final AlterLightSchChangeHelper alterLightSchChangeHelper = new AlterLightSchChangeHelper(db, olapTable);
@@ -2719,7 +2726,6 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat(),
                         disableInvertedIndexV1ForVariant);
-                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2730,7 +2736,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
-        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }

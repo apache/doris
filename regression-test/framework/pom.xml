@@ -380,7 +380,7 @@ under the License.
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>flink-doris-connector-1.16</artifactId>
-            <version>24.0.0</version>
+            <version>25.0.0</version>
         </dependency>
         <!-- flink end -->
         <dependency>
@@ -414,6 +414,10 @@ under the License.
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>3.18.1</version>
         </dependency>
-
+        <dependency>
+            <groupId>org.openjdk.jmc</groupId>
+            <artifactId>flightrecorder</artifactId>
+            <version>9.0.0</version>
+        </dependency>
     </dependencies>
 </project>

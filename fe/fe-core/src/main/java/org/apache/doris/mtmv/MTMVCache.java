@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -87,19 +86,33 @@ public class MTMVCache {
         return structInfo;
     }
 
-    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost, boolean needLock) {
-        StatementContext mvSqlStatementContext = new StatementContext(connectContext,
-                new OriginStatement(mtmv.getQuerySql(), 0));
-        if (needLock) {
+    /**
+     * @param defSql the def sql of materialization
+     * @param createCacheContext should create new createCacheContext use MTMVPlanUtil createMTMVContext
+     *         or createBasicMvContext
+     * @param needCost the plan from def sql should calc cost or not
+     * @param needLock should lock when create mtmv cache
+     * @param currentContext current context, after create cache,should setThreadLocalInfo
+     */
+    public static MTMVCache from(String defSql,
+            ConnectContext createCacheContext,
+            boolean needCost, boolean needLock,
+            ConnectContext currentContext) {
+        StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
+                new OriginStatement(defSql, 0));
+        if (!needLock) {
             mvSqlStatementContext.setNeedLockTables(false);
         }
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-        boolean originalRewriteFlag = connectContext.getSessionVariable().enableMaterializedViewRewrite;
-        connectContext.getSessionVariable().enableMaterializedViewRewrite = false;
+        boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
+        createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
+        Plan originPlan;
+        Plan mvPlan;
+        Optional<StructInfo> structInfoOptional;
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -110,30 +123,34 @@ public class MTMVCache {
                 // No need cost for performance
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
+            originPlan = planner.getCascadesContext().getRewritePlan();
+            // Eliminate result sink because sink operator is useless in query rewrite by materialized view
+            // and the top sort can also be removed
+            mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
+                @Override
+                public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink,
+                        Object context) {
+                    return logicalResultSink.child().accept(this, context);
+                }
+            }, null);
+            // Optimize by rules to remove top sort
+            CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                    PhysicalProperties.ANY);
+            mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+                Rewriter.getCteChildrenRewriter(childContext,
+                        ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+                return childContext.getRewritePlan();
+            }, mvPlan, originPlan);
+            // Construct structInfo once for use later
+            structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
+                    planner.getCascadesContext(),
+                    new BitSet());
         } finally {
-            connectContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
-        }
-        Plan originPlan = planner.getCascadesContext().getRewritePlan();
-        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
-        // and the top sort can also be removed
-        Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
-            @Override
-            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
-                return logicalResultSink.child().accept(this, context);
+            createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
+            if (currentContext != null) {
+                currentContext.setThreadLocalInfo();
             }
-        }, null);
-        // Optimize by rules to remove top sort
-        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
-                PhysicalProperties.ANY);
-        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
-            Rewriter.getCteChildrenRewriter(childContext,
-                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
-            return childContext.getRewritePlan();
-        }, mvPlan, originPlan);
-        // Construct structInfo once for use later
-        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
-                planner.getCascadesContext(),
-                new BitSet());
+        }
         return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(), needCost
                 ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
                 structInfoOptional.orElse(null));

@@ -81,7 +81,10 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         if (col_left.column->only_null()) {
-            block.get_by_position(result).column = block.get_by_position(arguments[1]).column;
+            // Here we need to use convert_to_full_column_if_const because only_null() is a runtime function.
+            // If the second parameter is constant, it will cause the execution to rely on runtime information to determine whether it is constant.
+            block.get_by_position(result).column =
+                    block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
             return Status::OK();
         }
 

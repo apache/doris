@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_lower_case_catalog", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_upgrade_lower_case_catalog", "p0,external,doris,external_docker,external_docker_doris,restart_fe") {
 
     test {
         sql """show databases from test_upgrade_lower_case_catalog"""

@@ -149,12 +149,6 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
-    void replace_if_overflow() {
-        for (auto& ele : data) {
-            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
-        }
-    }
-
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -553,9 +547,11 @@ public:
     [[nodiscard]] Status merge_impl_ignore_overflow(T&& block) {
         if (_columns.size() != block.columns()) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                    "Merge block not match, self column count: {}, [columns: {}, types: {}], "
+                    "input column count: {}, [columns: {}, "
                     "types: {}], ",
-                    dump_names(), dump_types(), block.dump_names(), block.dump_types());
+                    _columns.size(), dump_names(), dump_types(), block.columns(),
+                    block.dump_names(), block.dump_types());
         }
         for (int i = 0; i < _columns.size(); ++i) {
             if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
@@ -592,9 +588,11 @@ public:
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                        "Merge block not match, self column count: {}, [columns: {}, types: {}], "
+                        "input column count: {}, [columns: {}, "
                         "types: {}], ",
-                        dump_names(), dump_types(), block.dump_names(), block.dump_types());
+                        _columns.size(), dump_names(), dump_types(), block.columns(),
+                        block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {

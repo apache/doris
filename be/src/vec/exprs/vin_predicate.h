@@ -43,6 +43,7 @@ public:
     VInPredicate(const TExprNode& node);
     ~VInPredicate() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    size_t estimate_memory(const size_t rows) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

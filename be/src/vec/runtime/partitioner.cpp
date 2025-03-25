@@ -69,6 +69,7 @@ template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
+
     partitioner.reset(new_partitioner);
     new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
     for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {

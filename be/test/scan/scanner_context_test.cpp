@@ -35,9 +35,9 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
+#include "vec/exec/scan/scan_node.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
 class ScannerContextTest : public testing::Test {
@@ -133,14 +133,14 @@ TEST_F(ScannerContextTest, test_init) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -196,14 +196,14 @@ TEST_F(ScannerContextTest, test_serial_run) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -254,14 +254,14 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 20; ++i) {
@@ -304,14 +304,14 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -341,14 +341,14 @@ TEST_F(ScannerContextTest, get_margin) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -380,7 +380,7 @@ TEST_F(ScannerContextTest, get_margin) {
     scanner_context->_scanner_scheduler = scheduler.get();
     int32_t margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
 
-    ASSERT_EQ(margin, scanner_context->_min_scan_concurrency_of_scan_scheduler / parallel_tasks);
+    ASSERT_EQ(margin, scanner_context->_min_scan_concurrency_of_scan_scheduler);
 
     // ScanSchedule has 5 active threads and 10 tasks in queue.
     // So remaing margin(3) is less than parallel_tasks(4).
@@ -390,7 +390,8 @@ TEST_F(ScannerContextTest, get_margin) {
     scanner_context->_scanner_scheduler = scheduler.get();
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 18;
     margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
-    ASSERT_EQ(margin, 1);
+    // 18 - （5 + 10） = 3
+    ASSERT_EQ(margin, 3);
 
     // ScanSchedule has 10 active threads and 2 tasks in queue.
     // Remaing margin(8) is greater than parallel_tasks(4).
@@ -401,8 +402,7 @@ TEST_F(ScannerContextTest, get_margin) {
     scanner_context->_scanner_scheduler = scheduler.get();
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
     margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
-    ASSERT_EQ(margin,
-              (scanner_context->_min_scan_concurrency_of_scan_scheduler - 12) / parallel_tasks);
+    ASSERT_EQ(margin, (scanner_context->_min_scan_concurrency_of_scan_scheduler - 12));
 
     // ScanSchedule is busy.
     // Just submit _min_scan_concurrency tasks.
@@ -437,14 +437,14 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -512,14 +512,14 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 15; ++i) {
@@ -575,11 +575,11 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     scanner_context->_min_scan_concurrency = 1;
     scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
     int margin = scanner_context->_get_margin(transfer_lock, scheduler_lock);
-    ASSERT_EQ(margin, scanner_context->_min_scan_concurrency_of_scan_scheduler / parallel_tasks);
+    ASSERT_EQ(margin, scanner_context->_min_scan_concurrency_of_scan_scheduler);
     st = scanner_context->_schedule_scan_task(nullptr, transfer_lock, scheduler_lock);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(scanner_context->_num_scheduled_scanners,
-              scanner_context->_min_scan_concurrency_of_scan_scheduler / parallel_tasks);
+    // 15 since we have 15 scanners.
+    ASSERT_EQ(scanner_context->_num_scheduled_scanners, 15);
 
     scanners = std::list<std::shared_ptr<ScannerDelegate>>();
     for (int i = 0; i < 1; ++i) {
@@ -643,14 +643,14 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -683,14 +683,14 @@ TEST_F(ScannerContextTest, get_free_block) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -736,14 +736,14 @@ TEST_F(ScannerContextTest, return_free_block) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {
@@ -780,14 +780,14 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
 
     const int64_t limit = 100;
 
-    NewOlapScanner::Params scanner_params;
+    OlapScanner::Params scanner_params;
     scanner_params.state = state.get();
     scanner_params.profile = profile.get();
     scanner_params.limit = limit;
     scanner_params.key_ranges = std::vector<OlapScanRange*>(); // empty
 
-    std::shared_ptr<VScanner> scanner =
-            NewOlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
+    std::shared_ptr<Scanner> scanner =
+            OlapScanner::create_shared(olap_scan_local_state.get(), std::move(scanner_params));
 
     std::list<std::shared_ptr<ScannerDelegate>> scanners;
     for (int i = 0; i < 11; ++i) {

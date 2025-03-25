@@ -57,6 +57,8 @@ public:
 
     bool equals(const VExpr& other) override;
 
+    size_t estimate_memory(const size_t rows) override { return 0; }
+
 private:
     int _slot_id;
     int _column_id;

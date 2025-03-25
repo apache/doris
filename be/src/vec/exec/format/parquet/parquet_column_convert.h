@@ -19,6 +19,8 @@
 
 #include <gen_cpp/parquet_types.h>
 
+#include "common/cast_set.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -29,7 +31,7 @@
 #include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized::parquet {
-
+#include "common/compile_check_begin.h"
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
@@ -117,18 +119,38 @@ struct ConvertParams {
 
     template <typename DecimalPrimitiveType>
     void init_decimal_converter(int dst_scale) {
+        using DecimalNativeType = typename DecimalPrimitiveType::NativeType;
         if (field_schema == nullptr || decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
             return;
         }
         auto scale = field_schema->parquet_schema.scale;
         if (dst_scale > scale) {
             decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-            decimal_scale.scale_factor =
-                    DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale - scale);
+            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
+                decimal_scale.scale_factor =
+                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
+                                                                                   scale);
+            } else {
+                //When an external data source performs a schema change that involves converting
+                // a high-precision value to a lower-precision one, we allow data loss during this
+                // process and therefore do not perform any checks. In the future, we may consider
+                // representing the lost data as `null`.
+                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
+                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
+                                                                                   scale));
+            }
+
         } else if (dst_scale < scale) {
             decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-            decimal_scale.scale_factor =
-                    DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dst_scale);
+            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
+                decimal_scale.scale_factor =
+                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
+                                                                                   dst_scale);
+            } else {
+                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
+                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
+                                                                                   dst_scale));
+            }
         } else {
             decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
             decimal_scale.scale_factor = 1;
@@ -154,7 +176,7 @@ struct ConvertParams {
  *
  * Ultimate performance optimization:
  * 1. If process of (First => Second) is consistent, eg. from BYTE_ARRAY to string, no additional copies and conversions will be introduced;
- * 2. If process of (Second => Third) is consistent, eg. from decimal(12, 4) to decimal(8, 2), no additional copies and conversions will be introduced;
+ * 2. If process of (Second => Third) is consistent, no additional copies and conversions will be introduced;
  * 3. Null map is share among all processes, no additional copies and conversions will be introduced in null map;
  * 4. Only create one physical column in physical conversion, and reused in each loop;
  * 5. Only create one logical column in logical conversion, and reused in each loop;
@@ -363,7 +385,7 @@ public:
 
         origin_size = offsets.size();
         offsets.resize(origin_size + num_values);
-        size_t end_offset = offsets[origin_size - 1];
+        auto end_offset = offsets[origin_size - 1];
         for (int i = 0; i < num_values; ++i) {
             end_offset += _type_length;
             offsets[origin_size + i] = end_offset;
@@ -513,7 +535,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
 template <typename NumberType, typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
-        using ValueCopyType = DecimalType::NativeType;
+        using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
         MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
@@ -527,7 +549,13 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         auto* data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
-            ValueCopyType value = src_data[i];
+            ValueCopyType value;
+            if constexpr (std::is_same_v<DecimalType, Decimal256>) {
+                value = src_data[i];
+            } else {
+                value = cast_set<ValueCopyType, NumberType, false>(src_data[i]);
+            }
+
             if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
                 value *= scale_params.scale_factor;
             } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
@@ -554,7 +582,8 @@ class Int32ToDate : public PhysicalToLogicalConverter {
 
         for (int i = 0; i < rows; i++) {
             int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
-            data.push_back_without_reserve(date_dict[date_value].to_date_int_val());
+            data.push_back_without_reserve(
+                    date_dict[cast_set<int32_t>(date_value)].to_date_int_val());
         }
 
         return Status::OK();
@@ -609,5 +638,6 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         return Status::OK();
     }
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized::parquet

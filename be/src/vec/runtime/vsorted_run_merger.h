@@ -92,10 +92,8 @@ protected:
 
 private:
     void init_timers(RuntimeProfile* profile);
-
-    /// In pipeline engine, return false if need to read one more block from sender.
-    bool next_heap(MergeSortCursor& current);
-    bool has_next_block(MergeSortCursor& current);
+    // If current stream is exhausted and not eof, we should break this loop and read more blocks.
+    bool _need_more_data(MergeSortCursor& current);
 };
 
 } // namespace doris::vectorized

@@ -216,6 +216,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -531,7 +532,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), isShowFullSql);
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, Optional.empty()));
         }
 
         if (isShowAllFe) {
@@ -812,7 +813,7 @@ public class ShowExecutor {
         for (String clusterName : clusterNameSet) {
             ArrayList<String> row = Lists.newArrayList(clusterName);
             // current_used, users
-            if (!Env.getCurrentEnv().getAuth()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
@@ -830,7 +831,7 @@ public class ShowExecutor {
                 users.remove(Auth.ROOT_USER);
             }
             // common user, not admin
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().currentUserIdentity,
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }
@@ -876,7 +877,14 @@ public class ShowExecutor {
             if (table != null) {
                 List<String> row = new ArrayList<>();
                 row.add(database.getFullName());
-                row.add(table.getName());
+                if (table.isTemporary()) {
+                    if (!Util.isTempTableInCurrentSession(table.getName())) {
+                        continue;
+                    }
+                    row.add(Util.getTempTableDisplayName(table.getName()));
+                } else {
+                    row.add(table.getName());
+                }
                 row.add(String.valueOf(database.getId()));
                 rows.add(row);
                 break;
@@ -906,7 +914,12 @@ public class ShowExecutor {
                         if (partition != null) {
                             List<String> row = new ArrayList<>();
                             row.add(database.getFullName());
-                            row.add(tbl.getName());
+                            if (tbl.isTemporary()) {
+                                if (!Util.isTempTableInCurrentSession(tbl.getName())) {
+                                    continue;
+                                }
+                            }
+                            row.add(tbl.getDisplayName());
                             row.add(partition.getName());
                             row.add(String.valueOf(database.getId()));
                             row.add(String.valueOf(tbl.getId()));
@@ -978,6 +991,9 @@ public class ShowExecutor {
             if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
                 continue;
             }
+            if (tbl.isTemporary()) {
+                continue;
+            }
             if (matcher != null && !matcher.match(tbl.getName())) {
                 continue;
             }
@@ -1040,7 +1056,14 @@ public class ShowExecutor {
                 }
                 List<String> row = Lists.newArrayList();
                 // Name
-                row.add(table.getName());
+                if (table.isTemporary()) {
+                    if (!Util.isTempTableInCurrentSession(table.getName())) {
+                        continue;
+                    }
+                    row.add(Util.getTempTableDisplayName(table.getName()));
+                } else {
+                    row.add(table.getName());
+                }
                 // Engine
                 row.add(table.getEngine());
                 // version
@@ -1177,7 +1200,7 @@ public class ShowExecutor {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
                             showStmt.getTable(), "VIEW", "Use 'SHOW CREATE TABLE '" + table.getName());
                 }
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
                 resultSet = table.getType() != TableType.MATERIALIZED_VIEW
                         ? new ShowResultSet(showStmt.getMetaData(), rows)
                         : new ShowResultSet(ShowCreateTableStmt.getMaterializedViewMetaData(), rows);
@@ -2573,7 +2596,12 @@ public class ShowExecutor {
                     }
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
-                    String tableName = olapTable.getName();
+                    String tableName = olapTable.getDisplayName();
+                    if (olapTable.isTemporary()) {
+                        if (!Util.isTempTableInCurrentSession(tableName)) {
+                            continue;
+                        }
+                    }
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
                         replicaAlloc = olapTable.getDefaultReplicaAllocation();
@@ -3077,11 +3105,24 @@ public class ShowExecutor {
                 row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
                 if (databaseIf.isPresent()) {
                     Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                    row.add(table.isPresent() ? Util.getTempTableDisplayName(table.get().getName())
+                            : "Table may get deleted");
                 } else {
                     row.add("DB may get deleted");
                 }
-                row.add(analysisInfo.colName);
+                StringBuffer sb = new StringBuffer();
+                String colNames = analysisInfo.colName;
+                if (colNames != null) {
+                    for (String columnName : colNames.split(",")) {
+                        String[] kv = columnName.split(":");
+                        sb.append(Util.getTempTableDisplayName(kv[0]))
+                            .append(":").append(kv[1]).append(",");
+                    }
+                }
+                String newColNames = sb.toString();
+                newColNames = StringUtils.isEmpty(newColNames) ? ""
+                        : newColNames.substring(0, newColNames.length() - 1);
+                row.add(newColNames);
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
@@ -3453,10 +3494,10 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            Auth auth = Env.getCurrentEnv().getAuth();
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
                             PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());

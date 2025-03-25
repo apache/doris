@@ -41,6 +41,9 @@ Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int6
 Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -52,6 +55,9 @@ Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, in
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -64,6 +70,9 @@ Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
 
 Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     auto& column_data = assert_cast<ColumnUInt32&>(column);
     UInt32 val = 0;
     if (options.date_olap_format) {
@@ -105,14 +114,9 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
                                                  const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
-    int64_t divisor = 1;
-    int64_t multiplier = 1;
-
-    multiplier = 24 * 60 * 60; // day => secs
     for (auto value_i = start; value_i < end; ++value_i) {
         DateV2Value<DateV2ValueType> v;
-        v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
-                        ctz);
+        v.get_date_from_daynr(concrete_array->Value(value_i) + date_threshold);
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
 }

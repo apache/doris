@@ -48,7 +48,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     UInt64 int_val =
             assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
                     row_num);
@@ -67,6 +69,9 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
         char* pos = val.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -79,6 +84,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
 Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
     UInt64 val = 0;
     if (options.date_olap_format) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;
@@ -167,7 +175,10 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // convert second
             v.from_unixtime(utc_epoch / divisor, ctz);
             // get rest time
-            v.set_microsecond(utc_epoch % divisor);
+            // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
+            // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
+            // "2022-01-01 11:11:11.111", utc_epoch = 1641035471111, divisor = 1000, set_microsecond(111000)
+            v.set_microsecond((utc_epoch % divisor) * DIVISOR_FOR_MICRO / divisor);
             col_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
         }
     } else {

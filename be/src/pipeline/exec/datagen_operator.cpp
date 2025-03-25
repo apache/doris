@@ -19,10 +19,10 @@
 
 #include <memory>
 
-#include "exprs/runtime_filter.h"
 #include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
 #include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -50,8 +50,8 @@ Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::open(state));
+Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<DataGenLocalState>::prepare(state));
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -68,6 +68,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
     {
         SCOPED_TIMER(local_state._table_function_execution_timer);
         RETURN_IF_ERROR(local_state._table_func->get_next(state, block, eos));
@@ -94,10 +95,9 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
-        std::shared_ptr<IRuntimeFilter> runtime_filter;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, p.is_serial_operator(),
-                                                                p.node_id(), &runtime_filter));
-        runtime_filter->init_profile(_runtime_profile.get());
+        std::shared_ptr<RuntimeFilterConsumer> filter;
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
+                filter_desc, p.is_serial_operator(), p.node_id(), &filter, _runtime_profile.get()));
     }
     return Status::OK();
 }

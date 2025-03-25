@@ -16,6 +16,7 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -61,7 +62,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_sql_port, "-1");
+DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
@@ -118,7 +119,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");
@@ -714,6 +715,8 @@ DEFINE_mInt32(es_http_timeout_ms, "5000");
 // TODO(cmy): use different config to set different client cache if necessary.
 DEFINE_Int32(max_client_cache_size_per_host, "10");
 
+DEFINE_Int32(max_master_fe_client_cache_size, "10");
+
 // Dir to save files downloaded by SmallFileMgr
 DEFINE_String(small_file_dir, "${DORIS_HOME}/lib/small_file/");
 // path gc
@@ -1028,7 +1031,7 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict, "true");
+DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1080,6 +1083,7 @@ DEFINE_mBool(enable_write_index_searcher_cache, "false");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
+DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
@@ -1139,8 +1143,8 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
-DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
-DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
+DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
 DEFINE_Int64(max_external_file_meta_cache_num, "1000");
 DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 // Apply delete pred in cumu compaction
@@ -1153,7 +1157,8 @@ DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "/tmp/");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
-DEFINE_mInt32(kerberos_refresh_interval_second, "3600");
+// Deprecated
+DEFINE_mInt32(kerberos_refresh_interval_second, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1191,6 +1196,10 @@ DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
+// get agg by cache for mow table
+DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
+// get agg correctness check for mow table
+DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1241,6 +1250,9 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
+// Ingest binlog with persistent connection
+DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
+
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
@@ -1286,7 +1298,12 @@ DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
 });
 DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
+// paused query in queue timeout(ms) will be resumed or canceled
+DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
+
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
+
+DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1294,11 +1311,19 @@ DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_get_token_limit, "0");
 
 DEFINE_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+DEFINE_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
+DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
+
 DEFINE_mInt64(s3_put_token_limit, "0");
 
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
@@ -1425,6 +1450,13 @@ DEFINE_mInt32(compaction_num_per_round, "1");
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+DEFINE_mInt32(schema_dict_cache_capacity, "4096");
+
+// whether to prune rows with delete sign = 1 in base compaction
+// ATTN: this config is only for test
+DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
+DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST

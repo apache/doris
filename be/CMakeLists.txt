@@ -86,6 +86,11 @@ if (DISPLAY_BUILD_TIME)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
 endif()
 
+if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
+    add_definitions(-DBE_TEST)
+    add_definitions(-DBE_BENCHMARK)
+endif()
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
@@ -205,30 +210,6 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-set(ICU_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-find_library(ICU_UC_LIBRARY NAMES libicuuc.a PATHS ${ICU_ROOT}/lib)
-find_library(ICU_I18N_LIBRARY NAMES libicui18n.a PATHS ${ICU_ROOT}/lib)
-find_library(ICU_DATA_LIBRARY NAMES libicudata.a PATHS ${ICU_ROOT}/lib)
-message("ICU_UC_LIBRARY: " ${ICU_UC_LIBRARY})
-message("ICU_I18N_LIBRARY: " ${ICU_I18N_LIBRARY})
-message("ICU_DATA_LIBRARY: " ${ICU_DATA_LIBRARY})
-if (ICU_UC_LIBRARY AND ICU_I18N_LIBRARY AND ICU_DATA_LIBRARY)
-    add_library(icu INTERFACE IMPORTED)
-    target_link_libraries(icu INTERFACE
-        ${ICU_UC_LIBRARY}
-        ${ICU_I18N_LIBRARY}
-        ${ICU_DATA_LIBRARY}
-    )
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        icu
-    )
-    add_definitions(-DUSE_ICU)
-    message(STATUS "ICU found and linked successfully!")
-else()
-    message(WARNING "ICU not found! Please install ICU first.")
-endif()
-
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
@@ -251,7 +232,7 @@ install(DIRECTORY
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/core/CLucene/analysis/icu/data/uax29
+    ${BASE_DIR}/dict/icu/uax29
     DESTINATION ${OUTPUT_DIR}/dict/icu)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -475,7 +456,6 @@ include_directories(
 
 include_directories(
     ${SRC_DIR}/
-    ${TEST_DIR}/
 )
 
 include_directories(
@@ -534,6 +514,7 @@ set(DORIS_LINK_LIBS
     IO
     Olap
     Runtime
+    RuntimeFilter
     Service
     Udf
     Util
@@ -802,6 +783,7 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
+add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
@@ -809,6 +791,11 @@ add_subdirectory(${SRC_DIR}/cloud)
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
+endif()
+
+option(BUILD_FILE_CACHE_MICROBENCH_TOOL "Build file cache mirobench Tool" OFF)
+if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
+    add_subdirectory(${SRC_DIR}/io/tools)
 endif()
 
 option(BUILD_INDEX_TOOL "Build index tool" OFF)
@@ -822,6 +809,8 @@ add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)
+    include_directories(${TEST_DIR}/)
+    # must after include!
     add_subdirectory(${TEST_DIR})
 endif ()
 

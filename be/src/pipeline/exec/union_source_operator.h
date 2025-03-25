@@ -83,8 +83,8 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        static_cast<void>(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        static_cast<void>(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
             RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
@@ -98,6 +98,13 @@ public:
     [[nodiscard]] int get_child_count() const { return _child_size; }
     bool require_shuffled_data_distribution() const override {
         return _followed_by_shuffled_operator;
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        if (local_state._shared_state) {
+            local_state._shared_state->data_queue.set_low_memory_mode();
+        }
     }
 
     bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }

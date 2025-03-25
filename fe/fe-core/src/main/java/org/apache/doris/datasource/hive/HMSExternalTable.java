@@ -80,6 +80,9 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -603,17 +606,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getHudiSchema() {
-        org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        boolean[] enableSchemaEvolution = {false};
+        InternalSchema hudiInternalSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this, enableSchemaEvolution);
+        org.apache.avro.Schema hudiSchema = AvroInternalSchemaConverter.convert(hudiInternalSchema, name);
+
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
         List<String> colTypes = Lists.newArrayList();
-        for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
-            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
-            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
-                    true, null, true, null, "", true, null, -1, null));
-            colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
+        for (int i = 0; i < hudiSchema.getFields().size(); i++) {
+            Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
+            org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
+            String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
+            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
+                    true, null, true, null, "", true, null,
+                    hudiInternalfield.fieldId(), null));
+            colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
         }
         List<Column> partitionColumns = initPartitionColumns(tmpSchema);
-        HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
+        HudiSchemaCacheValue hudiSchemaCacheValue =
+                new HudiSchemaCacheValue(tmpSchema, partitionColumns, enableSchemaEvolution[0]);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
     }
@@ -1072,8 +1082,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
     public HoodieTableMetaClient getHudiClient() {

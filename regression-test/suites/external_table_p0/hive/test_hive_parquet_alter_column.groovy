@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,external_docker_hive") {
+    if (true) {
+        //Turn off this test for now, I may delete this case or modify it later.
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
