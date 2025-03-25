@@ -488,4 +488,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     protected boolean supportCompareWidthAndDepth() {
         return true;
     }
+
+    public String getFingerprint() {
+        return "NOT_IMPLEMENTED_EXPR_FP";
+    }
 }
