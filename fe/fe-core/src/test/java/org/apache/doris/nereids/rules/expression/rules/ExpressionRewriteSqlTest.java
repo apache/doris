@@ -80,6 +80,7 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalFilter().when(f -> f.getPredicate().toString().equals("AND[( not id#0 IS NULL),( not score#1 IS NULL)]")));
+                .matches(logicalFilter().when(
+                        f -> f.getPredicate().toSql().equals("AND[( not id IS NULL),( not score IS NULL)]")));
     }
 }
