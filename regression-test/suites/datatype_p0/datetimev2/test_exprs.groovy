@@ -85,4 +85,17 @@ suite("test_exprs") {
     qt_sql_milliseconds_sub_datetimev2_3 " select col,milliseconds_sub(col, -200) col1 from ${table1} order by col1; "
     // 2.2 Negative microseconds delta affects second change
     qt_sql_milliseconds_sub_datetimev2_4 " select col,milliseconds_sub(col, -800) col1 from ${table1} order by col1; "
+
+    sql "set debug_skip_fold_constant = true;"
+    qt_sql_cast_datetimev2_1 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(0)) = cast('2022-01-01 11:11:11' as datetime(0)); "
+    qt_sql_cast_datetimev2_2 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(1)) = cast('2022-01-01 11:11:11.123' as datetime(1)); "
+    qt_sql_cast_datetimev2_3 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(2)) = cast('2022-01-01 11:11:11.123' as datetime(2)); "
+    qt_sql_cast_datetimev2_4 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(3)) = cast('2022-01-01 11:11:11.1234' as datetime(3)); "
+    qt_sql_cast_datetimev2_5 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(4)) = cast('2022-01-01 11:11:11.12341' as datetime(4)); "
+    qt_sql_cast_datetimev2_6 " select cast(cast('2022-01-01 11:11:11.123456' as datetime(6)) as datetime(5)) = cast('2022-01-01 11:11:11.123451' as datetime(5)); "
+
+    qt_sql_cast_datetimev2_7 " select cast(cast('2022-01-01 11:11:11' as datetime(1)) as datetime(6)) = cast('2022-01-01 11:11:11' as datetime(0)); "
+    qt_sql_cast_datetimev2_8 " select cast(cast('2022-01-01 11:11:11' as datetime(2)) as datetime(3)) = cast('2022-01-01 11:11:11' as datetime(3)); "
+    qt_sql_cast_datetimev2_9 " select cast(cast('2022-01-01 11:11:11' as datetime(5)) as datetime(3)) = cast('2022-01-01 11:11:11' as datetime(3)); "
+
 }
