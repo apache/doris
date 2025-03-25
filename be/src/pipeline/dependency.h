@@ -29,7 +29,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
