@@ -236,7 +236,7 @@ void refresh_cache_capacity() {
     if (doris::GlobalMemoryArbitrator::cache_adjust_capacity_notify.load(
                 std::memory_order_relaxed)) {
         // the last cache capacity adjustment has not been completed.
-        // if not return, last_cache_capacity_adjust_weighted may be modified, but notify is ignored.
+        // if not return, last_periodic_refreshed_cache_capacity_adjust_weighted may be modified, but notify is ignored.
         return;
     }
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
@@ -251,8 +251,8 @@ void refresh_cache_capacity() {
                 AlgoUtil::descent_by_step(10, cache_capacity_reduce_mem_limit,
                                           doris::MemInfo::soft_mem_limit(), process_memory_usage);
         if (new_cache_capacity_adjust_weighted !=
-            doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted) {
-            doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted =
+            doris::GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted) {
+            doris::GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted =
                     new_cache_capacity_adjust_weighted;
             doris::GlobalMemoryArbitrator::notify_cache_adjust_capacity();
             refresh_cache_capacity_sleep_time_ms = config::memory_gc_sleep_time_ms;
@@ -547,8 +547,8 @@ void Daemon::cache_adjust_capacity_thread() {
                     l, std::chrono::milliseconds(100));
         }
         double adjust_weighted = std::min<double>(
-                GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted,
-                GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted);
+                GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted,
+                GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
@@ -560,13 +560,21 @@ void Daemon::cache_adjust_capacity_thread() {
         if (config::disable_memory_gc) {
             continue;
         }
+        if (GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted ==
+            adjust_weighted) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] adjust cache capacity end, adjust_weighted {} has not been "
+                    "modified.",
+                    adjust_weighted);
+            continue;
+        }
         std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
         auto freed_mem = CacheManager::instance()->for_each_cache_refresh_capacity(adjust_weighted,
                                                                                    profile.get());
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
-                "[MemoryGC] refresh cache capacity end, free memory {}, details: {}",
+                "[MemoryGC] adjust cache capacity end, free memory {}, details: {}",
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), ss.str());
         GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted = adjust_weighted;
     } while (true);
