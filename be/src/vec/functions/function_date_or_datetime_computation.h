@@ -1018,15 +1018,17 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
         const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
-        // consider scalar and scalar has been optimized with fold constant in fe, so we don't handle this case
-        if (left_const) {
+        if (left_const && right_const) {
+            RETURN_IF_ERROR(execute_vector<true, true>(input_rows_count, date_col, week_col, *res));
+        } else if (left_const) {
             RETURN_IF_ERROR(
-                    scalar_vector(input_rows_count, date_col.get_element(0), week_col, *res));
+                    execute_vector<true, false>(input_rows_count, date_col, week_col, *res));
         } else if (right_const) {
             RETURN_IF_ERROR(
-                    vector_scalar(input_rows_count, date_col, week_col.get_data_at(0), *res));
+                    execute_vector<false, true>(input_rows_count, date_col, week_col, *res));
         } else {
-            RETURN_IF_ERROR(vector_vector(input_rows_count, date_col, week_col, *res));
+            RETURN_IF_ERROR(
+                    execute_vector<false, false>(input_rows_count, date_col, week_col, *res));
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -1056,41 +1058,30 @@ private:
         return Status::OK();
     }
 
-    static Status vector_vector(size_t input_rows_count, const ColumnDateV2& left_col,
-                                const ColumnString& right_col, ColumnDateV2& res_col) {
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
-            auto week_day = day_of_week(right_col.get_data_at(i));
+    template <bool left_const, bool right_const>
+    static Status execute_vector(size_t input_rows_count, const ColumnDateV2& left_col,
+                                 const ColumnString& right_col, ColumnDateV2& res_col) {
+        DateV2Value<DateV2ValueType> dtv;
+        int week_day;
+        if constexpr (left_const) {
+            dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(0));
+        }
+        if constexpr (right_const) {
+            week_day = day_of_week(right_col.get_data_at(0));
             if (week_day == 0) {
-                return Status::InvalidArgument("Invalid weekday: {}", right_col.get_data_at(i));
+                return Status::InvalidArgument("Invalid weekday: {}", right_col.get_data_at(0));
             }
-            RETURN_IF_ERROR(compute_next_day(dtv, week_day));
-            res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
         }
-        return Status::OK();
-    }
 
-    static Status vector_scalar(size_t input_rows_count, const ColumnDateV2& left_col,
-                                const StringRef& right_str, ColumnDateV2& res_col) {
-        auto week_day = day_of_week(right_str);
-        if (week_day == 0) {
-            return Status::InvalidArgument("Invalid weekday: {}", right_str);
-        }
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
-            RETURN_IF_ERROR(compute_next_day(dtv, week_day));
-            res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
-        }
-        return Status::OK();
-    }
-
-    static Status scalar_vector(size_t input_rows_count, const ColumnDateV2::value_type& left_value,
-                                const ColumnString& right_col, ColumnDateV2& res_col) {
-        auto dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_value);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto week_day = day_of_week(right_col.get_data_at(i));
-            if (week_day == 0) {
-                return Status::InvalidArgument("Invalid weekday: {}", right_col.get_data_at(i));
+            if constexpr (!left_const) {
+                dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
+            }
+            if constexpr (!right_const) {
+                week_day = day_of_week(right_col.get_data_at(i));
+                if (week_day == 0) {
+                    return Status::InvalidArgument("Invalid weekday: {}", right_col.get_data_at(i));
+                }
             }
             RETURN_IF_ERROR(compute_next_day(dtv, week_day));
             res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
