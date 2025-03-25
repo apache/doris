@@ -410,8 +410,7 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
         }
 
         // TODO: opt the column is const
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        block.replace_by_position_if_const(result_col_id);
         res_col_ids[i] = result_col_id;
     }
     return Status::OK();

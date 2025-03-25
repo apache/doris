@@ -179,9 +179,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
             RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, &result_column_id));
-            in_block->get_by_position(result_column_id).column =
-                    in_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
+            in_block->replace_by_position_if_const(result_column_id);
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
             result_idxs[i] = result_column_id;
         }

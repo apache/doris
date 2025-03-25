@@ -147,9 +147,7 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
     for (size_t i = 0; i < _child_exprs.size(); ++i) {
         int result_col_id = -1;
         RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
-
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+        block.replace_by_position_if_const(result_col_id);
         auto column = block.get_by_position(result_col_id).column.get();
 
         if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {

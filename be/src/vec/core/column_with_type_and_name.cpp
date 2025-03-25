@@ -82,7 +82,8 @@ String ColumnWithTypeAndName::dump_structure() const {
 }
 
 std::string ColumnWithTypeAndName::to_string(size_t row_num) const {
-    return type->to_string(*column->convert_to_full_column_if_const().get(), row_num);
+    auto full_column = column->convert_to_full_column_if_const();
+    return type->to_string(*full_column, row_num);
 }
 
 void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {

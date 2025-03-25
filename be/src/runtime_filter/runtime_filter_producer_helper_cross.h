@@ -53,9 +53,7 @@ private:
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
             DCHECK_NE(result_column_id, -1) << vexpr_ctx->root()->debug_string();
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
+            block->replace_by_position_if_const(result_column_id);
         }
         RETURN_IF_ERROR(_insert(block, 0));
         return Status::OK();

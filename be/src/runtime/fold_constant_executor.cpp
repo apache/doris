@@ -115,8 +115,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
                 auto* p_values = expr_result.mutable_result_content();
                 res_type.to_protobuf(p_type_desc);
                 auto datatype_serde = column_type->get_serde();
-                RETURN_IF_ERROR(datatype_serde->write_column_to_pb(
-                        *column_ptr->convert_to_full_column_if_const(), *p_values, 0, 1));
+                auto full_column = column_ptr->convert_to_full_column_if_const();
+                RETURN_IF_ERROR(datatype_serde->write_column_to_pb(*full_column, *p_values, 0, 1));
                 expr_result.set_success(true);
                 // after refactor, this field is useless, but it's required
                 expr_result.set_content("ERROR");

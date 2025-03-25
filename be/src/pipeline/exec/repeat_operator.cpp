@@ -191,9 +191,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
             int result_column_id = -1;
             RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
             DCHECK(result_column_id != -1);
-            input_block->get_by_position(result_column_id).column =
-                    input_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
+            input_block->replace_by_position_if_const(result_column_id);
             intermediate_block->insert(input_block->get_by_position(result_column_id));
         }
         DCHECK_EQ(expr_ctxs.size(), intermediate_block->columns());

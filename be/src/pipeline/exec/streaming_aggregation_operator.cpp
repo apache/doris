@@ -397,9 +397,7 @@ Status StreamingAggLocalState::_execute_with_serialized_key_helper(vectorized::B
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
             RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
-            block->get_by_position(result_column_id).column =
-                    block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
+            block->replace_by_position_if_const(result_column_id);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
     }
@@ -613,9 +611,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
             RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, &result_column_id));
-            in_block->get_by_position(result_column_id).column =
-                    in_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
+            in_block->replace_by_position_if_const(result_column_id);
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
         }
     }

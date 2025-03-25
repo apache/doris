@@ -188,11 +188,9 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
+                partial_block.replace_by_position_if_const(i);
                 output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                        *partial_block.get_by_position(i)
-                                 .column->convert_to_full_column_if_const()
-                                 .get(),
-                        0, partial_block.rows());
+                        *partial_block.get_by_position(i).column.get(), 0, partial_block.rows());
             }
         }
         return Status::OK();
